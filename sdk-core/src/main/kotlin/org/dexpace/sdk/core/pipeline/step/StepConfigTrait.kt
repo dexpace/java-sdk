@@ -1,21 +1,51 @@
 package org.dexpace.sdk.core.pipeline.step
 
 /**
+ * Represents the configuration for a step in a pipeline.
+ *
+ * This interface provides configurable properties for a step, such as its
+ * name, description, versioning, retry mechanism, and associated tags.
+ */
+interface StepConfigTrait
+
+/**
+ * Provides metadata properties for configuring a pipeline step.
+ */
+interface StepMetadataTrait : StepConfigTrait {
+    /**
+     * The name associated with a specific step configuration.
+     */
+    val name: String
+        get() = "Default name"
+
+    /**
+     * A textual description to identify or document the purpose of a step in the pipeline.
+     *
+     * Used for logging and documentation purposes.
+     */
+    val description: String
+        get() = "Default description"
+
+    /**
+     * The version identifier for a step configuration in the pipeline.
+     */
+    val version: String
+        get() = "Default version"
+
+    /**
+     * Represents a list of metadata tags that categorize or describe a step within a pipeline.
+     *
+     * By default, the list is empty, indicating that no tags are associated with the step.
+     */
+    val tags: List<String>
+        get() = emptyList()
+}
+
+/**
  * Defines the retry configuration for a step in a pipeline. This configuration allows customization
  * of retry behavior in scenarios where a step execution encounters errors or transient failures.
  */
-interface StepRetryConfig {
-    /**
-     * Indicates whether retries are enabled for the step in the pipeline.
-     *
-     * When set to `true`, the retry mechanism is activated, allowing the step to
-     * attempt re-execution in case of failures.
-     *
-     * Default value is `false`, meaning retries are disabled by default.
-     */
-    val enabled: Boolean
-        get() = false
-
+interface StepRetryConfigTrait : StepConfigTrait {
     /**
      * The maximum time, in milliseconds, allowed for a retry operation to complete
      * within the configured step execution process.

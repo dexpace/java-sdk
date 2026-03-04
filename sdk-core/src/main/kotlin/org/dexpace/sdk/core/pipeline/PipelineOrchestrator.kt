@@ -13,7 +13,7 @@ object PipelineOrchestrator {
      * A map that manages the associations between unique pipeline run IDs and their respective
      * [PipelineContext] instances.
      */
-    private val contexts: MutableMap<String, PipelineContext<*>> = mutableMapOf()
+    private val contexts: MutableMap<String, PipelineContext> = mutableMapOf()
 
     /**
      * Registers the given `PipelineContext` to maintain execution state during pipeline processing.
@@ -22,8 +22,8 @@ object PipelineOrchestrator {
      *                including the `runId` that uniquely identifies the pipeline run.
      * @throws IllegalArgumentException if the `runId` already exists in the contexts map.
      */
-    private fun setup(context: PipelineContext<*>) {
-        val runId = context.runId
+    private fun setup(context: PipelineContext) {
+        val runId = context.executionId
         require(!contexts.containsKey(runId)) { "Pipeline run id duplicated: $runId" }
 
         contexts[runId] = context
@@ -35,8 +35,8 @@ object PipelineOrchestrator {
      * @param context The `PipelineContext` representing the pipeline execution to be cleaned up.
      *                This context includes the unique pipeline run ID used for tracking.
      */
-    private fun teardown(context: PipelineContext<*>) {
-        val runId = context.runId
+    private fun teardown(context: PipelineContext) {
+        val runId = context.executionId
         require(contexts.containsKey(runId)) { "Contexts map corrupted. Pipeline run id not found: $runId" }
 
         contexts.remove(runId)
@@ -45,20 +45,15 @@ object PipelineOrchestrator {
     /**
      * Executes a given pipeline with the provided input and manages the pipeline's execution context.
      *
-     * @param T The type of the input data to the pipeline.
-     * @param R The type of the output result produced by the pipeline.
      * @param pipeline The pipeline to be executed. It contains the steps and execution logic.
-     * @param input The input data to be processed by the pipeline.
      * @return The result produced by the pipeline after processing the input.
      * @throws IllegalArgumentException If the context run ID is duplicated or missing during execution.
      */
-    fun <T, R> execute(pipeline: Pipeline<T, R>, input: T) : R {
+    fun execute(pipeline: Pipeline) {
         val context = pipeline.context
 
         setup(context)
-        val computedValue: R = pipeline.run(input, contexts[context.runId]!!)
+        pipeline.execute(context)
         teardown(context)
-
-        return computedValue
     }
 }

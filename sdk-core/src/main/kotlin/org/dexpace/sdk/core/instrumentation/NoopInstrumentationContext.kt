@@ -32,7 +32,7 @@ object NoopInstrumentationContext : InstrumentationContext {
     override val spanId: SpanId = SpanId.NOOP
 
     /**
-     * Represents the W3C traceparent "trace-flags" field, which is used to indicate
+     * Represents the W3C trace-parent "trace-flags" field, which is used to indicate
      * sampling status or other trace-level options. This variable is set to "00",
      * signifying that the trace is unsampled and no additional tracing flags are active.
      */
