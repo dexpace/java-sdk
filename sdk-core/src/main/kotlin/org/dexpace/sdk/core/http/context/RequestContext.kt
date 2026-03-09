@@ -13,5 +13,7 @@ data class RequestContext(
             instrumentationContext = instrumentationContext,
             request = request,
             response = response
-        )
+        ).also {
+            ContextStore.set(it.instrumentationContext.traceId.value, it)
+        }
 }

@@ -3,8 +3,6 @@ package org.dexpace.sdk.core.http.context
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.instrumentation.InstrumentationContext
 import org.dexpace.sdk.core.instrumentation.NoopInstrumentationContext
-import java.util.UUID
-import kotlin.reflect.jvm.jvmName
 
 /**
  * Represents the execution context of a pipeline.
@@ -20,7 +18,9 @@ data class DispatchContext(
         RequestContext(
             instrumentationContext = instrumentationContext,
             request = request
-        )
+        ).also {
+            ContextStore.set(it.instrumentationContext.traceId.value, it)
+        }
 
     companion object {
         fun default() : DispatchContext =

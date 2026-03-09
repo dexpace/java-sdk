@@ -91,14 +91,14 @@ interface InstrumentationContext {
 }
 
 @JvmInline
-value class TraceId(val traceId: String) {
+value class TraceId(val value: String) {
     companion object {
         val NOOP = TraceId("00000000000000000000000000000000")
     }
 }
 
 @JvmInline
-value class SpanId(val spandId: String) {
+value class SpanId(val value: String) {
     companion object {
         /**
          * Represents a no-operation (NOOP) span identifier.
@@ -112,7 +112,7 @@ value class SpanId(val spandId: String) {
 }
 
 @JvmInline
-value class TraceFlags(val traceFlags: String) {
+value class TraceFlags(val value: String) {
     companion object {
         /**
          * A no-operation trace flags implementation representing a disabled or inactive state.
@@ -125,7 +125,7 @@ value class TraceFlags(val traceFlags: String) {
 }
 
 @JvmInline
-value class TraceState(val traceState: String) {
+value class TraceState(val value: String) {
     companion object {
         /**
          * Represents a no-operation (NOOP) `TraceState` instance.
