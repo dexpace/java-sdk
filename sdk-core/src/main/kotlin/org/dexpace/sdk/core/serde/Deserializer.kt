@@ -1,6 +1,8 @@
-package org.dexpace.sdk.core.org.dexpace.sdk.core.serde
+package org.dexpace.sdk.core.serde
 
 import java.io.InputStream
+
+
 
 interface Deserializer {
     fun <T> deserialize(input: String) : T

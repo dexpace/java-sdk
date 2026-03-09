@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.instrumentation
  * Compliant to the [W3C Trace Context specification](https://www.w3.org/TR/trace-context/).
  */
 interface InstrumentationContext {
+    val traceIdType: TraceIdType
     /**
      * Represents the unique identifier for a trace within a distributed tracing system.
      *
@@ -92,12 +93,6 @@ interface InstrumentationContext {
 @JvmInline
 value class TraceId(val traceId: String) {
     companion object {
-        /**
-         * Represents a no-operation (NOOP) `TraceId` constant used when tracing is disabled or inactive.
-         *
-         * This constant defines a default trace ID value that signifies the absence of meaningful tracing context.
-         * It is commonly used in scenarios where tracing is not enabled, and a placeholder implementation is required.
-         */
         val NOOP = TraceId("00000000000000000000000000000000")
     }
 }

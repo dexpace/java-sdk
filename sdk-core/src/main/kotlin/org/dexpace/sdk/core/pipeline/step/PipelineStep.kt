@@ -1,6 +1,9 @@
 package org.dexpace.sdk.core.pipeline.step
 
-import org.dexpace.sdk.core.pipeline.PipelineContext
+import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.context.DispatchContext
+import org.dexpace.sdk.core.http.context.ExchangeContext
 
 
 /**
@@ -10,7 +13,7 @@ import org.dexpace.sdk.core.pipeline.PipelineContext
  * specific actions that can be executed sequentially or conditionally. Each step
  * is associated with a configuration defined by [StepConfigTrait].
  */
-interface Step {
+fun interface PipelineStep<in T, out V> {
     /**
      * Executes the current step in the pipeline.
      *
@@ -18,20 +21,13 @@ interface Step {
      *         is of type `Nothing?`, typically indicating a lack of a meaningful
      *         result from the step, as its primary role is procedural in nature.
      */
-    fun execute(context: PipelineContext): Result<Nothing?>
-}
-
-/**
- * Extends the base [Step] by adding logging capabilities to a pipeline step.
- */
-interface StepLoggingTrait : Step {
-    fun log()
+    fun execute(input: T, context: DispatchContext): V
 }
 
 /**
  * Provides retry capabilities for a pipeline step.
  */
-interface StepRetryTrait : Step {
+interface StepRetryTrait<in T, out V> : PipelineStep<T, V> {
     /**
      * Retries the execution of a step in the pipeline.
      *
@@ -39,5 +35,9 @@ interface StepRetryTrait : Step {
      *         is of type `Nothing?`, typically used to indicate the absence of a
      *         meaningful return value while signaling success or failure of the retry.
      */
-    fun retry(): Result<Nothing?>
+    fun retry(context: ExchangeContext): V
 }
+
+interface RequestPipelineStep : PipelineStep<Request, Request>
+
+interface ResponsePipelineStep : PipelineStep<Response, Response>

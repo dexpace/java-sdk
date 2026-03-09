@@ -6,6 +6,7 @@ package org.dexpace.sdk.core.instrumentation
  * as the default or fallback when no actual instrumentation context is available.
  */
 object NoopInstrumentationContext : InstrumentationContext {
+    override val traceIdType: TraceIdType = TraceIdType.DATADOG
 
     /**
      * The unique identifier for a trace in a distributed tracing system.
@@ -19,7 +20,7 @@ object NoopInstrumentationContext : InstrumentationContext {
      * representing an invalid or unset state. A valid `traceId` should be a non-zero,
      * 32-character string.
      */
-    override val traceId: TraceId = TraceId.NOOP
+    override val traceId: TraceId = this.traceIdType.generate()
 
     /**
      * Represents the identifier of the current span in the trace context.
@@ -59,6 +60,5 @@ object NoopInstrumentationContext : InstrumentationContext {
      * It is used as a default or placeholder implementation where tracing functionality is intentionally disabled.
      * The `Span.NOOP` does not record any tracing data or perform any operations but fulfills the interface requirements.
      */
-    override val span: Span
-        get() = Span.NOOP
+    override val span: Span = Span.NOOP
 }

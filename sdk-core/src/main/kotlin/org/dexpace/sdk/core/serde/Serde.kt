@@ -1,8 +1,6 @@
 package org.dexpace.sdk.core.serde
 
-import org.dexpace.sdk.core.org.dexpace.sdk.core.serde.Deserializer
-
 interface Serde {
-    val serializer: Serializer
+//    val serializer: SerializeTrait
     val deserializer: Deserializer
 }

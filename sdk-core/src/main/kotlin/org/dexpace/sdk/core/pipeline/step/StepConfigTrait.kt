@@ -6,12 +6,12 @@ package org.dexpace.sdk.core.pipeline.step
  * This interface provides configurable properties for a step, such as its
  * name, description, versioning, retry mechanism, and associated tags.
  */
-interface StepConfigTrait
+interface PipelineStepConfigTrait
 
 /**
  * Provides metadata properties for configuring a pipeline step.
  */
-interface StepMetadataTrait : StepConfigTrait {
+interface PipelineStepMetadataTrait : PipelineStepConfigTrait {
     /**
      * The name associated with a specific step configuration.
      */
@@ -45,7 +45,7 @@ interface StepMetadataTrait : StepConfigTrait {
  * Defines the retry configuration for a step in a pipeline. This configuration allows customization
  * of retry behavior in scenarios where a step execution encounters errors or transient failures.
  */
-interface StepRetryConfigTrait : StepConfigTrait {
+interface PipelineStepRetryConfigTrait : PipelineStepConfigTrait {
     /**
      * The maximum time, in milliseconds, allowed for a retry operation to complete
      * within the configured step execution process.
@@ -98,6 +98,6 @@ interface StepRetryConfigTrait : StepConfigTrait {
      *
      * If no exceptions are specified, the retry mechanism will effectively be disabled.
      */
-    val retryOn: List<Class<out Throwable>>
+    val retryOnExceptions: List<Class<out Throwable>>
         get() = listOf(Exception::class.java)
 }
