@@ -1,4 +1,4 @@
-package org.dexpace.sdk.core.http
+package org.dexpace.sdk.core.http.response
 
 /**
  * Enumeration of HTTP status codes.

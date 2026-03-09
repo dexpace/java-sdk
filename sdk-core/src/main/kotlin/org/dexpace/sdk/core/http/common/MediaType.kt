@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.dexpace.sdk.core.http
+package org.dexpace.sdk.core.http.common
 
 import java.nio.charset.Charset
 import java.util.Locale
