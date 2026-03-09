@@ -2,6 +2,13 @@ package org.dexpace.sdk.core.instrumentation
 
 import java.util.concurrent.ThreadLocalRandom
 
+enum class TraceIdType(val generate: () -> TraceId) {
+    // Default trace id type
+    DATADOG(::generateDatadogTraceId),
+    W3C(::generateW3CTraceId),
+    NOOP(::generateNoopTraceId)
+}
+
 fun generateW3CTraceId(): TraceId =
     TraceId(
         "%016x%016x".format(
@@ -15,9 +22,3 @@ fun generateDatadogTraceId(): TraceId =
     )
 
 fun generateNoopTraceId(): TraceId = TraceId.NOOP
-
-enum class TraceIdType(val generate: () -> TraceId) {
-    DATADOG(::generateDatadogTraceId),
-    W3C(::generateW3CTraceId),
-    NOOP(::generateNoopTraceId)
-}

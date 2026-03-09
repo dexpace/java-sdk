@@ -16,8 +16,8 @@ object ContextStore {
     }
 
     @Throws(IllegalArgumentException::class)
-    fun remove(runId: String) {
-        require(contexts.containsKey(runId)) { "Pipeline run id not found: $runId" }
-        contexts.remove(runId)
+    fun remove(traceId: String) {
+        require(contexts.containsKey(traceId)) { "Pipeline run id not found: $traceId" }
+        contexts.remove(traceId)
     }
 }
