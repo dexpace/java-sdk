@@ -38,6 +38,16 @@ class Configuration internal constructor(
     }
 
     /**
+     * Look up a raw system-property value by its exact JVM property name, without the env-var
+     * → property normalization applied by [get]. Use this for keys that live exclusively in
+     * system-property form (e.g. `https.proxyHost`, `http.nonProxyHosts`) where the name's
+     * casing must be preserved.
+     *
+     * Returns null when the property is unset.
+     */
+    fun getProperty(name: String): String? = propsSource(name)
+
+    /**
      * Integer accessor. Returns [default] if the value is missing or not a valid integer.
      */
     fun getInt(name: String, default: Int): Int = get(name)?.toIntOrNull() ?: default
