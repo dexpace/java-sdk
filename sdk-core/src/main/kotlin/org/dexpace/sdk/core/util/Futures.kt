@@ -1,0 +1,76 @@
+package org.dexpace.sdk.core.util
+
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.time.Duration as JDuration
+
+/**
+ * Small helpers for [CompletableFuture] that the SDK uses repeatedly. Kept in `util/` so the
+ * adapter modules (`sdk-async-coroutines`, `-reactor`, `-netty`, `-virtualthreads`) can lean
+ * on them without duplicating.
+ */
+object Futures {
+
+    /**
+     * Returns a future already completed exceptionally with [t]. Equivalent to JDK 9's
+     * `CompletableFuture.failedFuture(...)` but Java 8 compatible (the SDK targets Java 8
+     * bytecode, see `CLAUDE.md`).
+     */
+    @JvmStatic
+    fun <T> failed(t: Throwable): CompletableFuture<T> {
+        val f = CompletableFuture<T>()
+        f.completeExceptionally(t)
+        return f
+    }
+
+    /**
+     * Unwraps [CompletionException] / [java.util.concurrent.ExecutionException] wrappers to
+     * surface the original cause. Returns [t] unchanged if it is not a wrapper.
+     *
+     * `CompletableFuture` wraps every exceptional completion in `CompletionException` when
+     * the caller blocks via `join()` / `get()`; callers writing `catch (IOException e)` lose
+     * the typing without this unwrap.
+     */
+    @JvmStatic
+    fun unwrap(t: Throwable): Throwable {
+        var current: Throwable = t
+        // Bounded walk in case a pathological cause chain self-references.
+        repeat(16) {
+            if (current !is CompletionException && current !is java.util.concurrent.ExecutionException) {
+                return current
+            }
+            val cause = current.cause ?: return current
+            if (cause === current) return current
+            current = cause
+        }
+        return current
+    }
+
+    /**
+     * Schedules a future that completes (with `Unit`) after [delay] elapses on [scheduler].
+     * The SDK's async retry/redirect steps compose this with `thenCompose` to insert async
+     * delays into a future chain without blocking a thread.
+     *
+     * Cancellation of the returned future cancels the scheduled task.
+     */
+    @JvmStatic
+    fun delay(scheduler: ScheduledExecutorService, delay: JDuration): CompletableFuture<Unit> {
+        require(!delay.isNegative) { "delay must be non-negative (got $delay)" }
+        val future = CompletableFuture<Unit>()
+        if (delay.isZero) {
+            future.complete(Unit)
+            return future
+        }
+        val scheduled = scheduler.schedule(
+            { future.complete(Unit) },
+            delay.toNanos(),
+            TimeUnit.NANOSECONDS,
+        )
+        // If a caller cancels the resulting future, propagate to the scheduled task so the
+        // scheduler thread isn't held.
+        future.whenComplete { _, _ -> scheduled.cancel(false) }
+        return future
+    }
+}

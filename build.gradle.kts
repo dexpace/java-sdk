@@ -25,6 +25,10 @@ version = "0.0.1-alpha.1"
 dependencies {
     kover(project(":sdk-core"))
     kover(project(":sdk-io-okio3"))
+    kover(project(":sdk-async-coroutines"))
+    kover(project(":sdk-async-reactor"))
+    kover(project(":sdk-async-netty"))
+    kover(project(":sdk-async-virtualthreads"))
 }
 
 kover {

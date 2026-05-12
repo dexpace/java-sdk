@@ -12,205 +12,114 @@ import org.slf4j.LoggerFactory
  * ([insertAfter] / [insertBefore] / [replace] / [remove]) operates relative to existing
  * step types, useful for tweaking an already-built pipeline via [from].
  *
- * Thread-safety: not thread-safe. Construct on one thread, then call [build] — the
- * resulting [HttpPipeline] is immutable.
+ * Thread-safety: not thread-safe. Construct on one thread, then call [build] — the resulting
+ * [HttpPipeline] is immutable.
  *
- * Logging: pillar replacement emits a `pipeline.pillar.replaced` warning via SLF4J. The
- * structured `ClientLogger` facade is deferred to a later phase; for now the warning is a
- * plain log line.
+ * Logging: pillar replacement emits a `pipeline.pillar.replaced` warning via SLF4J.
  */
 class HttpPipelineBuilder(private val httpClient: HttpClient) {
 
-    private val perStage: MutableMap<Stage, ArrayDeque<HttpStep>> = mutableMapOf()
-    private val pillars: MutableMap<Stage, HttpStep> = mutableMapOf()
+    @PublishedApi
+    internal val steps: StagedSteps<HttpStep> = StagedSteps(
+        stageOf = HttpStep::stage,
+        onPillarReplaced = { stage, prev, next ->
+            LOG.warn(
+                "pipeline.pillar.replaced stage={} previous={} replacement={}",
+                stage, prev::class.simpleName, next::class.simpleName,
+            )
+        },
+    )
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
-    fun append(step: HttpStep): HttpPipelineBuilder = apply {
-        if (step.stage.isPillar) installPillar(step)
-        else perStage.getOrPut(step.stage) { ArrayDeque() }.addLast(step)
-    }
+    fun append(step: HttpStep): HttpPipelineBuilder = apply { steps.append(step) }
 
     /** Prepend [step] at the head of its stage's deque (runs before steps already there). */
-    fun prepend(step: HttpStep): HttpPipelineBuilder = apply {
-        if (step.stage.isPillar) installPillar(step)
-        else perStage.getOrPut(step.stage) { ArrayDeque() }.addFirst(step)
-    }
+    fun prepend(step: HttpStep): HttpPipelineBuilder = apply { steps.prepend(step) }
+
+    /** Appends every step in [batch] via [append], preserving iteration order. */
+    fun appendAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::append) }
 
     /**
-     * Appends every step in [steps] via [append], preserving iteration order. Convenience
-     * for installing a pre-built bundle of steps in one call.
+     * Prepends every step in [batch] via [prepend], preserving iteration order. Note that
+     * because each call uses [prepend], the final relative ordering inside each stage is the
+     * reverse of [batch] — the last item ends up at the head.
      */
-    fun appendAll(steps: Iterable<HttpStep>): HttpPipelineBuilder = apply {
-        for (s in steps) append(s)
-    }
-
-    /**
-     * Prepends every step in [steps] via [prepend], preserving iteration order. Note that
-     * because each call uses [prepend], the final relative ordering inside each stage is
-     * the reverse of [steps] — the last item ends up at the head.
-     */
-    fun prependAll(steps: Iterable<HttpStep>): HttpPipelineBuilder = apply {
-        for (s in steps) prepend(s)
-    }
+    fun prependAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::prepend) }
 
     /** Insert [step] immediately after the first instance of [T] in the pipeline. */
-    inline fun <reified T : HttpStep> insertAfter(step: HttpStep): HttpPipelineBuilder {
-        val flat = flattenedView()
-        val idx = flat.indexOfFirst { it is T }
-        require(idx >= 0) { "No ${T::class.simpleName} in pipeline" }
-        return reinsertAt(idx + 1, step, flat)
-    }
+    inline fun <reified T : HttpStep> insertAfter(step: HttpStep): HttpPipelineBuilder =
+        spliceAt<T>(step) { idx, flat ->
+            ArrayList<HttpStep>(flat.size + 1).apply {
+                addAll(flat.subList(0, idx + 1))
+                add(step)
+                addAll(flat.subList(idx + 1, flat.size))
+            }
+        }
 
     /** Insert [step] immediately before the first instance of [T] in the pipeline. */
-    inline fun <reified T : HttpStep> insertBefore(step: HttpStep): HttpPipelineBuilder {
-        val flat = flattenedView()
-        val idx = flat.indexOfFirst { it is T }
-        require(idx >= 0) { "No ${T::class.simpleName} in pipeline" }
-        return reinsertAt(idx, step, flat)
-    }
+    inline fun <reified T : HttpStep> insertBefore(step: HttpStep): HttpPipelineBuilder =
+        spliceAt<T>(step) { idx, flat ->
+            ArrayList<HttpStep>(flat.size + 1).apply {
+                addAll(flat.subList(0, idx))
+                add(step)
+                addAll(flat.subList(idx, flat.size))
+            }
+        }
 
     /** Replace the first instance of [T] with [step]. */
-    inline fun <reified T : HttpStep> replace(step: HttpStep): HttpPipelineBuilder {
-        val flat = flattenedView()
-        val idx = flat.indexOfFirst { it is T }
-        require(idx >= 0) { "No ${T::class.simpleName} in pipeline" }
-        val replaced = ArrayList<HttpStep>(flat.size)
-        for (i in flat.indices) replaced.add(if (i == idx) step else flat[i])
-        return rebuildFrom(replaced)
-    }
+    inline fun <reified T : HttpStep> replace(step: HttpStep): HttpPipelineBuilder =
+        spliceAt<T>(step) { idx, flat ->
+            ArrayList<HttpStep>(flat.size).apply {
+                addAll(flat)
+                set(idx, step)
+            }
+        }
 
     /** Remove every instance of [T] from the pipeline. No-op if none exist. */
     inline fun <reified T : HttpStep> remove(): HttpPipelineBuilder {
-        val flat = flattenedView()
-        val filtered = ArrayList<HttpStep>(flat.size)
-        for (s in flat) if (s !is T) filtered.add(s)
-        return rebuildFrom(filtered)
-    }
-
-    /**
-     * Builds an immutable [HttpPipeline]. Iterates [Stage.entries] in declaration order,
-     * emitting pillars and non-pillar deques; [Stage.SEND] is the terminal slot reserved
-     * for [HttpClient] and is skipped.
-     */
-    fun build(): HttpPipeline {
-        val stages = STAGES_CACHED
-        // Two-pass to size the array exactly — avoids list-to-array conversion overhead.
-        var count = 0
-        for (stage in stages) {
-            if (stage == Stage.SEND) continue
-            count += if (stage.isPillar) {
-                if (pillars[stage] != null) 1 else 0
-            } else {
-                perStage[stage]?.size ?: 0
-            }
-        }
-        val out = arrayOfNulls<HttpStep>(count)
-        var idx = 0
-        for (stage in stages) {
-            if (stage == Stage.SEND) continue
-            if (stage.isPillar) {
-                val pillar = pillars[stage]
-                if (pillar != null) out[idx++] = pillar
-            } else {
-                val deque = perStage[stage]
-                if (deque != null) for (s in deque) out[idx++] = s
-            }
-        }
-        @Suppress("UNCHECKED_CAST")
-        return HttpPipeline(httpClient, out as Array<HttpStep>)
-    }
-
-    /**
-     * Materialises the per-stage maps into a single ordered list, mirroring the order
-     * [build] would emit. Used by the surgical-edit inline helpers to locate steps by
-     * type.
-     */
-    @PublishedApi
-    internal fun flattenedView(): List<HttpStep> {
-        val stages = STAGES_CACHED
-        val out = ArrayList<HttpStep>()
-        for (stage in stages) {
-            if (stage == Stage.SEND) continue
-            if (stage.isPillar) {
-                val pillar = pillars[stage]
-                if (pillar != null) out.add(pillar)
-            } else {
-                val deque = perStage[stage]
-                if (deque != null) out.addAll(deque)
-            }
-        }
-        return out
-    }
-
-    /**
-     * Splices [step] into [flat] at [index] and rebuilds the per-stage maps. Internal to
-     * the inline `insertAfter` / `insertBefore` flow.
-     */
-    @PublishedApi
-    internal fun reinsertAt(index: Int, step: HttpStep, flat: List<HttpStep>): HttpPipelineBuilder {
-        val rebuilt = ArrayList<HttpStep>(flat.size + 1)
-        for (i in 0 until index) rebuilt.add(flat[i])
-        rebuilt.add(step)
-        for (i in index until flat.size) rebuilt.add(flat[i])
-        return rebuildFrom(rebuilt)
-    }
-
-    /**
-     * Resets the builder's per-stage maps and re-populates them from [steps], preserving
-     * the order [steps] declares. Pillar steps overwrite their slots without emitting the
-     * `pipeline.pillar.replaced` warning — the surgical edits explicitly control placement.
-     */
-    @PublishedApi
-    internal fun rebuildFrom(steps: List<HttpStep>): HttpPipelineBuilder {
-        perStage.clear()
-        pillars.clear()
-        for (s in steps) {
-            if (s.stage.isPillar) pillars[s.stage] = s
-            else perStage.getOrPut(s.stage) { ArrayDeque() }.addLast(s)
-        }
+        steps.reload(steps.flatten().filter { it !is T })
         return this
     }
 
     /**
-     * Installs [step] into its pillar slot. A pillar stage admits exactly one step;
-     * re-installing replaces the prior occupant and emits a `pipeline.pillar.replaced`
-     * warning so accidental shadowing is observable. [Stage.SEND] is reserved for the
-     * terminal [HttpClient] and rejected at this seam.
+     * Inline plumbing for the surgical edits: locate the first instance of `T`, invoke
+     * [transform] to produce a new step list, and rebuild from it. Throws if no `T` exists —
+     * callers prefer fail-fast over silent no-op for "edit the X step" intent.
      */
-    private fun installPillar(step: HttpStep) {
-        check(step.stage != Stage.SEND) { "SEND is the terminal HttpClient — not a step slot" }
-        val existing = pillars[step.stage]
-        if (existing != null && existing !== step) {
-            LOG.warn(
-                "pipeline.pillar.replaced stage={} previous={} replacement={}",
-                step.stage,
-                existing::class.simpleName,
-                step::class.simpleName,
-            )
-        }
-        pillars[step.stage] = step
+    @PublishedApi
+    internal inline fun <reified T : HttpStep> spliceAt(
+        @Suppress("UNUSED_PARAMETER") step: HttpStep,
+        transform: (Int, List<HttpStep>) -> List<HttpStep>,
+    ): HttpPipelineBuilder {
+        val flat = steps.flatten()
+        val idx = flat.indexOfFirst { it is T }
+        require(idx >= 0) { "No ${T::class.simpleName} in pipeline" }
+        steps.reload(transform(idx, flat))
+        return this
+    }
+
+    /**
+     * Builds an immutable [HttpPipeline] in stage order. [Stage.SEND] is reserved for the
+     * transport and is skipped.
+     *
+     * `arrayOfNulls<HttpStep>` then fill — Kotlin's `List.toTypedArray<T>()` is erased to
+     * `Array<Any?>` at runtime which fails the `Array<HttpStep>` cast.
+     */
+    fun build(): HttpPipeline {
+        val ordered = steps.flatten()
+        val array = arrayOfNulls<HttpStep>(ordered.size)
+        for ((i, s) in ordered.withIndex()) array[i] = s
+        @Suppress("UNCHECKED_CAST")
+        return HttpPipeline(httpClient, array as Array<HttpStep>)
     }
 
     companion object {
         @PublishedApi
         internal val LOG = LoggerFactory.getLogger(HttpPipelineBuilder::class.java)
 
-        /** Cached enum entries — `Stage.entries` does not clone per access, but reading once is still tighter. */
-        @PublishedApi
-        internal val STAGES_CACHED: List<Stage> = Stage.entries
-
-        /**
-         * Returns a new builder seeded with [pipeline]'s steps and client. Used for
-         * surgical edits to a pre-built pipeline via [insertAfter] / [replace] / etc.
-         */
+        /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
-        fun from(pipeline: HttpPipeline): HttpPipelineBuilder {
-            val builder = HttpPipelineBuilder(pipeline.httpClient)
-            for (step in pipeline.stepArray) {
-                if (step.stage.isPillar) builder.pillars[step.stage] = step
-                else builder.perStage.getOrPut(step.stage) { ArrayDeque() }.addLast(step)
-            }
-            return builder
-        }
+        fun from(pipeline: HttpPipeline): HttpPipelineBuilder = HttpPipelineBuilder(pipeline.httpClient)
+            .also { it.steps.reload(pipeline.steps) }
     }
 }

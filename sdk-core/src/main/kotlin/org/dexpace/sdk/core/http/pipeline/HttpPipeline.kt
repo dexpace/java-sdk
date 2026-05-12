@@ -36,4 +36,15 @@ class HttpPipeline internal constructor(
         val state = PipelineCallState(this, request, httpClient)
         return PipelineNext(state).process()
     }
+
+    companion object {
+        /**
+         * Builds a step-less [HttpPipeline] that forwards every `send` directly to [client].
+         * Equivalent to `HttpPipelineBuilder(client).build()` but spares the builder ceremony
+         * for the common case of "I just want a pipeline that calls the client and nothing
+         * else." Mirrors [AsyncHttpPipeline.of].
+         */
+        @JvmStatic
+        fun of(client: HttpClient): HttpPipeline = HttpPipelineBuilder(client).build()
+    }
 }
