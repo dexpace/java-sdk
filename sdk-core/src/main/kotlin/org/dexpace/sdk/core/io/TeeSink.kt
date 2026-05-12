@@ -43,7 +43,16 @@ internal class TeeSink(
     /** Reusable staging area — keeps every typed write to a single encode + segment-move. */
     private val scratch: Buffer = provider.buffer()
 
-    override val buffer: Buffer get() = tap
+    /**
+     * Direct buffer access is unsupported on a `TeeSink`: writes into the buffer would only
+     * reach the tap, never the primary sink, silently corrupting the wire body. Use the
+     * typed `write*` methods instead — they tee through `drainScratch` and reach both sinks.
+     */
+    override val buffer: Buffer
+        get() = throw UnsupportedOperationException(
+            "TeeSink does not expose a backing buffer; use the typed write methods so " +
+                "bytes reach both the primary sink and the tap.",
+        )
 
     @Throws(IOException::class)
     override fun write(source: Buffer, byteCount: Long) {

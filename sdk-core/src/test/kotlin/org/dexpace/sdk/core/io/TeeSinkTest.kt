@@ -214,13 +214,13 @@ class TeeSinkTest {
     }
 
     @Test
-    fun `tap buffer property returns the same tap`() {
+    fun `buffer property is unsupported on TeeSink`() {
+        // Direct buffer access would write to the tap only, never the primary sink — a
+        // silent wire-body corruption. `TeeSink.buffer` rejects with a clear message
+        // pointing callers at the typed write methods instead.
         val f = Fixture()
-        // `TeeSink.buffer` exposes the tap directly per its property override.
-        f.tee.writeUtf8("hi")
-        f.tee.flush()
-        assertEquals(f.tap, f.tee.buffer)
-        assertContentEquals("hi".toByteArray(), f.tee.buffer.snapshot())
+        val ex = assertFailsWith<UnsupportedOperationException> { f.tee.buffer }
+        assertTrue(ex.message?.contains("TeeSink") == true)
     }
 
     @Test
