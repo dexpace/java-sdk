@@ -71,4 +71,20 @@ interface BufferedSource : Source {
     /** Skips [byteCount] bytes. Throws `EOFException` if exhausted before the count is met. */
     @Throws(IOException::class)
     fun skip(byteCount: Long)
+
+    /**
+     * Returns a non-consuming, length-bounded view over this source starting at [offset]
+     * bytes from the current cursor and exposing at most [byteCount] bytes.
+     *
+     * Reads from the returned source do not advance this source. Closing the slice does NOT
+     * close the parent; closing the parent invalidates the slice — subsequent reads throw
+     * [IllegalStateException] or [IOException]. Multiple slices of the same source are
+     * independent.
+     *
+     * Detection of `offset > source.size` is lazy: construction succeeds and the first read
+     * fails with `EOFException` / behaves as an empty source. Negative [offset] or
+     * [byteCount] throw [IllegalArgumentException] at construction.
+     */
+    @Throws(IOException::class)
+    fun slice(offset: Long, byteCount: Long): BufferedSource
 }

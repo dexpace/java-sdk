@@ -6,6 +6,7 @@ import org.dexpace.sdk.core.io.Source
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.Charset
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Okio-backed implementation of [Buffer]. Wraps an [okio.Buffer] and forwards every method.
@@ -15,6 +16,11 @@ import java.nio.charset.Charset
  * instances) the implementation uses Okio's native methods to avoid intermediate copies.
  */
 internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
+
+    // Shared by every slice() spawned from this buffer so that closing the buffer invalidates
+    // outstanding slices. okio.Buffer.close() is a no-op for in-memory buffers, but the slice
+    // contract still requires the invariant — track closure ourselves.
+    internal val closedFlag = AtomicBoolean(false)
 
     override val size: Long get() = delegate.size
 
@@ -71,6 +77,7 @@ internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
     }
 
     override fun close() {
+        closedFlag.set(true)
         delegate.close()
     }
 
@@ -86,6 +93,17 @@ internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
     override fun inputStream(): InputStream = delegate.inputStream()
     override fun skip(byteCount: Long) {
         delegate.skip(byteCount)
+    }
+
+    override fun slice(offset: Long, byteCount: Long): BufferedSource {
+        require(offset >= 0) { "offset must be non-negative (got $offset)" }
+        require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
+        return SlicedOkioBufferedSource(
+            peeked = delegate.peek(),
+            maxBytes = byteCount,
+            pendingSkip = offset,
+            parentClosed = closedFlag,
+        )
     }
 
     override fun write(source: ByteArray): org.dexpace.sdk.core.io.BufferedSink {

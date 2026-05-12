@@ -4,6 +4,7 @@ import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.IoProvider
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.nio.channels.Channels
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -94,6 +95,35 @@ class FileRequestBody @JvmOverloads constructor(
                     "FileRequestBody short-write for $file: transferred $transferred of $count bytes"
                 )
             }
+        }
+    }
+
+    /**
+     * Returns a read-only memory-mapped view of the file region `[position, position + count)`.
+     * Useful for local hashing / signature computation without copying bytes onto the heap.
+     *
+     * The returned [ByteBuffer] survives the underlying [FileChannel] close — its lifetime is
+     * tied to GC of the buffer itself, not to any channel. On Linux the unmap is
+     * non-deterministic (it depends on the GC observing the buffer becoming unreachable); on
+     * Windows the mapping is invalidated when the underlying file is deleted while the channel
+     * is open. Hold the buffer reference for as long as you need to read from it, and drop it
+     * promptly to allow the OS to release the file/page mapping.
+     *
+     * @throws IllegalStateException if [count] exceeds [Int.MAX_VALUE] (a single ByteBuffer
+     *   cannot address more than ~2 GiB). Map smaller slices manually for larger files.
+     * @throws java.nio.file.NoSuchFileException if the file no longer exists.
+     * @throws java.nio.file.AccessDeniedException if the file is unreadable.
+     * @throws IOException if mapping fails (for example the file was truncated after this body
+     *   was constructed so `position + count` now exceeds the on-disk size).
+     */
+    @Throws(IOException::class)
+    fun toByteBuffer(): ByteBuffer {
+        check(count <= Integer.MAX_VALUE.toLong()) {
+            "FileRequestBody.toByteBuffer(): mapped region must fit in Int range " +
+                "(count=$count > ${Integer.MAX_VALUE}). Map a smaller slice manually for larger files."
+        }
+        return FileChannel.open(file, StandardOpenOption.READ).use { ch ->
+            ch.map(FileChannel.MapMode.READ_ONLY, position, count).asReadOnlyBuffer()
         }
     }
 }

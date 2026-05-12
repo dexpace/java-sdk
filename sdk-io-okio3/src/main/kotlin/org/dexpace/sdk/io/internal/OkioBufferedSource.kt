@@ -4,12 +4,18 @@ import org.dexpace.sdk.core.io.Buffer
 import org.dexpace.sdk.core.io.BufferedSource
 import java.io.InputStream
 import java.nio.charset.Charset
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Okio-backed implementation of [BufferedSource]. Wraps an [okio.BufferedSource] and forwards
  * every method.
  */
 internal class OkioBufferedSource(val delegate: okio.BufferedSource) : BufferedSource {
+
+    // Shared by every slice() spawned from this source so that closing the parent invalidates
+    // outstanding slices. okio.BufferedSource has no public closed-flag and `peek()` retains
+    // segments after the parent closes, so we track closure ourselves.
+    internal val closedFlag = AtomicBoolean(false)
 
     // Sources are not thread-safe per contract — synchronized lazy initialization is overkill.
     override val buffer: Buffer by lazy(LazyThreadSafetyMode.NONE) { OkioBuffer(delegate.buffer) }
@@ -32,6 +38,7 @@ internal class OkioBufferedSource(val delegate: okio.BufferedSource) : BufferedS
     }
 
     override fun close() {
+        closedFlag.set(true)
         delegate.close()
     }
 
@@ -47,5 +54,19 @@ internal class OkioBufferedSource(val delegate: okio.BufferedSource) : BufferedS
     override fun inputStream(): InputStream = delegate.inputStream()
     override fun skip(byteCount: Long) {
         delegate.skip(byteCount)
+    }
+
+    override fun slice(offset: Long, byteCount: Long): BufferedSource {
+        require(offset >= 0) { "offset must be non-negative (got $offset)" }
+        require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
+        // peek() shares segments with the parent — no copy. The offset skip is deferred
+        // until first read so that `offset > source.size` surfaces as EOF on read, not at
+        // construction (per the BufferedSource.slice contract).
+        return SlicedOkioBufferedSource(
+            peeked = delegate.peek(),
+            maxBytes = byteCount,
+            pendingSkip = offset,
+            parentClosed = closedFlag,
+        )
     }
 }
