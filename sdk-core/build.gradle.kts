@@ -12,8 +12,10 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(testFixtures(project(":sdk-core")))
 
-    // SLF4J is `compileOnly` for the main source set; tests need an actual API impl on the
-    // runtime classpath to load classes that reference LoggerFactory.
+    // SLF4J is `compileOnly` for the main source set; tests that reference SLF4J types
+    // (FakeSlf4jLogger, ClientLoggerTest) need it on the compile classpath, and the
+    // runtime needs an implementation so LoggerFactory can resolve a binding.
+    testCompileOnly("org.slf4j:slf4j-api:2.0.17")
     testRuntimeOnly("org.slf4j:slf4j-api:2.0.17")
     testRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
 

@@ -19,10 +19,15 @@ import org.dexpace.sdk.core.http.request.Request
  */
 internal class PipelineCallState internal constructor(
     val pipeline: HttpPipeline,
-    val request: Request,
+    initialRequest: Request,
     val httpClient: HttpClient,
     private var index: Int = 0,
 ) {
+    // Mutable so a step may substitute the downstream request (e.g. wrap the body in
+    // LoggableRequestBody before send). The substitution propagates to all subsequent steps
+    // and to the terminal HttpClient.execute(...) when the cursor reaches the end.
+    var request: Request = initialRequest
+
     /** Returns the next step to invoke, or null if the cursor has reached the end. */
     fun advance(): HttpStep? {
         val steps = pipeline.stepArray
