@@ -98,6 +98,7 @@ Layered, from the bottom up:
 
 - **Java 8 bytecode in `sdk-core`.** Avoid `InputStream.transferTo` (Java 9+), `Thread.threadId()` (19+), `java.net.http.HttpClient` (11+), records, sealed `permits`, etc. The toolchain is pinned to 8.
 - **`ReentrantLock` over `synchronized`** (`lock.withLock { … }`). Reason: synchronized pins carrier threads under Loom; ReentrantLock lets virtual threads unmount.
+- **Blocking calls respect `Thread.interrupt()`.** Catches `InterruptedException`, calls `Thread.currentThread().interrupt()` to preserve status, throws `InterruptedIOException` (or the operation's natural exception with the interrupt added as suppressed). Documented in `docs/architecture.md` under Cancellation.
 - **Immutable data + private constructor + `Builder` implementing `Builder<T>`.** `newBuilder()` returns a pre-filled builder. Add `@JvmOverloads` on public constructors/factories for Java callers.
 - **`internal` visibility for implementation types.** Public API is intentionally narrow. In `sdk-io-okio3` only `OkioIoProvider` is public — its adapter classes are `internal`.
 - **`sdk-core` has zero non-SLF4J runtime deps.** Do not add Okio (or any other I/O lib) to `sdk-core/build.gradle.kts`. Anything I/O-specific lives in an adapter module.

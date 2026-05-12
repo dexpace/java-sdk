@@ -28,6 +28,7 @@ concerns.
     - [Immutability and Builders](#immutability-and-builders)
     - [Virtual Thread Safety](#virtual-thread-safety)
     - [Internal Visibility](#internal-visibility)
+    - [Cancellation](#cancellation)
 - [File Inventory](#file-inventory)
 
 ---
@@ -421,6 +422,36 @@ this extensively to hide implementation details:
 
 This is a key reason the project uses a single module: splitting `io` into `sdk-io` would
 force these types to become `public`, breaking encapsulation.
+
+### Cancellation
+
+Every blocking call in the SDK respects `Thread.interrupt()`. When a thread is interrupted
+while the SDK is blocked on a network read, a `Thread.sleep` inside a retry policy, a
+`ReentrantLock` acquire in a rate limiter, or any other blocking operation, the SDK
+responds in a uniform way:
+
+1. Catches `InterruptedException` at the blocking site.
+2. Calls `Thread.currentThread().interrupt()` to preserve the interrupt status so any
+   subsequent blocking call also surfaces it.
+3. Throws `InterruptedIOException` (or the operation's natural failure exception with
+   `InterruptedException` added as a suppressed cause).
+4. Classifies the interruption as **non-retryable** — `HttpResponseException.isRetryable`
+   returns `false` for an interrupt-driven failure.
+
+Loops bounded by user input (retry attempts, paged iteration, server-sent-event
+consumption, drain loops in body logging) check `Thread.currentThread().isInterrupted` at
+the top of each iteration to abort early between blocking calls.
+
+What this means for consumers:
+
+- Calling `Thread.interrupt()` on a thread that's executing an SDK call is the supported
+  cancellation mechanism.
+- Threads that catch `InterruptedException` from the SDK should re-throw or re-interrupt
+  themselves — the SDK has already preserved the interrupt status, and swallowing the
+  exception silently breaks downstream cancellation.
+- Coroutine consumers running SDK calls inside `withContext(Dispatchers.IO)` get
+  cancellation propagation for free — `Job` cancellation interrupts the blocked thread,
+  which the SDK handles per the convention above.
 
 ---
 

@@ -41,6 +41,9 @@ This enables:
 - **Composability**: Steps are combined into pipelines; pipelines are combined into
   execution flows.
 
+> Pipeline steps inherit the SDK-wide cancellation convention — see `docs/architecture.md`
+> under Cancellation.
+
 ### Key source files
 
 | File                   | Package         | Purpose                                         |
