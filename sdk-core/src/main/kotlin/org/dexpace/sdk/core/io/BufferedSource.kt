@@ -1,137 +1,74 @@
 package org.dexpace.sdk.core.io
 
+import java.io.IOException
 import java.io.InputStream
 import java.nio.charset.Charset
 
 /**
- * A [Source] with an internal buffer for efficient, typed read operations.
+ * A [Source] that adds the typed read surface needed for HTTP request and response body
+ * deserialization, body-logging snapshots, and `java.io` interop.
  *
- * Callers read structured data (bytes, integers, strings) through the convenience methods,
- * and the implementation automatically fills the internal buffer from the underlying source
- * as needed.
- *
- * @see Buffer which implements this interface directly (with no upstream source).
- * @see RealBufferedSource which wraps a raw [Source].
+ * Implementations are obtained from an [IoProvider] — callers do not construct them directly.
  */
 interface BufferedSource : Source {
-
     /**
-     * The internal buffer. Reads from this source populate this buffer; reads from
-     * this buffer drain it.
+     * The adapter's internal buffer. When this source IS a [Buffer], the property returns
+     * `this`. Otherwise it returns whatever in-memory storage the adapter uses to stage bytes
+     * between the underlying transport and typed read calls. Mutating the returned buffer
+     * directly is undefined behavior.
      */
     val buffer: Buffer
 
-    /**
-     * Returns true when the buffer is exhausted and the underlying source has no more bytes.
-     */
+    /** Returns true when no more bytes are available. May block waiting on the source. */
+    @Throws(IOException::class)
     fun exhausted(): Boolean
 
-    /**
-     * Ensures the buffer contains at least [byteCount] bytes, throwing [java.io.EOFException]
-     * if the source is exhausted before that.
-     */
-    fun require(byteCount: Long)
-
-    /**
-     * Attempts to ensure the buffer contains at least [byteCount] bytes.
-     *
-     * @return true if the required bytes are available; false if the source is exhausted.
-     */
-    fun request(byteCount: Long): Boolean
-
-    /** Reads and returns a single byte. */
+    /** Reads a single byte. Throws `EOFException` if the source is exhausted. */
+    @Throws(IOException::class)
     fun readByte(): Byte
 
-    /** Reads and returns a big-endian short. */
-    fun readShort(): Short
-
-    /** Reads and returns a little-endian short. */
-    fun readShortLe(): Short
-
-    /** Reads and returns a big-endian int. */
-    fun readInt(): Int
-
-    /** Reads and returns a little-endian int. */
-    fun readIntLe(): Int
-
-    /** Reads and returns a big-endian long. */
-    fun readLong(): Long
-
-    /** Reads and returns a little-endian long. */
-    fun readLongLe(): Long
-
-    /** Reads and returns all bytes as a byte array. */
+    /** Reads every remaining byte into a new byte array. */
+    @Throws(IOException::class)
     fun readByteArray(): ByteArray
 
-    /** Reads and returns [byteCount] bytes as a byte array. */
+    /**
+     * Reads exactly [byteCount] bytes into a new byte array.
+     *
+     * @throws java.io.EOFException if the source is exhausted before [byteCount] bytes are read.
+     */
+    @Throws(IOException::class)
     fun readByteArray(byteCount: Long): ByteArray
 
-    /**
-     * Reads up to `sink.length` bytes into [sink].
-     *
-     * @return the number of bytes read, or -1 if the source is exhausted.
-     */
-    fun read(sink: ByteArray): Int
-
-    /**
-     * Reads up to [byteCount] bytes into [sink] starting at [offset].
-     *
-     * @return the number of bytes read, or -1 if the source is exhausted.
-     */
-    fun read(sink: ByteArray, offset: Int, byteCount: Int): Int
-
-    /** Reads all remaining bytes and decodes them as UTF-8. */
+    /** Reads every remaining byte and decodes the result as UTF-8. */
+    @Throws(IOException::class)
     fun readUtf8(): String
 
-    /** Reads [byteCount] bytes and decodes them as UTF-8. */
+    /** Reads exactly [byteCount] bytes and decodes the result as UTF-8. */
+    @Throws(IOException::class)
     fun readUtf8(byteCount: Long): String
 
     /**
-     * Reads a line of UTF-8 text, consuming the newline (`\n` or `\r\n`).
-     *
-     * @return the line without its terminator, or `null` if the source is exhausted.
+     * Reads bytes up to (and consuming) the next `\n` or `\r\n` terminator and returns the
+     * preceding bytes decoded as UTF-8. Returns null if the source is exhausted before any
+     * bytes are read. A final line without a terminator is returned as-is.
      */
+    @Throws(IOException::class)
     fun readUtf8Line(): String?
 
-    /**
-     * Reads a line of UTF-8 text, consuming the newline. Throws [java.io.EOFException]
-     * if the source is exhausted before a newline is found.
-     */
-    fun readUtf8LineStrict(): String
-
-    /** Reads all remaining bytes and decodes them with [charset]. */
+    /** Reads every remaining byte and decodes it using [charset]. */
+    @Throws(IOException::class)
     fun readString(charset: Charset): String
 
-    /** Reads [byteCount] bytes and decodes them with [charset]. */
-    fun readString(byteCount: Long, charset: Charset): String
-
     /**
-     * Reads all bytes from this source and writes them to [sink].
-     *
-     * @return the total number of bytes written.
-     */
-    fun readAll(sink: Sink): Long
-
-    /** Discards [byteCount] bytes from this source. */
-    fun skip(byteCount: Long)
-
-    /**
-     * Returns the index of the first occurrence of [b] in the buffer, or -1 if not found
-     * before the source is exhausted.
-     */
-    fun indexOf(b: Byte): Long
-
-    /**
-     * Returns the index of [b] starting from [fromIndex], or -1 if not found.
-     */
-    fun indexOf(b: Byte, fromIndex: Long): Long
-
-    /**
-     * Returns a new [BufferedSource] that can read data from this source without consuming it.
-     * The returned source becomes invalid once this source is read past the peeked data.
+     * Returns a non-consuming view of this source. Reads from the returned source do not
+     * advance the position of this source.
      */
     fun peek(): BufferedSource
 
-    /** Returns an [InputStream] that reads from this source. */
+    /** Returns an [InputStream] that reads from this source. Closing the stream closes this. */
     fun inputStream(): InputStream
+
+    /** Skips [byteCount] bytes. Throws `EOFException` if exhausted before the count is met. */
+    @Throws(IOException::class)
+    fun skip(byteCount: Long)
 }

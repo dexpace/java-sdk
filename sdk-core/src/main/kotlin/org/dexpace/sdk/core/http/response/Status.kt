@@ -83,6 +83,8 @@ enum class Status(
     THIS_IS_FINE(218) // Non-standard code, used by some Apache modules
     ;
 
+    val isSuccess: Boolean = code in 200..299
+
     companion object {
         @JvmStatic
         @Throws(IllegalArgumentException::class)

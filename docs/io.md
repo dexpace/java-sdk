@@ -1,613 +1,329 @@
-# I/O Module — Segment-Based Memory Streams
+# I/O Module — Pluggable Stream Contracts
 
-This document covers the design, architecture, and usage of the `org.dexpace.sdk.core.io`
-package — a segment-based memory stream system inspired by
-[Square's Okio](https://square.github.io/okio/).
+This document covers the design of the `org.dexpace.sdk.core.io` package: a small set of
+interface contracts in `sdk-core` plus an `IoProvider` seam that lets the SDK sit on top of
+any streams library. The current implementation is `sdk-io-okio3` (Okio 3.x); additional
+adapters (Okio 2, plain `java.io`, custom) can be added by implementing one interface.
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Why Not Use Okio Directly](#why-not-use-okio-directly)
-- [Architecture](#architecture)
-    - [Segment — The Memory Unit](#segment--the-memory-unit)
-    - [SegmentPool — Lock-Free Recycling](#segmentpool--lock-free-recycling)
-    - [Buffer — The Central Type](#buffer--the-central-type)
-    - [Source and Sink — Streaming Interfaces](#source-and-sink--streaming-interfaces)
-    - [BufferedSource and BufferedSink — Rich Typed I/O](#bufferedsource-and-bufferedsink--rich-typed-io)
-    - [RealBufferedSource and RealBufferedSink — Wrapping Raw Streams](#realbufferedsource-and-realbufferedsink--wrapping-raw-streams)
-    - [PeekSource — Non-Consuming Lookahead](#peeksource--non-consuming-lookahead)
-    - [Extensions — java.io Bridges](#extensions--javaio-bridges)
-- [Key Design Decisions](#key-design-decisions)
-    - [Zero-Copy Segment Transfers](#zero-copy-segment-transfers)
-    - [Shared Segments for Snapshots](#shared-segments-for-snapshots)
-    - [Lock-Free Pooling](#lock-free-pooling)
-    - [Read-Only InputStream](#read-only-inputstream)
-- [Thread Safety](#thread-safety)
-- [Integration with HTTP Logging](#integration-with-http-logging)
-- [API Reference](#api-reference)
-    - [Buffer API](#buffer-api)
-    - [Source / Sink API](#source--sink-api)
-    - [Extension Functions](#extension-functions)
-- [File Index](#file-index)
+- [Why This Shape](#why-this-shape)
+- [Contracts](#contracts)
+    - [Source / Sink](#source--sink)
+    - [BufferedSource / BufferedSink](#bufferedsource--bufferedsink)
+    - [Buffer](#buffer)
+    - [IoProvider](#ioprovider)
+    - [Io](#io)
+- [Lifecycle Integration](#lifecycle-integration)
+- [Body Logging](#body-logging)
+- [Writing an Adapter](#writing-an-adapter)
+- [Design Decisions](#design-decisions)
 
 ---
 
-## Overview
+## Why This Shape
 
-The `io` package provides an efficient, segment-based byte buffer system for the SDK's
-internal I/O operations. It is used by the HTTP body logging layer to:
+The SDK does not implement memory streams itself. Building a from-scratch segment pool gets
+in the way of three goals:
 
-- Buffer response bodies for repeatable reads without copying
-- Capture request body bytes during writes for diagnostics
-- Provide zero-copy snapshots for log output
-- Reduce GC pressure through segment pooling
+1. **Keep `sdk-core` zero-dep.** A purpose-built segment pool means a lot of internal code
+   that has to ship in every consumer's jar whether they want it or not.
+2. **Let consumers pick the I/O lib.** Some consumers want Okio 3.x. Some are stuck on Okio
+   2.x because of transitive constraints. Some want plain `java.io` for the smallest
+   classpath. The SDK should not force this choice.
+3. **Keep contracts small.** HTTP needs byte arrays, UTF-8 strings, lines, peek, and `java.io`
+   bridges. It does not need varints, hex, or binary numerics. The contract reflects what
+   the HTTP layer actually calls.
 
-The system is modeled after Okio's core design but is a standalone implementation with no
-external dependencies. It targets **JDK 8+** and uses only `java.io` and
-`java.util.concurrent.atomic` APIs.
+So `sdk-core/io/` ships **interfaces only**. The HTTP layer consumes the interfaces; an
+adapter module (`sdk-io-okio3`) wires a real implementation in once at startup.
 
----
+## Contracts
 
-## Why Not Use Okio Directly
+### Source / Sink
 
-1. **Dependency weight**: Okio pulls in Kotlin multiplatform artifacts (~300 KB). For an
-   SDK core module, this is unnecessary weight.
-
-2. **Scope**: The SDK needs a subset of Okio's functionality — primarily `Buffer`, segment
-   pooling, and `Source`/`Sink` streaming. Features like filesystem access, hashing, and
-   `ByteString` are not needed.
-
-3. **Direct Okio copy failed**: Okio's internal module structure, `@JvmField` annotations,
-   and multiplatform `expect`/`actual` declarations made it impractical to extract and
-   adapt individual files.
-
-4. **Control**: Owning the implementation allows production-specific hardening (lock-free
-   pool with contention fallback, read-only InputStreams, overflow-safe arithmetic) without
-   waiting for upstream changes.
-
----
-
-## Architecture
-
-### Segment — The Memory Unit
-
-```
-File: Segment.kt
-```
-
-A `Segment` is an 8 KiB chunk of memory — the fundamental building block of all buffers.
-
-```
-┌─────────────────────────────────────────────┐
-│                 Segment (8 KiB)             │
-│                                             │
-│  data: ByteArray ──────────────────────┐    │
-│                                        │    │
-│  ┌──────┬──────────────────┬────────┐  │    │
-│  │ free │   readable data  │  free  │  │    │
-│  └──────┴──────────────────┴────────┘  │    │
-│  0      pos               limit    SIZE│    │
-│                                        │    │
-│  prev ◄──── circular doubly-linked ────► next│
-│  shared: Boolean    owner: Boolean     │    │
-└─────────────────────────────────────────────┘
-```
-
-**Key properties:**
-
-| Property        | Description                                    |
-|-----------------|------------------------------------------------|
-| `data`          | The 8 KiB byte array holding content           |
-| `pos`           | Read cursor — first readable byte (inclusive)  |
-| `limit`         | Write cursor — first writable byte (exclusive) |
-| `count`         | Readable bytes: `limit - pos`                  |
-| `shared`        | Whether `data` is shared with other segments   |
-| `owner`         | Whether this segment can extend `limit`        |
-| `next` / `prev` | Links in the circular doubly-linked list       |
-
-**Sharing semantics:**
-
-When a segment's byte array needs to be visible in multiple places (e.g., `Buffer.copy()`
-or `Buffer.snapshot()`), calling `sharedCopy()` creates a new `Segment` that references
-the *same* `data` array:
-
-```
-Original:  shared=true,  owner=true   ──► can read and write
-Copy:      shared=true,  owner=false  ──► can read only
-```
-
-This avoids copying the 8 KiB array. The `SHARE_MINIMUM` threshold (1024 bytes) determines
-whether `split()` uses sharing or copying — small splits copy bytes into a fresh segment to
-avoid long-lived shared references.
-
-**Operations:**
-
-| Method                     | Description                                                   |
-|----------------------------|---------------------------------------------------------------|
-| `sharedCopy()`             | Zero-copy: new segment shares `data` array                    |
-| `unsharedCopy()`           | Deep copy: new segment owns a copy of `data`                  |
-| `pop()`                    | Remove from circular list, return successor                   |
-| `push(segment)`            | Insert `segment` after this in the list                       |
-| `split(byteCount)`         | Split into prefix + remainder; prefix is inserted before this |
-| `compact()`                | Merge this into predecessor if it fits                        |
-| `writeTo(sink, byteCount)` | Move bytes from this into another owned segment               |
-
-### SegmentPool — Lock-Free Recycling
-
-```
-File: SegmentPool.kt
-```
-
-Segments are expensive to allocate (8 KiB each). The pool maintains a thread-safe stack
-of recently released segments for reuse, avoiding fresh allocations on every buffer
-operation.
-
-```
-                    SegmentPool
-    ┌─────────────────────────────────────────┐
-    │  hashBuckets (per-thread, power-of-2)   │
-    │                                         │
-    │  Bucket 0:  [seg] → [seg] → [seg] → ∅  │
-    │  Bucket 1:  [seg] → ∅                   │
-    │  Bucket 2:  ∅                            │
-    │  Bucket 3:  [seg] → [seg] → ∅           │
-    │  ...                                    │
-    │                                         │
-    │  Max per bucket: 64 KiB (8 segments)    │
-    └─────────────────────────────────────────┘
-```
-
-**Concurrency model:**
-
-Each bucket is an `AtomicReference<Segment?>` used as a lock-free stack. Operations use
-`getAndSet(LOCK)` to acquire exclusive access:
-
-1. **No contention**: Swap in `LOCK`, operate on the stack, restore the head.
-2. **Contention** (another thread holds `LOCK`): `take()` allocates a fresh segment;
-   `recycle()` silently drops the segment. No blocking ever occurs.
-
-This design ensures:
-
-- No thread ever blocks waiting for a pool operation
-- Under high contention, the worst case is extra allocations (not correctness issues)
-- Each bucket is independent — threads on different CPUs don't interfere
-
-**Capacity**: Each bucket holds at most `MAX_SIZE` (64 KiB = 8 segments). The number of
-buckets is `highestOneBit(availableProcessors * 2)`, distributing threads across buckets
-to reduce contention.
-
-**API:**
-
-| Method             | Description                                                              |
-|--------------------|--------------------------------------------------------------------------|
-| `take()`           | Return a recycled segment or allocate a new one                          |
-| `recycle(segment)` | Return a segment to the pool (must not be in a list, must not be shared) |
-| `byteCount`        | Pooled bytes in the current thread's bucket                              |
-
-### Buffer — The Central Type
-
-```
-File: Buffer.kt
-```
-
-`Buffer` is an infinitely growable byte queue backed by a circular doubly-linked list of
-segments. It implements both `BufferedSource` (reads) and `BufferedSink` (writes).
-
-```
-                         Buffer
-    ┌──────────────────────────────────────────────┐
-    │  head ──►┌──────┐   ┌──────┐   ┌──────┐     │
-    │          │ seg0 │◄─►│ seg1 │◄─►│ seg2 │     │
-    │          │ 8KB  │   │ 8KB  │   │ 3KB  │     │
-    │          └──┬───┘   └──────┘   └──┬───┘     │
-    │             └──────────────────────┘         │
-    │              (circular: seg2.next = seg0)    │
-    │                                              │
-    │  size: 19 KiB                                │
-    │  Writes append to seg2 (tail = head.prev)    │
-    │  Reads consume from seg0 (head)              │
-    └──────────────────────────────────────────────┘
-```
-
-**Performance characteristics:**
-
-| Operation                 | Cost             | Mechanism                                           |
-|---------------------------|------------------|-----------------------------------------------------|
-| Write bytes               | O(n)             | Append to tail segment, link new segments as needed |
-| Read bytes                | O(n)             | Consume from head segment, recycle empty segments   |
-| Move between buffers      | O(1) per segment | Transfer segment ownership (no byte copy)           |
-| Copy / snapshot           | O(segments)      | Shared segment references (no byte copy)            |
-| Random access (`getByte`) | O(segments)      | Linear scan from nearest end via `seek()`           |
-| `indexOf`                 | O(n)             | Linear scan with `seek()` for starting position     |
-
-**Write operations** (`BufferedSink`):
-
-| Method                                | Description                                    |
-|---------------------------------------|------------------------------------------------|
-| `writeByte(b)`                        | Write a single byte                            |
-| `writeShort(s)` / `writeShortLe(s)`   | Write 2 bytes, big-endian / little-endian      |
-| `writeInt(i)` / `writeIntLe(i)`       | Write 4 bytes, big-endian / little-endian      |
-| `writeLong(v)` / `writeLongLe(v)`     | Write 8 bytes, big-endian / little-endian      |
-| `write(ByteArray)`                    | Write all bytes from an array                  |
-| `write(ByteArray, offset, byteCount)` | Write a range from an array                    |
-| `write(Source, byteCount)`            | Pull bytes from a Source                       |
-| `writeAll(Source)`                    | Drain a Source completely                      |
-| `writeUtf8(String)`                   | Encode as UTF-8 and write                      |
-| `writeString(String, Charset)`        | Encode with charset and write                  |
-| `write(Buffer, byteCount)`            | Zero-copy segment transfer from another buffer |
-
-**Read operations** (`BufferedSource`):
-
-| Method                                    | Description                              |
-|-------------------------------------------|------------------------------------------|
-| `readByte()`                              | Read a single byte                       |
-| `readShort()` / `readShortLe()`           | Read 2 bytes, big-endian / little-endian |
-| `readInt()` / `readIntLe()`               | Read 4 bytes, big-endian / little-endian |
-| `readLong()` / `readLongLe()`             | Read 8 bytes, big-endian / little-endian |
-| `readByteArray()` / `readByteArray(n)`    | Read bytes into a new array              |
-| `read(ByteArray, offset, byteCount)`      | Read into an existing array              |
-| `readFully(ByteArray)`                    | Read exactly `array.size` bytes          |
-| `readUtf8()` / `readUtf8(n)`              | Read and decode as UTF-8                 |
-| `readUtf8Line()` / `readUtf8LineStrict()` | Read a line (handles `\n` and `\r\n`)    |
-| `readString(Charset)`                     | Read and decode with charset             |
-| `readAll(Sink)`                           | Drain buffer into a Sink                 |
-| `skip(byteCount)`                         | Discard bytes                            |
-| `indexOf(byte, fromIndex)`                | Find first occurrence of a byte          |
-| `peek()`                                  | Non-consuming lookahead source           |
-
-**Buffer-specific operations:**
-
-| Method                               | Description                                                  |
-|--------------------------------------|--------------------------------------------------------------|
-| `getByte(index)`                     | Non-consuming random access                                  |
-| `clear()`                            | Discard all bytes, recycle segments                          |
-| `copy()`                             | Zero-copy buffer clone via shared segments                   |
-| `snapshot()` / `snapshot(byteCount)` | Non-consuming byte array extraction (default: entire buffer) |
-| `copyTo(out, offset, byteCount)`     | Non-consuming copy to another buffer                         |
-| `forEach(action)`                    | Iterate segments without modification                        |
-| `readOnlyInputStream()`              | Non-consuming InputStream with independent cursor            |
-| `inputStream()` / `outputStream()`   | Consuming java.io bridges                                    |
-| `readFrom(InputStream)`              | Drain an InputStream into the buffer                         |
-| `writeTo(OutputStream)`              | Write buffer contents to an OutputStream                     |
-| `completeSegmentByteCount()`         | Bytes in full segments (for emit optimization)               |
-
-### Source and Sink — Streaming Interfaces
-
-```
-Files: Source.kt, Sink.kt
-```
-
-These are the minimal streaming interfaces, analogous to `InputStream` and `OutputStream`
-but operating on `Buffer` for bulk efficiency.
+The primitive byte-channel layer. Adapters implement these; callers rarely interact
+directly.
 
 ```kotlin
 interface Source : Closeable {
-    fun read(sink: Buffer, byteCount: Long): Long  // Returns bytes read or -1
-    fun close()
+    fun read(sink: Buffer, byteCount: Long): Long  // -1 on EOF
 }
 
-interface Sink : Closeable, Flushable {
+interface Sink : Closeable {
     fun write(source: Buffer, byteCount: Long)
     fun flush()
-    fun close()
 }
 ```
 
-**Decorator bases:**
+Both methods are `Buffer`-mediated — the only abstraction every adapter must implement.
 
-- `ForwardingSource(delegate)` — Override to intercept reads
-- `ForwardingSink(delegate)` — Override to intercept writes
+### BufferedSource / BufferedSink
 
-**Utility:**
-
-- `blackholeSink()` — A Sink that discards all bytes (useful for measuring or draining)
-
-### BufferedSource and BufferedSink — Rich Typed I/O
-
-```
-Files: BufferedSource.kt, BufferedSink.kt
-```
-
-These interfaces extend `Source` and `Sink` with typed convenience methods (read/write
-integers, strings, lines, etc.) and expose the internal `buffer` for direct access.
-
-`Buffer` implements both interfaces directly. `RealBufferedSource` and `RealBufferedSink`
-wrap raw `Source`/`Sink` instances.
-
-### RealBufferedSource and RealBufferedSink — Wrapping Raw Streams
-
-```
-Files: RealBufferedSource.kt, RealBufferedSink.kt
-```
-
-These wrap a raw `Source` or `Sink` with an internal `Buffer`:
-
-- **RealBufferedSource**: Fills the buffer in `Segment.SIZE` (8 KiB) increments from the
-  upstream source. Typed read methods consume from the buffer, triggering fills as needed.
-
-- **RealBufferedSink**: Accumulates writes in the buffer. After each write, complete
-  segments (full 8 KiB) are automatically flushed to the downstream sink via
-  `emitCompleteSegments()`. Partial segments remain buffered until `emit()`, `flush()`,
-  or `close()`.
-
-**Close safety** (`RealBufferedSink`): The `close()` method flushes remaining bytes and
-closes the downstream sink, using `addSuppressed` to preserve both exceptions if both
-the flush and close fail.
-
-### PeekSource — Non-Consuming Lookahead
-
-```
-File: PeekSource.kt
-```
-
-`PeekSource` reads from an upstream `BufferedSource` without consuming bytes. It uses
-`Buffer.copyTo()` to copy data from the upstream's buffer into the sink.
-
-**Invalidation detection**: PeekSource tracks the upstream buffer's head segment and
-position. If the upstream is read (advancing the head segment), the peek source detects
-the mismatch and throws `IllegalStateException`.
-
-### Extensions — java.io Bridges
-
-```
-File: Extensions.kt  (@file:JvmName("Streams"))
-```
-
-Extension functions for interop between `java.io` types and the `Source`/`Sink` system:
+The HTTP-pragmatic typed surface. This is what request/response body code actually calls.
 
 ```kotlin
-// Wrapping
-fun Source.buffered(): BufferedSource
-fun Sink.buffered(): BufferedSink
-
-// Bridging
-fun InputStream.asSource(): Source
-fun OutputStream.asSink(): Sink
-
-// Convenience (bridge + buffer in one call)
-fun InputStream.asBufferedSource(): BufferedSource
-fun OutputStream.asBufferedSink(): BufferedSink
-```
-
-The internal `InputStreamSource` reads from `InputStream` into buffer segments.
-The internal `OutputStreamSink` writes from buffer segments to `OutputStream`.
-
-Both handle segment lifecycle correctly — `InputStreamSource` recycles unused segments
-on EOF; `OutputStreamSink` recycles consumed segments after writing.
-
----
-
-## Key Design Decisions
-
-### Zero-Copy Segment Transfers
-
-When writing from one `Buffer` to another (`buffer.write(source, byteCount)`), entire
-segments are moved by relinking pointers — no bytes are copied:
-
-```
-Before:  source = [A][B][C]    dest = [X][Y]
-After:   source = [C']         dest = [X][Y][A][B][C'']
-                                       (A, B moved; C split)
-```
-
-This makes buffer-to-buffer transfers O(segments) instead of O(bytes).
-
-### Shared Segments for Snapshots
-
-`Buffer.copy()` and `Buffer.snapshot()` create shared references to existing segment
-data arrays. The original segment is marked `shared = true`, preventing the pool from
-reclaiming the array while copies exist:
-
-```
-buffer.snapshot()           // or buffer.snapshot(1024)
-  → Iterates segments, copies bytes into a flat ByteArray
-  → No segment sharing needed (data is copied out)
-
-buffer.copy()
-  → Creates new segments with sharedCopy()
-  → Both buffers reference the same byte arrays
-  → Neither buffer can modify the shared arrays
-
-buffer.copyTo(other, offset, byteCount)
-  → Copies segment references via sharedCopy()
-  → Zero-copy for the destination buffer
-```
-
-### Lock-Free Pooling
-
-The segment pool avoids all blocking:
-
-- **No CAS spin loops**: A single `getAndSet(LOCK)` acquires the bucket. If LOCK is
-  already set, the operation falls back immediately (allocate or drop).
-
-- **No per-operation overhead**: Bucket selection uses `Thread.currentThread().id` with
-  a bitmask — no hash computation, no `ThreadLocal` lookup.
-
-- **Bounded memory**: Each bucket holds at most 64 KiB. Excess segments are silently
-  dropped. The total pool size is `64 KiB * bucketCount`.
-
-### Read-Only InputStream
-
-`Buffer.readOnlyInputStream()` returns an `InputStream` that reads from the buffer
-without consuming bytes. This is critical for `LoggableResponseBody`, which needs to
-serve the body to callers via `byteStream()` while keeping the buffer intact for
-`snapshot()`.
-
-The read-only stream maintains an independent `position` cursor and uses `seek()` +
-`copyToByteArray()` for bulk reads. Each call to `readOnlyInputStream()` returns an
-independent stream.
-
----
-
-## Thread Safety
-
-| Type                 | Thread-safe?             | Notes                                                   |
-|----------------------|--------------------------|---------------------------------------------------------|
-| `Segment`            | No                       | Internal to a single buffer at a time                   |
-| `SegmentPool`        | Yes                      | Lock-free atomic operations with contention fallback    |
-| `Buffer`             | No                       | External synchronization required for concurrent access |
-| `RealBufferedSource` | No                       | Single-threaded read pattern                            |
-| `RealBufferedSink`   | No                       | Single-threaded write pattern                           |
-| `PeekSource`         | No                       | Tied to upstream's thread model                         |
-| `Source` / `Sink`    | Implementation-dependent | Interfaces do not mandate thread safety                 |
-
-The logging layer (`LoggableResponseBody`) adds its own thread safety via `ReentrantLock`
-and `@Volatile` — see [HTTP Body Logging and Concurrency](http-body-logging-and-concurrency.md).
-
----
-
-## Integration with HTTP Logging
-
-The `io` package provides the storage layer for the HTTP body logging system:
-
-```
-                    LoggableResponseBody
-                           │
-                    ┌──────┴──────┐
-                    │   Buffer    │  ← delegate body drained here
-                    │ (segments)  │
-                    └──────┬──────┘
-                           │
-              ┌────────────┼──────────────┐
-              │            │              │
-              ▼            ▼              ▼
-         snapshot()   byteStream()    forEach()
-              │            │              │
-              ▼            ▼              ▼
-         ByteArray    readOnly       emitBody
-         (zero-copy   InputStream    Segments()
-          from segs)  (non-consuming)
-```
-
-**LoggableResponseBody** uses:
-
-- `Buffer.readFrom(InputStream)` to drain the delegate body
-- `Buffer.readOnlyInputStream()` for repeatable `byteStream()` calls
-- `Buffer.snapshot()` for full-body snapshot capture
-- `Buffer.forEach()` for segment emission to handlers
-- `Buffer.clear()` on close to recycle segments
-
-**LoggableRequestBody** uses:
-
-- `Buffer.outputStream()` as the capture branch of `TeeOutputStream`
-- `Buffer.snapshot()` for full-body snapshot after write completes
-- `Buffer.forEach()` for segment emission to handlers
-- `Buffer.clear()` to recycle captured segments
-
----
-
-## API Reference
-
-### Buffer API
-
-**Construction:**
-
-```kotlin
-val buffer = Buffer()
-```
-
-**Writing:**
-
-```kotlin
-buffer.writeByte(0x42)
-buffer.writeInt(12345)
-buffer.writeUtf8("Hello, world!")
-buffer.write(byteArrayOf(1, 2, 3))
-
-// Zero-copy transfer from another buffer
-buffer.write(otherBuffer, otherBuffer.size)
-
-// Drain an InputStream
-buffer.readFrom(inputStream)
-```
-
-**Reading:**
-
-```kotlin
-val byte = buffer.readByte()
-val int = buffer.readInt()
-val text = buffer.readUtf8(buffer.size)
-val line = buffer.readUtf8Line()
-
-// Read into existing array
-val bytes = ByteArray(1024)
-val count = buffer.read(bytes)
-
-// Write to an OutputStream
-buffer.writeTo(outputStream)
-```
-
-**Non-consuming access:**
-
-```kotlin
-val byte = buffer.getByte(42)                      // Random access
-val snapshot = buffer.snapshot()                    // All bytes as ByteArray (or snapshot(1024) for first 1024)
-buffer.copyTo(otherBuffer, offset = 0, byteCount = buffer.size)  // Copy to another buffer
-
-val stream = buffer.readOnlyInputStream()           // Repeatable read
-val peeked = buffer.peek()                          // Lookahead source
-```
-
-**java.io interop:**
-
-```kotlin
-val inputStream = buffer.inputStream()              // Consuming InputStream
-val outputStream = buffer.outputStream()            // Write into buffer
-
-buffer.readFrom(inputStream)                        // Drain InputStream into buffer
-buffer.readFrom(inputStream, 1024)                  // Read exactly 1024 bytes
-buffer.writeTo(outputStream)                        // Write all to OutputStream
-buffer.writeTo(outputStream, 512)                   // Write 512 bytes
-```
-
-### Source / Sink API
-
-```kotlin
-// Wrapping raw streams
-val source: Source = inputStream.asSource()
-val sink: Sink = outputStream.asSink()
-
-// Buffering for typed access
-val bufferedSource: BufferedSource = source.buffered()
-val bufferedSink: BufferedSink = sink.buffered()
-
-// Convenience (bridge + buffer)
-val bufferedSource: BufferedSource = inputStream.asBufferedSource()
-val bufferedSink: BufferedSink = outputStream.asBufferedSink()
-
-// Reading from a BufferedSource
-while (!bufferedSource.exhausted()) {
-    val line = bufferedSource.readUtf8Line() ?: break
-    println(line)
+interface BufferedSource : Source {
+    val buffer: Buffer
+    fun exhausted(): Boolean
+    fun readByte(): Byte
+    fun readByteArray(): ByteArray
+    fun readByteArray(byteCount: Long): ByteArray
+    fun readUtf8(): String
+    fun readUtf8(byteCount: Long): String
+    fun readUtf8Line(): String?
+    fun readString(charset: Charset): String
+    fun peek(): BufferedSource
+    fun inputStream(): InputStream
+    fun skip(byteCount: Long)
 }
-bufferedSource.close()
 
-// Writing to a BufferedSink
-bufferedSink.writeUtf8("Hello\n")
-bufferedSink.writeInt(42)
-bufferedSink.flush()
-bufferedSink.close()
+interface BufferedSink : Sink {
+    val buffer: Buffer
+    fun write(source: ByteArray): BufferedSink
+    fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink
+    fun writeAll(source: Source): Long
+    fun writeUtf8(string: String): BufferedSink
+    fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink
+    fun writeString(string: String, charset: Charset): BufferedSink
+    fun outputStream(): OutputStream
+    fun emit(): BufferedSink
+}
 ```
 
-### Extension Functions
+The surface is intentionally small — fluent chains return `BufferedSink`, reads are
+exception-on-EOF for typed forms (`readByte`, `readUtf8(byteCount)`) and null-on-EOF for
+line reads, matching the Okio convention so adapters can pass through cheaply.
 
-All extensions are defined in `Extensions.kt` with `@file:JvmName("Streams")`, making
-them callable from Java as `Streams.buffered(source)`, `Streams.asSource(inputStream)`, etc.
+### Buffer
 
----
+The canonical in-memory queue — both a source and a sink, with snapshot for logging.
 
-## File Index
+```kotlin
+interface Buffer : BufferedSource, BufferedSink {
+    val size: Long
+    fun snapshot(): ByteArray            // immutable copy
+    fun clear()
+    fun copyTo(out: Buffer, offset: Long = 0, byteCount: Long = size): Buffer
+    override val buffer: Buffer get() = this
+}
+```
 
-| File                    | Visibility | Description                                                           |
-|-------------------------|------------|-----------------------------------------------------------------------|
-| `Segment.kt`            | `internal` | 8 KiB memory chunk with circular list, sharing, split/compact         |
-| `SegmentPool.kt`        | `internal` | Lock-free segment recycling with per-thread hash buckets              |
-| `Buffer.kt`             | `public`   | Central buffer type — `BufferedSource` + `BufferedSink` + `Cloneable` |
-| `Source.kt`             | `public`   | Byte source interface + `ForwardingSource` decorator                  |
-| `Sink.kt`               | `public`   | Byte sink interface + `ForwardingSink` decorator + `blackholeSink()`  |
-| `BufferedSource.kt`     | `public`   | Rich typed read interface                                             |
-| `BufferedSink.kt`       | `public`   | Rich typed write interface                                            |
-| `RealBufferedSource.kt` | `internal` | Buffered wrapper for raw `Source`                                     |
-| `RealBufferedSink.kt`   | `internal` | Buffered wrapper for raw `Sink`                                       |
-| `PeekSource.kt`         | `internal` | Non-consuming lookahead `Source`                                      |
-| `Extensions.kt`         | `public`   | `buffered()`, `asSource()`, `asSink()` bridge extensions              |
+Buffers are cheap; the adapter decides whether to pool internally. Calling
+`IoProvider.buffer()` always returns a fresh instance from the adapter's perspective.
+
+### IoProvider
+
+The single factory seam between `sdk-core` and the adapter.
+
+```kotlin
+interface IoProvider {
+    fun buffer(): Buffer
+    fun source(input: InputStream): BufferedSource
+    fun source(bytes: ByteArray): BufferedSource
+    fun sink(output: OutputStream): BufferedSink
+    fun bufferedSource(source: Source): BufferedSource
+    fun bufferedSink(sink: Sink): BufferedSink
+}
+```
+
+Replaces what was previously two `ServiceLoader`-backed companion factories. One interface,
+explicit installation, no global magic.
+
+### Io
+
+```kotlin
+object Io {
+    val provider: IoProvider               // throws if not installed
+    fun installProvider(provider: IoProvider)
+    fun <T> withProvider(provider: IoProvider, block: () -> T): T   // test seam
+}
+```
+
+The provider is installed once at startup (`Io.installProvider(OkioIoProvider)`). After
+installation, every call site that needs a stream reads `Io.provider`. Failure mode is
+loud: `Io.provider` throws an `IllegalStateException` with the install instruction when
+no provider has been installed.
+
+`withProvider` swaps the installed provider for the duration of a block — used by tests
+to inject fakes without disturbing global state.
+
+## Replayability
+
+`RequestBody` exposes `isReplayable()` and `toReplayable(provider)`. The pipeline's retry
+machinery — and any caller that may need to resend a body — calls `toReplayable()` to get
+a body whose `writeTo` can be invoked any number of times producing identical bytes.
+
+Built-in bodies and their replayability:
+
+| Factory                                  | `isReplayable()` | Replay strategy                                                |
+|------------------------------------------|------------------|----------------------------------------------------------------|
+| `create(bytes: ByteArray, …)`            | true             | Reuses the same array                                          |
+| `create(content: String, …)`             | true             | Encodes once, reuses the byte array                            |
+| `create(formData: Map, …)`               | true             | Pre-encodes the form payload as bytes                          |
+| `create(buffer: Buffer, …)`              | true             | Non-consuming `peek()` per write                               |
+| `create(file: Path, …)` / `FileRequestBody` | true          | Re-reads the file via `FileChannel.transferTo` per write       |
+| `create(input: InputStream, length, …)` when `markSupported()` and `length <= MAX_BYTE_ARRAY_SIZE` | true | `mark()` at construction; `reset()` per write — zero memory copy |
+| `create(input: InputStream, length, …)` otherwise | false   | Single-use; `toReplayable` drains into an in-memory buffer     |
+| `create(source: BufferedSource, …)`      | false            | Single-use; `toReplayable` drains into an in-memory buffer     |
+
+The default `toReplayable` on the base class drains `writeTo` once into `provider.buffer()`
+and returns a buffer-backed body. Already-replayable bodies short-circuit to `return this`,
+so the cost of calling `toReplayable` on a byte-array body is zero.
+
+After `toReplayable` returns on a non-replayable body, **the original body is consumed** —
+its underlying source has been drained. Continue with the returned value.
+
+## FileRequestBody and sendfile
+
+`FileRequestBody` is its own public type so transports can `instanceof` / `is`-check it and
+dispatch a kernel `sendfile(2)` via `FileChannel.transferTo(position, count, socketChannel)`
+when the destination is a `SocketChannel`. The default `writeTo` in this class uses
+`FileChannel.transferTo` against `Channels.newChannel(sink.outputStream())` — that path
+skips at least one user-space buffer copy but does not reach the syscall fast path through
+a generic `BufferedSink`. Transports that need the syscall fast path should pattern-match
+the body type before falling back to the generic `RequestBody.writeTo`.
+
+## MAX_BYTE_ARRAY_SIZE
+
+`Buffer.MAX_BYTE_ARRAY_SIZE` (`Int.MAX_VALUE - 8`) is the JVM's effective single-byte-array
+limit. `Buffer.snapshot()` throws `IllegalStateException` with an actionable message when
+the buffer exceeds it; callers should stream via `inputStream()` or `copyTo(out)` instead.
+`LoggableRequestBody.snapshot(maxBytes)` and `LoggableResponseBody.snapshot(maxBytes)`
+remain safe at any body size because they cap the materialized byte array.
+
+## Lifecycle Integration
+
+**Request side.** `RequestBody.writeTo(sink: BufferedSink)` is the integration point.
+Body implementations call typed write methods (`writeUtf8`, `write(byteArray)`, `writeAll`)
+on the sink — they never touch the provider directly. The transport layer constructs the
+sink via `Io.provider.sink(outputStream)` and passes it in. The form-body factory
+(`RequestBody.create(formData, charset, provider = Io.provider)`) builds its underlying
+source through the provider; pass an explicit provider for testing.
+
+**Response side.** `ResponseBody.source(): BufferedSource` is the integration point. The
+transport layer wraps the response `InputStream` via `Io.provider.source(inputStream)`
+and constructs a `ResponseBody.create(source, mediaType, contentLength)`. Callers read
+typed values from the source.
+
+## Body Logging
+
+Two wrappers live alongside the immutable body types:
+
+- **`LoggableRequestBody`** (in `http/request/`) wraps a `RequestBody` and a `TeeSink`.
+  During `writeTo`, every byte is mirrored into an internal `Buffer` while still being
+  forwarded to the primary sink. After write, `snapshot(): ByteArray` returns the captured
+  bytes for log preview.
+
+- **`LoggableResponseBody`** (in `http/response/`) wraps a `ResponseBody`. On first access
+  it eagerly drains the wrapped body into an internal `Buffer`. `source()` returns a fresh
+  non-consuming `peek()` view each call, giving repeatable reads. `snapshot()` returns the
+  captured bytes.
+
+Both wrappers take `IoProvider` in their constructor (default `Io.provider`) so tests can
+swap in a fake. `TeeSink` lives in `io/` as an `internal` helper — implementation detail of
+the logging story.
+
+## Writing an Adapter
+
+To add a new I/O implementation:
+
+1. Create a new Gradle module.
+2. Depend on `:sdk-core` and your I/O library of choice.
+3. Implement `IoProvider`. The whole surface is six methods.
+4. Expose a single public type (recommended: a Kotlin `object` named `<Library>IoProvider`).
+5. Mark every adapter class `internal` so callers see only the contracts.
+6. Document `Io.installProvider(YourProvider)` in your README.
+
+`sdk-io-okio3` is the reference implementation — see `OkioIoProvider.kt` and the
+`internal/` package next to it.
+
+## Performance
+
+The contract is shaped so adapters can implement the hot paths with **no per-call byte
+copies** when both sides of an operation use the same adapter. With the bundled
+`sdk-io-okio3` provider:
+
+- **`BufferedSink.write(source: Buffer, byteCount: Long)`** — segment ownership transfer.
+  Bytes leave the source buffer and enter the sink buffer in O(segments), not O(bytes).
+- **`Buffer.copyTo(out: Buffer, offset, byteCount)`** — segment reference share. The
+  destination buffer gains read access to the source's segments by ref-count increment.
+- **`BufferedSink.writeAll(source: Source)`** — when the source is also Okio-backed,
+  delegates directly to `okio.BufferedSink.writeAll(okio.Source)` which drains in a single
+  segment-transferring loop.
+- **`BufferedSource.peek()`** — non-consuming view backed by segment refs. Logging multiple
+  previews of the same body costs O(viewers), not O(bytes × viewers).
+
+The HTTP integration code is built to use these fast paths:
+
+- `LoggableResponseBody` drains the wrapped body with a single `writeAll`, then serves
+  `source()` calls via `peek()` for repeatable reads at near-zero cost.
+- `LoggableRequestBody` uses [`TeeSink`][TeeSink], which encodes each typed write **once**
+  into a reused scratch buffer, then `copyTo(tap)` (segment-share) plus
+  `primary.write(scratch, n)` (segment-move). One encoding step plus two
+  segment-level operations, regardless of payload size.
+- `RequestBody.create(formData, …)` accepts an explicit `IoProvider` to skip the global
+  getter when the caller already has a reference.
+
+### Bounded snapshots
+
+Logging multi-MB bodies as a single `ByteArray` is wasteful when you only want a 256-byte
+preview. Both `Loggable*Body` types expose `snapshot(maxBytes: Int)` which caps the
+materialized byte array via `peek().readByteArray(maxBytes)` — the captured buffer is
+untouched, and Okio's segment-sharing means the cap is enforced before bytes are copied
+out.
+
+### Adapter implementation guidance
+
+If you're writing a new `IoProvider`:
+
+- Implement `Source.read(sink: Buffer, byteCount)` with an `is`-check fast path for your
+  own concrete `Buffer` type. Use a byte-array fallback only when the destination is a
+  foreign adapter.
+- Same for `Sink.write(source: Buffer, byteCount)` — fast path when source is your buffer.
+- Cache adapter wrappers across calls when bridging foreign primitives — Okio reuses the
+  same buffer reference across a buffered consumer's lifetime, so the wrapper allocation
+  amortizes to zero (see `ForeignSourceAdapter` in `sdk-io-okio3`).
+- Mark every adapter class `internal`. The only public type should be your
+  `IoProvider` singleton.
+
+[TeeSink]: ../sdk-core/src/main/kotlin/org/dexpace/sdk/core/io/TeeSink.kt
+
+## Design Decisions
+
+### Explicit install over ServiceLoader
+
+The previous design used `ServiceLoader` to discover the implementation. That has three
+problems:
+
+1. **Failure is silent.** Missing `META-INF/services` resolves to `null` (or `.first()`
+   throws a `NoSuchElementException` deep in a stack trace), not a clear actionable
+   message.
+2. **Two implementations on the classpath pick non-deterministically.** `.first()` orders
+   by URL order.
+3. **Tests can't swap.** No standard way to install a fake without crafting class-loader
+   tricks.
+
+`Io.installProvider(...)` plus `Io.withProvider(...)` solves all three.
+
+### Single IoProvider over separate source/sink factories
+
+The previous design split into `BufferedSourceFactory` and `BufferedSinkFactory`. A single
+provider has lower binding overhead (one install call, one global), and an adapter can
+share state across source and sink construction (a buffer pool, a thread-local arena).
+
+### Drop NIO inheritance
+
+The previous interfaces extended `ReadableByteChannel` / `WritableByteChannel` / `ByteChannel`.
+Nothing in the SDK calls the `ByteBuffer` overloads — they were dead surface that every
+adapter still had to stub. Dropping them makes adapter implementations smaller. An adapter
+that wants NIO interop can implement `ReadableByteChannel` separately on its concrete
+class.
+
+### `val buffer: Buffer` on Buffered* interfaces
+
+Every `BufferedSource` and `BufferedSink` exposes a `buffer` property. This is the
+adapter's *internal* staging buffer — for `Buffer` it's `this`; for an Okio-backed source
+it wraps `okio.BufferedSource.buffer`. The legitimate use is fast-path transfer in
+`writeAll(source)` when both sides happen to be the same kind of adapter (avoids extra
+copies). Mutating the returned buffer directly is undefined behavior.

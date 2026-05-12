@@ -1,6 +1,6 @@
 package org.dexpace.sdk.core.http.request
 
-import org.dexpace.sdk.core.generics.BuilderTrait
+import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.common.Headers
 import java.net.MalformedURLException
 import java.net.URL
@@ -18,16 +18,16 @@ data class Request private constructor(
     val body: RequestBody?
 ) {
     /**
-     * Returns a new [Builder] initialized with this request's data.
+     * Returns a new [RequestBuilder] initialized with this request's data.
      *
      * @return A new builder.
      */
-    fun newBuilder(): Builder = Builder(this)
+    fun newBuilder(): RequestBuilder = RequestBuilder(this)
 
     /**
      * Builder class for [Request].
      */
-    class Builder : BuilderTrait<Request> {
+    class RequestBuilder : Builder<Request> {
         private var method: Method? = null
         private var url: URL? = null
         private var headersBuilder: Headers.Builder = Headers.Builder()
@@ -178,6 +178,6 @@ data class Request private constructor(
 
     companion object {
         @JvmStatic
-        fun builder(): Builder = Builder()
+        fun builder(): RequestBuilder = RequestBuilder()
     }
 }

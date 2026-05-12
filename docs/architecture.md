@@ -95,24 +95,21 @@ intentionally hidden. Keeping everything in one module preserves encapsulation.
 
 **Package**: `org.dexpace.sdk.core.io`
 
-A segment-based memory stream system inspired by Okio. Provides the storage backbone for
-HTTP body logging and efficient buffered I/O.
+A small set of **interface contracts** plus a single factory seam (`IoProvider`). `sdk-core`
+contains no concrete I/O implementation — that lives in adapter modules (today only
+`sdk-io-okio3`). The HTTP layer consumes the contracts; the consuming application installs
+one provider at startup via `Io.installProvider(...)`.
 
-| Type                 | Visibility | Role                                                              |
-|----------------------|------------|-------------------------------------------------------------------|
-| `Buffer`             | public     | Central byte queue — implements `BufferedSource` + `BufferedSink` |
-| `Source`             | public     | Byte source interface (pull model)                                |
-| `Sink`               | public     | Byte sink interface (push model)                                  |
-| `BufferedSource`     | public     | Rich typed read interface                                         |
-| `BufferedSink`       | public     | Rich typed write interface                                        |
-| `ForwardingSource`   | public     | Decorator base for intercepting reads                             |
-| `ForwardingSink`     | public     | Decorator base for intercepting writes                            |
-| `Segment`            | internal   | 8 KiB byte array chunk in circular doubly-linked list             |
-| `SegmentPool`        | internal   | Lock-free segment recycling with per-thread hash buckets          |
-| `RealBufferedSource` | internal   | `BufferedSource` that wraps a raw `Source`                        |
-| `RealBufferedSink`   | internal   | `BufferedSink` that wraps a raw `Sink`                            |
-| `PeekSource`         | internal   | Non-consuming lookahead `Source`                                  |
-| Extensions           | public     | `buffered()`, `asSource()`, `asSink()` bridge extensions          |
+| Type             | Visibility | Role                                                              |
+|------------------|------------|-------------------------------------------------------------------|
+| `Source`         | public     | Primitive byte source (`read(Buffer, byteCount): Long`)           |
+| `Sink`           | public     | Primitive byte sink (`write(Buffer, byteCount)`, `flush()`)       |
+| `BufferedSource` | public     | Typed reads: byte arrays, UTF-8 strings, lines, peek, java.io     |
+| `BufferedSink`   | public     | Typed writes: byte arrays, UTF-8 strings, writeAll, java.io       |
+| `Buffer`         | public     | In-memory queue (source + sink + `snapshot()` for body logging)   |
+| `IoProvider`     | public     | Single factory the adapter implements                             |
+| `Io`             | public     | `provider` getter + `installProvider(...)` + `withProvider(...)`  |
+| `TeeSink`        | internal   | `BufferedSink` that mirrors writes into a `Buffer` for logging    |
 
 See [I/O Module](io.md) for full design documentation.
 
@@ -348,7 +345,8 @@ backward compatibility with Azure SDK patterns.
 
 The SDK core avoids all third-party dependencies (beyond SLF4J and Kotlin stdlib):
 
-- **No Okio**: Built a purpose-built I/O layer instead (see [I/O Module](io.md))
+- **No Okio**: `sdk-core` defines interface contracts only; the Okio dependency lives in
+  the optional `sdk-io-okio3` adapter module (see [I/O Module](io.md))
 - **No Jackson/Moshi/kotlinx**: Serialization is abstract in core; concrete implementations
   belong in extension modules
 - **No coroutines**: Blocking `java.io` APIs work everywhere; coroutine adapters belong in
@@ -428,20 +426,28 @@ force these types to become `public`, breaking encapsulation.
 
 ## File Inventory
 
-### Kotlin Sources (48 files)
+### Kotlin Sources
 
-| Package           | Files | Key Types                                                                                                                              |
-|-------------------|-------|----------------------------------------------------------------------------------------------------------------------------------------|
-| `io`              | 11    | Buffer, Source, Sink, Segment, SegmentPool, BufferedSource, BufferedSink, RealBufferedSource, RealBufferedSink, PeekSource, Extensions |
-| `http.request`    | 3     | Request, RequestBody, Method                                                                                                           |
-| `http.response`   | 3     | Response, ResponseBody, Status                                                                                                         |
-| `http.common`     | 4     | Headers, MediaType, CommonMediaTypes, Protocol                                                                                         |
-| `http.logging`    | 4     | LoggableRequestBody, LoggableResponseBody, BodySnapshot, BodySegment                                                                   |
-| `http.context`    | 5     | CallContext, RequestContext, DispatchContext, ExchangeContext, ContextStore                                                            |
-| `pipeline`        | 4     | RequestPipeline, ResponsePipeline, BuilderPipeline, ExecutionPipeline                                                                  |
-| `pipeline.step`   | 2     | PipelineStep, StepConfigTrait                                                                                                          |
-| `client`          | 1     | HttpClient                                                                                                                             |
-| `serde`           | 3     | Serde, Deserializer, SerializeTrait                                                                                                    |
-| `instrumentation` | 6     | InstrumentationContext, Span, NoopSpan, NoopInstrumentationContext, TracingScope, TraceIdType                                          |
-| `generics`        | 1     | BuilderTrait                                                                                                                           |
-| `util`            | 1     | Annotations                                                                                                                            |
+| Package           | Key Types                                                                                       |
+|-------------------|-------------------------------------------------------------------------------------------------|
+| `io`              | Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink (internal)          |
+| `http.request`    | Request, RequestBody, LoggableRequestBody, Method                                               |
+| `http.response`   | Response, ResponseBody, LoggableResponseBody, Status                                            |
+| `http.common`     | Headers, MediaType, CommonMediaTypes, Protocol                                                  |
+| `http.context`    | CallContext, RequestContext, DispatchContext, ExchangeContext, ContextStore                     |
+| `pipeline`        | RequestPipeline, ResponsePipeline, BuilderPipeline, ExecutionPipeline                           |
+| `pipeline.step`   | PipelineStep, StepConfigTrait                                                                   |
+| `client`          | HttpClient                                                                                      |
+| `serde`           | Serde, Deserializer, SerializeTrait                                                             |
+| `instrumentation` | InstrumentationContext, Span, NoopSpan, NoopInstrumentationContext, TracingScope, TraceIdType   |
+| `generics`        | Builder                                                                                         |
+| `util`            | Annotations                                                                                     |
+
+### Okio adapter (`sdk-io-okio3`)
+
+| Type             | Visibility | Role                                                          |
+|------------------|------------|---------------------------------------------------------------|
+| `OkioIoProvider` | public     | Singleton `IoProvider` — `Io.installProvider(OkioIoProvider)` |
+| `OkioBuffer`     | internal   | `Buffer` wrapping `okio.Buffer`                               |
+| `OkioBufferedSource` | internal | `BufferedSource` wrapping `okio.BufferedSource`             |
+| `OkioBufferedSink`   | internal | `BufferedSink` wrapping `okio.BufferedSink`                 |

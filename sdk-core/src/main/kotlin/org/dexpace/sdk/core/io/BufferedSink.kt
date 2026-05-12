@@ -1,86 +1,56 @@
 package org.dexpace.sdk.core.io
 
+import java.io.IOException
 import java.io.OutputStream
 import java.nio.charset.Charset
 
 /**
- * A [Sink] with an internal buffer for efficient, typed write operations.
+ * A [Sink] that adds the typed write surface needed for HTTP request body serialization and
+ * `java.io` interop.
  *
- * Callers write structured data (bytes, integers, strings) through the convenience methods.
- * The internal buffer batches writes and flushes complete segments to the underlying sink
- * automatically.
- *
- * @see Buffer which implements this interface directly (with no downstream sink).
- * @see RealBufferedSink which wraps a raw [Sink].
+ * Implementations are obtained from an [IoProvider] — callers do not construct them directly.
  */
 interface BufferedSink : Sink {
-
     /**
-     * The internal buffer. Writes to this sink populate this buffer; flushes drain it
-     * to the downstream sink.
+     * The adapter's internal buffer. When this sink IS a [Buffer], the property returns `this`.
+     * Otherwise it returns the in-memory staging buffer the adapter uses between typed write
+     * calls and the underlying transport. Mutating the returned buffer directly is undefined
+     * behavior.
      */
     val buffer: Buffer
 
-    /** Writes a single byte. */
-    fun writeByte(b: Int): BufferedSink
-
-    /** Writes a big-endian short. */
-    fun writeShort(s: Int): BufferedSink
-
-    /** Writes a little-endian short. */
-    fun writeShortLe(s: Int): BufferedSink
-
-    /** Writes a big-endian int. */
-    fun writeInt(i: Int): BufferedSink
-
-    /** Writes a little-endian int. */
-    fun writeIntLe(i: Int): BufferedSink
-
-    /** Writes a big-endian long. */
-    fun writeLong(v: Long): BufferedSink
-
-    /** Writes a little-endian long. */
-    fun writeLongLe(v: Long): BufferedSink
-
-    /** Writes all bytes from [source]. */
+    @Throws(IOException::class)
     fun write(source: ByteArray): BufferedSink
 
-    /** Writes [byteCount] bytes from [source] starting at [offset]. */
+    /**
+     * Writes [byteCount] bytes from [source] starting at [offset].
+     *
+     * @throws IndexOutOfBoundsException if [offset] or [byteCount] is negative, or if
+     *         `offset + byteCount` exceeds `source.size`.
+     */
+    @Throws(IOException::class)
     fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink
 
-    /** Writes all bytes from [source]. */
-    fun write(source: Source, byteCount: Long): BufferedSink
-
-    /**
-     * Reads all bytes from [source] and writes them to this sink.
-     *
-     * @return the total number of bytes read.
-     */
+    /** Drains every remaining byte of [source] into this sink. Returns the number transferred. */
+    @Throws(IOException::class)
     fun writeAll(source: Source): Long
 
-    /** Encodes [string] as UTF-8 and writes it. */
+    @Throws(IOException::class)
     fun writeUtf8(string: String): BufferedSink
 
-    /** Encodes a substring of [string] as UTF-8 and writes it. */
+    @Throws(IOException::class)
     fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink
 
-    /** Encodes [string] with [charset] and writes it. */
+    @Throws(IOException::class)
     fun writeString(string: String, charset: Charset): BufferedSink
 
-    /**
-     * Writes all buffered data to the underlying sink without flushing it.
-     *
-     * This is like [flush] but does not propagate the flush downstream.
-     */
-    fun emit(): BufferedSink
-
-    /**
-     * Writes complete segments to the underlying sink, keeping partial segments buffered.
-     *
-     * Use this after each write to limit buffer growth.
-     */
-    fun emitCompleteSegments(): BufferedSink
-
-    /** Returns an [OutputStream] that writes to this sink. */
+    /** Returns an [OutputStream] that writes to this sink. Closing the stream closes this. */
     fun outputStream(): OutputStream
+
+    /**
+     * Pushes buffered bytes one level toward their final destination without forcing a
+     * system-level flush. Use [flush] when system-level flush semantics are required.
+     */
+    @Throws(IOException::class)
+    fun emit(): BufferedSink
 }

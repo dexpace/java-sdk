@@ -1,11 +1,11 @@
 package org.dexpace.sdk.core.pipeline
 
-import org.dexpace.sdk.core.generics.BuilderTrait
+import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.context.DispatchContext
 
 class BuilderPipeline<T>(
-    val steps: List<(BuilderTrait<T>, DispatchContext) -> BuilderTrait<T>> = emptyList(),
-    val builderFactory: () -> BuilderTrait<T>,
+    val steps: List<(Builder<T>, DispatchContext) -> Builder<T>> = emptyList(),
+    val builderFactory: () -> Builder<T>,
 ) {
 
     init {

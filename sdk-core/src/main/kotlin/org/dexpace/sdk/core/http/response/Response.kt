@@ -1,6 +1,6 @@
 package org.dexpace.sdk.core.http.response
 
-import org.dexpace.sdk.core.generics.BuilderTrait
+import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Request
@@ -10,7 +10,7 @@ import java.io.IOException
 /**
  * Represents an immutable HTTP response.
  *
- * Use [Builder] to create an instance.
+ * Use [ResponseBuilder] to create an instance.
  */
 @ConsistentCopyVisibility
 data class Response private constructor(
@@ -21,18 +21,12 @@ data class Response private constructor(
     val headers: Headers,
     val body: ResponseBody?
 ) : Closeable {
-        /**
-     * Returns true if the response code is in the 200-299 range.
-     */
-    val isSuccessful: Boolean
-        get() = status.code in 200..299
-
     /**
-     * Returns a new [Builder] initialized with this response's data.
+     * Returns a new [ResponseBuilder] initialized with this response's data.
      *
      * @return A new builder.
      */
-    fun newBuilder(): Builder = Builder(this)
+    fun newBuilder(): ResponseBuilder = ResponseBuilder(this)
 
     /**
      * Closes the response body and releases any resources.
@@ -49,7 +43,7 @@ data class Response private constructor(
     /**
      * Builder class for [Response].
      */
-    class Builder : BuilderTrait<Response> {
+    class ResponseBuilder : Builder<Response> {
         private var request: Request? = null
         private var protocol: Protocol? = null
         private var status: Status? = null
@@ -214,6 +208,6 @@ data class Response private constructor(
 
     companion object {
         @JvmStatic
-        fun builder() = Builder()
+        fun builder() = ResponseBuilder()
     }
 }

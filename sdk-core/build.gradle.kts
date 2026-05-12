@@ -3,18 +3,12 @@ plugins {
 }
 
 group = "org.dexpace"
-version = "1.0-SNAPSHOT"
+version = "0.0.1-alpha.1"
 
-repositories {
-    mavenCentral()
-}
+// repositories and shared compileOnly/implementation deps come from the root build.gradle.kts.
 
 dependencies {
     testImplementation(kotlin("test"))
-}
-
-kotlin {
-    jvmToolchain(21)
 }
 
 tasks.test {

@@ -1,5 +1,5 @@
 package org.dexpace.sdk.core.generics
 
-fun interface BuilderTrait<out T> {
+interface Builder<out T> {
     fun build(): T
 }

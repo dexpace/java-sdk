@@ -16,8 +16,8 @@ platform threads, virtual threads (Project Loom), Kotlin coroutines, and reactiv
 ## Highlights
 
 - **Zero external dependencies** beyond SLF4J API and Kotlin stdlib
-- **Segment-based I/O** with lock-free pooling, zero-copy transfers, and read-only streams
-- **Non-destructive body logging** with full capture, repeatable reads, and streaming segment callbacks
+- **Pluggable I/O** via `IoProvider` — `sdk-core` defines contracts; pick your streams lib (Okio 3.x today via `sdk-io-okio3`)
+- **Non-destructive body logging** with full capture and repeatable reads
 - **Pipeline architecture** for composable request/response processing with retry support
 - **Immutable HTTP models** with fluent builder APIs and full Java interop (`@JvmOverloads`)
 - **Virtual-thread safe** using `ReentrantLock` and `@Volatile` over `synchronized`
@@ -36,18 +36,27 @@ java-sdk/
 
 | Package                                                                            | Description                                                                       |
 |------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|
-| [`io`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/io)                           | Segment-based memory stream system (Buffer, Source, Sink, SegmentPool)            |
-| [`http.request`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/request)       | Immutable `Request`, `RequestBody`, `Method`                                      |
-| [`http.response`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response)     | Immutable `Response`, `ResponseBody`, `Status`                                    |
+| [`io`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/io)                           | I/O contracts: `Source`, `Sink`, `BufferedSource`, `BufferedSink`, `Buffer`, `IoProvider`, `Io` |
+| [`http.request`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/request)       | Immutable `Request`, `RequestBody`, `LoggableRequestBody`, `Method`              |
+| [`http.response`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response)     | Immutable `Response`, `ResponseBody`, `LoggableResponseBody`, `Status`            |
 | [`http.common`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/common)         | `Headers`, `MediaType`, `Protocol`, `CommonMediaTypes`                            |
-| [`http.logging`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/logging)       | `LoggableRequestBody`, `LoggableResponseBody`, `BodySnapshot`, `BodySegment`      |
 | [`http.context`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/context)       | `CallContext`, `DispatchContext`, `RequestContext`, `ExchangeContext`             |
 | [`pipeline`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline)               | `RequestPipeline`, `ResponsePipeline`, `BuilderPipeline`, `ExecutionPipeline`     |
 | [`pipeline.step`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/step)     | `PipelineStep`, `RequestPipelineStep`, `ResponsePipelineStep`, step config traits |
 | [`client`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/client)                   | `HttpClient` interface                                                            |
 | [`serde`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/serde)                     | `Serde`, `Deserializer`, `SerializeTrait`                                         |
 | [`instrumentation`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/instrumentation) | `InstrumentationContext`, `Span`, `TracingScope`                                  |
-| [`generics`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/generics)               | `BuilderTrait` — generic builder interface                                        |
+| [`generics`](sdk-core/src/main/kotlin/org/dexpace/sdk/core/generics)               | `Builder<T>` — generic builder interface                                          |
+
+### I/O Adapter (`sdk-io-okio3`)
+
+Implements `sdk-core`'s I/O contracts over Okio 3.x. Install once at startup:
+
+```kotlin
+Io.installProvider(OkioIoProvider)
+```
+
+`sdk-core` itself ships no I/O implementation — pick an adapter (or write your own).
 
 ### Java Packages (`src/main/java`)
 
@@ -110,15 +119,16 @@ val data = loggable.bytes()  // body is still available
 ### Using the I/O layer
 
 ```kotlin
-val buffer = Buffer()
-buffer.writeUtf8("Hello, world!")
-buffer.writeInt(42)
+// Install the provider once at startup
+Io.installProvider(OkioIoProvider)
 
-val text = buffer.readUtf8(13)  // "Hello, world!"
-val num = buffer.readInt()       // 42
+// In-memory buffer
+val buffer = Io.provider.buffer()
+buffer.writeUtf8("Hello, world!")
+val text = buffer.readUtf8()        // "Hello, world!"
 
 // Bridge with java.io
-val source = inputStream.asBufferedSource()
+val source = Io.provider.source(inputStream)
 while (!source.exhausted()) {
     println(source.readUtf8Line())
 }
@@ -129,7 +139,7 @@ source.close()
 
 | Component  | Version |
 |------------|---------|
-| Kotlin     | 2.3.0   |
+| Kotlin     | 2.3.21  |
 | Gradle     | 9.3.1   |
 | JVM Target | Java 8  |
 | SLF4J API  | 2.0.17  |

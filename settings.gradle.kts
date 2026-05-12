@@ -3,3 +3,4 @@ plugins {
 }
 rootProject.name = "java-sdk"
 include("sdk-core")
+include("sdk-io-okio3")

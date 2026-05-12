@@ -1,12 +1,10 @@
 package org.dexpace.sdk.core.http.response
 
 import org.dexpace.sdk.core.http.common.MediaType
-import java.io.BufferedInputStream
-import java.io.ByteArrayOutputStream
+import org.dexpace.sdk.core.io.BufferedSource
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
-import java.nio.charset.Charset
 
 /**
  * Represents the body of an HTTP response.
@@ -50,47 +48,13 @@ abstract class ResponseBody : Closeable {
     abstract fun contentLength(): Long
 
     /**
-     * Returns an [InputStream] to read the response body.
+     * Returns a [BufferedSource] to read the response body.
      *
-     * Note: The stream can be read only once. Multiple calls will return the same stream.
+     * Note: The source can be read only once. Multiple calls will return the same source.
      *
-     * @return The input stream.
+     * @return The buffered source.
      */
-    abstract fun byteStream(): InputStream
-
-    /**
-     * Reads the entire response body as a byte array and closes the body.
-     *
-     * @return The response body bytes.
-     * @throws IOException If an I/O error occurs.
-     */
-    @Throws(IOException::class)
-    fun bytes(): ByteArray {
-        val length = contentLength()
-        val out = if (length > 0) ByteArrayOutputStream(length.toInt()) else ByteArrayOutputStream()
-
-        use { body ->
-            val source = body.byteStream()
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            while (source.read(buffer).also { bytesRead = it } != -1) {
-                out.write(buffer, 0, bytesRead)
-            }
-        }
-
-        return out.toByteArray()
-    }
-
-    /**
-     * Reads the entire response body as a string and closes the body.
-     *
-     * @param charset The character set to decode with; defaults to UTF-8.
-     * @return The response body string.
-     * @throws IOException If an I/O error occurs.
-     */
-    @JvmOverloads
-    @Throws(IOException::class)
-    fun string(charset: Charset = Charsets.UTF_8): String = String(bytes(), charset)
+    abstract fun source(): BufferedSource
 
     /**
      * Closes the response body and releases any resources.
@@ -99,29 +63,28 @@ abstract class ResponseBody : Closeable {
      */
     @Throws(IOException::class)
     override fun close() {
-        byteStream().close()
+        source().close()
     }
 
     companion object {
+
         /**
-         * Creates a new response body from an [InputStream] and [mediaType].
+         * Creates a new response body from a [BufferedSource] and [mediaType].
          *
-         * @param inputStream The input stream to read from.
+         * @param source The buffered source to read from.
          * @param contentLength The length of the content, or -1 if unknown.
          * @param mediaType The media type, or null if unknown.
          * @return A new [ResponseBody] instance.
          */
         @JvmStatic
         @JvmOverloads
-        fun create(inputStream: InputStream, mediaType: MediaType? = null, contentLength: Long = -1L): ResponseBody =
+        fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1L): ResponseBody =
             object : ResponseBody() {
-                private val stream = BufferedInputStream(inputStream)
-
                 override fun mediaType(): MediaType? = mediaType
 
                 override fun contentLength(): Long = contentLength
 
-                override fun byteStream(): InputStream = stream
+                override fun source(): BufferedSource = source
             }
     }
 }
