@@ -59,9 +59,7 @@ value class ETag private constructor(private val raw: String) {
          * — it is technically valid per RFC 7232 §2.3.
          */
         @JvmStatic
-        fun weak(opaque: String): ETag {
-            return ETag("W/\"$opaque\"")
-        }
+        fun weak(opaque: String): ETag = ETag("W/\"$opaque\"")
 
         /**
          * Parses a raw header form. Returns [ANY] for `*`, `null` for blank or missing
@@ -77,13 +75,14 @@ value class ETag private constructor(private val raw: String) {
          */
         @JvmStatic
         fun parse(raw: String?): ETag? {
-            val s = raw?.trim() ?: return null
-            if (s.isEmpty()) return null
-            if (s == "*") return ANY
-            val isWeakForm = s.startsWith("W/\"") && s.endsWith("\"") && s.length >= 4
-            val isStrongForm = !s.startsWith("W/") && s.startsWith("\"") && s.endsWith("\"") && s.length >= 2
+            val trimmed = raw?.trim() ?: return null
+            if (trimmed.isEmpty()) return null
+            if (trimmed == "*") return ANY
+            val isWeakForm = trimmed.length >= 4 && trimmed.startsWith("W/\"") && trimmed.endsWith("\"")
+            val isStrongForm = trimmed.length >= 2 &&
+                !trimmed.startsWith("W/") && trimmed.startsWith("\"") && trimmed.endsWith("\"")
             require(isWeakForm || isStrongForm) { "malformed ETag: $raw" }
-            return ETag(s)
+            return ETag(trimmed)
         }
     }
 }

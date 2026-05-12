@@ -10,7 +10,8 @@ class AuthChallengeParserTest {
     fun `parses single Basic challenge`() {
         val challenges = AuthChallengeParser.parse("""Basic realm="api"""")
         assertEquals(1, challenges.size)
-        assertEquals("Basic", challenges[0].scheme)
+        // Scheme is normalised to lower case so callers can compare with `==`.
+        assertEquals("basic", challenges[0].scheme)
         assertEquals(mapOf("realm" to "api"), challenges[0].parameters)
     }
 
@@ -19,7 +20,7 @@ class AuthChallengeParserTest {
         val challenges = AuthChallengeParser.parse("""Digest realm="api", nonce="xyz", qop=auth""")
         assertEquals(1, challenges.size)
         val c = challenges[0]
-        assertEquals("Digest", c.scheme)
+        assertEquals("digest", c.scheme)
         assertEquals("api", c.parameters["realm"])
         assertEquals("xyz", c.parameters["nonce"])
         assertEquals("auth", c.parameters["qop"])
@@ -29,9 +30,9 @@ class AuthChallengeParserTest {
     fun `parses multiple challenges separated by commas`() {
         val challenges = AuthChallengeParser.parse("""Basic realm="a", Digest realm="b", nonce="c"""")
         assertEquals(2, challenges.size)
-        assertEquals("Basic", challenges[0].scheme)
+        assertEquals("basic", challenges[0].scheme)
         assertEquals("a", challenges[0].parameters["realm"])
-        assertEquals("Digest", challenges[1].scheme)
+        assertEquals("digest", challenges[1].scheme)
         assertEquals("b", challenges[1].parameters["realm"])
         assertEquals("c", challenges[1].parameters["nonce"])
     }
@@ -107,9 +108,9 @@ class AuthChallengeParserTest {
         // bare scheme followed by a comma + another challenge parses both sides.
         val challenges = AuthChallengeParser.parse("""Bearer, Basic realm="a"""")
         assertEquals(2, challenges.size)
-        assertEquals("Bearer", challenges[0].scheme)
+        assertEquals("bearer", challenges[0].scheme)
         assertTrue(challenges[0].parameters.isEmpty())
-        assertEquals("Basic", challenges[1].scheme)
+        assertEquals("basic", challenges[1].scheme)
         assertEquals("a", challenges[1].parameters["realm"])
     }
 
@@ -126,7 +127,19 @@ class AuthChallengeParserTest {
     fun `parses scheme with no parameters`() {
         val challenges = AuthChallengeParser.parse("Negotiate")
         assertEquals(1, challenges.size)
-        assertEquals("Negotiate", challenges[0].scheme)
+        assertEquals("negotiate", challenges[0].scheme)
         assertTrue(challenges[0].parameters.isEmpty())
+    }
+
+    @Test
+    fun `parses doubly-padded token68 value as a single token`() {
+        // Regression: `Bearer cmVhbA==` used to silently drop the challenge because
+        // the parser consumed the first `=` after the token, then failed to read a
+        // value (the next character was another `=`). The token68 form must include
+        // both pad chars.
+        val challenges = AuthChallengeParser.parse("Bearer cmVhbA==")
+        assertEquals(1, challenges.size)
+        assertEquals("bearer", challenges[0].scheme)
+        assertEquals("cmVhbA==", challenges[0].parameters["token68"])
     }
 }

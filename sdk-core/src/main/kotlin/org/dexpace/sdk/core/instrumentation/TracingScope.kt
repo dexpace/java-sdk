@@ -1,14 +1,12 @@
 package org.dexpace.sdk.core.instrumentation
 
 /**
- * Represents a controlled execution scope for a specific trace or span in a distributed tracing system.
+ * Lifecycle handle for a span that has been activated via [Span.makeCurrent].
  *
- * The `TracingScope` interface is typically used to manage the lifecycle of a span that has been made current.
- * When a span is made current, it becomes the active context for tracing operations within the execution scope.
- * The `TracingScope` ensures that the current trace context is properly set and cleaned up when the scope ends.
- *
- * Implementations of this interface should encapsulate logic to manage the activation and deactivation
- * of tracing contexts, ensuring that the proper span is active during its execution.
+ * While the scope is open, the associated span is the "current" span for the executing
+ * thread; closing the scope restores the previously active span. Implementations must be
+ * safe to `close()` from `try`-with-resources / Kotlin `use { … }` to guarantee cleanup
+ * even when the guarded code throws.
  */
 fun interface TracingScope : AutoCloseable {
     override fun close()

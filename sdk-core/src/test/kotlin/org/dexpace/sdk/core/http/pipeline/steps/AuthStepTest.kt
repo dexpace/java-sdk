@@ -468,6 +468,64 @@ class AuthStepTest {
     }
 
     @Test
+    fun `authorizeRequestOnChallenge throwing closes the 401 response before propagating`() {
+        val closes = AtomicInteger(0)
+        val client = object : org.dexpace.sdk.core.client.HttpClient {
+            override fun execute(request: Request): Response {
+                return Response.builder()
+                    .request(request)
+                    .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                    .status(org.dexpace.sdk.core.http.response.Status.fromCode(401))
+                    .addHeader("WWW-Authenticate", "Bearer realm=\"x\"")
+                    .body(CloseTrackingResponseBody(closes))
+                    .build()
+            }
+        }
+        val step = object : KeyCredentialAuthStep(KeyCredential("k")) {
+            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request {
+                throw RuntimeException("challenge handler failure")
+            }
+        }
+        val pipeline = HttpPipelineBuilder(client).append(step).build()
+
+        val ex = assertFailsWith<RuntimeException> { pipeline.send(getHttpsRequest()) }
+        assertEquals("challenge handler failure", ex.message)
+        assertTrue(closes.get() >= 1, "401 response must be closed even when challenge handler throws")
+    }
+
+    @Test
+    fun `challenge retry rebuilds chain state via next-dot-copy not bare next`() {
+        // Downstream recorder counts how many times its process is invoked. A bug that
+        // forwarded retry through bare `next.process(...)` would skip prior pipeline steps
+        // and only invoke the SEND step on retry. Through `next.copy()`, the recorder is
+        // invoked once per attempt — twice total here.
+        val recorderCalls = AtomicInteger(0)
+        val recorder = object : org.dexpace.sdk.core.http.pipeline.HttpStep {
+            override val stage = org.dexpace.sdk.core.http.pipeline.Stage.POST_AUTH
+            override fun process(
+                request: Request,
+                next: org.dexpace.sdk.core.http.pipeline.PipelineNext,
+            ): Response {
+                recorderCalls.incrementAndGet()
+                return next.process()
+            }
+        }
+        val step = object : KeyCredentialAuthStep(KeyCredential("k")) {
+            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request = request
+        }
+        val fake = FakeHttpClient()
+            .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+            .enqueue { status(200) }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(step)
+            .append(recorder)
+            .build()
+
+        pipeline.send(getHttpsRequest())
+        assertEquals(2, recorderCalls.get(), "downstream step must run on both initial and retry attempts")
+    }
+
+    @Test
     fun `FixedClock integration drives deterministic token expiry`() {
         val clock = FixedClock(Instant.parse("2024-06-01T00:00:00Z"))
         val fetches = AtomicInteger(0)

@@ -97,12 +97,16 @@ enum class Status(
          */
         @JvmStatic
         @Throws(IllegalArgumentException::class)
-        fun fromCode(code: Int): Status {
-            entries.find { it.code == code }?.let {
-                return it
-            }
+        fun fromCode(code: Int): Status =
+            fromCodeOrNull(code) ?: throw IllegalArgumentException("Invalid status code: $code")
 
-            throw IllegalArgumentException("Invalid status code: $code")
-        }
+        /**
+         * Returns the [Status] constant whose [code] matches [code], or `null` when no
+         * such constant exists. Use this for code paths that need to branch on unknown
+         * codes (e.g. a custom transport that wants to pass through a non-canonical 6xx
+         * code) rather than the throwing [fromCode].
+         */
+        @JvmStatic
+        fun fromCodeOrNull(code: Int): Status? = entries.find { it.code == code }
     }
 }

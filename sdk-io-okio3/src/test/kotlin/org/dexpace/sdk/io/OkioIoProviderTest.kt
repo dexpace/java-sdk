@@ -376,6 +376,7 @@ class OkioIoProviderTest {
                 }
                 return OkioIoProvider.source(input)
             }
+            override fun close() = Unit
         }
         val loggable = LoggableResponseBody(raw)
 
@@ -517,12 +518,15 @@ class OkioIoProviderTest {
         val loggable = LoggableRequestBody(RequestBody.create(src))
         assertFalse(loggable.isReplayable())
 
+        // toReplayable wraps the delegate's replayable form in a fresh LoggableRequestBody so
+        // every retry attempt still captures bytes into its own tap.
         val replayable = loggable.toReplayable()
         assertTrue(replayable.isReplayable())
         assertContentEquals("logged-once".toByteArray(), writeBody(replayable))
         assertContentEquals("logged-once".toByteArray(), writeBody(replayable))
-        // The tap captured the bytes when we drained for replayability.
-        assertContentEquals("logged-once".toByteArray(), loggable.snapshot())
+        // The replayable wrapper's tap holds the bytes from the most recent attempt.
+        assertTrue(replayable is LoggableRequestBody)
+        assertContentEquals("logged-once".toByteArray(), replayable.snapshot())
     }
 
     // ----- mark + reset on InputStream factory -----

@@ -16,6 +16,21 @@ import org.dexpace.sdk.core.instrumentation.metrics.NoopMeter
  * entirely (when `false`).
  *
  * Default-allowed query param names mirror [UrlRedactor.DEFAULT_ALLOWED] (i.e. `api-version`).
+ *
+ * ## WARNING — [HttpLogLevel.BODY_AND_HEADERS] and streaming
+ *
+ * When [logLevel] is [HttpLogLevel.BODY_AND_HEADERS] the response body is **fully drained
+ * into memory** before the caller ever sees it (the drain happens eagerly inside the
+ * instrumentation step). This is fundamentally incompatible with streaming responses:
+ *
+ *  - The entire response is buffered — large or unbounded payloads can exhaust the heap.
+ *  - Backpressure is lost — the transport cannot pause the producer once the body is read.
+ *  - First-byte latency for the caller approaches end-of-stream latency.
+ *
+ * Use [HttpLogLevel.HEADERS] (or [HttpLogLevel.NONE]) for endpoints that return large
+ * downloads, server-sent events, gRPC, or chunked encodings whose size is unknown ahead
+ * of time. [HttpLogLevel.BODY_AND_HEADERS] is intended for diagnostic builds against
+ * small JSON/text payloads.
  */
 class HttpInstrumentationOptions @JvmOverloads constructor(
     val logLevel: HttpLogLevel = HttpLogLevel.NONE,

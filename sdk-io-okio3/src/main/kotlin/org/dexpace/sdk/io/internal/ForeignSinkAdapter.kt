@@ -21,14 +21,14 @@ internal class ForeignSinkAdapter(private val delegate: Sink) : okio.Sink {
     private var cachedWrapper: OkioBuffer? = null
 
     override fun write(source: okio.Buffer, byteCount: Long) {
-        val wrapper = if (source === cachedBuffer) {
-            cachedWrapper!!
-        } else {
-            OkioBuffer(source).also {
+        // Cache the OkioBuffer wrapper keyed by reference identity of the okio.Buffer Okio
+        // passes us. Okio reuses the same source for a buffered producer's lifetime, so this
+        // amortizes wrapper allocation to once per producer.
+        val wrapper = cachedWrapper.takeIf { source === cachedBuffer }
+            ?: OkioBuffer(source).also {
                 cachedBuffer = source
                 cachedWrapper = it
             }
-        }
         delegate.write(wrapper, byteCount)
     }
 

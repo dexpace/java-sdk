@@ -3,8 +3,10 @@ package org.dexpace.sdk.core.http.auth
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.util.Uuids
 import java.net.URI
+import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -35,8 +37,8 @@ class DigestChallengeHandler @JvmOverloads constructor(
 ) : ChallengeHandler {
 
     init {
-        require(username.isNotEmpty()) { "username must not be empty" }
-        require(password.isNotEmpty()) { "password must not be empty" }
+        require(username.isNotBlank()) { "username must not be blank" }
+        require(password.isNotBlank()) { "password must not be blank" }
         require(preferredAlgorithms.isNotEmpty()) { "preferredAlgorithms must not be empty" }
     }
 
@@ -77,22 +79,23 @@ class DigestChallengeHandler @JvmOverloads constructor(
         // Find all challenges that match Digest with a satisfiable qop/realm/nonce
         // — we'll filter by algorithm preference below.
         val candidates = ArrayList<Pair<AuthenticateChallenge, DigestAlgorithm>>(challenges.size)
-        for (c in challenges) {
-            if (!c.scheme.equals("Digest", ignoreCase = true)) continue
-            if (c.parameters["realm"] == null) continue
-            if (c.parameters["nonce"] == null) continue
-            if (!qopSupportsAuth(c.parameters["qop"])) continue
-            val algoRaw = c.parameters["algorithm"]
-            val algorithm = if (algoRaw == null) DigestAlgorithm.MD5
-            else DigestAlgorithm.fromString(algoRaw) ?: continue
-            candidates.add(c to algorithm)
-        }
-        if (candidates.isEmpty()) return null
-        // Pick the candidate whose algorithm appears earliest in our preference list.
-        for (preferred in preferredAlgorithms) {
-            for (candidate in candidates) {
-                if (candidate.second == preferred) return candidate
+        for (challenge in challenges) {
+            if (!challenge.scheme.equals("Digest", ignoreCase = true)) continue
+            if (challenge.parameters["realm"] == null) continue
+            if (challenge.parameters["nonce"] == null) continue
+            if (!qopSupportsAuth(challenge.parameters["qop"])) continue
+            val algorithmName = challenge.parameters["algorithm"]
+            val algorithm = if (algorithmName == null) {
+                DigestAlgorithm.MD5 // RFC 7616 §3.3: MD5 is the default when omitted.
+            } else {
+                DigestAlgorithm.fromString(algorithmName) ?: continue
             }
+            candidates.add(challenge to algorithm)
+        }
+        // Pick the candidate whose algorithm appears earliest in our preference list.
+        // Returns null when no candidate matches any preferred algorithm.
+        for (preferred in preferredAlgorithms) {
+            candidates.firstOrNull { it.second == preferred }?.let { return it }
         }
         return null
     }
@@ -117,15 +120,16 @@ class DigestChallengeHandler @JvmOverloads constructor(
         val uriValue = digestUri(uri)
         val nc = ncHex(nonceCount.incrementAndGet())
         val cnonce = generateCnonce()
+        val charset = resolveCharset(challenge.parameters["charset"])
 
-        val ha1 = computeHa1(algorithm, realm, nonce, cnonce)
-        val ha2 = computeHa2(algorithm, method.method, uriValue)
+        val ha1 = computeHa1(algorithm, realm, nonce, cnonce, charset)
+        val ha2 = computeHa2(algorithm, method.method, uriValue, charset)
         val response = if (qop != null) {
             // RFC 7616 §3.4.1 — qop variant
-            hash(algorithm, "$ha1:$nonce:$nc:$cnonce:$qop:$ha2")
+            hash(algorithm, "$ha1:$nonce:$nc:$cnonce:$qop:$ha2", charset)
         } else {
             // RFC 2069 legacy — no qop
-            hash(algorithm, "$ha1:$nonce:$ha2")
+            hash(algorithm, "$ha1:$nonce:$ha2", charset)
         }
 
         val sb = StringBuilder(256).append("Digest ")
@@ -158,22 +162,31 @@ class DigestChallengeHandler @JvmOverloads constructor(
         realm: String,
         nonce: String,
         cnonce: String,
+        charset: Charset,
     ): String {
-        val base = hash(algorithm, "$username:$realm:$password")
-        return if (algorithm.sessionVariant) hash(algorithm, "$base:$nonce:$cnonce") else base
+        val base = hash(algorithm, "$username:$realm:$password", charset)
+        return if (algorithm.sessionVariant) hash(algorithm, "$base:$nonce:$cnonce", charset) else base
     }
 
     /** HA2 = H(method:uri) for qop=auth (RFC 7616 §3.4.3). */
-    private fun computeHa2(algorithm: DigestAlgorithm, method: String, uri: String): String =
-        hash(algorithm, "$method:$uri")
+    private fun computeHa2(
+        algorithm: DigestAlgorithm,
+        method: String,
+        uri: String,
+        charset: Charset,
+    ): String = hash(algorithm, "$method:$uri", charset)
 
     /**
      * Computes a hex-encoded digest using a freshly-instantiated [MessageDigest].
      * Wraps [NoSuchAlgorithmException] as `IllegalStateException` — this should
      * not happen for MD5 / SHA-256 on any conforming JVM, but the wrap gives a
      * clear actionable message if a stripped runtime is in play.
+     *
+     * [charset] picks the byte encoding used to materialise [input] before hashing
+     * — RFC 7616 §3.4 mandates UTF-8 when the challenge advertises `charset=UTF-8`,
+     * and ISO-8859-1 (the historical default) otherwise.
      */
-    private fun hash(algorithm: DigestAlgorithm, input: String): String {
+    private fun hash(algorithm: DigestAlgorithm, input: String, charset: Charset): String {
         val md = try {
             MessageDigest.getInstance(algorithm.javaName)
         } catch (e: NoSuchAlgorithmException) {
@@ -182,37 +195,43 @@ class DigestChallengeHandler @JvmOverloads constructor(
                 e,
             )
         }
-        return toHex(md.digest(input.toByteArray(Charsets.ISO_8859_1)))
+        return toHex(md.digest(input.toByteArray(charset)))
     }
+
+    /**
+     * Resolves the byte encoding for hashing per RFC 7616 §3.4: UTF-8 when the
+     * challenge advertises `charset=UTF-8` (case-insensitive), ISO-8859-1 otherwise.
+     */
+    private fun resolveCharset(charsetParameter: String?): Charset =
+        if (charsetParameter != null && charsetParameter.equals("utf-8", ignoreCase = true)) {
+            Charsets.UTF_8
+        } else {
+            Charsets.ISO_8859_1
+        }
 
     /**
      * Picks `auth` from a comma-separated qop list, falling back to legacy null
      * (RFC 2069) when [qopParameter] itself is null. Returns null when no qop
      * negotiation is required.
+     *
+     * Equivalent to `if (qopParameter == null) null else if (qopOffersAuth) "auth" else null`
+     * — [pickChallenge] uses [qopSupportsAuth] to filter, so a non-null parameter that
+     * reaches this code is expected to contain `auth`, but we re-check defensively.
      */
     private fun pickQopToken(qopParameter: String?): String? {
         if (qopParameter == null) return null // legacy RFC 2069
-        val tokens = qopParameter.split(',').map { it.trim() }
-        for (t in tokens) {
-            if (t.equals("auth", ignoreCase = true)) return "auth"
-        }
-        // qopSupportsAuth should have filtered this out, but be defensive.
-        return null
+        return if (qopSupportsAuth(qopParameter)) "auth" else null
     }
 
     /** Renders the digest-uri-value per RFC 7616 §3.4. We use the request-target form. */
     private fun digestUri(uri: URI): String {
-        val raw = uri.rawPath ?: ""
-        val path = if (raw.isEmpty()) "/" else raw
+        val path = uri.rawPath?.takeIf { it.isNotEmpty() } ?: "/"
         val query = uri.rawQuery
         return if (query != null) "$path?$query" else path
     }
 
     /** Pads [count] to exactly 8 lower-case hex digits per RFC 7616 §3.4. */
-    private fun ncHex(count: Int): String {
-        val hex = Integer.toHexString(count)
-        return if (hex.length >= 8) hex.substring(hex.length - 8) else "00000000".substring(hex.length) + hex
-    }
+    private fun ncHex(count: Int): String = String.format(Locale.US, "%08x", count)
 
     /** Non-blocking cnonce: 16 hex chars (high 64 bits of a fresh type-4 UUID). */
     private fun generateCnonce(): String {
@@ -239,8 +258,8 @@ class DigestChallengeHandler @JvmOverloads constructor(
         /** True if [qop] is absent (legacy) or contains the `auth` token (case-insensitive). */
         private fun qopSupportsAuth(qop: String?): Boolean {
             if (qop == null) return true
-            for (t in qop.split(',')) {
-                if (t.trim().equals("auth", ignoreCase = true)) return true
+            for (token in qop.split(',')) {
+                if (token.trim().equals("auth", ignoreCase = true)) return true
             }
             return false
         }
@@ -260,13 +279,11 @@ class DigestChallengeHandler @JvmOverloads constructor(
         /** Appends `key="<quoted-value>"` with `\"` and `\\` escaping per RFC 7235. */
         private fun appendQuoted(sb: StringBuilder, key: String, value: String) {
             sb.append(key).append("=\"")
-            for (i in 0 until value.length) {
-                val c = value[i]
+            for (c in value) {
                 if (c == '\\' || c == '"') sb.append('\\')
                 sb.append(c)
             }
             sb.append('"')
         }
     }
-
 }

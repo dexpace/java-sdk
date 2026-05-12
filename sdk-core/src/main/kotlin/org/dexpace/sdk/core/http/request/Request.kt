@@ -2,6 +2,7 @@ package org.dexpace.sdk.core.http.request
 
 import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.common.HttpHeaderName
 import java.net.MalformedURLException
 import java.net.URL
 
@@ -93,8 +94,7 @@ data class Request private constructor(
          */
         @Throws(MalformedURLException::class)
         fun url(url: String) = apply {
-            val parsedUrl = URL(url)
-            this.url = parsedUrl
+            this.url = URL(url)
         }
 
         /**
@@ -172,22 +172,27 @@ data class Request private constructor(
         }
 
         /**
+         * Removes all headers with the specified typed name.
+         *
+         * @param name The typed header name.
+         * @return This builder.
+         */
+        fun removeHeader(name: HttpHeaderName) = apply {
+            headersBuilder.remove(name)
+        }
+
+        /**
          * Builds the [Request].
          *
          * @return The built request.
-         * @throws IllegalStateException If the request is invalid.
+         * @throws IllegalStateException If a required field is missing.
          */
-        override fun build(): Request {
-            val method = this.method ?: throw IllegalStateException("Method is required.")
-            val url = this.url ?: throw IllegalStateException("URL is required.")
-
-            return Request(
-                method = method,
-                url = url,
-                headers = headersBuilder.build(),
-                body = body
-            )
-        }
+        override fun build(): Request = Request(
+            method = checkNotNull(method) { "Method is required." },
+            url = checkNotNull(url) { "URL is required." },
+            headers = headersBuilder.build(),
+            body = body,
+        )
     }
 
     companion object {

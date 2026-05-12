@@ -14,9 +14,9 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  *
  * ## Thread-safety
  *
- * Implementations are immutable data classes — instances are safe to share, but the
- * shared [ContextStore] is not currently thread-safe and is intended for single-threaded
- * use per call.
+ * Implementations are immutable data classes — instances are safe to share. The shared
+ * [ContextStore] is thread-safe (concurrent-map backed), so contexts for different trace
+ * ids can be promoted / removed concurrently without external synchronisation.
  */
 interface CallContext : AutoCloseable {
     /** Distributed-tracing context for this call; identifies the trace, span, and sampling flags. */

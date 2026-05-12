@@ -28,11 +28,18 @@ import java.io.IOException
  *
  * ## Multi-attempt usage
  *
- * Each call to [writeTo] appends bytes to the same tap. For HTTP retries that must produce
- * a clean capture per attempt, construct a fresh `LoggableRequestBody` per attempt rather
- * than reusing one across the retry loop. Calling `writeTo` more than once on a wrapper
- * whose underlying body is single-use will leave the tap unchanged on subsequent calls
- * (because the underlying source is already exhausted).
+ * Each call to [writeTo] **clears the tap first** and then captures the bytes produced by
+ * that attempt. This keeps the snapshot in lock-step with the most recent write — retries
+ * against a replayable [delegate] do not accumulate doubled / tripled bytes from earlier
+ * attempts. When the [delegate] is single-use a second [writeTo] will still fail at the
+ * delegate (its source is exhausted), and the snapshot returned by this wrapper will
+ * reflect whatever was written before the failure.
+ *
+ * ## Replayability
+ *
+ * This wrapper exposes [delegate]'s replayability verbatim: [isReplayable] delegates, and
+ * [toReplayable] returns a new `LoggableRequestBody` wrapping the delegate's replayable
+ * form, so retry loops continue to see captured bytes for every attempt.
  *
  * ## Thread safety
  *
@@ -55,8 +62,21 @@ class LoggableRequestBody @JvmOverloads constructor(
 
     override fun contentLength(): Long = delegate.contentLength()
 
+    override fun isReplayable(): Boolean = delegate.isReplayable()
+
+    override fun toReplayable(provider: IoProvider): RequestBody =
+        if (delegate.isReplayable()) this
+        else LoggableRequestBody(delegate.toReplayable(provider), provider)
+
+    /**
+     * Mirrors [delegate]'s `writeTo` output into the tap. The tap is **cleared first** so the
+     * post-write snapshot reflects only the bytes produced by this attempt — repeated calls
+     * against a replayable delegate (HTTP retries) do not accumulate stale bytes from
+     * earlier attempts.
+     */
     @Throws(IOException::class)
     override fun writeTo(sink: BufferedSink) {
+        tap.clear()
         val tee = TeeSink(sink, tap, provider)
         delegate.writeTo(tee)
     }

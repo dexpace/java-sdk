@@ -8,6 +8,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.LoggableResponseBody
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.LoggingEvent
 import org.dexpace.sdk.core.instrumentation.Span
 import org.dexpace.sdk.core.instrumentation.UrlRedactor
 import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
@@ -214,18 +215,18 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
         }
     }
 
-    private fun appendHeadersFields(ev: org.dexpace.sdk.core.instrumentation.LoggingEvent, headers: Headers, prefix: String) {
+    private fun appendHeadersFields(ev: LoggingEvent, headers: Headers, prefix: String) {
         // Iterate the headers actually present rather than the allow-list — the allow-list is
         // usually larger than the headers on any one request.
         for ((nameLower, values) in headers.entries()) {
             val typed = HttpHeaderName.fromString(nameLower)
-            val allowed = options.allowedHeaderNames.contains(typed)
-            if (allowed) {
-                ev.field(prefix + nameLower, joinHeaderValues(values))
-            } else if (options.isRedactedHeaderNamesLoggingEnabled) {
-                ev.field(prefix + nameLower, "REDACTED")
+            when {
+                options.allowedHeaderNames.contains(typed) ->
+                    ev.field(prefix + nameLower, joinHeaderValues(values))
+                options.isRedactedHeaderNamesLoggingEnabled ->
+                    ev.field(prefix + nameLower, "REDACTED")
+                // else: silently omit
             }
-            // else: silently omit
         }
     }
 

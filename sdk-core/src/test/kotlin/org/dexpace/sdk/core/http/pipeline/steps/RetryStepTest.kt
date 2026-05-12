@@ -443,6 +443,62 @@ class RetryStepTest {
         Thread.interrupted()
     }
 
+    @Test
+    fun `interrupt during sleep preserves the current attempt's exception as suppressed`() {
+        // The retry loop must record the current attempt's exception BEFORE sleeping so an
+        // interrupt during sleep doesn't silently drop it. The InterruptedIOException must
+        // carry every accumulated failure, including the one whose backoff was interrupted.
+        val attempts = AtomicInteger(0)
+        val interruptingClock = object : Clock {
+            override fun now(): Instant = Instant.EPOCH
+            override fun monotonic(): Long = 0L
+            override fun sleep(duration: Duration) {
+                throw InterruptedException("simulated interrupt")
+            }
+        }
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                val n = attempts.incrementAndGet()
+                throw IOException("attempt $n")
+            }
+        }
+
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), interruptingClock))
+            .build()
+
+        val ex = assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
+        // The current attempt's exception is in `suppressed` — without the fix it would be
+        // silently dropped.
+        assertTrue(
+            ex.suppressed.any { it.message == "attempt 1" },
+            "interrupted retry must preserve the current attempt's exception, got: ${ex.suppressed.toList()}",
+        )
+        Thread.interrupted()
+    }
+
+    @Test
+    fun `InterruptedIOException from the transport is rethrown immediately without retry`() {
+        // Per SDK cancellation convention, InterruptedIOException must not be classified as
+        // retryable — the loop re-interrupts the thread and rethrows. Without the check the
+        // exception classifier would see "IOException" and retry, masking cancellation.
+        val attempts = AtomicInteger(0)
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                attempts.incrementAndGet()
+                throw InterruptedIOException("transport interrupted")
+            }
+        }
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+            .build()
+
+        assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
+        assertEquals(1, attempts.get(), "InterruptedIOException must NOT be retried")
+        assertTrue(Thread.currentThread().isInterrupted, "interrupt status must be set")
+        Thread.interrupted()
+    }
+
     // ----------------- Accumulated suppressed exceptions -----------------
 
     @Test

@@ -81,7 +81,9 @@ internal class TeeSink(
         var total = 0L
         while (true) {
             val read = source.read(scratch, SCRATCH_BYTES)
-            if (read == -1L) break
+            // Guard against a Source returning 0 for a nonzero request — without this the
+            // loop would spin forever. We treat 0 as the end of the pump.
+            if (read <= 0L) break
             drainScratch()
             total += read
         }
@@ -109,6 +111,7 @@ internal class TeeSink(
         return this
     }
 
+    @Throws(IOException::class)
     override fun outputStream(): OutputStream {
         val primaryStream = primary.outputStream()
         val tapStream = tap.outputStream()
@@ -125,10 +128,15 @@ internal class TeeSink(
 
             override fun flush() {
                 primaryStream.flush()
+                tapStream.flush()
             }
 
             override fun close() {
-                primaryStream.close()
+                try {
+                    primaryStream.close()
+                } finally {
+                    tapStream.close()
+                }
             }
         }
     }
@@ -147,11 +155,11 @@ internal class TeeSink(
      */
     @Throws(IOException::class)
     private fun drainScratch() {
-        val n = scratch.size
-        if (n == 0L) return
+        val staged = scratch.size
+        if (staged == 0L) return
         try {
-            scratch.copyTo(tap, 0, n)
-            primary.write(scratch, n)
+            scratch.copyTo(tap, 0, staged)
+            primary.write(scratch, staged)
         } finally {
             // Ensure scratch is empty even if the copy/write threw, otherwise the next
             // typed write would prepend leftover bytes from the failed attempt.

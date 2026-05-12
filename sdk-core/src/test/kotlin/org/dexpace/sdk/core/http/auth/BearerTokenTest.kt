@@ -61,7 +61,13 @@ class BearerTokenTest {
     @Test
     fun `empty token is rejected at construction`() {
         val ex = assertFailsWith<IllegalArgumentException> { BearerToken("", Instant.now()) }
-        assertEquals("token must not be empty", ex.message)
+        assertEquals("token must not be blank", ex.message)
+    }
+
+    @Test
+    fun `whitespace-only token is rejected at construction`() {
+        val ex = assertFailsWith<IllegalArgumentException> { BearerToken("   ", Instant.now()) }
+        assertEquals("token must not be blank", ex.message)
     }
 
     @Test

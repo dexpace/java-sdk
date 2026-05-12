@@ -19,24 +19,15 @@ internal class CompositeChallengeHandler(
 
     private val handlers: List<ChallengeHandler> = handlers.toList()
 
-    override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean {
-        for (handler in handlers) {
-            if (handler.canHandle(challenges)) return true
-        }
-        return false
-    }
+    override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean =
+        handlers.any { it.canHandle(challenges) }
 
     override fun handleChallenges(
         method: Method,
         uri: URI,
         challenges: List<AuthenticateChallenge>,
         isProxy: Boolean,
-    ): Pair<String, String>? {
-        for (handler in handlers) {
-            if (handler.canHandle(challenges)) {
-                return handler.handleChallenges(method, uri, challenges, isProxy)
-            }
-        }
-        return null
-    }
+    ): Pair<String, String>? =
+        handlers.firstOrNull { it.canHandle(challenges) }
+            ?.handleChallenges(method, uri, challenges, isProxy)
 }

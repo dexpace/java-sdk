@@ -1,6 +1,7 @@
 package org.dexpace.sdk.io.internal
 
 import org.dexpace.sdk.core.io.Buffer
+import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Source
 import java.io.InputStream
@@ -32,9 +33,9 @@ internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
     override val size: Long get() = delegate.size
 
     override fun snapshot(): ByteArray {
-        val n = delegate.size
-        check(n <= Buffer.MAX_BYTE_ARRAY_SIZE) {
-            "Buffer is too large to materialize as a single ByteArray (size=$n bytes, " +
+        val byteCount = delegate.size
+        check(byteCount <= Buffer.MAX_BYTE_ARRAY_SIZE) {
+            "Buffer is too large to materialize as a single ByteArray (size=$byteCount bytes, " +
                 "max=${Buffer.MAX_BYTE_ARRAY_SIZE}). Stream via inputStream() or copyTo() instead."
         }
         return delegate.snapshot().toByteArray()
@@ -58,17 +59,12 @@ internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
 
     override fun read(sink: Buffer, byteCount: Long): Long {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
-        return when (sink) {
-            is OkioBuffer -> delegate.read(sink.delegate, byteCount)
-            else -> {
-                if (delegate.exhausted()) -1L
-                else {
-                    val available = minOf(byteCount, delegate.size)
-                    sink.write(delegate.readByteArray(available))
-                    available
-                }
-            }
-        }
+        if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
+        if (byteCount == 0L) return 0L
+        if (delegate.exhausted()) return -1L
+        val available = minOf(byteCount, delegate.size)
+        sink.write(delegate.readByteArray(available))
+        return available
     }
 
     override fun write(source: Buffer, byteCount: Long) {
@@ -113,36 +109,36 @@ internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
         )
     }
 
-    override fun write(source: ByteArray): org.dexpace.sdk.core.io.BufferedSink {
+    override fun write(source: ByteArray): BufferedSink {
         delegate.write(source)
         return this
     }
 
-    override fun write(source: ByteArray, offset: Int, byteCount: Int): org.dexpace.sdk.core.io.BufferedSink {
+    override fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink {
         delegate.write(source, offset, byteCount)
         return this
     }
 
     override fun writeAll(source: Source): Long = writeAllInto(delegate, source)
 
-    override fun writeUtf8(string: String): org.dexpace.sdk.core.io.BufferedSink {
+    override fun writeUtf8(string: String): BufferedSink {
         delegate.writeUtf8(string)
         return this
     }
 
-    override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): org.dexpace.sdk.core.io.BufferedSink {
+    override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink {
         delegate.writeUtf8(string, beginIndex, endIndex)
         return this
     }
 
-    override fun writeString(string: String, charset: Charset): org.dexpace.sdk.core.io.BufferedSink {
+    override fun writeString(string: String, charset: Charset): BufferedSink {
         delegate.writeString(string, charset)
         return this
     }
 
     override fun outputStream(): OutputStream = delegate.outputStream()
 
-    override fun emit(): org.dexpace.sdk.core.io.BufferedSink {
+    override fun emit(): BufferedSink {
         delegate.emit()
         return this
     }

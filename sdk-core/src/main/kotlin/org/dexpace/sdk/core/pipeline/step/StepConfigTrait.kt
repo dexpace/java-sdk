@@ -1,5 +1,8 @@
 package org.dexpace.sdk.core.pipeline.step
 
+import java.io.IOException
+import java.util.concurrent.TimeoutException
+
 /**
  * Marker root for opt-in configuration mixins applied to a [PipelineStep].
  *
@@ -63,9 +66,11 @@ interface PipelineStepRetryConfigTrait : PipelineStepConfigTrait {
 
     /**
      * Throwable types that trigger a retry. Throwables outside this list fail fast; an empty list
-     * effectively disables retry. Defaults to `Exception` so any checked / unchecked exception is
-     * eligible — narrow this in custom configs to avoid retrying programmer errors.
+     * effectively disables retry. Defaults to `IOException` and `TimeoutException` to match the
+     * classifier used by [org.dexpace.sdk.core.util.RetryUtils.isRetryable] — programmer errors
+     * (`IllegalStateException`, `NullPointerException`, …) are intentionally excluded so retries
+     * don't paper over bugs.
      */
     val retryOnExceptions: List<Class<out Throwable>>
-        get() = listOf(Exception::class.java)
+        get() = listOf(IOException::class.java, TimeoutException::class.java)
 }

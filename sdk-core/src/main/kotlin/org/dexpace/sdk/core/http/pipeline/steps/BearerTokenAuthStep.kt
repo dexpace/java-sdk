@@ -19,8 +19,10 @@ import kotlin.concurrent.withLock
  * Refresh is guarded by a [ReentrantLock] with double-checked locking — only one thread
  * fetches across concurrent requests racing on an expiring token.
  *
- * The pre-formatted header value (`"Bearer <token>"`) is also cached on the same fast
- * path so we don't concatenate on every request.
+ * The header string (`"Bearer <token>"`) is built inline on each request — concatenation
+ * cost is negligible against the HTTP round trip it precedes, and skipping a separate
+ * cache removes the lock/lock-free coordination problem that pairing the cache with the
+ * token would introduce.
  *
  * ## Refresh margin
  *
@@ -54,40 +56,29 @@ open class BearerTokenAuthStep @JvmOverloads constructor(
     @Volatile
     private var cachedToken: BearerToken? = null
 
-    @Volatile
-    private var cachedHeaderValue: String? = null
-
     override fun authorizeRequest(request: Request): Request {
         val token = currentToken()
-        // Reuse the pre-formatted header value when the cached token matched the read above;
-        // a concurrent refresh between the two volatile reads is possible but harmless — the
-        // worst case is one extra string concatenation, never an incorrect header.
-        val header = cachedHeaderValue ?: "Bearer ${token.token}".also { cachedHeaderValue = it }
         return request.newBuilder()
-            .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, header)
+            .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "Bearer ${token.token}")
             .build()
     }
 
     private fun currentToken(): BearerToken {
-        val now = clock.now()
-        cachedToken?.takeIf { !it.isExpiredAt(now, refreshMargin) }?.let { return it }
-        lock.withLock {
+        // Fast path: lock-free volatile read; return the cached token if it's still valid.
+        cachedToken?.takeIf { !it.isExpiredAt(clock.now(), refreshMargin) }?.let { return it }
+
+        return lock.withLock {
             // Re-read inside the lock; another thread may have refreshed between our first
             // check and lock acquisition. `clock.now()` is re-sampled so the second check
             // uses the latest time.
-            val nowInsideLock = clock.now()
-            cachedToken?.takeIf { !it.isExpiredAt(nowInsideLock, refreshMargin) }?.let { return it }
+            val now = clock.now()
+            cachedToken?.takeIf { !it.isExpiredAt(now, refreshMargin) }?.let { return@withLock it }
             val fresh = fetchFresh()
-            if (fresh.isExpiredAt(nowInsideLock)) {
-                throw IllegalStateException(
-                    "BearerTokenProvider returned an already-expired token"
-                )
+            check(!fresh.isExpiredAt(now)) {
+                "BearerTokenProvider returned an already-expired token"
             }
             cachedToken = fresh
-            // Invalidate the cached header so the next authorizeRequest re-computes it for
-            // the new token.
-            cachedHeaderValue = null
-            return fresh
+            fresh
         }
     }
 
@@ -102,6 +93,6 @@ open class BearerTokenAuthStep @JvmOverloads constructor(
     @Suppress("UNNECESSARY_NOT_NULL_ASSERTION", "UNCHECKED_CAST", "RedundantNullableReturnType")
     private fun fetchFresh(): BearerToken {
         val fetched: BearerToken? = provider.fetch(scopes) as BearerToken?
-        return fetched ?: throw IllegalStateException("BearerTokenProvider returned null")
+        return fetched ?: error("BearerTokenProvider returned null")
     }
 }

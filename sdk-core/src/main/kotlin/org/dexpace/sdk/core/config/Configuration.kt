@@ -36,10 +36,8 @@ class Configuration internal constructor(
     fun get(name: String, default: String? = null): String? {
         overrides[name]?.let { return it }
         val env = envSource(name)
-        if (env != null && env.isNotEmpty()) return env
-        val prop = propsSource(envToProp(name))
-        if (prop != null) return prop
-        return default
+        if (!env.isNullOrEmpty()) return env
+        return propsSource(envToProp(name)) ?: default
     }
 
     /**
@@ -106,12 +104,12 @@ class Configuration internal constructor(
 
         /**
          * Replace the process-wide global configuration. Last-write-wins via `@Volatile`.
-         * @throws NullPointerException if [c] is null.
+         * Kotlin's compiler-generated non-null parameter check raises `NullPointerException`
+         * (with a kotlin-style "Parameter specified as non-null is null" message) when a
+         * Java caller passes `null`, so no explicit guard is needed here.
          */
         @JvmStatic
         fun setGlobalConfiguration(c: Configuration) {
-            @Suppress("SENSELESS_COMPARISON")
-            if (c == null) throw NullPointerException("Configuration must not be null")
             global = c
         }
 
@@ -123,25 +121,25 @@ class Configuration internal constructor(
         internal fun parseDuration(raw: String): Duration? {
             if (raw.isEmpty()) return null
             // ISO-8601 path: `PT5S`, `P1D`, etc.
-            val upper = if (raw.length >= 1) Character.toUpperCase(raw[0]) else ' '
-            if (upper == 'P') {
+            if (Character.toUpperCase(raw[0]) == 'P') {
                 return try {
                     Duration.parse(raw)
                 } catch (_: Exception) {
                     null
                 }
             }
-            // Shorthand: <number><unit>
+            // Shorthand: <number><unit>. Reject negatives — durations are always non-negative
+            // and a "-5s" shorthand is almost certainly a configuration bug.
             val unit = raw.takeLastWhile { !it.isDigit() }
             val numPart = raw.substring(0, raw.length - unit.length).trim()
             val n = numPart.toLongOrNull() ?: return null
+            if (n < 0) return null
             return when (unit.lowercase(Locale.US).trim()) {
-                "ms" -> Duration.ofMillis(n)
+                "", "ms" -> Duration.ofMillis(n)
                 "s" -> Duration.ofSeconds(n)
                 "m" -> Duration.ofMinutes(n)
                 "h" -> Duration.ofHours(n)
                 "d" -> Duration.ofDays(n)
-                "" -> Duration.ofMillis(n)
                 else -> null
             }
         }

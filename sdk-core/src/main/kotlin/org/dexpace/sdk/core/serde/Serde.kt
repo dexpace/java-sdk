@@ -9,7 +9,9 @@ package org.dexpace.sdk.core.serde
  * `sdk-core` since `sdk-core` deliberately ships no embedded serializer.
  */
 interface Serde {
-//    val serializer: SerializeTrait
+    /** Encoder used for writing values out as wire bytes / strings / streams. */
+    val serializer: Serializer
+
     /** Decoder used for reading values out of wire bytes / strings / streams. */
     val deserializer: Deserializer
 }

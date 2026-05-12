@@ -22,19 +22,16 @@ data class DispatchContext(
      * Promotes this dispatch context into a [RequestContext] bound to [request] and
      * stores the new context in [ContextStore] keyed by the trace id.
      */
-    fun toRequestContext(request: Request) : RequestContext =
+    fun toRequestContext(request: Request): RequestContext =
         RequestContext(
             instrumentationContext = instrumentationContext,
-            request = request
+            request = request,
         ).also {
             ContextStore.set(it.instrumentationContext.traceId.value, it)
         }
 
     companion object {
         /** A dispatch context with a no-op instrumentation context; used when tracing is disabled. */
-        fun default() : DispatchContext =
-            DispatchContext(
-                NoopInstrumentationContext,
-            )
+        fun default(): DispatchContext = DispatchContext(NoopInstrumentationContext)
     }
 }

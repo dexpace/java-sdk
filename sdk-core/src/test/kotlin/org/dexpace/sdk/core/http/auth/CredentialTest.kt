@@ -33,7 +33,13 @@ class CredentialTest {
     @Test
     fun `KeyCredential rejects an empty apiKey`() {
         val ex = assertFailsWith<IllegalArgumentException> { KeyCredential("") }
-        assertEquals("apiKey must not be empty", ex.message)
+        assertEquals("apiKey must not be blank", ex.message)
+    }
+
+    @Test
+    fun `KeyCredential rejects a whitespace-only apiKey`() {
+        val ex = assertFailsWith<IllegalArgumentException> { KeyCredential("   ") }
+        assertEquals("apiKey must not be blank", ex.message)
     }
 
     @Test
@@ -54,13 +60,25 @@ class CredentialTest {
     @Test
     fun `NamedKeyCredential rejects empty name`() {
         val ex = assertFailsWith<IllegalArgumentException> { NamedKeyCredential("", "secret") }
-        assertEquals("name must not be empty", ex.message)
+        assertEquals("name must not be blank", ex.message)
+    }
+
+    @Test
+    fun `NamedKeyCredential rejects whitespace-only name`() {
+        val ex = assertFailsWith<IllegalArgumentException> { NamedKeyCredential("   ", "secret") }
+        assertEquals("name must not be blank", ex.message)
     }
 
     @Test
     fun `NamedKeyCredential rejects empty key`() {
         val ex = assertFailsWith<IllegalArgumentException> { NamedKeyCredential("acct", "") }
-        assertEquals("key must not be empty", ex.message)
+        assertEquals("key must not be blank", ex.message)
+    }
+
+    @Test
+    fun `NamedKeyCredential rejects whitespace-only key`() {
+        val ex = assertFailsWith<IllegalArgumentException> { NamedKeyCredential("acct", "   ") }
+        assertEquals("key must not be blank", ex.message)
     }
 
     @Test

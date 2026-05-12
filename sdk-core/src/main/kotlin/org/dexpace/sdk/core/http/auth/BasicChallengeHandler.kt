@@ -20,19 +20,15 @@ class BasicChallengeHandler(username: String, password: String) : ChallengeHandl
     private val authHeaderValue: String
 
     init {
-        require(username.isNotEmpty()) { "username must not be empty" }
-        require(password.isNotEmpty()) { "password must not be empty" }
+        require(username.isNotBlank()) { "username must not be blank" }
+        require(password.isNotBlank()) { "password must not be blank" }
         val encoded = Base64.getEncoder()
-            .encodeToString(("$username:$password").toByteArray(Charsets.UTF_8))
+            .encodeToString("$username:$password".toByteArray(Charsets.UTF_8))
         authHeaderValue = "Basic $encoded"
     }
 
-    override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean {
-        for (c in challenges) {
-            if (c.scheme.equals("Basic", ignoreCase = true)) return true
-        }
-        return false
-    }
+    override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean =
+        challenges.any { it.scheme.equals("Basic", ignoreCase = true) }
 
     override fun handleChallenges(
         method: Method,

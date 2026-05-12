@@ -69,9 +69,11 @@ interface BufferedSource : Source {
      * Returns a non-consuming view of this source. Reads from the returned source do not
      * advance the position of this source.
      */
+    @Throws(IOException::class)
     fun peek(): BufferedSource
 
     /** Returns an [InputStream] that reads from this source. Closing the stream closes this. */
+    @Throws(IOException::class)
     fun inputStream(): InputStream
 
     /** Skips [byteCount] bytes. Throws `EOFException` if exhausted before the count is met. */

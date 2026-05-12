@@ -557,6 +557,89 @@ class RedirectStepTest {
         assertEquals(1, fake.callCount)
     }
 
+    // ----------------- Scheme downgrade policy -----------------
+
+    @Test
+    fun `HTTPS to HTTP downgrade throws IllegalStateException by default`() {
+        val fake = FakeHttpClient()
+            .enqueue { status(302).header("Location", "http://api.example.com/insecure") }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep()) // allowSchemeDowngrade = false by default
+            .build()
+
+        val ex = assertFailsWith<IllegalStateException> {
+            pipeline.send(getRequest("https://api.example.com/secure"))
+        }
+        assertTrue(
+            ex.message?.contains("scheme downgrade") == true,
+            "message must explain the rejection: ${ex.message}",
+        )
+        // Only the original call should have happened; the redirect target was rejected.
+        assertEquals(1, fake.callCount)
+    }
+
+    @Test
+    fun `HTTPS to HTTP downgrade is followed when allowSchemeDowngrade is true`() {
+        val fake = FakeHttpClient()
+            .enqueue { status(302).header("Location", "http://api.example.com/v2") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep(HttpRedirectOptions(allowSchemeDowngrade = true)))
+            .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/v1"))
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount)
+        assertEquals("http", fake.requests[1].url.protocol)
+    }
+
+    @Test
+    fun `HTTP to HTTP redirect is unaffected by scheme downgrade policy`() {
+        // Both legs are HTTP — no downgrade, no policy check.
+        val fake = FakeHttpClient()
+            .enqueue { status(302).header("Location", "http://api.example.com/v2") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep()) // allowSchemeDowngrade defaults to false
+            .build()
+
+        val response = pipeline.send(getRequest("http://api.example.com/v1"))
+        assertEquals(200, response.status.code)
+    }
+
+    // ----------------- Mixed-case content-* headers stripped on 303 -----------------
+
+    @Test
+    fun `303 with follow303 strips mixed-case Content-Type and Content-Length`() {
+        val fake = FakeHttpClient()
+            .enqueue { status(303).header("Location", "https://api.example.com/done") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep(HttpRedirectOptions(follow303 = true)))
+            .build()
+
+        // Build the request with EXPLICITLY mixed-case header names — this exercises the
+        // case-insensitive content-* prefix check in stripContentAndAuthHeaders.
+        val request = Request.builder()
+            .method(Method.POST)
+            .url("https://api.example.com/submit")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("CONTENT-LENGTH", "11")
+            .addHeader("Content-Encoding", "gzip")
+            .body(RequestBody.create("{\"x\":\"y\"}".toByteArray()))
+            .build()
+
+        pipeline.send(request)
+        val reissued = fake.requests[1]
+        assertNull(reissued.headers.get("Content-Type"), "Content-Type must be stripped")
+        assertNull(reissued.headers.get("Content-Length"), "Content-Length must be stripped")
+        assertNull(reissued.headers.get("Content-Encoding"), "Content-Encoding must be stripped")
+    }
+
     // ----------------- Helpers -----------------
 
     private fun getRequest(url: String): Request =

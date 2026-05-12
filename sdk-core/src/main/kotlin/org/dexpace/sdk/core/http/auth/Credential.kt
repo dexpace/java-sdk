@@ -12,7 +12,7 @@ package org.dexpace.sdk.core.http.auth
  *  - [BearerToken] — OAuth-style access token with an optional expiry instant; refresh is
  *    driven by [BearerTokenProvider] inside [org.dexpace.sdk.core.http.pipeline.steps.BearerTokenAuthStep].
  *
- * Construction enforces non-empty fields at the credential level; HTTPS-only enforcement
+ * Construction enforces non-blank fields at the credential level; HTTPS-only enforcement
  * is the responsibility of the consuming auth step.
  */
 sealed interface Credential

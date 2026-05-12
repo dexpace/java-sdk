@@ -59,6 +59,12 @@ class PagedIterable<T> @JvmOverloads constructor(
      * Returns a lazy sequence of pages, starting from the first page produced by
      * [firstPage]. Each subsequent page is fetched only when the consumer pulls.
      *
+     * **Page ownership.** Each yielded [PagedResponse] is owned by the consumer; this method
+     * does not close them. Consumers MUST `close()` each page after use (or wrap iteration
+     * in `use {}` / try-with-resources) to release the underlying response body. The
+     * flattening [iterator] path closes pages automatically — only direct callers of
+     * [byPage] need to manage page lifecycle.
+     *
      * @param options Caller-supplied paging options forwarded to [firstPage] and
      *   [nextPage]. Default is a fresh, empty [PagingOptions].
      */
@@ -81,10 +87,33 @@ class PagedIterable<T> @JvmOverloads constructor(
     /**
      * Flattens all pages into an iterator of items. Each call starts a fresh iteration
      * (re-invokes [firstPage]).
+     *
+     * The iterator owns the pages it pulls through [byPage] and closes each one once its
+     * items are exhausted — callers don't need to manage page lifecycle when iterating by
+     * item.
      */
-    override fun iterator(): Iterator<T> = byPage()
-        .flatMap { it.value.asSequence() }
-        .iterator()
+    override fun iterator(): Iterator<T> = object : AbstractIterator<T>() {
+        private val pages = byPage().iterator()
+        private var currentItems: Iterator<T>? = null
+        private var currentPage: PagedResponse<T>? = null
+
+        override fun computeNext() {
+            // Advance through pages until we find one with items left, or pages are exhausted.
+            while (currentItems == null || !currentItems!!.hasNext()) {
+                currentPage?.close()
+                currentPage = null
+                currentItems = null
+                if (!pages.hasNext()) {
+                    done()
+                    return
+                }
+                val next = pages.next()
+                currentPage = next
+                currentItems = next.value.iterator()
+            }
+            setNext(currentItems!!.next())
+        }
+    }
 
     /**
      * Java 8 `Stream<T>` view over the same iteration as [iterator]. Sequential,

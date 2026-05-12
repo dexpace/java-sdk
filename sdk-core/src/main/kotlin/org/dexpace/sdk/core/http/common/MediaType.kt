@@ -54,13 +54,11 @@ data class MediaType private constructor(
      * in a try/catch.
      */
     val charset: Charset?
-        get() {
-            return parameters["charset"]?.let {
-                try {
-                    Charset.forName(it)
-                } catch (_: Exception) {
-                    null
-                }
+        get() = parameters["charset"]?.let {
+            try {
+                Charset.forName(it)
+            } catch (_: Exception) {
+                null
             }
         }
 
@@ -73,9 +71,8 @@ data class MediaType private constructor(
      * @return `true` if this media type's pattern matches [other], `false` otherwise.
      */
     fun includes(other: MediaType): Boolean {
-        val typeMatches = this.type == "*" || this.type.equals(other.type, ignoreCase = true)
-        val subtypeMatches = this.subtype == "*" || this.subtype.equals(other.subtype, ignoreCase = true)
-
+        val typeMatches = type == "*" || type.equals(other.type, ignoreCase = true)
+        val subtypeMatches = subtype == "*" || subtype.equals(other.subtype, ignoreCase = true)
         return typeMatches && subtypeMatches
     }
 
@@ -84,11 +81,10 @@ data class MediaType private constructor(
      * Parameters are joined without spaces around the `;` separator.
      */
     override fun toString(): String {
-        val formattedParams =
-            parameters.entries.joinToString(separator = ";") { (key, value) ->
-                "$key=$value"
-            }
-        return if (formattedParams.isNotEmpty()) "$type/$subtype;$formattedParams" else "$type/$subtype"
+        val formattedParams = parameters.entries.joinToString(separator = ";") { (key, value) ->
+            "$key=$value"
+        }
+        return if (formattedParams.isEmpty()) "$type/$subtype" else "$type/$subtype;$formattedParams"
     }
 
     companion object {
@@ -104,63 +100,62 @@ data class MediaType private constructor(
         fun of(type: String, subtype: String, parameters: Map<String, String> = emptyMap()): MediaType {
             require(type.isNotBlank()) { "Type must not be blank" }
             require(subtype.isNotBlank()) { "Subtype must not be blank" }
-
-            if (type == "*" && subtype != "*") {
-                throw IllegalArgumentException("Invalid media type format: type=$type, subtype=$subtype")
+            require(!(type == "*" && subtype != "*")) {
+                "Invalid media type format: type=$type, subtype=$subtype"
             }
 
             return MediaType(
-                type = type.lowercase(Locale.getDefault()),
-                subtype = subtype.lowercase(Locale.getDefault()),
-                parameters = parameters.mapKeys { it.key.lowercase(Locale.getDefault()) }
+                type = type.lowercase(Locale.US),
+                subtype = subtype.lowercase(Locale.US),
+                parameters = parameters.mapKeys { it.key.lowercase(Locale.US) },
             )
         }
 
         /**
-         * Parses a media type string into a [MediaType] object.
+         * Parses a media type string into a [MediaType].
          *
-         * @param mediaType The media type string to parse.
-         * @return The parsed [MediaType].
-         * @throws IllegalArgumentException If the media type cannot be parsed.
+         * @param mediaType the wire-form value (e.g. `application/json;charset=utf-8`).
+         * @return the parsed [MediaType].
+         * @throws IllegalArgumentException if the media type cannot be parsed.
          */
         @JvmStatic
         fun parse(mediaType: String): MediaType {
             require(mediaType.isNotBlank()) { "Media type must not be blank" }
 
             // Split into MIME type and optional parameters
-            val parts = mediaType.split(";").map(String::trim)
-            val mimeString = parts.first()
-            val parametersList = parts.drop(1)
+            val segments = mediaType.split(";").map(String::trim)
+            val mimeString = segments.first()
+            val parameterSegments = segments.drop(1)
 
             // Parse type and subtype
-            val slashIndex = mimeString.indexOf("/")
-            if (slashIndex == -1 || slashIndex == 0 || slashIndex == mimeString.length - 1) {
+            val slashIndex = mimeString.indexOf('/')
+            if (slashIndex <= 0 || slashIndex == mimeString.length - 1) {
                 throw IllegalArgumentException("Invalid media type format: $mediaType")
             }
-            val type = mimeString.substring(0, slashIndex).trim().lowercase(Locale.getDefault())
-            val subtype = mimeString.substring(slashIndex + 1).trim().lowercase(Locale.getDefault())
+            val type = mimeString.substring(0, slashIndex).trim().lowercase(Locale.US)
+            val subtype = mimeString.substring(slashIndex + 1).trim().lowercase(Locale.US)
 
             if (type == "*" && subtype != "*") {
                 throw IllegalArgumentException("Invalid media type format: $mediaType")
             }
 
-            val parametersMap =
-                parametersList
-                    .filter(String::isNotBlank)
-                    .associate { parameter ->
-                        // Split the parameter into key-value parts
-                        val parts = parameter.split("=").map(String::trim)
-                        val isValid = parts.size == 2 && parts.none { it.isBlank() }
-
-                        if (!isValid) {
-                            throw IllegalArgumentException("Invalid parameter format: $parameter")
-                        }
-
-                        val key = parts[0].lowercase(Locale.getDefault())
-                        val value = parts[1].lowercase(Locale.getDefault())
-
-                        key to value
+            val parametersMap = parameterSegments
+                .filter(String::isNotBlank)
+                .associate { parameter ->
+                    // Split on the FIRST `=` only — values may legitimately contain
+                    // additional `=` characters (e.g. multipart boundaries such as
+                    // `boundary=abc=def`). A naive `split("=")` would reject those.
+                    val equalsIndex = parameter.indexOf('=')
+                    if (equalsIndex < 0) {
+                        throw IllegalArgumentException("Invalid parameter format: $parameter")
                     }
+                    val key = parameter.substring(0, equalsIndex).trim()
+                    val value = parameter.substring(equalsIndex + 1).trim()
+                    if (key.isEmpty() || value.isEmpty()) {
+                        throw IllegalArgumentException("Invalid parameter format: $parameter")
+                    }
+                    key.lowercase(Locale.US) to value.lowercase(Locale.US)
+                }
 
             return MediaType(type, subtype, parametersMap)
         }

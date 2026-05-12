@@ -67,6 +67,12 @@ class LoggableResponseBody @JvmOverloads constructor(
     @Volatile
     private var closed = false
 
+    // Set after a successful drain: the drain path closes the source via `.use {}`, so a
+    // subsequent close() must not close the delegate again — some sockets / streams throw
+    // on double-close.
+    @Volatile
+    private var delegateClosed = false
+
     override fun mediaType(): MediaType? = delegate.mediaType()
 
     override fun contentLength(): Long = captured?.size ?: delegate.contentLength()
@@ -120,7 +126,13 @@ class LoggableResponseBody @JvmOverloads constructor(
         lock.withLock {
             if (closed) return
             closed = true
-            delegate.close()
+            // The drain path closes the underlying source via `.use {}` on success; in that
+            // case we must not close the delegate again — some sockets / streams throw on
+            // double-close.
+            if (!delegateClosed) {
+                delegate.close()
+                delegateClosed = true
+            }
             // The captured buffer intentionally survives close — it holds in-memory bytes
             // and no network resources, and is needed for post-mortem snapshot logging.
         }
@@ -141,6 +153,9 @@ class LoggableResponseBody @JvmOverloads constructor(
         val buf = provider.buffer()
         try {
             delegate.source().use { src -> buf.writeAll(src) }
+            // Drain completed cleanly; the source-level `use {}` has now closed the source
+            // and, by ownership, the delegate. Record that so close() doesn't try again.
+            delegateClosed = true
         } catch (t: Throwable) {
             // Keep whatever was read so logging can still inspect the partial body. Surface
             // the error on source() / re-throws; snapshot() returns the partial bytes.

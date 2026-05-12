@@ -9,8 +9,8 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * with the call's [InstrumentationContext] so post-exchange observers (metrics, log
  * sinks, span finalizers) can correlate every artifact of a completed call.
  */
-data class ExchangeContext (
+data class ExchangeContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
-    val response: Response
-): CallContext
+    val response: Response,
+) : CallContext

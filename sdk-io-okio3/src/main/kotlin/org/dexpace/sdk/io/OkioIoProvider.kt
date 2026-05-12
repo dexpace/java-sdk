@@ -42,10 +42,12 @@ object OkioIoProvider : IoProvider {
     override fun source(input: InputStream): BufferedSource =
         OkioBufferedSource(input.source().buffer())
 
-    override fun source(bytes: ByteArray): BufferedSource {
-        val buf = okio.Buffer().apply { write(bytes) }
-        return OkioBufferedSource(buf)
-    }
+    override fun source(bytes: ByteArray): BufferedSource =
+        // Return an OkioBuffer rather than OkioBufferedSource so callers retain the richer
+        // Buffer surface (snapshot, copyTo, size, etc.). OkioBuffer implements both
+        // BufferedSource and Buffer, so this is binary-compatible with the declared return
+        // type while preserving every byte of the input.
+        OkioBuffer(okio.Buffer().apply { write(bytes) })
 
     override fun sink(output: OutputStream): BufferedSink =
         OkioBufferedSink(output.sink().buffer())

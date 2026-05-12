@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.common
 
+import java.util.Locale
+
 /**
  * Enumeration of HTTP protocol versions the SDK can describe on a [org.dexpace.sdk.core.http.response.Response].
  *
@@ -9,9 +11,7 @@ package org.dexpace.sdk.core.http.common
  * without prior HTTP/1.1 upgrade.
  */
 @Suppress("unused")
-enum class Protocol(
-    private val protocolString: String
-) {
+enum class Protocol(private val protocolString: String) {
     /** HTTP/1.0 — legacy; unlikely to be seen in practice. */
     HTTP_1_0("http/1.0"),
 
@@ -25,14 +25,18 @@ enum class Protocol(
     H2_PRIOR_KNOWLEDGE("h2_prior_knowledge"),
 
     /** QUIC transport (HTTP/3 over UDP). */
-    QUIC("quic")
+    QUIC("quic"),
     ;
 
     /** Returns the canonical wire form (e.g. `"http/1.1"`). */
     override fun toString(): String = protocolString
 
     companion object {
-        private val lookup = entries.associateBy { it.protocolString.uppercase() }
+        // `Locale.US` is used deliberately — protocol identifiers are ASCII-only, so
+        // locale-sensitive folding (e.g. Turkish `i`) would be incorrect here.
+        private val LOOKUP: Map<String, Protocol> = entries.associateBy {
+            it.protocolString.uppercase(Locale.US)
+        }
 
         /**
          * Parses a protocol identifier (case-insensitively) and returns the matching
@@ -42,9 +46,12 @@ enum class Protocol(
          * @throws IllegalArgumentException if [protocol] does not match a known value.
          */
         @JvmStatic
-        fun get(protocol: String): Protocol = when (protocol.uppercase()) {
-            "HTTP/2", "HTTP/2.0" -> HTTP_2
-            else -> lookup[protocol.uppercase()] ?: throw IllegalArgumentException("Unexpected protocol: $protocol")
+        fun get(protocol: String): Protocol {
+            val normalised = protocol.uppercase(Locale.US)
+            return when (normalised) {
+                "HTTP/2", "HTTP/2.0" -> HTTP_2
+                else -> LOOKUP[normalised] ?: throw IllegalArgumentException("Unexpected protocol: $protocol")
+            }
         }
     }
 }

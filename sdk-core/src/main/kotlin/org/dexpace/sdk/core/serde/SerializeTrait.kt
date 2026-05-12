@@ -14,10 +14,10 @@ import java.io.OutputStream
  */
 interface Serializer {
     /** Encode [input] and return the result as a new string. */
-    fun serialize(input: Any) : String
+    fun serialize(input: Any): String
 
-    /** Encode [input] and return the bytes (implementation-defined return shape). */
-    fun serializeToByteArray(input: Any)
+    /** Encode [input] and return the result as a freshly-allocated byte array. */
+    fun serializeToByteArray(input: Any): ByteArray
 
     /** Stream [input]'s encoding into [outputStream]. The caller owns closing the stream. */
     fun serialize(input: Any, outputStream: OutputStream)

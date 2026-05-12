@@ -15,14 +15,11 @@ class ConfigurationBuilder {
     private var propsSource: (String) -> String? = { name -> System.getProperty(name) }
 
     /**
-     * Register an explicit override. Overrides win over every other layer.
-     * @throws NullPointerException if [name] or [value] is null.
+     * Register an explicit override. Overrides win over every other layer. Kotlin's
+     * compiler-generated non-null parameter check raises `NullPointerException` when a Java
+     * caller passes `null` for [name] or [value], so no explicit guard is needed here.
      */
     fun put(name: String, value: String): ConfigurationBuilder = apply {
-        @Suppress("SENSELESS_COMPARISON")
-        if (name == null) throw NullPointerException("name must not be null")
-        @Suppress("SENSELESS_COMPARISON")
-        if (value == null) throw NullPointerException("value must not be null")
         overrides[name] = value
     }
 

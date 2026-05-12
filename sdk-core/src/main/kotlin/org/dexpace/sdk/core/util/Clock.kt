@@ -30,10 +30,14 @@ interface Clock {
      * Blocks the current thread for [duration]. A zero duration is allowed and may return
      * immediately or yield. Honors `Thread.interrupt()` per Rank 22.
      *
+     * Implementations honor sub-millisecond precision where the underlying platform allows
+     * it (the [SYSTEM] implementation forwards the nanosecond remainder to `Thread.sleep`).
+     *
      * @throws IllegalArgumentException if [duration] is negative.
      * @throws InterruptedException if the calling thread is interrupted while sleeping.
-     *         The thread's interrupt status is left as set by `Thread.sleep` — the JVM
-     *         clears it on the thrown `InterruptedException`, matching standard semantics.
+     *         Per the SDK cancellation contract, implementations re-assert the thread's
+     *         interrupt status via `Thread.currentThread().interrupt()` before propagating
+     *         the exception so downstream handlers observe the interrupted state.
      */
     @Throws(InterruptedException::class)
     fun sleep(duration: Duration)
@@ -53,6 +57,17 @@ private class SystemClock : Clock {
     @Throws(InterruptedException::class)
     override fun sleep(duration: Duration) {
         require(!duration.isNegative) { "duration must be non-negative (got $duration)" }
-        Thread.sleep(duration.toMillis())
+        // `toMillis` truncates sub-millisecond precision; forward the leftover nanos so
+        // callers asking for, e.g., 1_500_000 ns (1.5ms) don't lose half a millisecond.
+        val millis = duration.toMillis()
+        val nanos = duration.nano % 1_000_000
+        try {
+            Thread.sleep(millis, nanos)
+        } catch (e: InterruptedException) {
+            // Per the SDK cancellation contract: `Thread.sleep` clears the interrupt flag
+            // when it throws; re-assert it so downstream handlers see the interrupted state.
+            Thread.currentThread().interrupt()
+            throw e
+        }
     }
 }

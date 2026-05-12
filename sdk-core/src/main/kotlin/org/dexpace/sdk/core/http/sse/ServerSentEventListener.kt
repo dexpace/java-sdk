@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.sse
 
+import java.time.Duration
+
 /**
  * Callback-style consumer for a Server-Sent Event stream.
  *
@@ -8,8 +10,8 @@ package org.dexpace.sdk.core.http.sse
  * [ServerSentEventReader] and dispatches them to a listener, calling [onError] on
  * exceptions and [onClose] when the stream terminates.
  *
- * The default implementations of [onError] and [onClose] are no-ops so simple
- * listeners can supply just [onEvent].
+ * The default implementations of [onError], [onClose], and [onRetry] are no-ops so
+ * simple listeners can supply just [onEvent].
  */
 interface ServerSentEventListener {
     /** Invoked once per parsed event. */
@@ -20,4 +22,13 @@ interface ServerSentEventListener {
 
     /** Default: no-op. Override to release resources or notify observers. */
     fun onClose() {}
+
+    /**
+     * Invoked with the server-advised reconnect interval ([ServerSentEvent.retry]). The SDK
+     * surfaces the hint but does not auto-reconnect; listeners that drive reconnect logic
+     * should override this to apply the [delay] before re-opening the stream.
+     *
+     * Default: no-op.
+     */
+    fun onRetry(delay: Duration) {}
 }

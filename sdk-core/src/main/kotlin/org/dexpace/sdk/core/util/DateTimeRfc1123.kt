@@ -12,8 +12,8 @@ import java.util.Locale
  *
  * Used for `Date`, `Last-Modified`, `Expires`, and `Retry-After` HTTP headers. Emits the
  * canonical form `Sun, 06 Nov 1994 08:49:37 GMT`; parses the strict form plus the
- * obsolete RFC 850 / asctime variants and common zone spellings (`GMT`, `UTC`, `+0000`),
- * with case-insensitive month and weekday names.
+ * obsolete RFC 850 / asctime variants and common zone spellings (`GMT`, `UTC`, `+0000`,
+ * `+00:00`), with case-insensitive month and weekday names.
  */
 object DateTimeRfc1123 {
 
@@ -37,14 +37,13 @@ object DateTimeRfc1123 {
 
     /** Formats [instant] as an RFC 1123 string in UTC (`Thu, 01 Jan 2024 00:00:00 GMT`). */
     @JvmStatic
-    fun format(instant: Instant): String {
-        return EMITTER.format(instant.atOffset(ZoneOffset.UTC))
-    }
+    fun format(instant: Instant): String =
+        EMITTER.format(instant.atOffset(ZoneOffset.UTC))
 
     /**
      * Parses an RFC 1123 string into an [Instant]. Tolerates obsolete RFC 850 / asctime
-     * variants where reasonable, lowercase month names, and `+0000` / `UTC` / `GMT` zone
-     * spellings.
+     * variants where reasonable, lowercase month / weekday names, and `GMT` / `UTC` /
+     * `+0000` / `+00:00` zone spellings.
      *
      * @throws DateTimeParseException on malformed or blank input.
      */
@@ -56,7 +55,7 @@ object DateTimeRfc1123 {
             throw DateTimeParseException("RFC 1123 date-time string is blank", raw, 0)
         }
         // The JDK formatter does not recognise "UTC" as a zone name (only "GMT" and
-        // numeric offsets). Normalize the trailing token so the obsolete spelling parses.
+        // numeric offsets). Normalize the trailing token so aliased spellings parse.
         val normalized = normalizeZone(trimmed)
         return try {
             Instant.from(TOLERANT_PARSER.parse(normalized))
@@ -71,15 +70,16 @@ object DateTimeRfc1123 {
     }
 
     private fun normalizeZone(s: String): String {
-        // Replace a trailing " UTC" with " GMT". Case-insensitive, applied only when it
-        // is the last token, to avoid mangling unrelated occurrences inside the string.
-        val len = s.length
-        if (len >= 4) {
-            val tail = s.substring(len - 4)
-            if (tail.equals(" utc", ignoreCase = true)) {
-                return s.substring(0, len - 4) + " GMT"
-            }
+        // Rewrite the trailing zone token to "GMT" when it is an aliased spelling for UTC.
+        // We only touch the suffix to avoid mangling unrelated occurrences inside the string.
+        // Aliases handled: "UTC" (case-insensitive), "+0000", and "+00:00" — all canonical
+        // representations of the zero offset that the JDK RFC 1123 parser does not accept
+        // verbatim.
+        return when {
+            s.endsWith(" UTC", ignoreCase = true) -> s.substring(0, s.length - 4) + " GMT"
+            s.endsWith(" +0000") -> s.substring(0, s.length - 6) + " GMT"
+            s.endsWith(" +00:00") -> s.substring(0, s.length - 7) + " GMT"
+            else -> s
         }
-        return s
     }
 }

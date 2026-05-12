@@ -29,19 +29,17 @@ internal class OkioBufferedSource(val delegate: okio.BufferedSource) : BufferedS
 
     override fun read(sink: Buffer, byteCount: Long): Long {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
-        return when (sink) {
-            is OkioBuffer -> delegate.read(sink.delegate, byteCount)
-            else -> {
-                if (byteCount == 0L) 0L
-                else if (delegate.exhausted()) -1L
-                else {
-                    val available = minOf(byteCount, delegate.buffer.size.coerceAtLeast(1L))
-                    val bytes = delegate.readByteArray(available)
-                    sink.write(bytes)
-                    bytes.size.toLong()
-                }
-            }
-        }
+        if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
+        if (byteCount == 0L) return 0L
+        if (delegate.exhausted()) return -1L
+        // Force Okio to pull at least one segment from the transport so we can move bytes
+        // in bulk; without this the staging buffer can sit at 0 and we'd degrade to a
+        // one-byte-per-call loop.
+        delegate.require(1L)
+        val available = minOf(byteCount, delegate.buffer.size)
+        val bytes = delegate.readByteArray(available)
+        sink.write(bytes)
+        return bytes.size.toLong()
     }
 
     override fun close() {

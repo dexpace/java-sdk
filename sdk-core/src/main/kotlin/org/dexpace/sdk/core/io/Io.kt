@@ -70,13 +70,18 @@ object Io {
     /**
      * Runs [block] with [provider] installed, then restores whatever provider was previously
      * installed (or none). Intended for tests; not designed for concurrent use.
+     *
+     * ## Thread-safety caveat
+     *
+     * This is NOT safe for concurrent test execution. The installed provider is a single
+     * JVM-wide field, so parallel `@BeforeTest` blocks across test classes (or any other
+     * concurrent caller) will overwrite each other's overrides and produce flaky results.
+     * If you need test isolation across threads, install one provider for the whole JVM and
+     * design tests around it, or move scoping into a [ThreadLocal] — the simpler model here
+     * trades concurrent test parallelism for an uncluttered production lookup path.
      */
     fun <T> withProvider(provider: IoProvider, block: () -> T): T {
-        val previous = lock.withLock {
-            val prev = installed
-            installed = provider
-            prev
-        }
+        val previous = lock.withLock { installed.also { installed = provider } }
         try {
             return block()
         } finally {

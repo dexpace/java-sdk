@@ -14,12 +14,12 @@ import java.time.Instant
  * Value semantics via `data class` so equal tokens compare equal and can be diffed by
  * tests cheaply.
  *
- * @param token the bearer token string; must be non-empty.
+ * @param token the bearer token string; must not be blank.
  * @param expiresAt the instant the token becomes invalid, or null for a non-expiring token.
- * @throws IllegalArgumentException if [token] is empty.
+ * @throws IllegalArgumentException if [token] is blank.
  */
 data class BearerToken(val token: String, val expiresAt: Instant?) : Credential {
-    init { require(token.isNotEmpty()) { "token must not be empty" } }
+    init { require(token.isNotBlank()) { "token must not be blank" } }
 
     /**
      * Returns true if this token is expired at [now] plus the optional [marginBefore]
@@ -31,6 +31,7 @@ data class BearerToken(val token: String, val expiresAt: Instant?) : Credential 
      * @param now the reference instant; usually `clock.now()`.
      * @param marginBefore extra time treated as "already expired"; defaults to zero.
      */
+    @JvmOverloads
     fun isExpiredAt(now: Instant, marginBefore: Duration = Duration.ZERO): Boolean =
         expiresAt != null && now.plus(marginBefore).isAfter(expiresAt)
 }

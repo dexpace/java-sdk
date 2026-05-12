@@ -29,6 +29,9 @@ interface ChallengeHandler {
      * The returned header name is `Authorization` for `WWW-Authenticate` challenges
      * and `Proxy-Authorization` for `Proxy-Authenticate`. Callers signal which via
      * [isProxy].
+     *
+     * Kotlin callers can omit [isProxy] thanks to the default value; Java callers
+     * use the three-argument convenience overload below.
      */
     fun handleChallenges(
         method: Method,
@@ -36,6 +39,19 @@ interface ChallengeHandler {
         challenges: List<AuthenticateChallenge>,
         isProxy: Boolean = false,
     ): Pair<String, String>?
+
+    /**
+     * Three-argument convenience overload that delegates to the full form with
+     * `isProxy = false`. Exists so Java callers see two distinct methods rather
+     * than having to pass the `isProxy` argument explicitly on every call —
+     * `@JvmOverloads` is disallowed on interface methods, so the default-argument
+     * Kotlin form alone does not produce a Java-visible overload.
+     */
+    fun handleChallenges(
+        method: Method,
+        uri: URI,
+        challenges: List<AuthenticateChallenge>,
+    ): Pair<String, String>? = handleChallenges(method, uri, challenges, false)
 
     /** True if any offered challenge is one this handler can satisfy. */
     fun canHandle(challenges: List<AuthenticateChallenge>): Boolean

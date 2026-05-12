@@ -78,6 +78,7 @@ internal class SlicedOkioBufferedSource(
     @Throws(IOException::class)
     private fun atEnd(): Boolean = remaining == 0L || peeked.exhausted()
 
+    @Throws(IOException::class)
     override fun read(sink: Buffer, byteCount: Long): Long {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         checkOpen()
@@ -85,45 +86,48 @@ internal class SlicedOkioBufferedSource(
         if (!realizeOffset()) return -1L
         if (atEnd()) return -1L
         val cap = minOf(byteCount, remaining)
-        val n = when (sink) {
-            is OkioBuffer -> peeked.read(sink.delegate, cap)
-            else -> {
-                val available = minOf(cap, peeked.buffer.size.coerceAtLeast(1L))
-                val bytes = peeked.readByteArray(available)
-                sink.write(bytes)
-                bytes.size.toLong()
-            }
+        val transferred = if (sink is OkioBuffer) {
+            peeked.read(sink.delegate, cap)
+        } else {
+            val available = minOf(cap, peeked.buffer.size.coerceAtLeast(1L))
+            val bytes = peeked.readByteArray(available)
+            sink.write(bytes)
+            bytes.size.toLong()
         }
-        if (n > 0L) remaining -= n
-        return n
+        if (transferred > 0L) remaining -= transferred
+        return transferred
     }
 
+    @Throws(IOException::class)
     override fun exhausted(): Boolean {
         checkOpen()
-        if (!realizeOffset()) return true
-        return atEnd()
+        return !realizeOffset() || atEnd()
     }
 
+    @Throws(IOException::class)
     override fun readByte(): Byte {
         checkOpen()
-        if (!realizeOffset()) throw EOFException()
-        if (remaining == 0L) throw EOFException()
-        val b = peeked.readByte()
+        if (!realizeOffset() || remaining == 0L) throw EOFException()
+        val byte = peeked.readByte()
         remaining -= 1
-        return b
+        return byte
     }
 
+    @Throws(IOException::class)
     override fun readByteArray(): ByteArray {
         checkOpen()
-        if (!realizeOffset()) return EMPTY_BYTES
-        if (atEnd()) return EMPTY_BYTES
+        if (!realizeOffset() || atEnd()) return EMPTY_BYTES
         val bytes = readUpTo(remaining)
         remaining -= bytes.size
         return bytes
     }
 
+    @Throws(IOException::class)
     override fun readByteArray(byteCount: Long): ByteArray {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
+        require(byteCount <= Buffer.MAX_BYTE_ARRAY_SIZE) {
+            "byteCount $byteCount exceeds MAX_BYTE_ARRAY_SIZE; stream via read(Buffer, Long) or inputStream() instead"
+        }
         checkOpen()
         if (!realizeOffset()) {
             if (byteCount == 0L) return EMPTY_BYTES
@@ -135,15 +139,16 @@ internal class SlicedOkioBufferedSource(
         return bytes
     }
 
+    @Throws(IOException::class)
     override fun readUtf8(): String {
         checkOpen()
-        if (!realizeOffset()) return ""
-        if (atEnd()) return ""
+        if (!realizeOffset() || atEnd()) return ""
         val bytes = readUpTo(remaining)
         remaining -= bytes.size
         return String(bytes, Charsets.UTF_8)
     }
 
+    @Throws(IOException::class)
     override fun readUtf8(byteCount: Long): String {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         checkOpen()
@@ -157,56 +162,61 @@ internal class SlicedOkioBufferedSource(
         return s
     }
 
+    @Throws(IOException::class)
     override fun readUtf8Line(): String? {
         checkOpen()
-        if (!realizeOffset()) return null
-        if (atEnd()) return null
+        if (!realizeOffset() || atEnd()) return null
         // Hand-roll the line search so we don't over-read the peek view: scan byte-by-byte
-        // within `remaining` until `\n`, accumulating into a small okio.Buffer. Without this,
-        // delegating to peek.readUtf8Line() could read past the slice window.
-        val sink = okio.Buffer()
+        // within `remaining` until `\n`, accumulating into a small okio.Buffer. Delegating to
+        // peek.readUtf8Line() could read past the slice window.
+        //
+        // To honor `\r\n`, defer writing a `\r` until we know the next byte isn't `\n`.
+        val accumulator = okio.Buffer()
         var foundTerminator = false
-        var trailingCr = false
+        var pendingCr = false
+        val newline = '\n'.code.toByte()
+        val carriageReturn = '\r'.code.toByte()
         while (remaining > 0L && !peeked.exhausted()) {
-            val b = peeked.readByte()
+            val byte = peeked.readByte()
             remaining -= 1
-            if (b == '\n'.code.toByte()) {
+            if (byte == newline) {
+                // pendingCr (if any) is intentionally dropped — it was the leading half of `\r\n`.
                 foundTerminator = true
-                // If the previous byte we wrote was '\r', drop it from the sink so the
-                // returned line excludes the CR.
-                if (trailingCr) {
-                    val withCr = sink.readByteArray()
-                    sink.clear()
-                    sink.write(withCr, 0, withCr.size - 1)
-                }
                 break
             }
-            trailingCr = (b == '\r'.code.toByte())
-            sink.writeByte(b.toInt())
+            // Any non-`\n` flushes a pending `\r` first; the prior byte was a literal CR.
+            if (pendingCr) accumulator.writeByte(carriageReturn.toInt())
+            pendingCr = (byte == carriageReturn)
+            if (!pendingCr) accumulator.writeByte(byte.toInt())
         }
-        if (!foundTerminator && sink.size == 0L) return null
-        return sink.readUtf8()
+        // A trailing `\r` that never met a `\n` is still part of the line.
+        if (pendingCr && !foundTerminator) accumulator.writeByte(carriageReturn.toInt())
+        if (!foundTerminator && accumulator.size == 0L) return null
+        return accumulator.readUtf8()
     }
 
+    @Throws(IOException::class)
     override fun readString(charset: Charset): String {
         checkOpen()
-        if (!realizeOffset()) return ""
-        if (atEnd()) return ""
+        if (!realizeOffset() || atEnd()) return ""
         val bytes = readUpTo(remaining)
         remaining -= bytes.size
         return String(bytes, charset)
     }
 
+    @Throws(IOException::class)
     override fun peek(): BufferedSource {
         checkOpen()
         return SlicedOkioBufferedSource(peeked.peek(), remaining, pendingSkip, parentClosed)
     }
 
+    @Throws(IOException::class)
     override fun inputStream(): InputStream {
         checkOpen()
         return SliceInputStream(this)
     }
 
+    @Throws(IOException::class)
     override fun skip(byteCount: Long) {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         checkOpen()
@@ -219,6 +229,7 @@ internal class SlicedOkioBufferedSource(
         remaining -= byteCount
     }
 
+    @Throws(IOException::class)
     override fun slice(offset: Long, byteCount: Long): BufferedSource {
         require(offset >= 0) { "offset must be non-negative (got $offset)" }
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
@@ -259,27 +270,27 @@ internal class SlicedOkioBufferedSource(
 
     /** Bridges [BufferedSource.inputStream] for slices without exposing the peek view. */
     private class SliceInputStream(private val slice: SlicedOkioBufferedSource) : InputStream() {
-        override fun read(): Int {
+        private fun checkOpen() {
             if (slice.closed) throw IOException("slice closed")
             if (slice.parentClosed.get()) throw IOException("Parent source closed")
-            if (!slice.realizeOffset()) return -1
-            if (slice.remaining == 0L || slice.peeked.exhausted()) return -1
-            val b = slice.peeked.readByte().toInt() and 0xFF
+        }
+
+        override fun read(): Int {
+            checkOpen()
+            if (!slice.realizeOffset() || slice.atEnd()) return -1
+            val byte = slice.peeked.readByte().toInt() and 0xFF
             slice.remaining -= 1
-            return b
+            return byte
         }
 
         override fun read(b: ByteArray, off: Int, len: Int): Int {
-            if (slice.closed) throw IOException("slice closed")
-            if (slice.parentClosed.get()) throw IOException("Parent source closed")
+            checkOpen()
             if (len == 0) return 0
-            if (!slice.realizeOffset()) return -1
-            if (slice.remaining == 0L || slice.peeked.exhausted()) return -1
+            if (!slice.realizeOffset() || slice.atEnd()) return -1
             val want = minOf(len.toLong(), slice.remaining)
-            val tmp = okio.Buffer()
-            val n = slice.peeked.read(tmp, want)
-            if (n <= 0L) return -1
-            val bytes = tmp.readByteArray()
+            val staging = okio.Buffer()
+            if (slice.peeked.read(staging, want) <= 0L) return -1
+            val bytes = staging.readByteArray()
             System.arraycopy(bytes, 0, b, off, bytes.size)
             slice.remaining -= bytes.size
             return bytes.size

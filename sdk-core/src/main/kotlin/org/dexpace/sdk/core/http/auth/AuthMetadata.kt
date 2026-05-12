@@ -14,12 +14,15 @@ package org.dexpace.sdk.core.http.auth
  * documentation, future wiring) can reference it without a parallel refactor blocking
  * Rank 6.
  *
- * @param schemes the auth schemes this operation supports, in preference order.
+ * @param schemes the auth schemes this operation supports, in preference order. Must not be empty.
  * @param oauthScopes OAuth scopes to forward to the token provider; ignored for non-OAuth schemes.
  * @param oauthParams extra OAuth params to forward (e.g. `claims`); defaults to empty.
+ * @throws IllegalArgumentException if [schemes] is empty.
  */
 class AuthMetadata @JvmOverloads constructor(
     val schemes: List<AuthScheme>,
     val oauthScopes: List<String> = emptyList(),
     val oauthParams: Map<String, Any> = emptyMap(),
-)
+) {
+    init { require(schemes.isNotEmpty()) { "schemes must not be empty" } }
+}

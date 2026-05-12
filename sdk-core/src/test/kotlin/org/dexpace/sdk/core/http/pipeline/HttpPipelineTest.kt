@@ -289,4 +289,52 @@ class HttpPipelineTest {
             HttpPipelineBuilder(client).append(sendStep)
         }
     }
+
+    @Test
+    fun `appendAll installs every step in iteration order`() {
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val steps: List<HttpStep> = listOf(
+            TaggingStep(Stage.PRE_AUTH, "a", order),
+            TaggingStep(Stage.PRE_AUTH, "b", order),
+            TaggingStep(Stage.PRE_AUTH, "c", order),
+        )
+
+        val pipeline = HttpPipelineBuilder(client).appendAll(steps).build()
+        pipeline.send(request())
+
+        assertEquals(listOf("a", "b", "c"), order)
+    }
+
+    @Test
+    fun `prependAll installs steps so iteration order is reversed at head`() {
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        // Each prepend pushes the step to the head; iterating "a","b","c" therefore yields
+        // final order "c","b","a" because the last prepend wins the head slot.
+        val steps: List<HttpStep> = listOf(
+            TaggingStep(Stage.PRE_AUTH, "a", order),
+            TaggingStep(Stage.PRE_AUTH, "b", order),
+            TaggingStep(Stage.PRE_AUTH, "c", order),
+        )
+
+        val pipeline = HttpPipelineBuilder(client).prependAll(steps).build()
+        pipeline.send(request())
+
+        assertEquals(listOf("c", "b", "a"), order)
+    }
+
+    @Test
+    fun `appendAll preserves chaining with append`() {
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val pipeline = HttpPipelineBuilder(client)
+            .append(TaggingStep(Stage.PRE_AUTH, "first", order))
+            .appendAll(listOf(TaggingStep(Stage.PRE_AUTH, "bulk-1", order), TaggingStep(Stage.PRE_AUTH, "bulk-2", order)))
+            .append(TaggingStep(Stage.PRE_AUTH, "last", order))
+            .build()
+        pipeline.send(request())
+
+        assertEquals(listOf("first", "bulk-1", "bulk-2", "last"), order)
+    }
 }

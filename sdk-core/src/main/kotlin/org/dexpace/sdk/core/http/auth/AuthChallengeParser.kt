@@ -26,12 +26,12 @@ object AuthChallengeParser {
      * Parses [header] and returns the list of challenges it contains. Returns an
      * empty list for blank input or input that contains no recognisable scheme.
      *
-     * Parameter names are normalised to lower case (US locale); values are stored
-     * verbatim with quoting and escaping removed.
+     * Both scheme and parameter names are normalised to lower case (US locale);
+     * values are stored verbatim with quoting and escaping removed.
      */
     @JvmStatic
     fun parse(header: String): List<AuthenticateChallenge> {
-        if (header.isEmpty()) return emptyList()
+        if (header.isBlank()) return emptyList()
         val cursor = Cursor(header)
         val out = ArrayList<AuthenticateChallenge>(2)
         while (cursor.hasMore()) {
@@ -49,10 +49,13 @@ object AuthChallengeParser {
      * the next top-level comma on malformed input.
      */
     private fun parseChallenge(cursor: Cursor): AuthenticateChallenge? {
-        val scheme = cursor.readToken() ?: run {
+        val rawScheme = cursor.readToken() ?: run {
             cursor.recoverToNextChallenge()
             return null
         }
+        // Normalise the scheme to lower case so callers can compare with a simple
+        // `==` (matches the same treatment we give to parameter names below).
+        val scheme = rawScheme.lowercase(Locale.US)
         cursor.skipOws()
 
         // After the scheme: zero or more auth-params (separated by commas), or a
@@ -63,8 +66,7 @@ object AuthChallengeParser {
         }
 
         val params = LinkedHashMap<String, String>(4)
-        val first = parseAuthParamOrToken68(cursor)
-        if (first == null) {
+        val first = parseAuthParamOrToken68(cursor) ?: run {
             cursor.recoverToNextChallenge()
             return null
         }
@@ -94,10 +96,7 @@ object AuthChallengeParser {
                 cursor.advance()
                 cursor.skipOws()
                 val value = cursor.readTokenOrQuotedString()
-                if (value == null) {
-                    // malformed — bail out of this challenge but leave cursor here.
-                    return AuthenticateChallenge(scheme, params)
-                }
+                    ?: return AuthenticateChallenge(scheme, params) // malformed — bail
                 params[nextToken.lowercase(Locale.US)] = value
             } else {
                 // The token we just consumed is actually the next challenge's
@@ -118,26 +117,37 @@ object AuthChallengeParser {
         val saved = cursor.position
         val name = cursor.readToken() ?: return null
         cursor.skipOws()
-        if (cursor.hasMore() && cursor.peek() == '=') {
-            cursor.advance()
-            cursor.skipOws()
-            // Could be token68 (ends in `=` padding) or a regular value. We've
-            // already consumed the `=`; check whether what follows is a value.
-            if (!cursor.hasMore() || cursor.peek() == ',') {
-                // looked like `key=` with nothing after — try to treat the whole
-                // thing as token68 (rewind and read it as such).
-                cursor.position = saved
-                val token68 = cursor.readToken68() ?: return null
-                return "token68" to token68
-            }
-            val value = cursor.readTokenOrQuotedString()
-                ?: return null
-            return name.lowercase(Locale.US) to value
+        if (!cursor.hasMore() || cursor.peek() != '=') {
+            // No `=` after the token — it's a token68.
+            cursor.position = saved
+            val token68 = cursor.readToken68() ?: return null
+            return "token68" to token68
         }
-        // No `=` after the token — it's a token68.
-        cursor.position = saved
-        val token68 = cursor.readToken68() ?: return null
-        return "token68" to token68
+        cursor.advance() // consume the first `=`
+
+        // Token68 may carry one or more `=` pad chars (e.g. `cmVhbA==`). After
+        // consuming the first `=`, if the very next character is another `=`, we
+        // are clearly looking at token68 padding rather than the BWS-allowed gap
+        // before an auth-param value — rewind and reparse as token68 so the
+        // entire `cmVhbA==` is recovered. Without this branch a doubly-padded
+        // base64 token would be silently dropped.
+        if (cursor.hasMore() && cursor.peek() == '=') {
+            cursor.position = saved
+            val token68 = cursor.readToken68() ?: return null
+            return "token68" to token68
+        }
+        cursor.skipOws()
+
+        // We've already consumed the `=`; check whether what follows is a value.
+        if (!cursor.hasMore() || cursor.peek() == ',') {
+            // looked like `key=` with nothing after — try to treat the whole
+            // thing as token68 (rewind and read it as such).
+            cursor.position = saved
+            val token68 = cursor.readToken68() ?: return null
+            return "token68" to token68
+        }
+        val value = cursor.readTokenOrQuotedString() ?: return null
+        return name.lowercase(Locale.US) to value
     }
 
     // ---- internal cursor ---------------------------------------------------------
@@ -199,14 +209,14 @@ object AuthChallengeParser {
             val sb = StringBuilder()
             while (position < len) {
                 val c = src[position]
-                when {
-                    c == '\\' -> {
+                when (c) {
+                    '\\' -> {
                         position++
                         if (position >= len) return null // dangling escape
                         sb.append(src[position])
                         position++
                     }
-                    c == '"' -> {
+                    '"' -> {
                         position++ // closing quote
                         return sb.toString()
                     }
@@ -216,7 +226,7 @@ object AuthChallengeParser {
                     }
                 }
             }
-            // ran off the end without seeing closing quote
+            // Ran off the end without seeing closing quote.
             return null
         }
 
@@ -231,8 +241,7 @@ object AuthChallengeParser {
         /** Advances to the next top-level comma (skipping over quoted strings). */
         fun recoverToNextChallenge() {
             while (position < len) {
-                val c = src[position]
-                when (c) {
+                when (src[position]) {
                     ',' -> return
                     '"' -> {
                         // skip the quoted string — but if it's unterminated, just

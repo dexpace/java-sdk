@@ -37,6 +37,16 @@ class ProxyOptions @JvmOverloads constructor(
     fun bypassesProxy(host: String): Boolean = nonProxyPatterns.any { it.matcher(host).matches() }
 
     /**
+     * Renders the proxy configuration without leaking credentials. [username] and [password]
+     * are masked to `***` when present so accidental log captures (and the JDK's default
+     * `Object.toString()` exposure) do not surface secrets.
+     */
+    override fun toString(): String =
+        "ProxyOptions(type=$type, address=$address, nonProxyHosts=$nonProxyHosts, " +
+            "username=${if (username != null) "***" else null}, " +
+            "password=${if (password != null) "***" else null})"
+
+    /**
      * Proxy protocol. [HTTP] is a CONNECT-tunneling or forward HTTP proxy; [SOCKS4] / [SOCKS5] are
      * the corresponding SOCKS variants. Transport adapters dispatch on this value to pick the right
      * `java.net.Proxy.Type`.
@@ -87,7 +97,7 @@ class ProxyOptions @JvmOverloads constructor(
             // NO_PROXY = "*" (or sysprop equivalent) → bypass everything; no proxy applies.
             if (nonProxyHosts == BYPASS_ALL) return null
 
-            if (sysHost != null && sysHost.isNotEmpty()) {
+            if (!sysHost.isNullOrEmpty()) {
                 val port = parsePort(sysPortRaw) ?: return null
                 return try {
                     ProxyOptions(
@@ -110,7 +120,7 @@ class ProxyOptions @JvmOverloads constructor(
 
             // 2. Env var layer: HTTPS_PROXY then HTTP_PROXY.
             val envProxyUrl = config.get(Configuration.HTTPS_PROXY) ?: config.get(Configuration.HTTP_PROXY)
-            if (envProxyUrl == null || envProxyUrl.isEmpty()) return null
+            if (envProxyUrl.isNullOrEmpty()) return null
 
             return parseProxyUrl(envProxyUrl, nonProxyHosts)
         }
@@ -132,7 +142,7 @@ class ProxyOptions @JvmOverloads constructor(
             }
 
             val host = uri.host
-            if (host == null || host.isEmpty()) {
+            if (host.isNullOrEmpty()) {
                 logger.atWarning()
                     .event("proxy.config.invalid")
                     .field("url", url)
@@ -153,16 +163,22 @@ class ProxyOptions @JvmOverloads constructor(
                 return null
             }
 
+            // Userinfo may be `user`, `user:pass`, or absent. Split at the first colon — the
+            // password may itself contain colons, so a naive partition-style split is wrong.
             val userinfo = uri.userInfo
-            var user: String? = null
-            var pass: String? = null
-            if (userinfo != null && userinfo.isNotEmpty()) {
+            val user: String?
+            val pass: String?
+            if (userinfo.isNullOrEmpty()) {
+                user = null
+                pass = null
+            } else {
                 val colon = userinfo.indexOf(':')
                 if (colon >= 0) {
                     user = userinfo.substring(0, colon)
                     pass = userinfo.substring(colon + 1)
                 } else {
                     user = userinfo
+                    pass = null
                 }
             }
 
@@ -194,16 +210,14 @@ class ProxyOptions @JvmOverloads constructor(
          */
         private fun resolveNonProxyHosts(config: Configuration): List<String> {
             val sysProp = config.getProperty("http.nonProxyHosts")
-            if (sysProp != null && sysProp.isNotEmpty()) {
+            if (!sysProp.isNullOrEmpty()) {
                 val parts = splitAndUnescape(sysProp, PROP_SPLIT, '|')
-                if (parts.size == 1 && parts[0] == "*") return BYPASS_ALL
-                return parts
+                return if (parts.size == 1 && parts[0] == "*") BYPASS_ALL else parts
             }
             val envVar = config.get(Configuration.NO_PROXY)
-            if (envVar != null && envVar.isNotEmpty()) {
+            if (!envVar.isNullOrEmpty()) {
                 val parts = splitAndUnescape(envVar, ENV_SPLIT, ',')
-                if (parts.size == 1 && parts[0] == "*") return BYPASS_ALL
-                return parts
+                return if (parts.size == 1 && parts[0] == "*") BYPASS_ALL else parts
             }
             return emptyList()
         }
@@ -213,13 +227,11 @@ class ProxyOptions @JvmOverloads constructor(
          * literal [separator] so `"a\,b,c"` -> `["a,b", "c"]`. Empty fragments are dropped.
          */
         private fun splitAndUnescape(raw: String, splitter: Pattern, separator: Char): List<String> {
-            val parts = splitter.split(raw)
-            val out = ArrayList<String>(parts.size)
-            for (p in parts) {
-                if (p.isEmpty()) continue
-                out.add(p.replace("\\" + separator, separator.toString()).trim())
-            }
-            return out
+            val escaped = "\\$separator"
+            val literal = separator.toString()
+            return splitter.split(raw)
+                .filter { it.isNotEmpty() }
+                .map { it.replace(escaped, literal).trim() }
         }
 
         /** Strict port parser. Returns null when [raw] is missing, non-numeric, or out of range. */
@@ -265,7 +277,9 @@ class ProxyOptions @JvmOverloads constructor(
         /**
          * Sentinel returned by [resolveNonProxyHosts] when the user requested "bypass everything"
          * (`NO_PROXY=*` or `http.nonProxyHosts=*`). The caller in [fromConfiguration] checks
-         * identity equality (via `===`) and returns null so the consumer routes directly.
+         * structural equality (via `==`, which is `List.equals`) and returns null so the
+         * consumer routes directly — a `listOf("*")` from any other source compares equal and
+         * is treated identically.
          */
         private val BYPASS_ALL: List<String> = listOf("*")
     }

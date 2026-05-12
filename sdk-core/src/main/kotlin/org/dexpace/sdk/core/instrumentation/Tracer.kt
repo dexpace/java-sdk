@@ -13,6 +13,12 @@ interface Tracer {
      * Starts a new span. The returned span is `recording` if and only if the tracer has an active
      * sampler that selected this trace; consumers should call [Span.end] regardless to mark the
      * lifecycle, since `end` on a non-recording span is a documented no-op.
+     *
+     * Note: `@JvmOverloads` is not supported on interface methods in Kotlin, so Java callers
+     * must always pass [attributes] explicitly — use `Collections.emptyMap()` when no
+     * attributes are needed. The default parameter is Kotlin-only. Mirrors the same caveat on
+     * [org.dexpace.sdk.core.instrumentation.metrics.LongCounter.add] and
+     * [org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram.record].
      */
     fun startSpan(name: String, attributes: Map<String, Any> = emptyMap()): Span
 }

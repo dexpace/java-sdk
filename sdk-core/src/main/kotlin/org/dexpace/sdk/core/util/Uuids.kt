@@ -19,10 +19,10 @@ internal object Uuids {
     /** Type-4 UUID via [ThreadLocalRandom]. Non-cryptographic but non-blocking. */
     fun random(): UUID {
         val tlr = ThreadLocalRandom.current()
-        var msb = tlr.nextLong()
-        var lsb = tlr.nextLong()
-        msb = (msb and 0xffffffffffff0fffuL.toLong()) or 0x0000000000004000L
-        lsb = (lsb and 0x3fffffffffffffffL) or Long.MIN_VALUE
+        // Set version 4 nibble: clear bits 51..48, set bit 14 → 0x4xxx in the version field.
+        val msb = (tlr.nextLong() and 0xffffffffffff0fffuL.toLong()) or 0x0000000000004000L
+        // Set IETF variant bits: clear bit 63, set bit 62 → high two bits of clock_seq_hi become 10.
+        val lsb = (tlr.nextLong() and 0x3fffffffffffffffL) or Long.MIN_VALUE
         return UUID(msb, lsb)
     }
 }

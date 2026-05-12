@@ -14,14 +14,14 @@ import java.io.InputStream
  */
 interface Deserializer {
     /** Decode a complete document from the in-memory [input] string. */
-    fun <T> deserialize(input: String) : T
+    fun <T> deserialize(input: String): T
 
     /** Decode a complete document from the in-memory [input] byte array. */
-    fun <T> deserialize(input: ByteArray) : T
+    fun <T> deserialize(input: ByteArray): T
 
     /**
      * Decode a complete document by streaming from [inputStream]. The implementation owns reading
      * to EOF but **does not** close the stream — the caller retains ownership.
      */
-    fun <T> deserialize(inputStream: InputStream) : T
+    fun <T> deserialize(inputStream: InputStream): T
 }

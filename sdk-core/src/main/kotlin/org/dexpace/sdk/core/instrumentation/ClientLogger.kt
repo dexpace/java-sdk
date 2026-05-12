@@ -42,10 +42,15 @@ class ClientLogger private constructor(
         globalContext: Map<String, Any?> = emptyMap(),
     ) : this(LoggerFactory.getLogger(requireNonEmpty(name)), globalContext)
 
-    /** Secondary constructor for the common `ClientLogger(MyClass::class)` form. */
+    /** Secondary constructor for the common `ClientLogger(MyClass::class)` Kotlin form. */
     @JvmOverloads
     constructor(klass: kotlin.reflect.KClass<*>, globalContext: Map<String, Any?> = emptyMap()) :
         this(klass.java.name, globalContext)
+
+    /** Secondary constructor for the common `new ClientLogger(MyClass.class)` Java form. */
+    @JvmOverloads
+    constructor(klass: Class<*>, globalContext: Map<String, Any?> = emptyMap()) :
+        this(klass.name, globalContext)
 
     /** Test-only seam: inject a pre-built [Logger] (e.g. a fake) without going through `LoggerFactory`. */
     internal companion object {
@@ -86,6 +91,9 @@ class ClientLogger private constructor(
      * Returns `true` when the underlying SLF4J logger has [level] enabled. Useful for guarding
      * field computation that is expensive enough to warrant skipping when the event would be
      * discarded anyway.
+     *
+     * Equivalent to SLF4J `Logger.isEnabledForLevel(Level)`; named `canLog` to read naturally
+     * at call sites such as `if (logger.canLog(LogLevel.VERBOSE)) { … }`.
      */
     fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(toSlf4j(level))
 

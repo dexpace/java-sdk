@@ -1,10 +1,9 @@
 package org.dexpace.sdk.core.pipeline.step
 
-import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.context.DispatchContext
 import org.dexpace.sdk.core.http.context.ExchangeContext
-
+import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.Response
 
 /**
  * Single executable step in a pipeline workflow, parameterized by input type [T] and output type [V].

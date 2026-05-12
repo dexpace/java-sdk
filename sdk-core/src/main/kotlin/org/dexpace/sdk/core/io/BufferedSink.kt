@@ -57,6 +57,7 @@ interface BufferedSink : Sink {
     fun writeString(string: String, charset: Charset): BufferedSink
 
     /** Returns an [OutputStream] that writes to this sink. Closing the stream closes this. */
+    @Throws(IOException::class)
     fun outputStream(): OutputStream
 
     /**

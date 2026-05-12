@@ -36,6 +36,23 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         else perStage.getOrPut(step.stage) { ArrayDeque() }.addFirst(step)
     }
 
+    /**
+     * Appends every step in [steps] via [append], preserving iteration order. Convenience
+     * for installing a pre-built bundle of steps in one call.
+     */
+    fun appendAll(steps: Iterable<HttpStep>): HttpPipelineBuilder = apply {
+        for (s in steps) append(s)
+    }
+
+    /**
+     * Prepends every step in [steps] via [prepend], preserving iteration order. Note that
+     * because each call uses [prepend], the final relative ordering inside each stage is
+     * the reverse of [steps] — the last item ends up at the head.
+     */
+    fun prependAll(steps: Iterable<HttpStep>): HttpPipelineBuilder = apply {
+        for (s in steps) prepend(s)
+    }
+
     /** Insert [step] immediately after the first instance of [T] in the pipeline. */
     inline fun <reified T : HttpStep> insertAfter(step: HttpStep): HttpPipelineBuilder {
         val flat = flattenedView()

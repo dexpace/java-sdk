@@ -8,13 +8,13 @@ package org.dexpace.sdk.core.http.auth
  * there is no shared `*AuthStep` for this credential; callers wire it into their own
  * service-specific signing step.
  *
- * @param name the key identifier; must be non-empty.
- * @param key the secret material; must be non-empty.
- * @throws IllegalArgumentException if [name] or [key] is empty.
+ * @param name the key identifier; must not be blank.
+ * @param key the secret material; must not be blank.
+ * @throws IllegalArgumentException if [name] or [key] is blank.
  */
 class NamedKeyCredential(val name: String, val key: String) : Credential {
     init {
-        require(name.isNotEmpty()) { "name must not be empty" }
-        require(key.isNotEmpty()) { "key must not be empty" }
+        require(name.isNotBlank()) { "name must not be blank" }
+        require(key.isNotBlank()) { "key must not be blank" }
     }
 }

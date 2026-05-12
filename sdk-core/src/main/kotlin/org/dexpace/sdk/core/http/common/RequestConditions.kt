@@ -44,12 +44,29 @@ class RequestConditions private constructor(
         }
     }
 
+    /**
+     * Returns a new [Builder] pre-populated with this instance's state, so callers can
+     * derive a modified copy without rebuilding from scratch.
+     */
+    fun newBuilder(): Builder = Builder(this)
+
     /** Builder for [RequestConditions]. */
     class Builder {
         private val ifMatch = mutableListOf<ETag>()
         private val ifNoneMatch = mutableListOf<ETag>()
         private var ifModifiedSince: Instant? = null
         private var ifUnmodifiedSince: Instant? = null
+
+        /** Creates an empty builder. */
+        constructor()
+
+        /** Creates a builder pre-populated with the entries of [source]. */
+        constructor(source: RequestConditions) : this() {
+            ifMatch.addAll(source.ifMatch)
+            ifNoneMatch.addAll(source.ifNoneMatch)
+            ifModifiedSince = source.ifModifiedSince
+            ifUnmodifiedSince = source.ifUnmodifiedSince
+        }
 
         /** Adds an `If-Match` validator. Multiple calls accumulate (comma-separated on the wire). */
         fun ifMatch(tag: ETag): Builder = apply { ifMatch.add(tag) }

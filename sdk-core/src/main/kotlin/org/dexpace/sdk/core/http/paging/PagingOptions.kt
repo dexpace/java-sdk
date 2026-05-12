@@ -15,6 +15,14 @@ package org.dexpace.sdk.core.http.paging
  *
  * Instances are **not** thread-safe.
  *
+ * ## Mutation visibility
+ *
+ * [PagedIterable] passes the **same** `PagingOptions` instance to every `nextPage` invocation —
+ * mutations performed inside one `nextPage` lambda (for example, updating [continuationToken]
+ * with the cursor returned by the previous page) are observable by all subsequent
+ * `firstPage` / `nextPage` calls during the iteration. The caller is responsible for choosing
+ * a coherent mutation strategy (read the cursor, mutate `options`, return the page).
+ *
  * @property offset Zero-based starting index of the first item the server should return.
  * @property pageSize Maximum number of items the server should return per page.
  * @property pageIndex Zero-based page number to fetch (mutually exclusive with [offset] in

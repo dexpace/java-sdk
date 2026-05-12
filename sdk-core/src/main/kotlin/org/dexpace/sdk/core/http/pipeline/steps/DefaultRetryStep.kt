@@ -6,13 +6,13 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.util.Clock
+import org.dexpace.sdk.core.util.DateTimeRfc1123
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
 import java.util.concurrent.ThreadLocalRandom
-import org.dexpace.sdk.core.util.DateTimeRfc1123
 
 /**
  * Default [RetryStep]. Drives an iterative retry loop with classified failure detection,
@@ -52,6 +52,10 @@ import org.dexpace.sdk.core.util.DateTimeRfc1123
  * Only [Exception] subclasses are intercepted. [Error] (e.g. [OutOfMemoryError],
  * [StackOverflowError]) propagates immediately — no retry, no classification, no logging.
  *
+ * [InterruptedIOException] from the downstream transport is not classified as retryable.
+ * The thread interrupt status is restored and the exception is rethrown immediately with
+ * any accumulated prior failures attached as suppressed.
+ *
  * On non-retryable exception, every prior attempt's exception is attached to the
  * final exception via [Throwable.addSuppressed] before rethrow.
  *
@@ -90,17 +94,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
                         val delay = computeResponseDelay(condition)
                         logRetry(tryCount, delay, response.status.code, cause = null)
                         // Release the failed-response body's resources before we sleep.
-                        try {
-                            response.close()
-                        } catch (closeErr: IOException) {
-                            // Swallow close failures — the caller already decided to retry,
-                            // and a close error on a soon-to-be-replaced response is not
-                            // actionable. Log at verbose so it stays observable.
-                            logger.atVerbose()
-                                .event("http.retry.close_failed")
-                                .field("error.type", closeErr::class.java.simpleName ?: "IOException")
-                                .log()
-                        }
+                        closeQuietly(response)
                         sleepOrAbort(delay, suppressed)
                         tryCount++
                         continue
@@ -115,14 +109,26 @@ open class DefaultRetryStep @JvmOverloads constructor(
             if (err is Error) throw err
 
             val exception = err as Exception
+            // Interrupts are explicitly not retryable per the SDK-wide cancellation
+            // convention. Re-interrupt the thread (the catch may have cleared it) and
+            // rethrow so the caller's loop can observe cancellation immediately.
+            if (exception is InterruptedIOException) {
+                Thread.currentThread().interrupt()
+                suppressed?.forEach(exception::addSuppressed)
+                throw exception
+            }
             if (tryCount < options.maxRetries) {
                 val condition = HttpRetryCondition(null, exception, tryCount, suppressed.orEmpty())
                 if (invokeShouldRetryException(condition)) {
                     val delay = computeExceptionDelay(condition)
                     logRetry(tryCount, delay, statusCode = -1, cause = exception)
                     val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
-                    sleepOrAbort(delay, accumulator)
+                    // Append the current exception BEFORE sleeping. If the sleep is
+                    // interrupted, `sleepOrAbort` throws InterruptedIOException with the
+                    // accumulator's exceptions attached as suppressed — recording the
+                    // current exception first means it's not silently lost on interrupt.
                     accumulator.add(exception)
+                    sleepOrAbort(delay, accumulator)
                     tryCount++
                     continue
                 }
@@ -131,11 +137,25 @@ open class DefaultRetryStep @JvmOverloads constructor(
             // Terminal failure path — every prior attempt's exception is attached as
             // suppressed on the rethrown exception so callers see the full trail.
             suppressed?.forEach(exception::addSuppressed)
-            if (exception is IOException) throw exception
-            // Wrap non-IO checked exceptions as IOException to honour @Throws(IOException::class)?
-            // No — Kotlin allows runtime exceptions to propagate from a function declared
-            // to throw only IOException. Rethrow as-is.
+            // Kotlin permits unchecked exceptions through a function declared
+            // @Throws(IOException::class); rethrow as-is rather than wrapping non-IO.
             throw exception
+        }
+    }
+
+    /**
+     * Closes [response] and swallows any [IOException], logging at verbose. The caller has
+     * already committed to retrying, so a close failure on a soon-to-be-replaced response
+     * is not actionable — surfacing it would just confuse stack traces.
+     */
+    private fun closeQuietly(response: Response) {
+        try {
+            response.close()
+        } catch (closeErr: IOException) {
+            logger.atVerbose()
+                .event("http.retry.close_failed")
+                .field("error.type", closeErr::class.java.simpleName ?: "IOException")
+                .log()
         }
     }
 
@@ -145,17 +165,19 @@ open class DefaultRetryStep @JvmOverloads constructor(
      * Invokes [HttpRetryOptions.shouldRetryCondition] and wraps any thrown exception as
      * [IllegalStateException] — predicates must not destabilise the retry loop.
      */
-    private fun invokeShouldRetryResponse(condition: HttpRetryCondition): Boolean = try {
-        options.shouldRetryCondition(condition)
-    } catch (t: Throwable) {
-        // Error subclasses still re-thrown; an OOM in the predicate must not be wrapped.
-        if (t is Error) throw t
-        throw IllegalStateException("shouldRetry predicate threw", t)
-    }
+    private fun invokeShouldRetryResponse(condition: HttpRetryCondition): Boolean =
+        invokeShouldRetry(options.shouldRetryCondition, condition)
 
-    private fun invokeShouldRetryException(condition: HttpRetryCondition): Boolean = try {
-        options.shouldRetryException(condition)
+    private fun invokeShouldRetryException(condition: HttpRetryCondition): Boolean =
+        invokeShouldRetry(options.shouldRetryException, condition)
+
+    private fun invokeShouldRetry(
+        predicate: (HttpRetryCondition) -> Boolean,
+        condition: HttpRetryCondition,
+    ): Boolean = try {
+        predicate(condition)
     } catch (t: Throwable) {
+        // Error subclasses still rethrown; an OOM in the predicate must not be wrapped.
         if (t is Error) throw t
         throw IllegalStateException("shouldRetry predicate threw", t)
     }
@@ -169,10 +191,8 @@ open class DefaultRetryStep @JvmOverloads constructor(
      *  3. [HttpRetryOptions.fixedDelay] or exponential backoff.
      */
     protected open fun computeResponseDelay(condition: HttpRetryCondition): Duration {
-        val override = invokeDelayFromCondition(condition)
-        if (override != null) return override
-        val headerDelay = condition.response?.let { retryAfterFromHeaders(it) }
-        if (headerDelay != null) return headerDelay
+        invokeDelayFromCondition(condition)?.let { return it }
+        condition.response?.let { retryAfterFromHeaders(it) }?.let { return it }
         return backoffOrFixed(condition.tryCount)
     }
 
@@ -181,8 +201,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
      * consult, so the resolution order skips step (2) of [computeResponseDelay].
      */
     protected open fun computeExceptionDelay(condition: HttpRetryCondition): Duration {
-        val override = invokeDelayFromCondition(condition)
-        if (override != null) return override
+        invokeDelayFromCondition(condition)?.let { return it }
         return backoffOrFixed(condition.tryCount)
     }
 
@@ -206,11 +225,8 @@ open class DefaultRetryStep @JvmOverloads constructor(
      * `1L shl tryCount` term never overflows; the result is always clamped to [HttpRetryOptions.maxDelay]
      * anyway, so the cap is invisible in practice.
      */
-    private fun backoffOrFixed(tryCount: Int): Duration {
-        val fixed = options.fixedDelay
-        if (fixed != null) return fixed
-        return exponentialBackoff(tryCount)
-    }
+    private fun backoffOrFixed(tryCount: Int): Duration =
+        options.fixedDelay ?: exponentialBackoff(tryCount)
 
     /**
      * `baseDelay * (1L shl tryCount)` clamped to `maxDelay`, plus a ±5% jitter sampled
@@ -220,7 +236,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
         val baseNanos = options.baseDelay.toNanos()
         if (baseNanos == 0L) return Duration.ZERO
         val maxNanos = options.maxDelay.toNanos()
-        val safeShift = if (tryCount > MAX_SHIFT_TRY_COUNT) MAX_SHIFT_TRY_COUNT else tryCount
+        val safeShift = tryCount.coerceAtMost(MAX_SHIFT_TRY_COUNT)
         // 1L shl 30 ~= 1e9 — multiplying by 800ms (8e8 ns) overflows. Cap on the long
         // multiply itself: if `baseNanos * (1L shl safeShift)` would overflow, clamp.
         val multiplier = 1L shl safeShift
@@ -229,11 +245,11 @@ open class DefaultRetryStep @JvmOverloads constructor(
         } else {
             baseNanos * multiplier
         }
-        val clamped = if (scaled > maxNanos) maxNanos else scaled
+        val clamped = scaled.coerceAtMost(maxNanos)
         val jittered = applyJitter(clamped)
         // Guarantee a non-negative result — jitter could push us under zero if the caller
         // configured pathological options (e.g. baseDelay equal to negative epsilon).
-        return Duration.ofNanos(if (jittered < 0L) 0L else jittered)
+        return Duration.ofNanos(jittered.coerceAtLeast(0L))
     }
 
     /**
@@ -261,8 +277,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
     protected open fun retryAfterFromHeaders(response: Response): Duration? {
         for (name in options.retryAfterHeaders) {
             val raw = response.headers.get(name) ?: continue
-            val parsed = parseRetryAfterValue(name, raw) ?: continue
-            return parsed
+            parseRetryAfterValue(name, raw)?.let { return it }
         }
         return null
     }
@@ -283,8 +298,8 @@ open class DefaultRetryStep @JvmOverloads constructor(
 
     /**
      * Parses [value] as either a non-negative integer count of seconds OR an RFC 1123
-     * date-time. A negative or zero result is permitted (zero == immediate retry);
-     * unparseable inputs return null. Very large values are respected but logged at
+     * date-time. A zero result is permitted (immediate retry); negative numeric values
+     * and unparseable inputs return null. Very large values are respected but logged at
      * verbose so a misbehaving server is easy to spot.
      */
     private fun parseSecondsOrDate(value: String): Duration? {
@@ -295,11 +310,10 @@ open class DefaultRetryStep @JvmOverloads constructor(
         }
         return try {
             val target = DateTimeRfc1123.parse(value)
-            val nowInstant = clock.now()
+            val now = clock.now()
             // If the server's "retry-after-date" is in the past, treat as immediate retry.
-            if (target.isBefore(nowInstant)) Duration.ZERO
-            else durationBetween(nowInstant, target)
-        } catch (e: DateTimeParseException) {
+            if (target.isBefore(now)) Duration.ZERO else durationBetween(now, target)
+        } catch (_: DateTimeParseException) {
             null
         }
     }
@@ -316,21 +330,28 @@ open class DefaultRetryStep @JvmOverloads constructor(
         null
     }
 
+    /**
+     * [Duration.between] preserves nanosecond precision; the warn-on-large hook reads the
+     * coarser seconds component so a misbehaving upstream (multi-hour `Retry-After`) shows
+     * up in logs without losing fractional precision in the returned duration.
+     */
     private fun durationBetween(from: Instant, to: Instant): Duration {
-        val secondsDelta = to.epochSecond - from.epochSecond
-        // Honor the value but warn so callers can spot a misbehaving upstream.
-        secondsDurationOrWarn(secondsDelta)
-        return Duration.between(from, to)
+        val delta = Duration.between(from, to)
+        warnIfLargeRetryAfter(delta.seconds)
+        return delta
     }
 
     private fun secondsDurationOrWarn(seconds: Long): Duration {
-        if (seconds > LARGE_RETRY_AFTER_SECONDS) {
-            logger.atVerbose()
-                .event("http.retry.large_retry_after")
-                .field("retry_after.seconds", seconds)
-                .log()
-        }
+        warnIfLargeRetryAfter(seconds)
         return Duration.ofSeconds(seconds)
+    }
+
+    private fun warnIfLargeRetryAfter(seconds: Long) {
+        if (seconds <= LARGE_RETRY_AFTER_SECONDS) return
+        logger.atVerbose()
+            .event("http.retry.large_retry_after")
+            .field("retry_after.seconds", seconds)
+            .log()
     }
 
     // --------------- Sleep + interrupt handling ---------------
@@ -348,9 +369,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
             clock.sleep(delay)
         } catch (ie: InterruptedException) {
             Thread.currentThread().interrupt()
-            val ioe = InterruptedIOException("retry interrupted").apply {
-                initCause(ie)
-            }
+            val ioe = InterruptedIOException("retry interrupted").apply { initCause(ie) }
             accumulatedFailures?.forEach(ioe::addSuppressed)
             throw ioe
         }
@@ -382,6 +401,8 @@ open class DefaultRetryStep @JvmOverloads constructor(
             .field("http.retry.max_retries.requested", opts.maxRetries.toLong())
             .field("http.retry.max_retries.applied", DEFAULT_MAX_RETRIES.toLong())
             .log()
+        // HttpRetryOptions isn't a data class, so an explicit copy via the constructor is
+        // the cheapest correct fix — re-using every other field as-is.
         return HttpRetryOptions(
             maxRetries = DEFAULT_MAX_RETRIES,
             baseDelay = opts.baseDelay,

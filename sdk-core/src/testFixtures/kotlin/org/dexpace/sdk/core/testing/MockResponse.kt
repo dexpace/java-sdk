@@ -101,9 +101,16 @@ class MockResponse internal constructor(
             // constructed before the provider is installed. Tests that read the body must
             // install one beforehand; tests that only check headers / status do not.
             return object : ResponseBody() {
+                // Cache the source so source() is idempotent and close() can release it
+                // without forcing a fresh provider call after the body has been read.
+                private var cachedSource: org.dexpace.sdk.core.io.BufferedSource? = null
                 override fun mediaType(): MediaType? = mediaType
                 override fun contentLength(): Long = bytes.size.toLong()
-                override fun source() = Io.provider.source(bytes)
+                override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+                    cachedSource ?: Io.provider.source(bytes).also { cachedSource = it }
+                override fun close() {
+                    cachedSource?.close()
+                }
             }
         }
     }

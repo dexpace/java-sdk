@@ -42,35 +42,21 @@ class ServerSentEventReader(private val source: BufferedSource) {
         var data: MutableList<String>? = null
         var hasField = false
 
-        while (true) {
-            val line = readLine() ?: run {
-                // End of stream: emit whatever accumulated state remains (if any),
-                // else signal termination by returning null.
-                return if (hasField) {
-                    ServerSentEvent(
-                        id = id,
-                        event = event,
-                        data = data ?: emptyList(),
-                        comment = comment,
-                        retry = retry,
-                    )
-                } else {
-                    null
-                }
-            }
+        fun dispatch() = ServerSentEvent(
+            id = id,
+            event = event,
+            data = data ?: emptyList(),
+            comment = comment,
+            retry = retry,
+        )
 
+        while (true) {
+            // EOF: emit whatever accumulated state remains (if any), else terminate.
+            val line = readLine() ?: return if (hasField) dispatch() else null
+
+            // Blank line: dispatch the accumulated event, or skip if nothing was set.
             if (line.isEmpty()) {
-                // Blank line: dispatch the accumulated event, or skip if nothing was set.
-                if (hasField) {
-                    return ServerSentEvent(
-                        id = id,
-                        event = event,
-                        data = data ?: emptyList(),
-                        comment = comment,
-                        retry = retry,
-                    )
-                }
-                // No fields seen — keep reading for the next event.
+                if (hasField) return dispatch()
                 continue
             }
 
@@ -105,11 +91,8 @@ class ServerSentEventReader(private val source: BufferedSource) {
                     // the Unicode replacement character keeps the field visible to the
                     // caller (so they can detect / log the bad data) without producing
                     // a string that downstream JSON or logging code might mishandle.
-                    id = if (rawValue.indexOf(NULL_CHAR) < 0) {
-                        rawValue
-                    } else {
-                        rawValue.replace(NULL_CHAR, REPLACEMENT_CHAR)
-                    }
+                    id = if (NULL_CHAR in rawValue) rawValue.replace(NULL_CHAR, REPLACEMENT_CHAR)
+                    else rawValue
                     hasField = true
                 }
                 "event" -> {
@@ -122,12 +105,10 @@ class ServerSentEventReader(private val source: BufferedSource) {
                     hasField = true
                 }
                 "retry" -> {
-                    val parsed = parseRetryMillis(rawValue)
-                    if (parsed != null) {
-                        retry = Duration.ofMillis(parsed)
-                        hasField = true
-                    }
                     // Non-numeric retry values are ignored per spec.
+                    val parsed = parseRetryMillis(rawValue) ?: continue
+                    retry = Duration.ofMillis(parsed)
+                    hasField = true
                 }
                 // Unknown field: silently discard.
             }
@@ -146,14 +127,11 @@ class ServerSentEventReader(private val source: BufferedSource) {
         // peek() returns a non-consuming view, so we can inspect the first three bytes
         // without advancing the real cursor if they aren't a BOM.
         val peek = source.peek()
-        val b1 = if (!peek.exhausted()) peek.readByte() else return
-        if (b1 != 0xEF.toByte()) return
-        val b2 = if (!peek.exhausted()) peek.readByte() else return
-        if (b2 != 0xBB.toByte()) return
-        val b3 = if (!peek.exhausted()) peek.readByte() else return
-        if (b3 != 0xBF.toByte()) return
+        for (expected in BOM_BYTES) {
+            if (peek.exhausted() || peek.readByte() != expected) return
+        }
         // Confirmed BOM — advance the real source past it.
-        source.skip(3)
+        source.skip(BOM_BYTES.size.toLong())
     }
 
     /**
@@ -206,9 +184,8 @@ class ServerSentEventReader(private val source: BufferedSource) {
     private fun parseRetryMillis(value: String): Long? {
         if (value.isEmpty()) return null
         var result = 0L
-        for (i in 0 until value.length) {
-            val c = value[i]
-            if (c < '0' || c > '9') return null
+        for (c in value) {
+            if (c !in '0'..'9') return null
             val digit = (c - '0').toLong()
             // Detect overflow before it happens so we don't wrap around.
             if (result > (Long.MAX_VALUE - digit) / 10L) return null
@@ -220,8 +197,9 @@ class ServerSentEventReader(private val source: BufferedSource) {
     private companion object {
         private const val LF: Byte = 0x0A
         private const val CR: Byte = 0x0D
-        private const val NULL_CHAR: Char = ' '
-        private const val REPLACEMENT_CHAR: Char = '�'
+        private const val NULL_CHAR: Char = '\u0000'
+        private const val REPLACEMENT_CHAR: Char = '\uFFFD'
+        private val BOM_BYTES: ByteArray = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
     }
 
     /**

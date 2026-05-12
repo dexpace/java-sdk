@@ -1,7 +1,7 @@
 package org.dexpace.sdk.core.http.context
 
-import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.InstrumentationContext
 
 /**
@@ -17,11 +17,11 @@ data class RequestContext(
      * Promotes this request context into an [ExchangeContext] bound to [response] and
      * stores the new context in [ContextStore] keyed by the trace id.
      */
-    fun toExchangeContext(response: Response) : ExchangeContext =
+    fun toExchangeContext(response: Response): ExchangeContext =
         ExchangeContext(
             instrumentationContext = instrumentationContext,
             request = request,
-            response = response
+            response = response,
         ).also {
             ContextStore.set(it.instrumentationContext.traceId.value, it)
         }

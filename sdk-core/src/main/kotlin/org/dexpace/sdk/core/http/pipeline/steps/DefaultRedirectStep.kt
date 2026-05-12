@@ -9,9 +9,11 @@ import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.UrlRedactor
 import java.io.IOException
+import java.net.MalformedURLException
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.URL
+import java.util.Locale
 
 /**
  * Default [RedirectStep]. Follows 301, 302, 307, and 308 responses (303 opt-in via
@@ -107,25 +109,25 @@ open class DefaultRedirectStep @JvmOverloads constructor(
     private fun defaultShouldRedirect(condition: HttpRedirectCondition): Boolean {
         val response = condition.response
         val code = response.status.code
-        val method = response.request.method
 
-        // 303 — only when opted in; method matrix doesn't gate it because the reissue is GET.
+        // 303 doesn't go through the method matrix — the reissue is always GET, so the
+        // original method is irrelevant. Opt-in via options.follow303.
         if (code == 303) return options.follow303
 
-        // 301/302 — restricted to allowed methods (default: GET/HEAD).
-        // 307/308 — restricted to allowed methods (any method is opt-in via options).
-        if (code == 301 || code == 302 || code == 307 || code == 308) {
-            if (!options.allowedMethods.contains(method)) return false
-            val location = response.headers.get(options.locationHeader)
-            return !location.isNullOrEmpty()
-        }
-        return false
+        // 301/302 — default policy is GET/HEAD only.
+        // 307/308 — original method preserved; any method is opt-in via allowedMethods.
+        if (code != 301 && code != 302 && code != 307 && code != 308) return false
+        if (response.request.method !in options.allowedMethods) return false
+        val location = response.headers.get(options.locationHeader)
+        return !location.isNullOrEmpty()
     }
 
     /**
      * Builds the redirect target request. Returns null if the `Location` is missing,
      * empty, or malformed — the caller treats null as "don't redirect, return the
-     * current response".
+     * current response". Throws [IllegalStateException] when the redirect would downgrade
+     * the scheme from HTTPS to HTTP and [HttpRedirectOptions.allowSchemeDowngrade] is
+     * false, or when a 307/308 redirect carries a non-replayable body.
      */
     @Throws(IOException::class)
     private fun recreateRedirectRequest(response: Response): Request? {
@@ -135,7 +137,7 @@ open class DefaultRedirectStep @JvmOverloads constructor(
         val originalRequest = response.request
         val resolvedUrl = resolveLocation(originalRequest.url, rawLocation) ?: return null
 
-        warnOnSchemeDowngrade(originalRequest.url, resolvedUrl)
+        enforceSchemeDowngradePolicy(originalRequest.url, resolvedUrl)
 
         val code = response.status.code
         // 303 with follow303=true: reissue as GET, drop body and Content-* headers.
@@ -174,11 +176,13 @@ open class DefaultRedirectStep @JvmOverloads constructor(
     private fun stripContentAndAuthHeaders(headers: Headers): Headers {
         val builder = headers.newBuilder()
         builder.remove(HttpHeaderName.AUTHORIZATION)
-        // Strip every header whose name starts with "content-" (case-insensitive). Iterate
-        // the keys snapshot so we can remove without ConcurrentModificationException.
+        // Strip every header whose name starts with "content-" (case-insensitive). The
+        // underlying store may return names in mixed case (`Content-Type`), so lower-case
+        // before the prefix test. Iterate a snapshot of the keys to avoid concurrent
+        // modification while mutating the builder.
         val toRemove = ArrayList<String>()
         for (name in headers.names()) {
-            if (name.startsWith("content-")) toRemove.add(name)
+            if (name.lowercase(Locale.US).startsWith("content-")) toRemove.add(name)
         }
         for (name in toRemove) builder.remove(name)
         return builder.build()
@@ -195,27 +199,23 @@ open class DefaultRedirectStep @JvmOverloads constructor(
             val resolved = baseUri.resolve(location)
             stripUserInfo(resolved).toURL()
         } catch (t: URISyntaxException) {
-            logger.atWarning()
-                .event("http.redirect.malformed_location")
-                .field("location.raw", location)
-                .field("error.type", t::class.java.simpleName ?: "URISyntaxException")
-                .log()
+            logMalformedLocation(location, t)
             null
         } catch (t: IllegalArgumentException) {
-            logger.atWarning()
-                .event("http.redirect.malformed_location")
-                .field("location.raw", location)
-                .field("error.type", t::class.java.simpleName ?: "IllegalArgumentException")
-                .log()
+            logMalformedLocation(location, t)
             null
-        } catch (t: java.net.MalformedURLException) {
-            logger.atWarning()
-                .event("http.redirect.malformed_location")
-                .field("location.raw", location)
-                .field("error.type", t::class.java.simpleName ?: "MalformedURLException")
-                .log()
+        } catch (t: MalformedURLException) {
+            logMalformedLocation(location, t)
             null
         }
+    }
+
+    private fun logMalformedLocation(location: String, cause: Throwable) {
+        logger.atWarning()
+            .event("http.redirect.malformed_location")
+            .field("location.raw", location)
+            .field("error.type", cause::class.java.simpleName ?: "Throwable")
+            .log()
     }
 
     /**
@@ -235,17 +235,29 @@ open class DefaultRedirectStep @JvmOverloads constructor(
         )
     }
 
-    private fun warnOnSchemeDowngrade(from: URL, to: URL) {
-        if (from.protocol.equals("https", ignoreCase = true) &&
-            to.protocol.equals("http", ignoreCase = true)
-        ) {
-            logger.atInfo()
-                .event("http.redirect.scheme_downgrade")
-                .field("from", safeRedact(from))
-                .field("to", safeRedact(to))
-                .log()
+    /**
+     * Enforces the HTTPS-to-HTTP downgrade policy. By default ([HttpRedirectOptions.allowSchemeDowngrade]
+     * = false) any HTTPS → HTTP redirect throws [IllegalStateException] before reissue,
+     * preventing credentials / TLS guarantees from silently disappearing. When the caller
+     * opts in, the downgrade is permitted but logged at WARNING so the deviation stays
+     * observable.
+     */
+    private fun enforceSchemeDowngradePolicy(from: URL, to: URL) {
+        if (!isHttpsToHttp(from, to)) return
+        check(options.allowSchemeDowngrade) {
+            "Redirect scheme downgrade from HTTPS to HTTP is not allowed; " +
+                "set allowSchemeDowngrade=true to override"
         }
+        logger.atWarning()
+            .event("http.redirect.scheme_downgrade")
+            .field("from", safeRedact(from))
+            .field("to", safeRedact(to))
+            .log()
     }
+
+    private fun isHttpsToHttp(from: URL, to: URL): Boolean =
+        from.protocol.equals("https", ignoreCase = true) &&
+            to.protocol.equals("http", ignoreCase = true)
 
     private fun logRedirectHop(response: Response, nextRequest: Request, attempt: Int) {
         logger.atInfo()

@@ -9,6 +9,8 @@ import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.DateTimeRfc1123
 import java.io.IOException
+import java.time.format.DateTimeFormatter
+import java.time.ZoneId
 
 /**
  * Stamps the outgoing request with a `Date` header set to the current time in RFC 1123 format.
@@ -33,16 +35,22 @@ class SetDateStep @JvmOverloads constructor(
         return next.process(stamped)
     }
 
-    private fun formatNow(): String =
-        try {
-            DateTimeRfc1123.format(clock.now())
+    private fun formatNow(): String {
+        // Sample `clock.now()` exactly once so the primary and fallback formatters agree on
+        // the instant even if the wall clock advances between calls.
+        val now = clock.now()
+        return try {
+            DateTimeRfc1123.format(now)
         } catch (_: Throwable) {
             // Defensive: if the formatter throws on a fringe Instant, fall back to the JDK
-            // formatter for maximum compatibility. Logging fits better at warning if a logger
-            // is wired up, but this step deliberately doesn't depend on ClientLogger to keep
-            // it allocation-light on the hot path.
-            java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
-                .withZone(java.time.ZoneId.of("GMT"))
-                .format(clock.now())
+            // formatter for maximum compatibility. This step deliberately doesn't depend on
+            // ClientLogger to keep it allocation-light on the hot path.
+            FALLBACK_FORMATTER.format(now)
         }
+    }
+
+    private companion object {
+        private val FALLBACK_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneId.of("GMT"))
+    }
 }

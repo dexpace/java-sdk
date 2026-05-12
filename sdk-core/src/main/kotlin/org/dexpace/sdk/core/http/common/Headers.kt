@@ -114,7 +114,7 @@ data class Headers private constructor(
          * @param value the header value
          * @return this builder
          */
-        fun add(name: String, value: String): Builder = apply { add(sanitizeName(name), listOf(value)) }
+        fun add(name: String, value: String): Builder = apply { add(name, listOf(value)) }
 
         /**
          * Adds all header values for the specified name.
@@ -130,9 +130,7 @@ data class Headers private constructor(
         /**
          * Adds a header with the specified typed name and value.
          */
-        fun add(name: HttpHeaderName, value: String): Builder = apply {
-            headersMap.computeIfAbsent(name.caseInsensitiveName) { mutableListOf() }.add(value)
-        }
+        fun add(name: HttpHeaderName, value: String): Builder = apply { add(name, listOf(value)) }
 
         /**
          * Adds all header values for the specified typed name.
@@ -163,13 +161,11 @@ data class Headers private constructor(
          * If headers with this name already exist, they are removed.
          *
          * @param name the header name
-         * @param values the header value
+         * @param values the header values
          * @return this builder
          */
         fun set(name: String, values: List<String>): Builder = apply {
-            val key = sanitizeName(name)
-            headersMap.remove(key)
-            headersMap.computeIfAbsent(key) { mutableListOf() }.addAll(values)
+            headersMap[sanitizeName(name)] = values.toMutableList()
         }
 
         /**
@@ -188,8 +184,7 @@ data class Headers private constructor(
          * Sets the header with the specified typed name to the values list provided.
          */
         fun set(name: HttpHeaderName, values: List<String>): Builder = apply {
-            headersMap.remove(name.caseInsensitiveName)
-            headersMap.computeIfAbsent(name.caseInsensitiveName) { mutableListOf() }.addAll(values)
+            headersMap[name.caseInsensitiveName] = values.toMutableList()
         }
 
         /**

@@ -2,7 +2,6 @@ package org.dexpace.sdk.core.instrumentation
 
 import java.net.URL
 import java.net.URLDecoder
-import java.net.URLEncoder
 
 /**
  * Redacts sensitive parts of a URL for safe logging.
@@ -29,6 +28,14 @@ object UrlRedactor {
     val DEFAULT_ALLOWED: Set<String> = setOf("api-version")
 
     private const val REDACTED = "***"
+
+    /**
+     * Pre-encoded form of [REDACTED] for query-value substitution. The three asterisks
+     * are all unreserved-equivalent under `application/x-www-form-urlencoded`, so the
+     * encoded representation is identical to the raw literal — no `URLEncoder.encode`
+     * call is needed on the hot path.
+     */
+    private const val REDACTED_ENCODED = REDACTED
     private const val USERINFO_REDACTED = "***:***"
     private const val MALFORMED = "[malformed url]"
 
@@ -41,43 +48,39 @@ object UrlRedactor {
      */
     @JvmStatic
     @JvmOverloads
-    fun redact(url: URL, allowedQueryParams: Set<String> = DEFAULT_ALLOWED): String {
-        return try {
+    fun redact(url: URL, allowedQueryParams: Set<String> = DEFAULT_ALLOWED): String =
+        try {
             val raw = url.toString()
-            val userInfo = url.userInfo
+            val hasUserInfo = url.userInfo != null
             val hasQuery = raw.indexOf('?') >= 0
 
-            if (userInfo == null && !hasQuery) {
-                return raw
-            }
-
-            val allowedLower = if (allowedQueryParams.isEmpty()) {
-                emptySet()
+            if (!hasUserInfo && !hasQuery) {
+                raw
             } else {
-                val s = HashSet<String>(allowedQueryParams.size)
-                for (name in allowedQueryParams) s.add(name.lowercase())
-                s
+                rebuild(url, raw, lowercaseAllowList(allowedQueryParams))
             }
-
-            rebuild(url, raw, allowedLower)
         } catch (t: Throwable) {
             MALFORMED
         }
+
+    private fun lowercaseAllowList(allowed: Set<String>): Set<String> {
+        if (allowed.isEmpty()) return emptySet()
+        val lower = HashSet<String>(allowed.size)
+        for (name in allowed) lower.add(name.lowercase())
+        return lower
     }
 
     private fun rebuild(url: URL, raw: String, allowedLower: Set<String>): String {
         val out = StringBuilder(raw.length + 16)
         out.append(url.protocol).append("://")
 
-        val userInfo = url.userInfo
-        if (userInfo != null) {
+        if (url.userInfo != null) {
             out.append(USERINFO_REDACTED).append('@')
         }
 
         out.append(url.host)
-        val port = url.port
-        if (port != -1) {
-            out.append(':').append(port)
+        if (url.port != -1) {
+            out.append(':').append(url.port)
         }
 
         val path = url.path
@@ -86,8 +89,7 @@ object UrlRedactor {
         }
 
         // Preserve `?` even if the query is empty — some servers care.
-        val qIdx = raw.indexOf('?')
-        if (qIdx >= 0) {
+        if (raw.indexOf('?') >= 0) {
             out.append('?')
             val rawQuery = url.query
             if (!rawQuery.isNullOrEmpty()) {
@@ -105,16 +107,16 @@ object UrlRedactor {
 
     private fun appendRedactedQuery(out: StringBuilder, rawQuery: String, allowedLower: Set<String>) {
         var first = true
-        var i = 0
-        val n = rawQuery.length
-        while (i < n) {
-            var end = rawQuery.indexOf('&', i)
-            if (end < 0) end = n
-            val pair = rawQuery.substring(i, end)
+        var cursor = 0
+        val length = rawQuery.length
+        while (cursor < length) {
+            val ampIndex = rawQuery.indexOf('&', cursor)
+            val end = if (ampIndex < 0) length else ampIndex
+            val pair = rawQuery.substring(cursor, end)
             if (!first) out.append('&')
             first = false
             appendRedactedPair(out, pair, allowedLower)
-            i = end + 1
+            cursor = end + 1
         }
         // Trailing `&` produces a final empty pair which the loop above swallows; we
         // intentionally do not re-emit it (the input was likely malformed anyway).
@@ -136,8 +138,7 @@ object UrlRedactor {
             encodedValue = pair.substring(eq + 1)
         }
 
-        val decodedName = safeDecode(encodedName)
-        val allowed = allowedLower.contains(decodedName.lowercase())
+        val allowed = allowedLower.contains(safeDecode(encodedName).lowercase())
 
         out.append(encodedName)
         if (hasValue) {
@@ -145,18 +146,15 @@ object UrlRedactor {
             if (allowed) {
                 out.append(encodedValue)
             } else {
-                // URLEncoder uses application/x-www-form-urlencoded rules: space -> '+'.
-                // Acceptable for the literal `***` which has no special characters.
-                out.append(URLEncoder.encode(REDACTED, "UTF-8"))
+                out.append(REDACTED_ENCODED)
             }
         }
     }
 
-    private fun safeDecode(encoded: String): String {
-        return try {
+    private fun safeDecode(encoded: String): String =
+        try {
             URLDecoder.decode(encoded, "UTF-8")
         } catch (t: Throwable) {
             encoded
         }
-    }
 }

@@ -34,6 +34,11 @@ data class ServerSentEvent @JvmOverloads constructor(
     /**
      * True if this event has no meaningful payload. Useful when filtering out
      * empty dispatches that might slip through if a producer ever sends one.
+     *
+     * **Comment-only events count as non-empty** by this definition — `comment != null`
+     * flips the flag. The WHATWG spec is silent on whether to expose pure `:keep-alive`
+     * dispatches; this SDK exposes them (and the reader emits them), and `isEmpty`
+     * reflects that choice so RFC keep-alives appear non-empty to filtering code.
      */
     val isEmpty: Boolean
         get() = id == null && event == null && data.isEmpty() && comment == null && retry == null

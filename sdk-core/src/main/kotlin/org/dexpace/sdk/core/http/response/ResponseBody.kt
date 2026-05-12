@@ -57,14 +57,18 @@ abstract class ResponseBody : Closeable {
     abstract fun source(): BufferedSource
 
     /**
-     * Closes the response body and releases any resources.
+     * Closes the response body and releases any transport resources.
      *
-     * @throws IOException If an I/O error occurs.
+     * Implementations must release the underlying source (or whatever transport handle the
+     * body owns) and must be idempotent — `close()` may be called more than once and any
+     * call after the first should be a no-op. Implementations must not assume [source] has
+     * been invoked: a caller that decides to skip the body still needs `close()` to release
+     * the connection.
+     *
+     * @throws IOException If an I/O error occurs while releasing resources.
      */
     @Throws(IOException::class)
-    override fun close() {
-        source().close()
-    }
+    abstract override fun close()
 
     /**
      * Factory entry point for adapter / test code that already holds a [BufferedSource].
@@ -90,6 +94,10 @@ abstract class ResponseBody : Closeable {
                 override fun contentLength(): Long = contentLength
 
                 override fun source(): BufferedSource = source
+
+                override fun close() {
+                    source.close()
+                }
             }
     }
 }

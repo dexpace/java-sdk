@@ -2,6 +2,7 @@ package org.dexpace.sdk.core.http.response
 
 import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Request
 import java.io.Closeable
@@ -143,7 +144,7 @@ data class Response private constructor(
          * Adds a header with the specified name and values list.
          *
          * @param name The header name.
-         * @param values The header value.
+         * @param values The header values.
          * @return This builder.
          */
         fun addHeader(name: String, values: List<String>) = apply {
@@ -183,6 +184,16 @@ data class Response private constructor(
         }
 
         /**
+         * Removes all headers with the specified typed name.
+         *
+         * @param name The typed header name.
+         * @return This builder.
+         */
+        fun removeHeader(name: HttpHeaderName) = apply {
+            headersBuilder.remove(name)
+        }
+
+        /**
          * Sets the response headers.
          *
          * @param headers The response headers.
@@ -208,20 +219,14 @@ data class Response private constructor(
          * @return The built response.
          * @throws IllegalStateException in case required fields are missing.
          */
-        override fun build(): Response {
-            val request = this.request ?: throw IllegalStateException("request is required")
-            val protocol = this.protocol ?: throw IllegalStateException("protocol is required")
-            val code = this.status ?: throw IllegalStateException("status is required")
-
-            return Response(
-                request = request,
-                protocol = protocol,
-                status = code,
-                message = message,
-                headers = headersBuilder.build(),
-                body = body
-            )
-        }
+        override fun build(): Response = Response(
+            request = checkNotNull(request) { "request is required" },
+            protocol = checkNotNull(protocol) { "protocol is required" },
+            status = checkNotNull(status) { "status is required" },
+            message = message,
+            headers = headersBuilder.build(),
+            body = body,
+        )
     }
 
     companion object {
@@ -230,6 +235,6 @@ data class Response private constructor(
          * `Response.builder()` idiom.
          */
         @JvmStatic
-        fun builder() = ResponseBuilder()
+        fun builder(): ResponseBuilder = ResponseBuilder()
     }
 }
