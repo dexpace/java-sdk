@@ -754,6 +754,456 @@ class RetryStepTest {
         assertTrue(closes.get() >= 1, "expected the failed response body to be closed")
     }
 
+    // ----------------- Retry-After: parse failures and header variants -----------------
+
+    @Test
+    fun `Retry-After RFC 1123 date in the past yields immediate retry`() {
+        // RFC 7231 allows `Retry-After: <http-date>`. A date already in the past must be
+        // treated as zero — implementations that compute `Duration.between(now, past)`
+        // would otherwise produce a negative duration that the sleep step rejects.
+        val clock = FixedClock(Instant.parse("2024-06-01T12:00:00Z"))
+        val past = clock.now().minusSeconds(60)
+        val rfc1123 = DateTimeRfc1123.format(past)
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("Retry-After", rfc1123) }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(HttpRetryOptions(), clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        assertEquals(Duration.ZERO, Duration.between(before, clock.now()))
+    }
+
+    @Test
+    fun `Retry-After malformed date falls back to default backoff`() {
+        // Not parseable as either integer seconds or RFC 1123 — drops to backoff.
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            baseDelay = Duration.ofMillis(100),
+            maxDelay = Duration.ofMillis(100),
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("Retry-After", "not a date, not a number") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        val elapsed = Duration.between(before, clock.now())
+        // Within the 5% jitter window of 100ms.
+        assertTrue(elapsed >= Duration.ofMillis(95), "elapsed=$elapsed below 95ms")
+        assertTrue(elapsed <= Duration.ofMillis(105), "elapsed=$elapsed above 105ms")
+    }
+
+    @Test
+    fun `Retry-After negative milliseconds is rejected and falls back to backoff`() {
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            baseDelay = Duration.ofMillis(50),
+            maxDelay = Duration.ofMillis(50),
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("retry-after-ms", "-1000") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        val elapsed = Duration.between(before, clock.now())
+        assertTrue(elapsed >= Duration.ofMillis(45), "elapsed=$elapsed below 45ms")
+        assertTrue(elapsed <= Duration.ofMillis(55), "elapsed=$elapsed above 55ms")
+    }
+
+    @Test
+    fun `Retry-After very large value triggers the warn-if-large branch and is respected`() {
+        // Per the docs, large values are honored — the SDK logs at verbose but does
+        // not clamp. LARGE_RETRY_AFTER_SECONDS = 3600; passing 3601 forces
+        // seconds > threshold, exercising the warning branch in warnIfLargeRetryAfter.
+        val clock = FixedClock()
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("Retry-After", "3601") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(HttpRetryOptions(), clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        assertEquals(Duration.ofSeconds(3601), Duration.between(before, clock.now()))
+    }
+
+    @Test
+    fun `Retry-After empty value falls back to default backoff`() {
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            baseDelay = Duration.ofMillis(80),
+            maxDelay = Duration.ofMillis(80),
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("Retry-After", "   ") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        val elapsed = Duration.between(before, clock.now())
+        assertTrue(elapsed >= Duration.ofMillis(75), "elapsed=$elapsed below 75ms")
+        assertTrue(elapsed <= Duration.ofMillis(85), "elapsed=$elapsed above 85ms")
+    }
+
+    // ----------------- Exception-side hook coverage -----------------
+
+    @Test
+    fun `delayFromCondition is consulted on the exception path`() {
+        // The retry loop computes the delay differently for exception vs response paths.
+        // Cover the exception-path branch through `computeExceptionDelay` which skips the
+        // Retry-After parsing step.
+        val attempts = AtomicInteger(0)
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                val n = attempts.incrementAndGet()
+                if (n < 2) throw IOException("transient")
+                return okResponse(request)
+            }
+        }
+        val opts = HttpRetryOptions(
+            maxRetries = 3,
+            delayFromCondition = { Duration.ofSeconds(2) },
+        )
+        val clock = FixedClock()
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        assertEquals(Duration.ofSeconds(2), Duration.between(before, clock.now()))
+    }
+
+    @Test
+    fun `delayFromCondition override that throws falls back to default delay`() {
+        // The step swallows a buggy override and logs at warning. Verifies the fallback
+        // continues to retry with the backoff path rather than aborting the loop.
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            maxRetries = 2,
+            baseDelay = Duration.ofMillis(50),
+            maxDelay = Duration.ofMillis(50),
+            delayFromCondition = { throw RuntimeException("buggy override") },
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503) }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        val elapsed = Duration.between(before, clock.now())
+        assertTrue(elapsed >= Duration.ofMillis(45), "elapsed=$elapsed below 45ms")
+        assertTrue(elapsed <= Duration.ofMillis(55), "elapsed=$elapsed above 55ms")
+    }
+
+    @Test
+    fun `custom shouldRetryException is consulted and overrides default`() {
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response =
+                throw RuntimeException("no retry classifier match")
+        }
+        val invocations = AtomicInteger(0)
+        val opts = HttpRetryOptions(
+            maxRetries = 2,
+            shouldRetryException = {
+                invocations.incrementAndGet()
+                // Force retry on any exception even though the default would not.
+                true
+            },
+        )
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(opts, zeroDelayClock()))
+            .build()
+
+        assertFailsWith<RuntimeException> { pipeline.send(getRequest()) }
+        // Initial + 2 retries → 2 calls to the exception predicate (after attempt 0 and 1).
+        assertEquals(2, invocations.get(), "exception predicate must be consulted on each retry decision")
+    }
+
+    @Test
+    fun `shouldRetryException that throws is wrapped in IllegalStateException`() {
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response = throw IOException("transient")
+        }
+        val opts = HttpRetryOptions(
+            shouldRetryException = { throw RuntimeException("predicate boom") },
+        )
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(opts, zeroDelayClock()))
+            .build()
+
+        val ex = assertFailsWith<IllegalStateException> { pipeline.send(getRequest()) }
+        assertTrue(ex.message?.contains("shouldRetry predicate threw") == true)
+    }
+
+    // ----------------- Custom retry classifier - status 503 only -----------------
+
+    @Test
+    fun `custom shouldRetryCondition gating on status 503 only`() {
+        // Retry only when the status is exactly 503. A 429 (normally retryable) must NOT
+        // be retried — the custom predicate fully replaces the default classifier.
+        val fake = FakeHttpClient()
+            .enqueue { status(429) } // default would retry; predicate refuses
+
+        val opts = HttpRetryOptions(
+            maxRetries = 3,
+            shouldRetryCondition = { c -> c.response?.status?.code == 503 },
+        )
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, zeroDelayClock()))
+            .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(429, response.status.code)
+        assertEquals(1, fake.callCount, "custom predicate must veto retry on non-503")
+    }
+
+    // ----------------- Error propagation across retry path -----------------
+
+    @Test
+    fun `Error from the predicate propagates without IllegalStateException wrapping`() {
+        // The invokeShouldRetry helper specifically rethrows Error subclasses without
+        // wrapping. An OOM in the predicate must surface unchanged for the JVM crash signal.
+        val fake = FakeHttpClient().enqueue { status(503) }
+        val opts = HttpRetryOptions(
+            shouldRetryCondition = { throw OutOfMemoryError("simulated in predicate") },
+        )
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, zeroDelayClock()))
+            .build()
+
+        assertFailsWith<OutOfMemoryError> { pipeline.send(getRequest()) }
+    }
+
+    @Test
+    fun `Error from delayFromCondition propagates without wrapping`() {
+        // Same contract as above but for the delay hook — Error subclasses bypass the
+        // generic catch-and-fallback path.
+        val fake = FakeHttpClient().enqueue { status(503) }
+        val opts = HttpRetryOptions(
+            delayFromCondition = { throw OutOfMemoryError("OOM in delay hook") },
+        )
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, zeroDelayClock()))
+            .build()
+
+        assertFailsWith<OutOfMemoryError> { pipeline.send(getRequest()) }
+    }
+
+    // ----------------- Suppressed exception accumulation -----------------
+
+    @Test
+    fun `three failed attempts attach two suppressed exceptions on final failure`() {
+        // 3 failures total = initial + 2 retries; final exception has 2 suppressed prior
+        // exceptions (the third one is the rethrown one itself).
+        val attempts = AtomicInteger(0)
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                val n = attempts.incrementAndGet()
+                throw IOException("attempt $n")
+            }
+        }
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 2), zeroDelayClock()))
+            .build()
+
+        val ex = assertFailsWith<IOException> { pipeline.send(getRequest()) }
+        assertEquals("attempt 3", ex.message)
+        assertEquals(2, ex.suppressed.size, "expected 2 prior failures suppressed")
+        assertEquals("attempt 1", ex.suppressed[0].message)
+        assertEquals("attempt 2", ex.suppressed[1].message)
+    }
+
+    // ----------------- MAX_SHIFT_TRY_COUNT cap -----------------
+
+    @Test
+    fun `baseDelay zero produces an immediate retry through the early-return branch`() {
+        // `if (baseNanos == 0L) return Duration.ZERO` in exponentialBackoff. The fixed-delay
+        // tests already drive baseDelay=Duration.ZERO, but this one explicitly exercises the
+        // exponential path with a zero base — the branch must short-circuit before any shift.
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            maxRetries = 1,
+            baseDelay = Duration.ZERO,
+            maxDelay = Duration.ofMillis(100),
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503) }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        assertEquals(Duration.ZERO, Duration.between(before, clock.now()))
+    }
+
+    @Test
+    fun `exponential backoff overflow path is clamped to maxDelay rather than wrapping negative`() {
+        // Drive the overflow check: with baseDelay near Long.MAX_VALUE/2 and tryCount=30,
+        // baseNanos * (1L shl 30) overflows. The step must clamp to Long.MAX_VALUE and then
+        // to maxDelay rather than returning a negative duration.
+        val clock = FixedClock()
+        // 9_223_372_036 seconds is well over Long.MAX_VALUE / 2^30 in nanos, forcing the
+        // overflow branch.
+        val opts = HttpRetryOptions(
+            maxRetries = 35,
+            baseDelay = Duration.ofSeconds(9_223_372_036L),
+            maxDelay = Duration.ofMillis(2),
+        )
+        val fake = FakeHttpClient()
+        repeat(36) { fake.enqueue { status(503) } }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        val response = pipeline.send(getRequest())
+        assertEquals(503, response.status.code)
+        // Each retry clamped to maxDelay = 2ms; total ≤ 35 × 2ms = 70ms plus jitter.
+        val elapsed = Duration.between(before, clock.now())
+        assertTrue(elapsed >= Duration.ZERO, "elapsed=$elapsed went negative — overflow regression")
+        assertTrue(elapsed <= Duration.ofMillis(200), "elapsed=$elapsed exceeds clamped maxDelay")
+    }
+
+    @Test
+    fun `tryCount over 30 is capped for the shift operation`() {
+        // The step caps `1L shl tryCount` at 1L shl 30 to avoid overflow. With baseDelay=1ms
+        // and maxRetries=35, repeated retries should never produce a negative or absurdly
+        // huge delay even though tryCount eventually exceeds 30. The maxDelay clamps the
+        // result; we verify the loop completes in bounded total time.
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            maxRetries = 35,
+            baseDelay = Duration.ofNanos(1),
+            maxDelay = Duration.ofMillis(1),
+        )
+        // 35 retries × ~1ms each = ~35ms upper bound; pre-fill 36 enqueued responses.
+        val fake = FakeHttpClient()
+        repeat(36) { fake.enqueue { status(503) } }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        val response = pipeline.send(getRequest())
+        assertEquals(503, response.status.code)
+        assertEquals(36, fake.callCount, "initial + 35 retries")
+        val elapsed = Duration.between(before, clock.now())
+        // Each delay clamped to ≤ 1ms; total upper bound is well under 200ms even with jitter.
+        assertTrue(elapsed <= Duration.ofMillis(200), "elapsed=$elapsed grew unbounded — shift cap regressed")
+    }
+
+    // ----------------- Custom retryAfterHeaders list with single entry -----------------
+
+    @Test
+    fun `retryAfterHeaders restricted to RETRY_AFTER ignores ms variants`() {
+        // Identical to the existing test but uses a singleton list that explicitly excludes
+        // both ms variants — confirms the list-walk order matters and unsupported names are
+        // ignored, not parsed.
+        val clock = FixedClock()
+        val opts = HttpRetryOptions(
+            baseDelay = Duration.ofMillis(50),
+            maxDelay = Duration.ofMillis(50),
+            retryAfterHeaders = listOf(HttpHeaderName.RETRY_AFTER),
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("x-ms-retry-after-ms", "3000") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        val elapsed = Duration.between(before, clock.now())
+        // Default backoff bounds, not the 3000ms the server hinted at.
+        assertTrue(elapsed >= Duration.ofMillis(45), "elapsed=$elapsed below 45ms")
+        assertTrue(elapsed <= Duration.ofMillis(55), "elapsed=$elapsed above 55ms")
+    }
+
+    @Test
+    fun `retryAfterHeaders with non-default unknown name uses parseMillis branch`() {
+        // The `else -> parseMillis(value)` branch in parseRetryAfterValue. Passing a non-
+        // built-in HttpHeaderName forces the fall-through.
+        val clock = FixedClock()
+        val unknown = HttpHeaderName.fromString("X-Custom-Retry-After-Ms")
+        val opts = HttpRetryOptions(
+            retryAfterHeaders = listOf(unknown),
+        )
+        val fake = FakeHttpClient()
+            .enqueue { status(503).header("X-Custom-Retry-After-Ms", "1234") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRetryStep(opts, clock))
+            .build()
+
+        val before = clock.now()
+        pipeline.send(getRequest())
+        // Parsed as milliseconds: exactly 1234ms.
+        assertEquals(Duration.ofMillis(1234), Duration.between(before, clock.now()))
+    }
+
+    // ----------------- close() before sleep on retry path -----------------
+
+    @Test
+    fun `response close() error is swallowed and the retry proceeds`() {
+        // The step closes the previous response before sleeping. If close() throws an
+        // IOException the loop must continue rather than aborting — surfacing a close error
+        // on a soon-to-be-replaced response is not actionable.
+        val callCount = AtomicInteger(0)
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                val n = callCount.incrementAndGet()
+                val statusCode = if (n == 1) 503 else 200
+                return Response.builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .status(Status.fromCode(statusCode))
+                    .headers(Headers.Builder().build())
+                    .body(ThrowingCloseBody(n == 1))
+                    .build()
+            }
+        }
+
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+            .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(2, callCount.get(), "loop must not abort on close() failure")
+    }
+
     // ----------------- maxRetries clamping -----------------
 
     @Test
@@ -813,6 +1263,16 @@ class RetryStepTest {
         override fun source(): BufferedSource = fail("body should not be read in close-tracking test")
         override fun close() {
             closes.incrementAndGet()
+        }
+    }
+
+    /** Body whose close() throws IOException — used to verify the step swallows the error. */
+    private class ThrowingCloseBody(private val shouldThrow: Boolean) : ResponseBody() {
+        override fun mediaType(): MediaType? = null
+        override fun contentLength(): Long = 0
+        override fun source(): BufferedSource = fail("body should not be read in close-tracking test")
+        override fun close() {
+            if (shouldThrow) throw IOException("simulated close failure")
         }
     }
 }

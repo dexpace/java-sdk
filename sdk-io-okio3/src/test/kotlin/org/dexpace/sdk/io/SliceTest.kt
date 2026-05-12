@@ -1,13 +1,19 @@
 package org.dexpace.sdk.io
 
+import org.dexpace.sdk.core.io.Buffer
+import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
+import java.io.ByteArrayInputStream
 import java.io.EOFException
+import java.io.IOException
+import java.nio.charset.Charset
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -305,5 +311,544 @@ class SliceTest {
         assertEquals("world", slice.readUtf8())
         // Buffer not drained.
         assertEquals(12L, buffer.size)
+    }
+
+    // ----- read(Buffer, Long) on a slice -----
+
+    @Test
+    fun `slice read into OkioBuffer fast path moves bytes within window`() {
+        val parent = source("hello, world")
+        val slice = parent.slice(offset = 7, byteCount = 5)
+        val dst = OkioIoProvider.buffer()
+        val n = slice.read(dst, 5)
+        assertEquals(5L, n)
+        assertEquals("world", dst.readUtf8())
+        assertTrue(slice.exhausted())
+    }
+
+    @Test
+    fun `slice read into non-Okio Buffer falls back to byte array path`() {
+        val parent = source("hello, world")
+        val slice = parent.slice(offset = 7, byteCount = 5)
+        val dst = NonOkioBufferForSlice()
+        val n = slice.read(dst, 5)
+        assertEquals(5L, n)
+        assertContentEquals("world".toByteArray(), dst.snapshot())
+    }
+
+    @Test
+    fun `slice read with zero byteCount returns 0`() {
+        val parent = source("abc")
+        val slice = parent.slice(0, 3)
+        assertEquals(0L, slice.read(OkioIoProvider.buffer(), 0))
+    }
+
+    @Test
+    fun `slice read rejects negative byteCount`() {
+        val parent = source("abc")
+        val slice = parent.slice(0, 3)
+        assertFailsWith<IllegalArgumentException> { slice.read(OkioIoProvider.buffer(), -1) }
+    }
+
+    @Test
+    fun `slice read returns -1 after offset exceeds source size`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertEquals(-1L, slice.read(OkioIoProvider.buffer(), 4))
+    }
+
+    @Test
+    fun `slice read returns -1 when window is exhausted`() {
+        val parent = source("hello")
+        val slice = parent.slice(0, 5)
+        slice.readUtf8()
+        assertEquals(-1L, slice.read(OkioIoProvider.buffer(), 4))
+    }
+
+    @Test
+    fun `slice read into non-Okio Buffer when offset exceeds source returns -1`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertEquals(-1L, slice.read(NonOkioBufferForSlice(), 4))
+    }
+
+    @Test
+    fun `slice read after close throws IllegalStateException`() {
+        val parent = source("payload")
+        val slice = parent.slice(0, 7)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.read(OkioIoProvider.buffer(), 4) }
+    }
+
+    // ----- readByteArray() boundary -----
+
+    @Test
+    fun `slice readByteArray returns remaining bytes`() {
+        val parent = source("hello, world")
+        val slice = parent.slice(offset = 7, byteCount = 5)
+        assertContentEquals("world".toByteArray(), slice.readByteArray())
+        assertTrue(slice.exhausted())
+    }
+
+    @Test
+    fun `slice readByteArray when offset exceeds source returns empty array`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertContentEquals(ByteArray(0), slice.readByteArray())
+    }
+
+    @Test
+    fun `slice readByteArray when exhausted returns empty array`() {
+        val parent = source("hi")
+        val slice = parent.slice(0, 2)
+        slice.readUtf8()
+        assertContentEquals(ByteArray(0), slice.readByteArray())
+    }
+
+    @Test
+    fun `slice readByteArray after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.readByteArray() }
+    }
+
+    // ----- readByteArray(byteCount) boundary -----
+
+    @Test
+    fun `slice readByteArray with byteCount zero returns empty array`() {
+        val parent = source("hello")
+        val slice = parent.slice(0, 5)
+        assertContentEquals(ByteArray(0), slice.readByteArray(0))
+    }
+
+    @Test
+    fun `slice readByteArray with byteCount zero on out-of-range slice returns empty array`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertContentEquals(ByteArray(0), slice.readByteArray(0))
+    }
+
+    @Test
+    fun `slice readByteArray with negative byteCount throws IllegalArgumentException`() {
+        val parent = source("abc")
+        val slice = parent.slice(0, 3)
+        assertFailsWith<IllegalArgumentException> { slice.readByteArray(-1) }
+    }
+
+    @Test
+    fun `slice readByteArray rejects byteCount above MAX_BYTE_ARRAY_SIZE`() {
+        val parent = source("abc")
+        val slice = parent.slice(0, 3)
+        val tooBig = Buffer.MAX_BYTE_ARRAY_SIZE.toLong() + 1
+        assertFailsWith<IllegalArgumentException> { slice.readByteArray(tooBig) }
+    }
+
+    @Test
+    fun `slice readByteArray with byteCount after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.readByteArray(2) }
+    }
+
+    // ----- readUtf8 forwarders -----
+
+    @Test
+    fun `slice readUtf8 returns remaining bytes as utf-8`() {
+        val parent = source("hello, world")
+        val slice = parent.slice(offset = 7, byteCount = 5)
+        assertEquals("world", slice.readUtf8())
+        assertTrue(slice.exhausted())
+    }
+
+    @Test
+    fun `slice readUtf8 returns empty when offset exceeds source size`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertEquals("", slice.readUtf8())
+    }
+
+    @Test
+    fun `slice readUtf8 returns empty after exhaustion`() {
+        val parent = source("hi")
+        val slice = parent.slice(0, 2)
+        slice.readUtf8()
+        assertEquals("", slice.readUtf8())
+    }
+
+    @Test
+    fun `slice readUtf8 after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.readUtf8() }
+    }
+
+    @Test
+    fun `slice readUtf8 with byteCount zero returns empty string`() {
+        val parent = source("hello")
+        val slice = parent.slice(0, 5)
+        assertEquals("", slice.readUtf8(0))
+    }
+
+    @Test
+    fun `slice readUtf8 with byteCount zero on out-of-range slice returns empty string`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertEquals("", slice.readUtf8(0))
+    }
+
+    @Test
+    fun `slice readUtf8 with positive byteCount on out-of-range slice throws EOFException`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertFailsWith<EOFException> { slice.readUtf8(1) }
+    }
+
+    @Test
+    fun `slice readUtf8 with byteCount exceeding window throws EOFException`() {
+        val parent = source("hello")
+        val slice = parent.slice(offset = 0, byteCount = 3)
+        assertFailsWith<EOFException> { slice.readUtf8(5) }
+    }
+
+    @Test
+    fun `slice readUtf8 with negative byteCount throws IllegalArgumentException`() {
+        val parent = source("abc")
+        val slice = parent.slice(0, 3)
+        assertFailsWith<IllegalArgumentException> { slice.readUtf8(-1) }
+    }
+
+    @Test
+    fun `slice readUtf8 with byteCount after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.readUtf8(2) }
+    }
+
+    // ----- readUtf8Line boundaries -----
+
+    @Test
+    fun `slice readUtf8Line returns line up to bare LF`() {
+        val parent = source("foo\nbar")
+        val slice = parent.slice(offset = 0, byteCount = 4)
+        assertEquals("foo", slice.readUtf8Line())
+    }
+
+    @Test
+    fun `slice readUtf8Line handles CR LF terminator`() {
+        val parent = source("foo\r\nbar")
+        val slice = parent.slice(offset = 0, byteCount = 5)
+        assertEquals("foo", slice.readUtf8Line())
+    }
+
+    @Test
+    fun `slice readUtf8Line treats lone CR not followed by LF as part of line`() {
+        // Behavior per spec: a trailing `\r` that never met `\n` is kept as part of the line.
+        val parent = source("foo\rbar\n")
+        val slice = parent.slice(offset = 0, byteCount = "foo\rbar\n".length.toLong())
+        // The first call reads up to `\n`: "foo\rbar" (the `\r` is preserved).
+        assertEquals("foo\rbar", slice.readUtf8Line())
+    }
+
+    @Test
+    fun `slice readUtf8Line returns line without terminator at EOF`() {
+        val parent = source("only-line")
+        val slice = parent.slice(offset = 0, byteCount = 9)
+        assertEquals("only-line", slice.readUtf8Line())
+    }
+
+    @Test
+    fun `slice readUtf8Line returns null at EOF`() {
+        val parent = source(ByteArray(0))
+        val slice = parent.slice(offset = 0, byteCount = 5)
+        assertNull(slice.readUtf8Line())
+    }
+
+    @Test
+    fun `slice readUtf8Line returns null when offset exceeds source size`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertNull(slice.readUtf8Line())
+    }
+
+    @Test
+    fun `slice readUtf8Line with trailing CR at very end of window`() {
+        // Window cuts off mid-CR — the `\r` is kept as the line's last char.
+        val parent = source("foo\r")
+        val slice = parent.slice(offset = 0, byteCount = 4)
+        assertEquals("foo\r", slice.readUtf8Line())
+    }
+
+    // ----- readString -----
+
+    @Test
+    fun `slice readString decodes with charset`() {
+        val parent = source("héllo".toByteArray(Charsets.ISO_8859_1))
+        val slice = parent.slice(offset = 0, byteCount = 5)
+        assertEquals("héllo", slice.readString(Charsets.ISO_8859_1))
+    }
+
+    @Test
+    fun `slice readString returns empty when offset exceeds source size`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertEquals("", slice.readString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun `slice readString returns empty when window exhausted`() {
+        val parent = source("hi")
+        val slice = parent.slice(0, 2)
+        slice.readUtf8()
+        assertEquals("", slice.readString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun `slice readString after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.readString(Charsets.UTF_8) }
+    }
+
+    // ----- peek -----
+
+    @Test
+    fun `slice peek after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.peek() }
+    }
+
+    // ----- inputStream -----
+
+    @Test
+    fun `slice inputStream after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.inputStream() }
+    }
+
+    @Test
+    fun `slice inputStream single byte read`() {
+        val parent = source(byteArrayOf(0x41, 0x42, 0x43))
+        val slice = parent.slice(0, 3)
+        val s = slice.inputStream()
+        assertEquals(0x41, s.read())
+        assertEquals(0x42, s.read())
+        assertEquals(0x43, s.read())
+        assertEquals(-1, s.read())
+    }
+
+    @Test
+    fun `slice inputStream byteCount zero read returns 0`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        val s = slice.inputStream()
+        assertEquals(0, s.read(ByteArray(4), 0, 0))
+    }
+
+    @Test
+    fun `slice inputStream when offset exceeds source returns -1 from read`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        val s = slice.inputStream()
+        assertEquals(-1, s.read())
+        // Reading into a buffer also returns -1 immediately.
+        assertEquals(-1, s.read(ByteArray(4)))
+    }
+
+    @Test
+    fun `slice inputStream reads return -1 after window exhausted`() {
+        val parent = source("xx")
+        val slice = parent.slice(0, 2)
+        val s = slice.inputStream()
+        assertEquals('x'.code, s.read())
+        assertEquals('x'.code, s.read())
+        assertEquals(-1, s.read())
+        assertEquals(-1, s.read(ByteArray(4)))
+    }
+
+    @Test
+    fun `slice inputStream close marks slice closed and prevents further reads`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        val s = slice.inputStream()
+        s.close()
+        // The slice is closed; subsequent reads through the InputStream throw IOException.
+        assertFailsWith<IOException> { s.read() }
+        assertFailsWith<IOException> { s.read(ByteArray(4), 0, 4) }
+    }
+
+    @Test
+    fun `slice inputStream after parent close throws IOException on read`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        val s = slice.inputStream()
+        parent.close()
+        assertFailsWith<IOException> { s.read() }
+        assertFailsWith<IOException> { s.read(ByteArray(4), 0, 4) }
+    }
+
+    // ----- skip variants -----
+
+    @Test
+    fun `slice skip negative byteCount throws IllegalArgumentException`() {
+        val parent = source("abc")
+        val slice = parent.slice(0, 3)
+        assertFailsWith<IllegalArgumentException> { slice.skip(-1) }
+    }
+
+    @Test
+    fun `slice skip zero when offset exceeds source is no-op`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        // skip(0) should not throw even when realizeOffset reports EOF.
+        slice.skip(0)
+    }
+
+    @Test
+    fun `slice skip positive when offset exceeds source throws EOFException`() {
+        val parent = source("abc")
+        val slice = parent.slice(offset = 100, byteCount = 5)
+        assertFailsWith<EOFException> { slice.skip(1) }
+    }
+
+    @Test
+    fun `slice skip after close throws IllegalStateException`() {
+        val parent = source("data")
+        val slice = parent.slice(0, 4)
+        slice.close()
+        assertFailsWith<IllegalStateException> { slice.skip(1) }
+    }
+
+    // ----- nested slice argument validation -----
+
+    @Test
+    fun `nested slice rejects negative offset`() {
+        val parent = source("abc")
+        val outer = parent.slice(0, 3)
+        assertFailsWith<IllegalArgumentException> { outer.slice(-1, 1) }
+    }
+
+    @Test
+    fun `nested slice rejects negative byteCount`() {
+        val parent = source("abc")
+        val outer = parent.slice(0, 3)
+        assertFailsWith<IllegalArgumentException> { outer.slice(0, -1) }
+    }
+
+    @Test
+    fun `slice on closed slice throws IllegalStateException`() {
+        val parent = source("data")
+        val outer = parent.slice(0, 4)
+        outer.close()
+        assertFailsWith<IllegalStateException> { outer.slice(0, 2) }
+    }
+
+    // ----- inputStream constructor / non-empty cases -----
+
+    @Test
+    fun `slice inputStream read into byte array reads bytes within window`() {
+        val parent = source("hello-world")
+        val slice = parent.slice(offset = 6, byteCount = 5)
+        val s = slice.inputStream()
+        val out = ByteArray(10)
+        val n = s.read(out, 0, 10)
+        assertEquals(5, n)
+        assertContentEquals("world".toByteArray(), out.copyOfRange(0, 5))
+    }
+
+    // ----- Slice over a source from an InputStream -----
+
+    @Test
+    fun `slice over OkioBufferedSource from input stream works`() {
+        // Provider source from an InputStream is an OkioBufferedSource, so this exercises
+        // OkioBufferedSource.slice() and the resulting SlicedOkioBufferedSource.
+        val src = OkioIoProvider.source(ByteArrayInputStream("payload-data".toByteArray()))
+        val slice = src.slice(offset = 8, byteCount = 4)
+        assertEquals("data", slice.readUtf8())
+    }
+
+    // ----- A minimal non-Okio Buffer used to force the slow path -----
+
+    private class NonOkioBufferForSlice : Buffer {
+        private val store = java.io.ByteArrayOutputStream()
+        private var read = 0
+        private var contents: ByteArray? = null
+
+        private fun materialize(): ByteArray {
+            val c = contents
+            if (c != null) return c
+            val arr = store.toByteArray()
+            contents = arr
+            return arr
+        }
+
+        override val size: Long get() = (materialize().size - read).toLong()
+        override fun snapshot(): ByteArray {
+            val arr = materialize()
+            val rem = ByteArray(arr.size - read)
+            System.arraycopy(arr, read, rem, 0, rem.size)
+            return rem
+        }
+        override fun clear() { store.reset(); contents = null; read = 0 }
+        override fun copyTo(out: Buffer, offset: Long, byteCount: Long): Buffer {
+            out.write(materialize(), read + offset.toInt(), byteCount.toInt())
+            return this
+        }
+        override val buffer: Buffer get() = this
+        override fun exhausted(): Boolean = size == 0L
+        override fun readByte(): Byte = materialize()[read++]
+        override fun readByteArray(): ByteArray { val r = snapshot(); read = materialize().size; return r }
+        override fun readByteArray(byteCount: Long): ByteArray {
+            val arr = materialize()
+            val out = ByteArray(byteCount.toInt())
+            System.arraycopy(arr, read, out, 0, out.size)
+            read += out.size
+            return out
+        }
+        override fun readUtf8(): String = String(readByteArray(), Charsets.UTF_8)
+        override fun readUtf8(byteCount: Long): String = String(readByteArray(byteCount), Charsets.UTF_8)
+        override fun readUtf8Line(): String? = null
+        override fun readString(charset: Charset): String = String(readByteArray(), charset)
+        override fun peek(): BufferedSource = throw UnsupportedOperationException()
+        override fun inputStream(): java.io.InputStream = throw UnsupportedOperationException()
+        override fun skip(byteCount: Long) { read += byteCount.toInt() }
+        override fun slice(offset: Long, byteCount: Long): BufferedSource = throw UnsupportedOperationException()
+        override fun read(sink: Buffer, byteCount: Long): Long {
+            if (exhausted()) return -1L
+            val avail = minOf(byteCount, size)
+            sink.write(readByteArray(avail))
+            return avail
+        }
+        override fun write(source: ByteArray): org.dexpace.sdk.core.io.BufferedSink {
+            store.write(source); contents = null; return this
+        }
+        override fun write(source: ByteArray, offset: Int, byteCount: Int): org.dexpace.sdk.core.io.BufferedSink {
+            store.write(source, offset, byteCount); contents = null; return this
+        }
+        override fun writeAll(source: org.dexpace.sdk.core.io.Source): Long = 0L
+        override fun writeUtf8(string: String): org.dexpace.sdk.core.io.BufferedSink {
+            write(string.toByteArray(Charsets.UTF_8)); return this
+        }
+        override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): org.dexpace.sdk.core.io.BufferedSink {
+            write(string.substring(beginIndex, endIndex).toByteArray(Charsets.UTF_8)); return this
+        }
+        override fun writeString(string: String, charset: Charset): org.dexpace.sdk.core.io.BufferedSink {
+            write(string.toByteArray(charset)); return this
+        }
+        override fun outputStream(): java.io.OutputStream = throw UnsupportedOperationException()
+        override fun emit(): org.dexpace.sdk.core.io.BufferedSink = this
+        override fun write(source: Buffer, byteCount: Long) {
+            write(source.readByteArray(byteCount))
+        }
+        override fun flush() {}
+        override fun close() {}
     }
 }

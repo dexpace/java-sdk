@@ -1,5 +1,8 @@
 package org.dexpace.sdk.core.http.request
 
+import org.dexpace.sdk.core.http.common.MediaType
+import org.dexpace.sdk.core.io.Io
+import org.dexpace.sdk.io.OkioIoProvider
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ReadOnlyBufferException
@@ -7,13 +10,23 @@ import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class FileRequestBodyTest {
+
+    @BeforeTest
+    fun installProvider() {
+        Io.installProvider(OkioIoProvider)
+    }
+
 
     private val tempFiles = mutableListOf<Path>()
 
@@ -166,5 +179,152 @@ class FileRequestBodyTest {
         RandomAccessFile(file.toFile(), "rw").use { raf -> raf.setLength(0L) }
 
         assertEquals(payload.toList(), snapshot.toList())
+    }
+
+    // ---------------------------------------------------------------------
+    // mediaType / contentLength / writeTo / isReplayable / toReplayable
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `mediaType returns the value supplied to the constructor`() {
+        val file = tempFile()
+        Files.write(file, "x".toByteArray())
+        val type = MediaType.parse("application/octet-stream")
+        val body = FileRequestBody(file, type)
+        assertSame(type, body.mediaType())
+    }
+
+    @Test
+    fun `mediaType is null when not supplied`() {
+        val file = tempFile()
+        Files.write(file, "x".toByteArray())
+        assertNull(FileRequestBody(file).mediaType())
+    }
+
+    @Test
+    fun `contentLength equals file size for full file`() {
+        val file = tempFile()
+        Files.write(file, ByteArray(123) { it.toByte() })
+        val body = FileRequestBody(file)
+        assertEquals(123L, body.contentLength())
+        assertEquals(123L, body.count)
+    }
+
+    @Test
+    fun `contentLength equals explicit count when slice is specified`() {
+        val file = tempFile()
+        Files.write(file, ByteArray(100) { it.toByte() })
+        val body = FileRequestBody(file = file, position = 10, explicitCount = 50)
+        assertEquals(50L, body.contentLength())
+    }
+
+    @Test
+    fun `writeTo emits the full file contents via the buffered sink`() {
+        val file = tempFile()
+        val payload = ByteArray(256) { it.toByte() }
+        Files.write(file, payload)
+
+        val sink = Io.provider.buffer()
+        FileRequestBody(file).writeTo(sink)
+
+        assertContentEquals(payload, sink.snapshot())
+    }
+
+    @Test
+    fun `writeTo emits only the requested slice when position and count are set`() {
+        val file = tempFile()
+        val payload = ByteArray(64) { it.toByte() }
+        Files.write(file, payload)
+
+        val body = FileRequestBody(file = file, position = 8L, explicitCount = 16L)
+        val sink = Io.provider.buffer()
+        body.writeTo(sink)
+
+        val emitted = sink.snapshot()
+        assertEquals(16, emitted.size)
+        for (i in 0 until 16) {
+            assertEquals((8 + i).toByte(), emitted[i])
+        }
+    }
+
+    @Test
+    fun `isReplayable returns true and supports repeated writes`() {
+        val file = tempFile()
+        val payload = "replayable".toByteArray()
+        Files.write(file, payload)
+
+        val body = FileRequestBody(file)
+        assertTrue(body.isReplayable())
+
+        val firstSink = Io.provider.buffer()
+        body.writeTo(firstSink)
+        val secondSink = Io.provider.buffer()
+        body.writeTo(secondSink)
+
+        assertContentEquals(payload, firstSink.snapshot())
+        assertContentEquals(payload, secondSink.snapshot())
+    }
+
+    @Test
+    fun `toReplayable returns this because the file is the source of truth`() {
+        val file = tempFile()
+        Files.write(file, "x".toByteArray())
+        val body = FileRequestBody(file)
+        assertSame(body, body.toReplayable(Io.provider))
+    }
+
+    @Test
+    fun `constructor rejects negative position`() {
+        val file = tempFile()
+        Files.write(file, "x".toByteArray())
+        assertFailsWith<IllegalArgumentException> {
+            FileRequestBody(file = file, position = -1L)
+        }
+    }
+
+    @Test
+    fun `constructor rejects negative explicit count except minus one`() {
+        val file = tempFile()
+        Files.write(file, "x".toByteArray())
+        assertFailsWith<IllegalArgumentException> {
+            FileRequestBody(file = file, explicitCount = -2L)
+        }
+    }
+
+    @Test
+    fun `constructor rejects position larger than file size`() {
+        val file = tempFile()
+        Files.write(file, ByteArray(4) { it.toByte() })
+        assertFailsWith<IllegalArgumentException> {
+            FileRequestBody(file = file, position = 99L)
+        }
+    }
+
+    @Test
+    fun `constructor rejects position plus count larger than file size`() {
+        val file = tempFile()
+        Files.write(file, ByteArray(4) { it.toByte() })
+        assertFailsWith<IllegalArgumentException> {
+            FileRequestBody(file = file, position = 2L, explicitCount = 10L)
+        }
+    }
+
+    @Test
+    fun `constructor rejects missing file`() {
+        val dir = Files.createTempDirectory("frb-missing")
+        val missing = dir.resolve("does-not-exist.bin")
+        tempFiles.add(dir)
+        assertFailsWith<NoSuchFileException> {
+            FileRequestBody(missing)
+        }
+    }
+
+    @Test
+    fun `constructor rejects directory paths`() {
+        val dir = Files.createTempDirectory("frb-dir")
+        tempFiles.add(dir)
+        assertFailsWith<IllegalArgumentException> {
+            FileRequestBody(dir)
+        }
     }
 }

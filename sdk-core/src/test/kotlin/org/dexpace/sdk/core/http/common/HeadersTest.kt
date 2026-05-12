@@ -138,4 +138,113 @@ class HeadersTest {
 
         assertEquals(listOf("new=1", "new=2"), headers.values(HttpHeaderName.SET_COOKIE))
     }
+
+    // ---- accessors & equality coverage ------------------------------------------
+
+    @Test
+    fun `names returns every distinct lower-cased header name`() {
+        val headers = Headers.builder()
+            .set("Authorization", "Bearer abc")
+            .set("Content-Type", "application/json")
+            .add("X-Foo", "1")
+            .build()
+        val names = headers.names()
+        assertTrue(names.contains("authorization"), "expected lower-cased authorization, got $names")
+        assertTrue(names.contains("content-type"))
+        assertTrue(names.contains("x-foo"))
+    }
+
+    @Test
+    fun `entries returns name and values list pairs`() {
+        val headers = Headers.builder()
+            .add("X-Foo", "1")
+            .add("X-Foo", "2")
+            .set("X-Bar", "3")
+            .build()
+        val map = headers.entries().associate { it.key to it.value }
+        assertEquals(listOf("1", "2"), map["x-foo"])
+        assertEquals(listOf("3"), map["x-bar"])
+    }
+
+    @Test
+    fun `values for absent header returns empty list (string overload)`() {
+        val headers = Headers.builder().build()
+        assertEquals(emptyList(), headers.values("X-Missing"))
+    }
+
+    @Test
+    fun `values for absent typed header returns empty list`() {
+        val headers = Headers.builder().build()
+        assertEquals(emptyList(), headers.values(HttpHeaderName.AUTHORIZATION))
+    }
+
+    @Test
+    fun `data class equality compares case-insensitively-normalised maps`() {
+        val a = Headers.builder().set("Authorization", "Bearer abc").build()
+        val b = Headers.builder().set("authorization", "Bearer abc").build()
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+    }
+
+    @Test
+    fun `unequal when values differ`() {
+        val a = Headers.builder().set("Authorization", "Bearer a").build()
+        val b = Headers.builder().set("Authorization", "Bearer b").build()
+        assertFalse(a == b)
+    }
+
+    @Test
+    fun `toString delegates to the underlying map`() {
+        val headers = Headers.builder().set("X-Foo", "bar").build()
+        // Just verify the toString contains the header's representation; we don't
+        // pin the exact format so a downstream change to LinkedHashMap.toString is
+        // not a behavioural regression.
+        val s = headers.toString()
+        assertTrue(s.contains("x-foo"))
+        assertTrue(s.contains("bar"))
+    }
+
+    @Test
+    fun `newBuilder round-trips and produces an equal Headers instance`() {
+        val original = Headers.builder()
+            .set("Authorization", "Bearer abc")
+            .add("Set-Cookie", "a=1")
+            .add("Set-Cookie", "b=2")
+            .build()
+        val rebuilt = original.newBuilder().build()
+        assertEquals(original, rebuilt)
+    }
+
+    @Test
+    fun `newBuilder mutations do not affect the source`() {
+        val original = Headers.builder().set("X-Foo", "1").build()
+        val mutated = original.newBuilder().set("X-Foo", "2").build()
+        assertEquals("1", original.get("X-Foo"))
+        assertEquals("2", mutated.get("X-Foo"))
+    }
+
+    @Test
+    fun `companion builder() yields an empty Headers instance`() {
+        val empty = Headers.builder().build()
+        assertTrue(empty.names().isEmpty())
+    }
+
+    @Test
+    fun `companion builder(headers) clones entries`() {
+        val seed = Headers.builder().set("Authorization", "Bearer abc").build()
+        val derived = Headers.builder(seed).set("Content-Type", "application/json").build()
+        assertEquals("Bearer abc", derived.get("Authorization"))
+        assertEquals("application/json", derived.get("Content-Type"))
+        // Modifying the derived instance did not touch the seed.
+        assertNull(seed.get("Content-Type"))
+    }
+
+    @Test
+    fun `remove with string name is case-insensitive`() {
+        val headers = Headers.builder()
+            .set("Authorization", "Bearer abc")
+            .remove("AUTHORIZATION")
+            .build()
+        assertFalse(headers.contains("authorization"))
+    }
 }

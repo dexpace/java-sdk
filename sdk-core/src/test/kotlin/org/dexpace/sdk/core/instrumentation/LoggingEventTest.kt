@@ -271,4 +271,191 @@ class LoggingEventTest {
         ev.field("late", "x").log("twice")
         assertEquals(1, fake.records.size)
     }
+
+    // -- renderForLog: primitive-typed array branches -------------------------------------------
+
+    @Test
+    fun `boolean array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("bools", booleanArrayOf(true, false, true) as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[true, false, true]", kv["bools"])
+    }
+
+    @Test
+    fun `byte array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("bytes", byteArrayOf(1, 2, 3) as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[1, 2, 3]", kv["bytes"])
+    }
+
+    @Test
+    fun `char array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("chars", charArrayOf('a', 'b', 'c') as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[a, b, c]", kv["chars"])
+    }
+
+    @Test
+    fun `short array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("shorts", shortArrayOf(1, 2, 3) as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[1, 2, 3]", kv["shorts"])
+    }
+
+    @Test
+    fun `long array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("longs", longArrayOf(10L, 20L, 30L) as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[10, 20, 30]", kv["longs"])
+    }
+
+    @Test
+    fun `float array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("floats", floatArrayOf(1.5f, 2.5f) as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[1.5, 2.5]", kv["floats"])
+    }
+
+    @Test
+    fun `double array renders via contentToString`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("doubles", doubleArrayOf(1.25, 2.5) as Any?).log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("[1.25, 2.5]", kv["doubles"])
+    }
+
+    // -- renderForLog: primitive value branches (passed through Any overload) -------------------
+
+    @Test
+    fun `Short primitive passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 7.toShort() as Any?).log()
+        assertEquals(7.toShort(), fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Byte primitive passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 3.toByte() as Any?).log()
+        assertEquals(3.toByte(), fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Float primitive passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 2.5f as Any?).log()
+        assertEquals(2.5f, fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Char primitive passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 'Z' as Any?).log()
+        assertEquals('Z', fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Long primitive via Any overload passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 42L as Any?).log()
+        assertEquals(42L, fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Int primitive via Any overload passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 42 as Any?).log()
+        assertEquals(42, fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Boolean primitive via Any overload passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", true as Any?).log()
+        assertEquals(true, fake.records.single().keyValues.toMap()["v"])
+    }
+
+    @Test
+    fun `Double primitive via Any overload passes through unchanged`() {
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", 3.14 as Any?).log()
+        assertEquals(3.14, fake.records.single().keyValues.toMap()["v"])
+    }
+
+    // -- renderForLog: serializer-exception path (Throwable whose message throws) ---------------
+
+    @Test
+    fun `serializer exception path renders the catch block placeholder`() {
+        // A custom object whose toString() throws is caught by the outer try/catch in
+        // renderForLog and emitted as `<error: serializer threw: <message>>`.
+        val bad = object {
+            override fun toString(): String = throw IllegalStateException("explode")
+        }
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field("v", bad as Any?).log()
+        val rendered = fake.records.single().keyValues.toMap()["v"] as String
+        assertContains(rendered, "<error: serializer threw")
+        assertContains(rendered, "explode")
+    }
+
+    @Test
+    fun `arbitrary non-primitive object falls through to toString`() {
+        val (logger, fake) = enabledLogger()
+        val obj: Any = object {
+            override fun toString(): String = "custom-rendered"
+        }
+        logger.atInfo().field("v", obj).log()
+        assertEquals("custom-rendered", fake.records.single().keyValues.toMap()["v"])
+    }
+
+    // -- empty-key rejection on each primitive overload (require branch) ------------------------
+
+    @Test
+    fun `empty key rejected on Long field overload`() {
+        val (logger, _) = enabledLogger()
+        assertFailsWith<IllegalArgumentException> { logger.atInfo().field("", 1L) }
+    }
+
+    @Test
+    fun `empty key rejected on Int field overload`() {
+        val (logger, _) = enabledLogger()
+        assertFailsWith<IllegalArgumentException> { logger.atInfo().field("", 1) }
+    }
+
+    @Test
+    fun `empty key rejected on Boolean field overload`() {
+        val (logger, _) = enabledLogger()
+        assertFailsWith<IllegalArgumentException> { logger.atInfo().field("", true) }
+    }
+
+    @Test
+    fun `empty key rejected on Double field overload`() {
+        val (logger, _) = enabledLogger()
+        assertFailsWith<IllegalArgumentException> { logger.atInfo().field("", 1.5) }
+    }
+
+    @Test
+    fun `empty key rejected on Any field overload`() {
+        val (logger, _) = enabledLogger()
+        assertFailsWith<IllegalArgumentException> { logger.atInfo().field("", Any()) }
+    }
+
+    // -- renderThrowable simpleName-null fallback --------------------------------------------
+
+    @Test
+    fun `throwable with anonymous class records the message`() {
+        // Anonymous local class — KClass.simpleName may be null, exercising the
+        // javaClass.name fallback path in renderThrowable.
+        val (logger, fake) = enabledLogger()
+        val anon: Throwable = object : RuntimeException("anon-msg") {}
+        logger.atInfo().field("err", anon as Any?).log()
+        val rendered = fake.records.single().keyValues.toMap()["err"] as String
+        assertContains(rendered, "anon-msg")
+    }
 }

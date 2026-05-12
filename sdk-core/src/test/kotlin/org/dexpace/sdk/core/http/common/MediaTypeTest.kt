@@ -1,0 +1,274 @@
+package org.dexpace.sdk.core.http.common
+
+import java.nio.charset.StandardCharsets
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class MediaTypeTest {
+
+    // ---- parse ------------------------------------------------------------------
+
+    @Test
+    fun `parse splits type and subtype, no params`() {
+        val mt = MediaType.parse("text/plain")
+        assertEquals("text", mt.type)
+        assertEquals("plain", mt.subtype)
+        assertTrue(mt.parameters.isEmpty())
+    }
+
+    @Test
+    fun `parse lower-cases type and subtype`() {
+        val mt = MediaType.parse("Application/JSON")
+        assertEquals("application", mt.type)
+        assertEquals("json", mt.subtype)
+    }
+
+    @Test
+    fun `parse extracts a single parameter`() {
+        val mt = MediaType.parse("text/plain; charset=utf-8")
+        assertEquals(mapOf("charset" to "utf-8"), mt.parameters)
+    }
+
+    @Test
+    fun `parse extracts multiple parameters`() {
+        val mt = MediaType.parse("application/json; q=0.8; charset=utf-8")
+        assertEquals(mapOf("q" to "0.8", "charset" to "utf-8"), mt.parameters)
+    }
+
+    @Test
+    fun `parse preserves param values that contain equals signs`() {
+        // Common case: multipart boundary that contains `=` characters. The first `=`
+        // is the key/value separator and any subsequent ones must be preserved.
+        val mt = MediaType.parse("multipart/form-data; boundary=abc=def")
+        assertEquals("abc=def", mt.parameters["boundary"])
+    }
+
+    @Test
+    fun `parse fails on blank input`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("") }
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("   ") }
+    }
+
+    @Test
+    fun `parse fails when slash is missing`() {
+        val ex = assertFailsWith<IllegalArgumentException> { MediaType.parse("bad") }
+        assertTrue(ex.message!!.contains("bad"))
+    }
+
+    @Test
+    fun `parse fails when type is empty`() {
+        // `/plain` — slashIndex is 0, so the check `slashIndex <= 0` rejects it.
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("/plain") }
+    }
+
+    @Test
+    fun `parse fails when subtype is empty`() {
+        // `text/` — slashIndex is mimeString.length-1, so it's rejected.
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("text/") }
+    }
+
+    @Test
+    fun `parse fails on wildcard type with concrete subtype`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("*/json") }
+    }
+
+    @Test
+    fun `parse fails on parameter without equals sign`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("a/b; c") }
+    }
+
+    @Test
+    fun `parse fails on parameter with empty key`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("a/b; =value") }
+    }
+
+    @Test
+    fun `parse fails on parameter with empty value`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.parse("a/b; key=") }
+    }
+
+    @Test
+    fun `parse skips blank parameter segments between semicolons`() {
+        val mt = MediaType.parse("text/plain; ; charset=utf-8 ; ")
+        assertEquals(mapOf("charset" to "utf-8"), mt.parameters)
+    }
+
+    @Test
+    fun `parse accepts wildcard-wildcard`() {
+        val mt = MediaType.parse("*/*")
+        assertEquals("*", mt.type)
+        assertEquals("*", mt.subtype)
+    }
+
+    // ---- of factory -------------------------------------------------------------
+
+    @Test
+    fun `of normalises type and subtype to lower case`() {
+        val mt = MediaType.of("Application", "JSON")
+        assertEquals("application", mt.type)
+        assertEquals("json", mt.subtype)
+        assertTrue(mt.parameters.isEmpty())
+    }
+
+    @Test
+    fun `of accepts an explicit parameter map`() {
+        // `of` lower-cases parameter keys but preserves the original value casing.
+        // `parse`, by contrast, lower-cases both — exercised separately.
+        val mt = MediaType.of("text", "plain", mapOf("Charset" to "UTF-8"))
+        assertEquals("UTF-8", mt.parameters["charset"])
+    }
+
+    @Test
+    fun `of rejects blank type`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.of("", "json") }
+        assertFailsWith<IllegalArgumentException> { MediaType.of("   ", "json") }
+    }
+
+    @Test
+    fun `of rejects blank subtype`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.of("text", "") }
+        assertFailsWith<IllegalArgumentException> { MediaType.of("text", "  ") }
+    }
+
+    @Test
+    fun `of rejects wildcard type with concrete subtype`() {
+        assertFailsWith<IllegalArgumentException> { MediaType.of("*", "plain") }
+    }
+
+    @Test
+    fun `of accepts wildcard-wildcard`() {
+        val mt = MediaType.of("*", "*")
+        assertEquals("*", mt.type)
+        assertEquals("*", mt.subtype)
+    }
+
+    // ---- charset accessor -------------------------------------------------------
+
+    @Test
+    fun `charset resolves a known charset name`() {
+        val mt = MediaType.parse("text/plain; charset=utf-8")
+        assertEquals(StandardCharsets.UTF_8, mt.charset)
+    }
+
+    @Test
+    fun `charset is null when parameter is absent`() {
+        val mt = MediaType.parse("text/plain")
+        assertNull(mt.charset)
+    }
+
+    @Test
+    fun `charset is null when parameter value is unknown`() {
+        val mt = MediaType.of("text", "plain", mapOf("charset" to "not-a-charset"))
+        assertNull(mt.charset)
+    }
+
+    // ---- includes ---------------------------------------------------------------
+
+    @Test
+    fun `wildcard subtype includes concrete subtype of same type`() {
+        val pattern = MediaType.parse("text/*")
+        assertTrue(pattern.includes(MediaType.parse("text/plain")))
+        assertTrue(pattern.includes(MediaType.parse("text/html")))
+    }
+
+    @Test
+    fun `wildcard-wildcard includes any concrete media type`() {
+        val any = MediaType.parse("*/*")
+        assertTrue(any.includes(MediaType.parse("text/plain")))
+        assertTrue(any.includes(MediaType.parse("application/json")))
+    }
+
+    @Test
+    fun `concrete media type does not include a different concrete media type`() {
+        val a = MediaType.parse("text/plain")
+        val b = MediaType.parse("text/html")
+        assertFalse(a.includes(b))
+    }
+
+    @Test
+    fun `different types do not include each other (typeMatches false branch)`() {
+        // typeMatches=false branch in `includes`.
+        val a = MediaType.parse("text/plain")
+        val b = MediaType.parse("application/json")
+        assertFalse(a.includes(b))
+        assertFalse(b.includes(a))
+    }
+
+    @Test
+    fun `concrete media type does not include a wildcard receiver in reverse direction`() {
+        // text/plain does not include text/*, even though text/* includes text/plain.
+        val plain = MediaType.parse("text/plain")
+        val anyText = MediaType.parse("text/*")
+        assertFalse(plain.includes(anyText))
+    }
+
+    @Test
+    fun `includes ignores parameters`() {
+        val a = MediaType.parse("text/plain; charset=utf-8")
+        val b = MediaType.parse("text/plain")
+        assertTrue(a.includes(b))
+        assertTrue(b.includes(a))
+    }
+
+    @Test
+    fun `includes is case-insensitive on type and subtype`() {
+        val a = MediaType.parse("Text/Plain")
+        val b = MediaType.of("TEXT", "PLAIN")
+        assertTrue(a.includes(b))
+    }
+
+    // ---- fullType ---------------------------------------------------------------
+
+    @Test
+    fun `fullType returns type slash subtype`() {
+        assertEquals("text/plain", MediaType.parse("text/plain").fullType)
+        assertEquals("application/json", MediaType.parse("application/json; charset=utf-8").fullType)
+    }
+
+    // ---- toString ---------------------------------------------------------------
+
+    @Test
+    fun `toString omits semicolon when no parameters`() {
+        assertEquals("text/plain", MediaType.parse("text/plain").toString())
+    }
+
+    @Test
+    fun `toString joins parameters with semicolons`() {
+        val mt = MediaType.parse("text/plain; charset=utf-8")
+        assertEquals("text/plain;charset=utf-8", mt.toString())
+    }
+
+    @Test
+    fun `toString round-trips through parse for canonical form`() {
+        val original = MediaType.parse("application/json;charset=utf-8")
+        val reparsed = MediaType.parse(original.toString())
+        assertEquals(original, reparsed)
+    }
+
+    // ---- equality + hashCode ----------------------------------------------------
+
+    @Test
+    fun `equality is case-insensitive via normalisation`() {
+        val a = MediaType.parse("Text/Plain")
+        val b = MediaType.parse("text/plain")
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+    }
+
+    @Test
+    fun `equality requires identical parameters`() {
+        val a = MediaType.parse("text/plain; charset=utf-8")
+        val b = MediaType.parse("text/plain")
+        assertFalse(a == b)
+    }
+
+    @Test
+    fun `parameters are also lower-cased on the key`() {
+        val mt = MediaType.of("text", "plain", mapOf("Charset" to "utf-8"))
+        assertEquals(mapOf("charset" to "utf-8"), mt.parameters)
+    }
+}

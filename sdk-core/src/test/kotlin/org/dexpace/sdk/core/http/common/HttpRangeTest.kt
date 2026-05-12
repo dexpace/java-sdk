@@ -89,4 +89,39 @@ class HttpRangeTest {
     fun `toString returns header value`() {
         assertEquals("bytes=0-1023", HttpRange.bytes(0, 1024).toString())
     }
+
+    @Test
+    fun `equals is reflexive`() {
+        val a = HttpRange.bytes(0, 1024)
+        @Suppress("KotlinConstantConditions")
+        assertEquals(a, a)
+    }
+
+    @Test
+    fun `equal HttpRanges produced from the same factory compare equal`() {
+        val a = HttpRange.bytes(0, 1024)
+        val b = HttpRange.bytes(0, 1024)
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+    }
+
+    @Test
+    fun `equal parsed and constructed HttpRanges compare equal`() {
+        val parsed = HttpRange.parse("bytes=0-1023")
+        val constructed = HttpRange.bytes(0, 1024)
+        assertEquals(parsed, constructed)
+        assertEquals(parsed.hashCode(), constructed.hashCode())
+    }
+
+    @Test
+    fun `unequal HttpRanges produce different toString`() {
+        assertEquals(false, HttpRange.bytes(0, 1024) == HttpRange.bytes(0, 2048))
+    }
+
+    @Test
+    fun `toString matches toHeaderValue for every factory`() {
+        assertEquals(HttpRange.bytes(10, 5).toHeaderValue(), HttpRange.bytes(10, 5).toString())
+        assertEquals(HttpRange.suffix(50).toHeaderValue(), HttpRange.suffix(50).toString())
+        assertEquals(HttpRange.from(10).toHeaderValue(), HttpRange.from(10).toString())
+    }
 }

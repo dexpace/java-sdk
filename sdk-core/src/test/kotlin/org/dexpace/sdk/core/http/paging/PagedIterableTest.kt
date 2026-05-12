@@ -259,6 +259,58 @@ class PagedIterableTest {
         assertEquals(0, nextPageCalls.get())
     }
 
+    @Test
+    fun `byPage stops fetching once cap is reached on a subsequent iteration`() {
+        // Need maxPages = 2 to take the *inner* `pageCount >= maxPages break`
+        // branch — first page yielded, count becomes 1, falls through to fetch
+        // page 2, yields it, count becomes 2, inner break fires before fetching page 3.
+        val nextPageCalls = AtomicInteger(0)
+        val iterable = PagedIterable<Int>(
+            firstPage = { page(listOf(1), nextLink = "p2") },
+            nextPage = { _, link ->
+                nextPageCalls.incrementAndGet()
+                when (link) {
+                    "p2" -> page(listOf(2), nextLink = "p3")
+                    else -> page(listOf(99))
+                }
+            },
+            maxPages = 2,
+        )
+        assertEquals(listOf(1, 2), iterable.toList())
+        // Exactly one nextPage call — fetch for p2, then cap stops the loop before p3.
+        assertEquals(1, nextPageCalls.get(), "third page must not be fetched once cap is reached")
+    }
+
+    @Test
+    fun `byPage yields exactly maxPages pages`() {
+        val iterable = PagedIterable<Int>(
+            firstPage = { page(listOf(1), nextLink = "p2") },
+            nextPage = { _, _ -> page(listOf(2), nextLink = "p3") },
+            maxPages = 2,
+        )
+        val pages = iterable.byPage().toList()
+        assertEquals(2, pages.size)
+        assertEquals(listOf(1), pages[0].value)
+        assertEquals(listOf(2), pages[1].value)
+    }
+
+    @Test
+    fun `maxPages of zero yields nothing even when firstPage returns data`() {
+        // Exercises the `pageCount < maxPages` false branch on the very first iteration —
+        // firstPage IS invoked but the loop body is skipped because the cap is reached
+        // before any yield.
+        val firstPageCalls = AtomicInteger(0)
+        val iterable = PagedIterable<Int>(
+            firstPage = {
+                firstPageCalls.incrementAndGet()
+                page(listOf(1, 2, 3))
+            },
+            maxPages = 0L,
+        )
+        assertEquals(emptyList(), iterable.toList())
+        assertEquals(1, firstPageCalls.get(), "firstPage is still invoked under the lazy contract")
+    }
+
     // ---------------------------------------------------------------------
     // Stream interop
     // ---------------------------------------------------------------------

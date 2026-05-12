@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm")
     `java-test-fixtures`
+    id("org.jetbrains.kotlinx.kover")
 }
 
 group = "org.dexpace"

@@ -423,6 +423,72 @@ class RedirectStepTest {
         assertEquals(0, predicateCalls, "predicate must not be consulted on non-redirect status")
     }
 
+    // ----------------- Location parse failures: alternate exception paths -----------------
+
+    @Test
+    fun `Location header with invalid characters triggers URISyntaxException path`() {
+        // A space in the path is illegal for URIs and surfaces as URISyntaxException from
+        // `URI.resolve`. The step logs at warning and returns the current response.
+        val fake = FakeHttpClient()
+            .enqueue { status(302).header("Location", "https://api.example.com/with space") }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep())
+            .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/v1"))
+        // The malformed Location triggers the catch path; we return the 302 unchanged.
+        assertEquals(302, response.status.code)
+        assertEquals(1, fake.callCount)
+    }
+
+    @Test
+    fun `303 with follow303 preserves non-content non-auth headers verbatim`() {
+        // Drives the branch in stripContentAndAuthHeaders where a header does NOT start with
+        // "content-" — the loop must traverse all headers but only flag the content-* ones.
+        // Includes a custom X-Trace-Id header that must survive the strip pass.
+        val fake = FakeHttpClient()
+            .enqueue { status(303).header("Location", "https://api.example.com/done") }
+            .enqueue { status(200) }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep(HttpRedirectOptions(follow303 = true)))
+            .build()
+
+        val request = Request.builder()
+            .method(Method.POST)
+            .url("https://api.example.com/submit")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("X-Trace-Id", "trace-abc")
+            .addHeader("Accept", "application/json")
+            .body(RequestBody.create("{}".toByteArray()))
+            .build()
+
+        pipeline.send(request)
+
+        val reissued = fake.requests[1]
+        assertNull(reissued.headers.get("Content-Type"), "Content-Type must be stripped")
+        // Non-content, non-auth headers must survive the strip.
+        assertEquals("trace-abc", reissued.headers.get("X-Trace-Id"))
+        assertEquals("application/json", reissued.headers.get("Accept"))
+    }
+
+    @Test
+    fun `Location header with unsupported scheme triggers MalformedURLException path`() {
+        // A scheme like "fake-scheme" parses as a valid URI but URI.toURL() throws
+        // MalformedURLException ("unknown protocol"). The step's third catch block fires.
+        val fake = FakeHttpClient()
+            .enqueue { status(302).header("Location", "weirdscheme://api.example.com/path") }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep())
+            .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/v1"))
+        assertEquals(302, response.status.code)
+        assertEquals(1, fake.callCount)
+    }
+
     // ----------------- 307/308 with non-replayable body -----------------
 
     @Test

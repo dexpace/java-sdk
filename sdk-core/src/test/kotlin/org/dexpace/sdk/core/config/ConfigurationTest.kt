@@ -378,4 +378,105 @@ class ConfigurationTest {
             .build()
         assertEquals("", cfg.get("X", ""))
     }
+
+    // ----- getProperty (un-normalized sysprop) -----
+
+    @Test
+    fun `getProperty returns the raw system property value without normalization`() {
+        // The propsSource gets the exact name passed in — no UPPER_SNAKE → lower.dot translation.
+        val cfg = ConfigurationBuilder()
+            .envSource { null }
+            .propsSource { name -> if (name == "https.proxyHost") "secure.example.com" else null }
+            .build()
+        assertEquals("secure.example.com", cfg.getProperty("https.proxyHost"))
+    }
+
+    @Test
+    fun `getProperty returns null when the property is unset`() {
+        val cfg = ConfigurationBuilder()
+            .envSource { null }
+            .propsSource { null }
+            .build()
+        assertNull(cfg.getProperty("https.proxyHost"))
+    }
+
+    @Test
+    fun `getProperty preserves casing - does not auto-normalize to lower dot`() {
+        // get() would lowercase MAX_RETRY_ATTEMPTS → max.retry.attempts before hitting propsSource.
+        // getProperty must NOT do that — verify by responding only to the exact UPPER_SNAKE name.
+        val cfg = ConfigurationBuilder()
+            .envSource { null }
+            .propsSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "42" else null }
+            .build()
+        assertEquals("42", cfg.getProperty("MAX_RETRY_ATTEMPTS"))
+        assertNull(cfg.getProperty("max.retry.attempts"))
+    }
+
+    @Test
+    fun `getProperty ignores envSource entirely`() {
+        // getProperty is a pure system-property accessor — env-var fallback does not apply.
+        val cfg = ConfigurationBuilder()
+            .envSource { name -> if (name == "https.proxyHost") "from-env" else null }
+            .propsSource { null }
+            .build()
+        assertNull(cfg.getProperty("https.proxyHost"))
+    }
+
+    // ----- parseDuration edge cases -----
+
+    @Test
+    fun `getDuration with empty string override returns default`() {
+        // The override value is empty → parseDuration early-returns null at the `isEmpty` check.
+        val cfg = ConfigurationBuilder().put("T", "").build()
+        assertEquals(Duration.ofSeconds(5), cfg.getDuration("T", Duration.ofSeconds(5)))
+    }
+
+    @Test
+    fun `getDuration with negative shorthand returns default`() {
+        // `-5s` → numPart is `-5`, parses to -5 → rejected by the `n < 0` guard.
+        val cfg = ConfigurationBuilder().put("T", "-5s").build()
+        assertEquals(Duration.ofSeconds(9), cfg.getDuration("T", Duration.ofSeconds(9)))
+    }
+
+    @Test
+    fun `parseDuration directly returns null on empty input`() {
+        // Internal helper; assert the early return on empty input — branch coverage.
+        assertNull(Configuration.parseDuration(""))
+    }
+
+    @Test
+    fun `parseDuration directly returns null on negative shorthand`() {
+        assertNull(Configuration.parseDuration("-5s"))
+    }
+
+    @Test
+    fun `parseDuration handles lowercase P prefix for ISO-8601`() {
+        // `Character.toUpperCase(raw[0]) == 'P'` covers both "P..." and "p..." case-insensitively.
+        assertEquals(Duration.ofSeconds(5), Configuration.parseDuration("pt5s"))
+    }
+
+    // ----- @JvmStatic bridge methods (static side of Configuration) -----
+
+    @Test
+    fun `static bridge for getGlobalConfiguration is callable via reflection`() {
+        // Covers the `@JvmStatic` static-bridge method on `Configuration` (distinct from
+        // the inner-companion impl). A real Java caller hits this bridge first.
+        val method = Configuration::class.java.getMethod("getGlobalConfiguration")
+        val result = method.invoke(null)
+        assertNotNull(result)
+        assertTrue(result is Configuration)
+    }
+
+    @Test
+    fun `static bridge for setGlobalConfiguration accepts non-null value via reflection`() {
+        // Pairs with the existing null-throws test: the bridge with a valid argument forwards
+        // to the companion successfully. Hits the static-bridge body lines.
+        val custom = ConfigurationBuilder().put("BRIDGE", "hit").build()
+        val method = Configuration::class.java.getMethod(
+            "setGlobalConfiguration",
+            Configuration::class.java,
+        )
+        method.invoke(null, custom)
+        assertEquals("hit", Configuration.getGlobalConfiguration().get("BRIDGE"))
+    }
 }

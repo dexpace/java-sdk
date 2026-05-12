@@ -25,6 +25,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class AuthStepTest {
 
@@ -140,6 +141,27 @@ class AuthStepTest {
         assertEquals("secret", captured.headers.get(customHeader))
         // Authorization must NOT be set in this case.
         assertNull(captured.headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
+    @Test
+    fun `KeyCredentialAuthStep without prefix uses the raw key value verbatim`() {
+        // Branch-coverage focus: prefix == null path. The header value must equal the apiKey
+        // exactly with no separator characters prepended. Differs from the broader "stamps
+        // Authorization with the raw key on GET" test by explicitly asserting *byte-for-byte*
+        // equality so a regression that introduced a default prefix would fail loudly.
+        val fake = FakeHttpClient().enqueue { status(200) }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(KeyCredentialAuthStep(KeyCredential("just-the-key", prefix = null)))
+            .build()
+
+        pipeline.send(getHttpsRequest())
+
+        val captured = fake.requests.single()
+        val authValue = captured.headers.get(HttpHeaderName.AUTHORIZATION) ?: fail("Authorization missing")
+        // Strict byte equality: no whitespace, no Bearer/SharedAccessKey prefix.
+        assertEquals("just-the-key", authValue)
+        assertTrue(!authValue.startsWith(" "), "must not start with a space")
+        assertTrue(!authValue.contains(" "), "must not contain a separator when no prefix is set")
     }
 
     @Test
@@ -358,6 +380,75 @@ class AuthStepTest {
             thrown is IllegalStateException || thrown is NullPointerException,
             "expected IllegalStateException or NullPointerException, got ${thrown::class.simpleName}: ${thrown.message}"
         )
+    }
+
+    @Test
+    fun `BearerTokenAuthStep wraps null return from a Java provider as IllegalStateException`() {
+        // The Kotlin null-return test above is subject to Kotlin's intrinsic null check on the
+        // SAM call site (it raises NPE before reaching the step's `?: error(...)` guard). A
+        // Java provider has no such intrinsic — null propagates into `fetchFresh`, where the
+        // step's defensive `?: error("BearerTokenProvider returned null")` guard fires.
+        // Exercises the otherwise-unreachable error branch.
+        val provider: BearerTokenProvider = NullReturningBearerTokenProvider()
+        val fake = FakeHttpClient().enqueue { status(200) }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(BearerTokenAuthStep(provider, listOf("scope")))
+            .build()
+
+        val ex = assertFailsWith<IllegalStateException> { pipeline.send(getHttpsRequest()) }
+        assertTrue(
+            ex.message?.contains("null") == true,
+            "expected message to mention null, got: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `BearerTokenAuthStep refreshes when cachedToken is null on the first call`() {
+        // The first send hits the lock-free fast path with cachedToken == null and falls
+        // through to the locked branch. Verifies the missing-cache code path is reached:
+        // the lock is acquired, the second null-check inside the lock also returns null,
+        // fetchFresh runs, and the result is cached for subsequent reads.
+        val fetches = AtomicInteger(0)
+        val provider = BearerTokenProvider { _, _ ->
+            fetches.incrementAndGet()
+            BearerToken("tk", null)
+        }
+        val fake = FakeHttpClient().enqueue { status(200) }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(BearerTokenAuthStep(provider, listOf("scope")))
+            .build()
+
+        pipeline.send(getHttpsRequest())
+        assertEquals(1, fetches.get(), "first request must fetch since cache is empty")
+    }
+
+    @Test
+    fun `BearerTokenAuthStep refreshes on subsequent call when token has expired past the margin`() {
+        // Distinct from the existing "within refresh margin" test: this drives the token
+        // strictly past `expiresAt` (not just within the grace window). Exercises the
+        // expired-after-margin branch in isExpiredAt where now() > expiresAt outright,
+        // independent of the margin grace.
+        val clock = FixedClock(Instant.parse("2024-01-01T00:00:00Z"))
+        val fetches = AtomicInteger(0)
+        val provider = BearerTokenProvider { _, _ ->
+            fetches.incrementAndGet()
+            BearerToken("tk-${fetches.get()}", clock.now().plusSeconds(10))
+        }
+        val fake = FakeHttpClient()
+            .enqueue { status(200) }
+            .enqueue { status(200) }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(BearerTokenAuthStep(provider, listOf("scope"), refreshMargin = Duration.ZERO, clock = clock))
+            .build()
+
+        pipeline.send(getHttpsRequest())
+        assertEquals(1, fetches.get())
+
+        // Move past the token expiry — 15s when the token was good for 10s only.
+        clock.advance(Duration.ofSeconds(15))
+        pipeline.send(getHttpsRequest())
+        assertEquals(2, fetches.get(), "expired token should trigger a refresh on the next call")
+        assertEquals("Bearer tk-2", fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION))
     }
 
     @Test

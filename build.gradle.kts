@@ -7,6 +7,10 @@ plugins {
     // declare `plugins { kotlin("jvm") }` without restating the version — but does not
     // apply Kotlin to the root project itself (which has no source).
     kotlin("jvm") version "2.3.21" apply false
+    // Kover is applied to the root so it can aggregate coverage across subprojects. Each
+    // subproject opts in via `plugins { id("org.jetbrains.kotlinx.kover") }`; the root
+    // collates their `kover.xml` / `kover.html` reports into one combined view.
+    id("org.jetbrains.kotlinx.kover") version "0.9.1"
 }
 
 group = "org.dexpace"
@@ -14,7 +18,45 @@ version = "0.0.1-alpha.1"
 
 
 // TODO: Enable code linting with KtLint via a convention plugin (org.jlleitschuh.gradle.ktlint)
-// TODO: Enforce code coverage with Kover via a convention plugin (org.jetbrains.kotlinx.kover)
+
+// Coverage: aggregate every Kover-enabled subproject through this root project's reports.
+// The legacy Java compat tree (`sdk-core/src/main/java/`) is excluded — it is generated
+// code that backs service clients and is not part of the SDK's hand-written surface.
+dependencies {
+    kover(project(":sdk-core"))
+    kover(project(":sdk-io-okio3"))
+}
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // Generated service-client compat layer.
+                classes(
+                    "annotations.*",
+                    "binarydata.*",
+                    "credentials.*",
+                    "http.*",
+                    "implementation.*",
+                    "instrumentation.*",
+                    "models.*",
+                    "serialization.*",
+                    "traits.*",
+                    "utils.*",
+                )
+                // Test fixtures (test-only support code).
+                classes("org.dexpace.sdk.core.testing.*")
+            }
+        }
+        verify {
+            rule {
+                // Coverage gate: line + branch coverage must stay above the floor. The
+                // floor starts loose and is raised in dedicated coverage-PR commits.
+                minBound(80)
+            }
+        }
+    }
+}
 
 allprojects {
     repositories {

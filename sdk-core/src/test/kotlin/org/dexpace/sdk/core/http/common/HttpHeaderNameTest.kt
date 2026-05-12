@@ -76,6 +76,16 @@ class HttpHeaderNameTest {
     }
 
     @Test
+    fun `fromString with empty string interns the empty key`() {
+        val empty = HttpHeaderName.fromString("")
+        val whitespace = HttpHeaderName.fromString("   ")
+        // Both trim to the empty string and intern under the same key.
+        assertSame(empty, whitespace)
+        assertEquals("", empty.caseInsensitiveName)
+        assertEquals("", empty.caseSensitiveName)
+    }
+
+    @Test
     fun `concurrent fromString calls converge on a single interned instance`() {
         // Pick a name not used by any well-known constant or other test so this race
         // is genuinely the first interning of the key.

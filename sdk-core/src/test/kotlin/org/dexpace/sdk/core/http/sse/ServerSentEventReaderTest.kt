@@ -418,4 +418,129 @@ class ServerSentEventReaderTest {
         assertFalse(ServerSentEvent(comment = "c").isEmpty)
         assertFalse(ServerSentEvent(retry = Duration.ofMillis(100)).isEmpty)
     }
+
+    // ---------------------------------------------------------------------
+    // parseRetryMillis overflow path
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `retry value at exactly Long MAX VALUE parses`() {
+        val src = source("retry: ${Long.MAX_VALUE}\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertEquals(Duration.ofMillis(Long.MAX_VALUE), event?.retry)
+    }
+
+    @Test
+    fun `retry value one above Long MAX VALUE is rejected via overflow guard`() {
+        // 9223372036854775808 — Long.MAX_VALUE + 1, exercises the
+        // `result > (Long.MAX_VALUE - digit) / 10` branch in parseRetryMillis.
+        val src = source("retry: 9223372036854775808\ndata: x\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertNull(event?.retry, "value exceeding Long.MAX_VALUE must be rejected")
+        // Data still emitted so the event is visible.
+        assertEquals(listOf("x"), event?.data)
+    }
+
+    @Test
+    fun `retry value many digits over the overflow boundary is rejected`() {
+        // 30+ digit value is unambiguously over Long.MAX_VALUE — guards the
+        // overflow path for multi-digit inputs.
+        val src = source("retry: 999999999999999999999999999999\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertNull(event?.retry)
+    }
+
+    // ---------------------------------------------------------------------
+    // ByteArrayBuilder grow path (very long lines)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `line longer than initial capacity triggers ByteArrayBuilder grow`() {
+        // Initial capacity is 64 bytes; a 200-char data value forces a single grow.
+        val payload = "a".repeat(200)
+        val src = source("data: $payload\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertNotNull(event)
+        assertEquals(payload, event.data[0])
+    }
+
+    @Test
+    fun `line longer than 8KB triggers multiple grow iterations`() {
+        // Forces several rounds of doubling.
+        val payload = "x".repeat(10_000)
+        val src = source("data: $payload\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertEquals(10_000, event?.data?.first()?.length)
+    }
+
+    // ---------------------------------------------------------------------
+    // ServerSentEventListener default methods coverage
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `listener default onClose method is invokable`() {
+        val listener = object : ServerSentEventListener {
+            override fun onEvent(event: ServerSentEvent) {}
+        }
+        // Just invoke — default impl is a no-op.
+        listener.onClose()
+    }
+
+    @Test
+    fun `listener default onError method is invokable`() {
+        val listener = object : ServerSentEventListener {
+            override fun onEvent(event: ServerSentEvent) {}
+        }
+        listener.onError(IllegalStateException("test"))
+    }
+
+    @Test
+    fun `listener default onRetry method is invokable`() {
+        val listener = object : ServerSentEventListener {
+            override fun onEvent(event: ServerSentEvent) {}
+        }
+        listener.onRetry(Duration.ofMillis(5_000))
+    }
+
+    @Test
+    fun `listener with all defaults overridden works`() {
+        var error: Throwable? = null
+        var closeCalls = 0
+        var retryDelay: Duration? = null
+        val listener = object : ServerSentEventListener {
+            override fun onEvent(event: ServerSentEvent) {}
+            override fun onError(t: Throwable) { error = t }
+            override fun onClose() { closeCalls++ }
+            override fun onRetry(delay: Duration) { retryDelay = delay }
+        }
+        listener.onError(IllegalStateException("nope"))
+        listener.onClose()
+        listener.onRetry(Duration.ofMillis(10))
+        assertNotNull(error)
+        assertEquals(1, closeCalls)
+        assertEquals(Duration.ofMillis(10), retryDelay)
+    }
+
+    // ---------------------------------------------------------------------
+    // Unknown field branch and dispatch-on-EOF branches
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `unknown field followed by known fields keeps only known fields`() {
+        val src = source("garbage: zzz\nfooBar: more-zz\nevent: kept\ndata: payload\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertEquals("kept", event?.event)
+        assertEquals(listOf("payload"), event?.data)
+        // Unknown fields produce no field, no comment, no id.
+        assertNull(event?.id)
+        assertNull(event?.comment)
+    }
+
+    @Test
+    fun `unknown field only with no other fields and no trailing blank produces no event`() {
+        val src = source("garbage: zzz\n")
+        val event = ServerSentEventReader(src).next()
+        // Unknown field doesn't set hasField, so EOF returns null.
+        assertNull(event)
+    }
 }

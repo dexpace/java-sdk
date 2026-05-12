@@ -76,6 +76,23 @@ class ClientLoggerTest {
     }
 
     @Test
+    fun `constructor accepts Java Class name`() {
+        // Exercises the `Class<*>` overload — the natural Java-side `new ClientLogger(MyClass.class)`
+        // surface. Construction must succeed without throwing; the underlying SLF4J binding is
+        // slf4j-nop in tests so we cannot assert on the resolved logger name.
+        val logger = ClientLogger(ClientLoggerTest::class.java)
+        assertEquals("", logger.globalContext.entries.joinToString())
+    }
+
+    @Test
+    fun `constructor accepts Java Class name with globalContext`() {
+        val ctx = mapOf("svc" to "billing")
+        val logger = ClientLogger(ClientLoggerTest::class.java, ctx)
+        // The map reference is retained — not copied — so identity equality holds.
+        assertSame(ctx, logger.globalContext)
+    }
+
+    @Test
     fun `empty name is rejected`() {
         assertFailsWith<IllegalArgumentException> { ClientLogger("") }
     }

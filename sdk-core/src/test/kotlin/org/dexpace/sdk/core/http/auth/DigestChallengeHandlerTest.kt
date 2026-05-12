@@ -395,6 +395,253 @@ class DigestChallengeHandlerTest {
         assertNull(handler.handleChallenges(Method.GET, uri, listOf(challenge)))
     }
 
+    // ---- qop list parsing -------------------------------------------------------
+
+    @Test
+    fun `qop with auth and auth-int picks auth`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth, auth-int", "algorithm" to "MD5"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        assertEquals("auth", parsed["qop"])
+    }
+
+    @Test
+    fun `qop with whitespace-separated tokens works`() {
+        // Splits on comma and trims; verify tab/space handling.
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth-int,   auth", "algorithm" to "MD5"),
+        )
+        assertTrue(handler.canHandle(listOf(challenge)))
+    }
+
+    @Test
+    fun `legacy challenge with no qop produces no qop nc or cnonce on the header`() {
+        // RFC 2069: no qop in challenge → handler emits a header without qop/nc/cnonce.
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        assertNull(parsed["qop"])
+        assertNull(parsed["nc"])
+        assertNull(parsed["cnonce"])
+        // response should still be present (computed via legacy formula).
+        assertNotNull(parsed["response"])
+    }
+
+    @Test
+    fun `legacy challenge with no qop computes RFC 2069 response`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "the-nonce"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        val ha1 = md5Hex("u:r:p")
+        val ha2 = md5Hex("GET:${parsed["uri"]}")
+        val expected = md5Hex("$ha1:the-nonce:$ha2")
+        assertEquals(expected, parsed["response"])
+    }
+
+    // ---- charset handling -------------------------------------------------------
+
+    @Test
+    fun `charset UTF-8 produces UTF-8 byte encoding for HA1`() {
+        val handler = DigestChallengeHandler("ué", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5", "charset" to "UTF-8"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        // HA1 should be MD5("ué:r:p") with UTF-8 encoding (two bytes for é).
+        val ha1 = md5HexUtf8("ué:r:p")
+        val ha2 = md5HexUtf8("GET:${parsed["uri"]}")
+        val expected = md5HexUtf8("$ha1:n:${parsed["nc"]}:${parsed["cnonce"]}:auth:$ha2")
+        assertEquals(expected, parsed["response"])
+    }
+
+    @Test
+    fun `charset utf-8 lower-case is also treated as UTF-8`() {
+        // Case-insensitive matching of the `charset` parameter.
+        val handler = DigestChallengeHandler("ué", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5", "charset" to "utf-8"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        val ha1 = md5HexUtf8("ué:r:p")
+        val ha2 = md5HexUtf8("GET:${parsed["uri"]}")
+        val expected = md5HexUtf8("$ha1:n:${parsed["nc"]}:${parsed["cnonce"]}:auth:$ha2")
+        assertEquals(expected, parsed["response"])
+    }
+
+    @Test
+    fun `charset ISO-8859-1 produces Latin-1 byte encoding`() {
+        // Latin-1 is the default — passing the parameter explicitly should behave the same way.
+        val handler = DigestChallengeHandler("ué", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5", "charset" to "ISO-8859-1"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        val ha1 = md5Hex("ué:r:p") // helper uses ISO-8859-1 already
+        val ha2 = md5Hex("GET:${parsed["uri"]}")
+        val expected = md5Hex("$ha1:n:${parsed["nc"]}:${parsed["cnonce"]}:auth:$ha2")
+        assertEquals(expected, parsed["response"])
+    }
+
+    @Test
+    fun `no charset parameter defaults to ISO-8859-1`() {
+        val handler = DigestChallengeHandler("ué", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        val ha1 = md5Hex("ué:r:p")
+        val ha2 = md5Hex("GET:${parsed["uri"]}")
+        val expected = md5Hex("$ha1:n:${parsed["nc"]}:${parsed["cnonce"]}:auth:$ha2")
+        assertEquals(expected, parsed["response"])
+    }
+
+    // ---- digest-uri rendering ---------------------------------------------------
+
+    @Test
+    fun `digest URI includes the query string when present`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val uriWithQuery = URI.create("https://api.example.com/dir/index.html?a=1&b=2")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uriWithQuery, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        assertEquals("/dir/index.html?a=1&b=2", parsed["uri"])
+    }
+
+    @Test
+    fun `digest URI falls back to slash when path is empty`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val uriRoot = URI.create("https://api.example.com")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uriRoot, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        assertEquals("/", parsed["uri"])
+    }
+
+    // ---- opaque -----------------------------------------------------------------
+
+    @Test
+    fun `opaque parameter passes through unchanged when present`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "opaque" to "the-opaque-value"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        assertEquals("the-opaque-value", parsed["opaque"])
+    }
+
+    @Test
+    fun `opaque is omitted from the header when absent in the challenge`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        assertFalse(parsed.containsKey("opaque"))
+    }
+
+    // ---- nc formatting -----------------------------------------------------------
+
+    @Test
+    fun `nc is 8-char zero-padded lower-case hex`() {
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        val nc = parsed["nc"]
+        assertNotNull(nc)
+        assertEquals(8, nc.length, "nc must be 8 hex chars")
+        assertTrue(nc.all { it in '0'..'9' || it in 'a'..'f' }, "nc must be lower-case hex")
+    }
+
+    @Test
+    fun `concurrent nc increments produce monotonic, non-repeating sequence`() {
+        // Verify thread safety of the AtomicInteger-backed nc.
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+        )
+        val threadCount = 8
+        val iterationsPerThread = 50
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(threadCount)
+        val start = java.util.concurrent.CountDownLatch(1)
+        val done = java.util.concurrent.CountDownLatch(threadCount)
+        val all = java.util.concurrent.ConcurrentLinkedQueue<Int>()
+        try {
+            repeat(threadCount) {
+                pool.submit {
+                    try {
+                        start.await()
+                        repeat(iterationsPerThread) {
+                            val header = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second
+                            val parsed = parseDigestHeader(header)
+                            all.add(Integer.parseInt(parsed["nc"]!!, 16))
+                        }
+                    } finally {
+                        done.countDown()
+                    }
+                }
+            }
+            start.countDown()
+            assertTrue(done.await(15, java.util.concurrent.TimeUnit.SECONDS), "threads timed out")
+        } finally {
+            pool.shutdownNow()
+        }
+        // Every increment must be unique (1..N).
+        val collected = all.toList()
+        assertEquals(threadCount * iterationsPerThread, collected.size)
+        assertEquals(collected.toSet().size, collected.size, "no duplicate nc values across threads")
+        // Highest value should be threadCount*iterationsPerThread.
+        assertEquals(threadCount * iterationsPerThread, collected.max())
+    }
+
+    private fun md5HexUtf8(s: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        val bytes = md.digest(s.toByteArray(Charsets.UTF_8))
+        val sb = StringBuilder(bytes.size * 2)
+        for (b in bytes) {
+            val v = b.toInt() and 0xff
+            if (v < 0x10) sb.append('0')
+            sb.append(Integer.toHexString(v))
+        }
+        return sb.toString()
+    }
+
     // ---- helpers ----------------------------------------------------------------
 
     /**

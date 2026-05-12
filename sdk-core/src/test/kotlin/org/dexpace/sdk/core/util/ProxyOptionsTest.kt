@@ -626,6 +626,213 @@ class ProxyOptionsTest {
         assertTrue(p.matcher("API.EXAMPLE.COM").matches())
     }
 
+    @Test
+    fun `compileGlob escapes every regex metacharacter handled by the switch`() {
+        // Each char in `.\+()[]{}^$|` must be escaped so it is treated as a literal in the
+        // resulting pattern. Exercise them all in one pattern to drive the metachar branches.
+        val p = ProxyOptions.compileGlob(".\\+()[]{}^\$|")
+        assertTrue(p.matcher(".\\+()[]{}^\$|").matches())
+        // None of the chars must function as regex operators — assert a literal next char
+        // doesn't accidentally turn into "anything".
+        assertFalse(p.matcher("axxxxxxxxxxx").matches())
+    }
+
+    // ----- fromConfiguration: env var URL userinfo edge cases -----
+
+    @Test
+    fun `fromConfiguration env URL with username-only userinfo no colon`() {
+        // Userinfo `user@host:port` (no `:password`) — exercises the `colon < 0` branch
+        // of the userinfo split in parseProxyUrl.
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                if (name == "HTTPS_PROXY") "http://alice@proxy.example.com:8080" else null
+            }
+            .propsSource { null }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertEquals("alice", po.username)
+        assertNull(po.password)
+    }
+
+    @Test
+    fun `fromConfiguration env URL with password containing colon retains colons in pass`() {
+        // Password may itself contain colons. The split-at-first-colon behaviour preserves them.
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                if (name == "HTTPS_PROXY") "http://user:p:a:s:s@proxy:8080" else null
+            }
+            .propsSource { null }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertEquals("user", po.username)
+        assertEquals("p:a:s:s", po.password)
+    }
+
+    @Test
+    fun `fromConfiguration drops empty fragments in NO_PROXY env var`() {
+        // `"foo,,bar"` → ["foo", "bar"] — exercises the `filter { it.isNotEmpty() }`
+        // branch in splitAndUnescape where some splits ARE empty.
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                when (name) {
+                    "HTTPS_PROXY" -> "http://proxy:8080"
+                    "NO_PROXY" -> "foo,,bar"
+                    else -> null
+                }
+            }
+            .propsSource { null }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertEquals(listOf("foo", "bar"), po.nonProxyHosts)
+    }
+
+    @Test
+    fun `fromConfiguration single-non-star nonProxyHost stays in the list`() {
+        // sysProp size==1 but parts[0] != "*" → returns the list, not BYPASS_ALL.
+        // Verifies the AND-branch where the first conjunct (size==1) is true but the
+        // second (parts[0]=="*") is false.
+        val cfg = ConfigurationBuilder()
+            .envSource { null }
+            .propsSource { name ->
+                when (name) {
+                    "https.proxyHost" -> "proxy"
+                    "https.proxyPort" -> "8443"
+                    "http.nonProxyHosts" -> "single.host"
+                    else -> null
+                }
+            }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertEquals(listOf("single.host"), po.nonProxyHosts)
+    }
+
+    @Test
+    fun `fromConfiguration single-non-star nonProxyHost via env var NO_PROXY`() {
+        // env-var path mirror of the previous test: size==1 but != "*" — exercises the
+        // env-var branch's size==1 && != "*" predicate.
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                when (name) {
+                    "HTTPS_PROXY" -> "http://proxy:8080"
+                    "NO_PROXY" -> "single.host"
+                    else -> null
+                }
+            }
+            .propsSource { null }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertEquals(listOf("single.host"), po.nonProxyHosts)
+    }
+
+    // ----- toString masking -----
+
+    @Test
+    fun `toString masks both username and password when present`() {
+        val po = ProxyOptions(
+            ProxyOptions.Type.HTTP,
+            InetSocketAddress("proxy", 8080),
+            username = "alice",
+            password = "wonderland",
+        )
+        val s = po.toString()
+        // The literal credentials must never appear in the rendered form.
+        assertFalse(s.contains("alice"), "username leaked into toString: $s")
+        assertFalse(s.contains("wonderland"), "password leaked into toString: $s")
+        assertTrue(s.contains("username=***"), "expected masked username, got: $s")
+        assertTrue(s.contains("password=***"), "expected masked password, got: $s")
+    }
+
+    @Test
+    fun `toString renders null credentials as the literal null token`() {
+        val po = ProxyOptions(ProxyOptions.Type.HTTP, InetSocketAddress("proxy", 8080))
+        val s = po.toString()
+        // Both fields are absent → JVM `null` representation in the rendered output.
+        assertTrue(s.contains("username=null"), "expected username=null, got: $s")
+        assertTrue(s.contains("password=null"), "expected password=null, got: $s")
+    }
+
+    @Test
+    fun `toString includes type, address, and nonProxyHosts`() {
+        val po = ProxyOptions(
+            ProxyOptions.Type.SOCKS5,
+            InetSocketAddress("p.example", 1080),
+            nonProxyHosts = listOf("*.internal"),
+        )
+        val s = po.toString()
+        assertTrue(s.contains("type=SOCKS5"), s)
+        assertTrue(s.contains("nonProxyHosts=[*.internal]"), s)
+    }
+
+    @Test
+    fun `toString masks username when only username present`() {
+        val po = ProxyOptions(
+            ProxyOptions.Type.HTTP,
+            InetSocketAddress("proxy", 8080),
+            username = "u",
+        )
+        val s = po.toString()
+        assertFalse(s.contains("=u,"), s)
+        assertTrue(s.contains("username=***"), s)
+        assertTrue(s.contains("password=null"), s)
+    }
+
+    // ----- Type enum values -----
+
+    @Test
+    fun `Type enum exposes HTTP SOCKS4 SOCKS5 values`() {
+        val values = ProxyOptions.Type.values().toSet()
+        assertEquals(setOf(ProxyOptions.Type.HTTP, ProxyOptions.Type.SOCKS4, ProxyOptions.Type.SOCKS5), values)
+        assertEquals(ProxyOptions.Type.HTTP, ProxyOptions.Type.valueOf("HTTP"))
+        assertEquals(ProxyOptions.Type.SOCKS4, ProxyOptions.Type.valueOf("SOCKS4"))
+        assertEquals(ProxyOptions.Type.SOCKS5, ProxyOptions.Type.valueOf("SOCKS5"))
+    }
+
+    // ----- @JvmStatic bridge methods (static side of ProxyOptions) -----
+
+    @Test
+    fun `static bridge for fromConfiguration is callable via reflection`() {
+        // The `@JvmStatic` static method on `ProxyOptions` (distinct from the Companion's
+        // implementation) is invoked when Java callers write `ProxyOptions.fromConfiguration(cfg)`.
+        // Kotlin call sites go to the Companion; only reflective or Java-side calls exercise
+        // the static-bridge body line, so cover it explicitly here.
+        val cfg = ConfigurationBuilder()
+            .envSource { null }
+            .propsSource { name ->
+                when (name) {
+                    "https.proxyHost" -> "proxy"
+                    "https.proxyPort" -> "8443"
+                    else -> null
+                }
+            }
+            .build()
+        val method = ProxyOptions::class.java.getMethod(
+            "fromConfiguration",
+            org.dexpace.sdk.core.config.Configuration::class.java,
+        )
+        val result = method.invoke(null, cfg)
+        assertNotNull(result)
+        assertTrue(result is ProxyOptions)
+    }
+
+    @Test
+    fun `static bridge for compileGlob via internal sdk_core mangled name`() {
+        // `internal fun compileGlob` is `@JvmStatic` on the Companion, so Kotlin emits a
+        // mangled static bridge on `ProxyOptions` named `compileGlob$sdk_core`. The unmangled
+        // `compileGlob` name is not exposed.
+        val method = ProxyOptions::class.java.getMethod(
+            "compileGlob\$sdk_core",
+            String::class.java,
+        )
+        val pattern = method.invoke(null, "*.example.com")
+        assertNotNull(pattern)
+        assertTrue(pattern is java.util.regex.Pattern)
+    }
+
     // ----- Stub ChallengeHandler for tests -----
 
     private class StubChallengeHandler : ChallengeHandler {

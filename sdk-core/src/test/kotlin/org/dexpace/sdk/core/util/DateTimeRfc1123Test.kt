@@ -136,4 +136,23 @@ class DateTimeRfc1123Test {
             DateTimeRfc1123.parse("Mon, 01 Jan 2024 00:00:00 +0500"),
         )
     }
+
+    @Test
+    fun `parse tolerates colon-separated plus zero offset zone spelling`() {
+        // Exercises the `+00:00` normalisation branch in normalizeZone.
+        assertEquals(
+            Instant.parse("2024-01-01T00:00:00Z"),
+            DateTimeRfc1123.parse("Mon, 01 Jan 2024 00:00:00 +00:00"),
+        )
+    }
+
+    @Test
+    fun `parse non-UTC offset such as plus 0530`() {
+        // +0530 means wall-clock is 5h30 ahead of UTC → Instant is 5h30 earlier.
+        // Asserts the non-UTC normalisation path leaves the offset intact for the parser.
+        assertEquals(
+            Instant.parse("2023-12-31T18:30:00Z"),
+            DateTimeRfc1123.parse("Mon, 01 Jan 2024 00:00:00 +0530"),
+        )
+    }
 }

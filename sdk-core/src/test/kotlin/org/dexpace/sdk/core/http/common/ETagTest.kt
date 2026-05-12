@@ -145,4 +145,50 @@ class ETagTest {
         assertEquals("W/\"xyz\"", ETag.weak("xyz").toString())
         assertEquals("*", ETag.ANY.toString())
     }
+
+    @Test
+    fun `equal inline-class instances compare equal and share hashCode`() {
+        val a = ETag.strong("xyz")
+        val b = ETag.strong("xyz")
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+    }
+
+    @Test
+    fun `weak and strong with the same opaque are not equal`() {
+        val weak = ETag.weak("xyz")
+        val strong = ETag.strong("xyz")
+        // Touch the equality path for the inline-class — the underlying raw values differ.
+        assertEquals(false, weak == strong)
+    }
+
+    @Test
+    fun `ANY singleton compares equal to itself but unequal to a concrete tag`() {
+        @Suppress("KotlinConstantConditions")
+        assertEquals(ETag.ANY, ETag.ANY)
+        assertEquals(false, ETag.ANY == ETag.strong("x"))
+    }
+
+    @Test
+    fun `parse with extra whitespace around star returns ANY`() {
+        // The trimming branch is touched here.
+        assertEquals(ETag.ANY, ETag.parse("  *  "))
+    }
+
+    @Test
+    fun `parse rejects W only with no quotes`() {
+        // Tests the negative branch of the weak-form length/prefix check.
+        assertFailsWith<IllegalArgumentException> { ETag.parse("W/") }
+    }
+
+    @Test
+    fun `parse rejects single quote character`() {
+        // Length 1 — fails both minimum-length checks for strong and weak.
+        assertFailsWith<IllegalArgumentException> { ETag.parse("\"") }
+    }
+
+    @Test
+    fun `parse rejects W slash quote with no closing quote`() {
+        assertFailsWith<IllegalArgumentException> { ETag.parse("W/\"") }
+    }
 }

@@ -176,4 +176,84 @@ class RequestConditionsTest {
         assertEquals(1, first.ifMatch.size)
         assertEquals(2, second.ifMatch.size)
     }
+
+    @Test
+    fun `newBuilder copies state from an existing RequestConditions`() {
+        val original = RequestConditions.builder()
+            .ifMatch(ETag.strong("x"))
+            .ifNoneMatch(ETag.strong("y"))
+            .ifModifiedSince(Instant.parse("2024-01-01T00:00:00Z"))
+            .ifUnmodifiedSince(Instant.parse("2024-12-31T23:59:59Z"))
+            .build()
+        val copy = original.newBuilder().build()
+        assertEquals(original.ifMatch, copy.ifMatch)
+        assertEquals(original.ifNoneMatch, copy.ifNoneMatch)
+        assertEquals(original.ifModifiedSince, copy.ifModifiedSince)
+        assertEquals(original.ifUnmodifiedSince, copy.ifUnmodifiedSince)
+    }
+
+    @Test
+    fun `newBuilder allows derived modification without touching the source`() {
+        val original = RequestConditions.builder()
+            .ifMatch(ETag.strong("x"))
+            .build()
+        val derived = original.newBuilder()
+            .ifMatch(ETag.strong("y"))
+            .build()
+        assertEquals(1, original.ifMatch.size)
+        assertEquals(2, derived.ifMatch.size)
+    }
+
+    @Test
+    fun `builder ifMatch chain accumulates across multiple calls`() {
+        val rc = RequestConditions.builder()
+            .ifMatch(ETag.strong("a"))
+            .ifMatch(ETag.strong("b"))
+            .ifMatch(ETag.weak("c"))
+            .build()
+        assertEquals(3, rc.ifMatch.size)
+        assertEquals(ETag.strong("a"), rc.ifMatch[0])
+        assertEquals(ETag.strong("b"), rc.ifMatch[1])
+        assertEquals(ETag.weak("c"), rc.ifMatch[2])
+    }
+
+    @Test
+    fun `builder ifNoneMatch chain accumulates across multiple calls`() {
+        val rc = RequestConditions.builder()
+            .ifNoneMatch(ETag.strong("a"))
+            .ifNoneMatch(ETag.strong("b"))
+            .build()
+        assertEquals(2, rc.ifNoneMatch.size)
+    }
+
+    @Test
+    fun `builder ifModifiedSince call overwrites previous value`() {
+        val first = Instant.parse("2024-01-01T00:00:00Z")
+        val second = Instant.parse("2024-06-01T00:00:00Z")
+        val rc = RequestConditions.builder()
+            .ifModifiedSince(first)
+            .ifModifiedSince(second)
+            .build()
+        assertEquals(second, rc.ifModifiedSince)
+    }
+
+    @Test
+    fun `builder ifUnmodifiedSince call overwrites previous value`() {
+        val first = Instant.parse("2024-01-01T00:00:00Z")
+        val second = Instant.parse("2024-06-01T00:00:00Z")
+        val rc = RequestConditions.builder()
+            .ifUnmodifiedSince(first)
+            .ifUnmodifiedSince(second)
+            .build()
+        assertEquals(second, rc.ifUnmodifiedSince)
+    }
+
+    @Test
+    fun `companion builder returns an empty Builder`() {
+        val rc = RequestConditions.builder().build()
+        assertTrue(rc.ifMatch.isEmpty())
+        assertTrue(rc.ifNoneMatch.isEmpty())
+        assertEquals(null, rc.ifModifiedSince)
+        assertEquals(null, rc.ifUnmodifiedSince)
+    }
 }
