@@ -1,0 +1,30 @@
+package org.dexpace.sdk.core.http.paging
+
+/**
+ * Mutable carrier for paging request parameters.
+ *
+ * Covers the three common addressing modes used by REST APIs:
+ *
+ * - **Offset-based** ([offset] + optional [pageSize]) — e.g. `?offset=20&limit=10`.
+ * - **Index-based** ([pageIndex] + optional [pageSize]) — e.g. `?page=2&size=10`.
+ * - **Token-based** ([continuationToken]) — opaque server-issued cursor, e.g. `?cursor=abc123`.
+ *
+ * All fields are nullable so a caller can opt in to a subset. Fields are `var` because
+ * paging options are commonly mutated as iteration progresses (e.g. a custom retriever may
+ * stash the latest continuation token here before requesting the next page).
+ *
+ * Instances are **not** thread-safe.
+ *
+ * @property offset Zero-based starting index of the first item the server should return.
+ * @property pageSize Maximum number of items the server should return per page.
+ * @property pageIndex Zero-based page number to fetch (mutually exclusive with [offset] in
+ *   most server contracts; the server defines precedence).
+ * @property continuationToken Opaque server-issued cursor to fetch the next page. Mutually
+ *   exclusive with [offset] / [pageIndex] on most servers.
+ */
+class PagingOptions @JvmOverloads constructor(
+    var offset: Long? = null,
+    var pageSize: Long? = null,
+    var pageIndex: Long? = null,
+    var continuationToken: String? = null,
+)

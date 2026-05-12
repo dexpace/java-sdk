@@ -1,0 +1,100 @@
+package org.dexpace.sdk.core.http.paging
+
+import java.util.Spliterator
+import java.util.Spliterators
+import java.util.stream.Stream
+import java.util.stream.StreamSupport
+
+/**
+ * Lazy iteration over a paginated REST API.
+ *
+ * `PagedIterable<T>` flattens a sequence of pages into an `Iterable<T>` for callers that
+ * only care about items, while [byPage] exposes the raw `Sequence<PagedResponse<T>>` for
+ * callers that need page-level metadata (status, headers, links).
+ *
+ * Construction takes two function references:
+ *
+ * - [firstPage] — called once with the caller-supplied [PagingOptions] to fetch the first
+ *   page. May return `null` to signal "no data".
+ * - [nextPage] — called with the same [PagingOptions] and the link extracted from the
+ *   previous page (either its [PagedResponse.nextLink] or [PagedResponse.continuationToken],
+ *   whichever is present, with `nextLink` winning when both are set). May return `null` to
+ *   signal end of stream. Default is `{ _, _ -> null }`, so single-page APIs can omit it.
+ *
+ * **Empty-page handling.** A page with `value.isEmpty()` is yielded as-is; the iterator
+ * does **not** terminate just because the current page is empty. Termination is driven
+ * purely by the link/token contract:
+ *
+ * - Both `nextLink` and `continuationToken` `null` → done.
+ * - `nextLink` or `continuationToken` is an empty `String` (`""`) → done.
+ * - Otherwise → call [nextPage]. If it returns `null`, done. Else yield and repeat.
+ *
+ * **Safety cap.** [maxPages] (default `Long.MAX_VALUE`) bounds the total number of pages
+ * yielded. Use this to defend against misbehaving servers that return the same `nextLink`
+ * forever — without it, the iterable would loop indefinitely.
+ *
+ * **Fetch strategy.** Pages are fetched sequentially and lazily — no pre-fetch. The next
+ * [nextPage] call only happens when the consumer pulls the next yield. Callers wanting
+ * parallel pre-fetch must wrap this manually.
+ *
+ * **Iteration semantics.** Each call to [iterator] or [byPage] drives a fresh sequence
+ * (matches the `Iterable` contract). Two concurrent iterators on the same instance maintain
+ * independent state.
+ *
+ * **Stream interop.** [stream] returns a Java 8 `Stream<T>` built via `StreamSupport` over
+ * the same iterator. No coroutine or third-party dependency is involved.
+ *
+ * @param T Element type yielded by [iterator].
+ * @property firstPage Fetches the first page.
+ * @property nextPage Fetches a subsequent page given the link from the previous page.
+ * @property maxPages Defensive cap on the total number of pages yielded.
+ */
+class PagedIterable<T> @JvmOverloads constructor(
+    private val firstPage: (PagingOptions) -> PagedResponse<T>?,
+    private val nextPage: (PagingOptions, String) -> PagedResponse<T>? = { _, _ -> null },
+    private val maxPages: Long = Long.MAX_VALUE,
+) : Iterable<T> {
+
+    /**
+     * Returns a lazy sequence of pages, starting from the first page produced by
+     * [firstPage]. Each subsequent page is fetched only when the consumer pulls.
+     *
+     * @param options Caller-supplied paging options forwarded to [firstPage] and
+     *   [nextPage]. Default is a fresh, empty [PagingOptions].
+     */
+    @JvmOverloads
+    fun byPage(options: PagingOptions = PagingOptions()): Sequence<PagedResponse<T>> = sequence {
+        var page: PagedResponse<T>? = firstPage(options)
+        var pageCount = 0L
+        while (page != null && pageCount < maxPages) {
+            yield(page)
+            pageCount++
+            if (pageCount >= maxPages) break // Cap reached: do not fetch a page we will not yield.
+            // Prefer the explicit `nextLink`; fall back to the continuation token.
+            // Treat an empty string as "no more pages" — servers sometimes serialize a
+            // missing cursor as `""` instead of omitting the field.
+            val link = page.nextLink ?: page.continuationToken
+            page = if (link.isNullOrEmpty()) null else nextPage(options, link)
+        }
+    }
+
+    /**
+     * Flattens all pages into an iterator of items. Each call starts a fresh iteration
+     * (re-invokes [firstPage]).
+     */
+    override fun iterator(): Iterator<T> = byPage()
+        .flatMap { it.value.asSequence() }
+        .iterator()
+
+    /**
+     * Java 8 `Stream<T>` view over the same iteration as [iterator]. Sequential,
+     * `ORDERED`, unknown-size.
+     */
+    fun stream(): Stream<T> {
+        val spliterator = Spliterators.spliteratorUnknownSize(
+            iterator(),
+            Spliterator.ORDERED,
+        )
+        return StreamSupport.stream(spliterator, false)
+    }
+}
