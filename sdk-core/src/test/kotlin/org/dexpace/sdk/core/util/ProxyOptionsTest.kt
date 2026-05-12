@@ -276,6 +276,20 @@ class ProxyOptionsTest {
     }
 
     @Test
+    fun `fromConfiguration parses env-var URL with username only (no colon, no password)`() {
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                if (name == "HTTPS_PROXY") "http://justuser@proxy.example.com:8080" else null
+            }
+            .propsSource { null }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertEquals("justuser", po.username)
+        assertNull(po.password)
+    }
+
+    @Test
     fun `fromConfiguration falls back from HTTPS_PROXY to HTTP_PROXY env var`() {
         val cfg = ConfigurationBuilder()
             .envSource { name ->
