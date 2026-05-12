@@ -19,6 +19,12 @@ import java.io.IOException
  * Extends [IOException] so it propagates cleanly through APIs declaring
  * `@Throws(IOException::class)`. Marked `open` so service clients can introduce typed
  * subclasses; the [isRetryable] field is `final` and cannot be overridden.
+ *
+ * @param message Human-readable error description.
+ * @property response Response that triggered the error, or `null` when the failure happened
+ *   before a response was received.
+ * @property value Optional deserialized payload describing the error (e.g. a JSON error body).
+ * @param cause Underlying cause to chain into the [IOException], or `null`.
  */
 open class HttpResponseException
 @JvmOverloads

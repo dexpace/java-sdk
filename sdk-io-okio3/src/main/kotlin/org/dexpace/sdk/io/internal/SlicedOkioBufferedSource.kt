@@ -22,6 +22,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Closing this view does NOT close [peeked] nor the original parent — the peek view shares
  * segments with the parent, so eagerly closing it would not free anything and could surprise
  * sibling slices. Reads after [close] throw [IllegalStateException].
+ *
+ * ## Thread-safety
+ *
+ * Not safe for concurrent use. Sibling slices may run on different threads, but each
+ * individual slice is single-threaded; [parentClosed] is atomic only to make a parent's
+ * `close()` visible across threads.
  */
 internal class SlicedOkioBufferedSource(
     private val peeked: okio.BufferedSource,
@@ -36,6 +42,7 @@ internal class SlicedOkioBufferedSource(
 
     override val buffer: Buffer by lazy(LazyThreadSafetyMode.NONE) { OkioBuffer(peeked.buffer) }
 
+    /** Throws [IllegalStateException] if this slice has been closed or its parent has been closed. */
     private fun checkOpen() {
         check(!closed) { "slice closed" }
         check(!parentClosed.get()) { "Parent source closed" }
@@ -67,6 +74,7 @@ internal class SlicedOkioBufferedSource(
         return remaining > 0L
     }
 
+    /** True when the slice's byte budget is spent or the underlying peek view is exhausted. */
     @Throws(IOException::class)
     private fun atEnd(): Boolean = remaining == 0L || peeked.exhausted()
 

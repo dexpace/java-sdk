@@ -103,6 +103,11 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         return HttpPipeline(httpClient, out as Array<HttpStep>)
     }
 
+    /**
+     * Materialises the per-stage maps into a single ordered list, mirroring the order
+     * [build] would emit. Used by the surgical-edit inline helpers to locate steps by
+     * type.
+     */
     @PublishedApi
     internal fun flattenedView(): List<HttpStep> {
         val stages = STAGES_CACHED
@@ -120,6 +125,10 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         return out
     }
 
+    /**
+     * Splices [step] into [flat] at [index] and rebuilds the per-stage maps. Internal to
+     * the inline `insertAfter` / `insertBefore` flow.
+     */
     @PublishedApi
     internal fun reinsertAt(index: Int, step: HttpStep, flat: List<HttpStep>): HttpPipelineBuilder {
         val rebuilt = ArrayList<HttpStep>(flat.size + 1)
@@ -129,6 +138,11 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         return rebuildFrom(rebuilt)
     }
 
+    /**
+     * Resets the builder's per-stage maps and re-populates them from [steps], preserving
+     * the order [steps] declares. Pillar steps overwrite their slots without emitting the
+     * `pipeline.pillar.replaced` warning — the surgical edits explicitly control placement.
+     */
     @PublishedApi
     internal fun rebuildFrom(steps: List<HttpStep>): HttpPipelineBuilder {
         perStage.clear()
@@ -140,6 +154,12 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         return this
     }
 
+    /**
+     * Installs [step] into its pillar slot. A pillar stage admits exactly one step;
+     * re-installing replaces the prior occupant and emits a `pipeline.pillar.replaced`
+     * warning so accidental shadowing is observable. [Stage.SEND] is reserved for the
+     * terminal [HttpClient] and rejected at this seam.
+     */
     private fun installPillar(step: HttpStep) {
         check(step.stage != Stage.SEND) { "SEND is the terminal HttpClient — not a step slot" }
         val existing = pillars[step.stage]

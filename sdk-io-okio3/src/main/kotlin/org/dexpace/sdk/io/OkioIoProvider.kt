@@ -28,6 +28,12 @@ import java.io.OutputStream
  *
  * After installation every [BufferedSource], [BufferedSink], and [Buffer] handed back by the
  * SDK is an Okio-backed adapter — `sdk-core` itself never references Okio.
+ *
+ * ## Thread-safety
+ *
+ * The provider object is stateless and safe to call from any thread. Returned adapter
+ * instances follow the underlying contracts: individual [Buffer], [BufferedSource], and
+ * [BufferedSink] instances are single-threaded.
  */
 object OkioIoProvider : IoProvider {
 

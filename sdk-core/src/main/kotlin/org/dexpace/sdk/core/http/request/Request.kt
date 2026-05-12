@@ -6,9 +6,22 @@ import java.net.MalformedURLException
 import java.net.URL
 
 /**
- * Represents an immutable HTTP request.
+ * Immutable HTTP request the SDK hands to a transport.
  *
- * Use [Request.builder()] to create an instance.
+ * Constructed exclusively through [RequestBuilder] (the private constructor is enforced by
+ * `@ConsistentCopyVisibility`, so even `data class` `copy` is gated through the builder).
+ * Use [newBuilder] for non-destructive mutation — it returns a builder pre-filled with this
+ * request's fields.
+ *
+ * ## Thread-safety
+ *
+ * Instances are immutable and safe to share across threads. The [body], when present, may
+ * carry single-use stream state — see [RequestBody] for that contract.
+ *
+ * @property method HTTP method on the wire.
+ * @property url Fully-resolved target URL.
+ * @property headers Request headers; may be empty but never `null`.
+ * @property body Request body, or `null` for methods without a payload (typical for GET/HEAD).
  */
 @ConsistentCopyVisibility
 data class Request private constructor(
@@ -25,7 +38,8 @@ data class Request private constructor(
     fun newBuilder(): RequestBuilder = RequestBuilder(this)
 
     /**
-     * Builder class for [Request].
+     * Mutable builder for [Request]. Implements the generic [Builder] contract so it can be
+     * driven by builder-folding pipeline steps.
      */
     class RequestBuilder : Builder<Request> {
         private var method: Method? = null
@@ -177,6 +191,10 @@ data class Request private constructor(
     }
 
     companion object {
+        /**
+         * Returns a fresh empty [RequestBuilder]. Java-friendly entry point matching the
+         * `Request.builder()` idiom.
+         */
         @JvmStatic
         fun builder(): RequestBuilder = RequestBuilder()
     }

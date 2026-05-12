@@ -29,6 +29,13 @@ class ClientLogger private constructor(
     internal val slf4j: Logger,
     internal val globalContext: Map<String, Any?>,
 ) {
+    /**
+     * Creates a logger by SLF4J logger name.
+     *
+     * @param name the SLF4J logger name; must be non-empty.
+     * @param globalContext key-value pairs attached to every event emitted through this logger.
+     *   The map reference is retained (not copied); callers should pass an immutable map.
+     */
     @JvmOverloads
     constructor(
         name: String,
@@ -51,11 +58,35 @@ class ClientLogger private constructor(
         }
     }
 
+    /**
+     * Returns a [LoggingEvent] at [LogLevel.ERROR]. Returns [LoggingEvent.NOOP] (shared singleton,
+     * zero allocation) when the underlying SLF4J `ERROR` level is disabled.
+     */
     fun atError(): LoggingEvent = LoggingEvent.create(this, LogLevel.ERROR)
+
+    /**
+     * Returns a [LoggingEvent] at [LogLevel.WARNING]. Returns [LoggingEvent.NOOP] (shared singleton,
+     * zero allocation) when the underlying SLF4J `WARN` level is disabled.
+     */
     fun atWarning(): LoggingEvent = LoggingEvent.create(this, LogLevel.WARNING)
+
+    /**
+     * Returns a [LoggingEvent] at [LogLevel.INFO]. Returns [LoggingEvent.NOOP] (shared singleton,
+     * zero allocation) when the underlying SLF4J `INFO` level is disabled.
+     */
     fun atInfo(): LoggingEvent = LoggingEvent.create(this, LogLevel.INFO)
+
+    /**
+     * Returns a [LoggingEvent] at [LogLevel.VERBOSE]. Returns [LoggingEvent.NOOP] (shared singleton,
+     * zero allocation) when the underlying SLF4J `DEBUG` level is disabled.
+     */
     fun atVerbose(): LoggingEvent = LoggingEvent.create(this, LogLevel.VERBOSE)
 
+    /**
+     * Returns `true` when the underlying SLF4J logger has [level] enabled. Useful for guarding
+     * field computation that is expensive enough to warrant skipping when the event would be
+     * discarded anyway.
+     */
     fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(toSlf4j(level))
 
     internal fun slf4jLevel(level: LogLevel): Level = toSlf4j(level)

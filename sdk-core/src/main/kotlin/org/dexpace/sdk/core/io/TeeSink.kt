@@ -9,7 +9,16 @@ import java.nio.charset.Charset
  * while still forwarding to a primary sink.
  *
  * Used by `LoggableRequestBody` to capture request bytes for body logging without breaking
- * the streaming write to the transport sink. Not thread-safe.
+ * the streaming write to the transport sink.
+ *
+ * ## Thread-safety
+ *
+ * Not thread-safe. A single in-flight request writes through one [TeeSink] from one thread.
+ *
+ * ## Cancellation
+ *
+ * Forwards to [primary] without adding its own interrupt handling; the wrapped primary sink
+ * is responsible for honoring `Thread.interrupt()` per the SDK's blocking-call contract.
  *
  * ## Performance
  *
@@ -151,6 +160,7 @@ internal class TeeSink(
     }
 
     private companion object {
+        /** Per-chunk pump size for [writeAll] — matches Okio's segment size to favor the fast path. */
         const val SCRATCH_BYTES: Long = 8 * 1024
     }
 }

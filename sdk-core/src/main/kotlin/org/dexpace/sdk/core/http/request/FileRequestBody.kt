@@ -41,6 +41,17 @@ import java.nio.file.StandardOpenOption
  * buffer copy and lets the JVM use `transferTo`'s internal fast paths where it can detect
  * them. Without the transport-side check the kernel sendfile is unreachable through the
  * generic [BufferedSink] surface, but the contract still beats a manual byte loop.
+ *
+ * ## Thread-safety
+ *
+ * Immutable after construction. The file handle is opened fresh on each [writeTo], so
+ * concurrent sends are safe at the body level (the file itself must not be mutated during).
+ *
+ * @param file Path to the file. Must exist and be a regular file at construction time.
+ * @param mediaType Optional Content-Type for the body.
+ * @param position Starting byte offset within the file.
+ * @param explicitCount Number of bytes to send starting at [position], or `-1` to send the
+ *   rest of the file. Stored after resolution in [count].
  */
 class FileRequestBody @JvmOverloads constructor(
     val file: Path,

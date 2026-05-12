@@ -23,12 +23,21 @@ internal class PipelineCallState internal constructor(
     val httpClient: HttpClient,
     private var index: Int = 0,
 ) {
-    // Mutable so a step may substitute the downstream request (e.g. wrap the body in
-    // LoggableRequestBody before send). The substitution propagates to all subsequent steps
-    // and to the terminal HttpClient.execute(...) when the cursor reaches the end.
+    /**
+     * The request currently being driven through the pipeline. Mutable so a step may
+     * substitute the downstream request via [PipelineNext.process] — for example,
+     * [org.dexpace.sdk.core.http.pipeline.steps.InstrumentationStep] wraps the body in
+     * `LoggableRequestBody` before send. The substitution propagates to all subsequent
+     * steps and to the terminal `HttpClient.execute(...)` when the cursor reaches the end.
+     */
     var request: Request = initialRequest
 
-    /** Returns the next step to invoke, or null if the cursor has reached the end. */
+    /**
+     * Returns the step at the current cursor position and advances by one. Returns null
+     * once the cursor moves past the last step — the caller (`PipelineNext.process`) then
+     * dispatches to the terminal [HttpClient]. The cursor only moves forward; re-driving
+     * the downstream chain requires [copy] to fork a fresh cursor at the current position.
+     */
     fun advance(): HttpStep? {
         val steps = pipeline.stepArray
         return if (index < steps.size) steps[index++] else null

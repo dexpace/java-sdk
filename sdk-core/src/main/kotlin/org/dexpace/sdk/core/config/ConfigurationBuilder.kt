@@ -4,6 +4,10 @@ package org.dexpace.sdk.core.config
  * Builder for [Configuration]. Use [put] to add explicit overrides (which win over env vars and
  * system properties), and [envSource] / [propsSource] as test seams to substitute the env / property
  * lookups with hermetic functions.
+ *
+ * ## Thread-safety
+ * Builders are *not* thread-safe — construct, configure, and [build] from a single thread. The
+ * resulting [Configuration] is immutable and safe to share.
  */
 class ConfigurationBuilder {
     private val overrides = mutableMapOf<String, String>()
@@ -28,5 +32,9 @@ class ConfigurationBuilder {
     /** Test seam: override the system-property source. */
     fun propsSource(source: (String) -> String?): ConfigurationBuilder = apply { propsSource = source }
 
+    /**
+     * Materialize the immutable [Configuration]. The current override map is defensively copied so
+     * subsequent [put] calls on this builder do not mutate the returned configuration.
+     */
     fun build(): Configuration = Configuration(overrides.toMap(), envSource, propsSource)
 }

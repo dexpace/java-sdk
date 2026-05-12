@@ -1,7 +1,11 @@
 package org.dexpace.sdk.core.http.request
 
 /**
- * Enumeration of HTTP methods.
+ * HTTP request methods recognized by the SDK. Each constant carries the canonical token used
+ * on the wire; [toString] returns that same token so the enum can be written directly into a
+ * request line without translation.
+ *
+ * @property method Canonical uppercase method token sent in the request line.
  */
 @Suppress("unused")
 enum class Method(

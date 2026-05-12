@@ -10,6 +10,11 @@ import java.io.IOException
  * staging between transport streams and typed read/write calls.
  *
  * Instances are obtained from [IoProvider.buffer] — implementations live in adapter modules.
+ *
+ * ## Thread-safety
+ *
+ * Buffers are not thread-safe; serialize external access if shared. Adapters may use lock-free
+ * structures internally, but the public surface assumes single-threaded use.
  */
 interface Buffer : BufferedSource, BufferedSink {
     /** The number of bytes currently held. */

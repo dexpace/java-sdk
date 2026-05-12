@@ -66,14 +66,19 @@ abstract class ResponseBody : Closeable {
         source().close()
     }
 
+    /**
+     * Factory entry point for adapter / test code that already holds a [BufferedSource].
+     */
     companion object {
 
         /**
-         * Creates a new response body from a [BufferedSource] and [mediaType].
+         * Creates a new response body wrapping [source]. The returned body is single-use
+         * (single underlying [BufferedSource]); wrap with `LoggableResponseBody` for
+         * repeatable reads.
          *
          * @param source The buffered source to read from.
-         * @param contentLength The length of the content, or -1 if unknown.
-         * @param mediaType The media type, or null if unknown.
+         * @param contentLength The length of the content, or `-1` if unknown.
+         * @param mediaType The media type, or `null` if unknown.
          * @return A new [ResponseBody] instance.
          */
         @JvmStatic

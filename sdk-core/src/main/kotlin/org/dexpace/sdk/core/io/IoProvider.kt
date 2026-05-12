@@ -16,6 +16,12 @@ import java.io.OutputStream
  * After installation, every part of the SDK that needs to create a stream calls
  * [Io.provider] and obtains the right factory method here — without ever importing the
  * concrete implementation.
+ *
+ * ## Thread-safety
+ *
+ * Factory methods are invoked concurrently from request-processing threads and must be safe
+ * to call from any thread. Individual [Buffer] / [BufferedSource] / [BufferedSink] instances
+ * returned from them are not required to be thread-safe.
  */
 interface IoProvider {
     /**

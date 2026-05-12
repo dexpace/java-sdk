@@ -19,6 +19,12 @@ import kotlin.concurrent.withLock
  * If no provider is installed, [provider] throws an [IllegalStateException] with a message
  * naming the missing setup call. Failure is loud and immediate — there is no fallback and no
  * `ServiceLoader` magic.
+ *
+ * ## Thread-safety
+ *
+ * Reads of [provider] go through a `@Volatile` field so callers see the install effect without
+ * locking. Writes ([installProvider], [withProvider]) take a [ReentrantLock] so concurrent
+ * installs cannot race past the conflict check.
  */
 object Io {
     private val lock = ReentrantLock()

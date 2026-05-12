@@ -8,6 +8,11 @@ import org.dexpace.sdk.core.io.Sink
  *
  * As with [ForeignSourceAdapter], Okio reuses the same `source` reference across writes for
  * a buffered producer's lifetime; the [OkioBuffer] wrapper is cached.
+ *
+ * ## Thread-safety
+ *
+ * Not safe for concurrent use — Okio buffered sinks are single-threaded, and the cached
+ * wrapper field is read/written without synchronization.
  */
 internal class ForeignSinkAdapter(private val delegate: Sink) : okio.Sink {
 

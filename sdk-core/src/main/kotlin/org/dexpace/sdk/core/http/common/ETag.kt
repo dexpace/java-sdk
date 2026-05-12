@@ -67,6 +67,11 @@ value class ETag private constructor(private val raw: String) {
          * Parses a raw header form. Returns [ANY] for `*`, `null` for blank or missing
          * input.
          *
+         * Tightened beyond a naive `^(W/)?".*"$` regex: unterminated forms such as `"foo`
+         * (opening quote only) or `W/"foo` (weak prefix without closing quote) are
+         * rejected outright. The minimum-length checks guard against `"` and `W/"` —
+         * which would otherwise pass a "starts and ends with quote" test trivially.
+         *
          * @throws IllegalArgumentException if [raw] is non-blank and does not match a
          *   recognised ETag form.
          */

@@ -9,10 +9,13 @@ import java.nio.charset.Charset
 /**
  * Okio-backed implementation of [BufferedSink]. Wraps an [okio.BufferedSink] and forwards
  * every method.
+ *
+ * ## Thread-safety
+ *
+ * Not safe for concurrent use. Lazy [buffer] init uses [LazyThreadSafetyMode.NONE] to match.
  */
 internal class OkioBufferedSink(val delegate: okio.BufferedSink) : BufferedSink {
 
-    // Sinks are not thread-safe per contract — synchronized lazy initialization is overkill.
     override val buffer: Buffer by lazy(LazyThreadSafetyMode.NONE) { OkioBuffer(delegate.buffer) }
 
     override fun write(source: Buffer, byteCount: Long) {

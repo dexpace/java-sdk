@@ -14,6 +14,11 @@ import java.util.Locale
  * configuration issues never throw at the lookup site.
  *
  * Constructed via [ConfigurationBuilder].
+ *
+ * ## Thread-safety
+ * Instances are immutable once built (the override map is copied) and safe to share across threads.
+ * The process-wide global slot is published via `@Volatile`; readers observe the most-recently-set
+ * configuration under last-write-wins semantics.
  */
 class Configuration internal constructor(
     private val overrides: Map<String, String>,
@@ -76,15 +81,26 @@ class Configuration internal constructor(
     companion object {
         // Well-known keys. `const val` so callers reference them as `Configuration.MAX_RETRY_ATTEMPTS`
         // from both Kotlin and Java without going through `Companion`.
+
+        /** Maximum number of retry attempts for retryable transport failures. */
         const val MAX_RETRY_ATTEMPTS: String = "MAX_RETRY_ATTEMPTS"
+
+        /** SLF4J-style log level for the SDK's [org.dexpace.sdk.core.instrumentation.ClientLogger]. */
         const val LOG_LEVEL: String = "LOG_LEVEL"
+
+        /** Standard environment variable for the plain-HTTP proxy URL (`http://user:pass@host:port`). */
         const val HTTP_PROXY: String = "HTTP_PROXY"
+
+        /** Standard environment variable for the HTTPS proxy URL, preferred over [HTTP_PROXY]. */
         const val HTTPS_PROXY: String = "HTTPS_PROXY"
+
+        /** Standard environment variable for the comma-separated no-proxy host list. */
         const val NO_PROXY: String = "NO_PROXY"
 
         @Volatile
         private var global: Configuration = Configuration(emptyMap())
 
+        /** Returns the process-wide global configuration. Defaults to an empty configuration. */
         @JvmStatic
         fun getGlobalConfiguration(): Configuration = global
 

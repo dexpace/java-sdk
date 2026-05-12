@@ -9,15 +9,22 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Okio-backed implementation of [BufferedSource]. Wraps an [okio.BufferedSource] and forwards
  * every method.
+ *
+ * ## Thread-safety
+ *
+ * Not safe for concurrent use. [closedFlag] is atomic only so that a `close()` on one thread
+ * is observable by a slice reading on another; the source itself is single-threaded.
  */
 internal class OkioBufferedSource(val delegate: okio.BufferedSource) : BufferedSource {
 
-    // Shared by every slice() spawned from this source so that closing the parent invalidates
-    // outstanding slices. okio.BufferedSource has no public closed-flag and `peek()` retains
-    // segments after the parent closes, so we track closure ourselves.
+    /**
+     * Shared by every [slice] spawned from this source so that closing the parent invalidates
+     * outstanding slices. [okio.BufferedSource] has no public closed-flag, and Okio's `peek()`
+     * returns a view that keeps reading from shared segments even after the parent closes —
+     * which is not what slices want. Track closure here and consult it on every slice read.
+     */
     internal val closedFlag = AtomicBoolean(false)
 
-    // Sources are not thread-safe per contract — synchronized lazy initialization is overkill.
     override val buffer: Buffer by lazy(LazyThreadSafetyMode.NONE) { OkioBuffer(delegate.buffer) }
 
     override fun read(sink: Buffer, byteCount: Long): Long {

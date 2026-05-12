@@ -1,7 +1,10 @@
 package org.dexpace.sdk.core.http.response
 
 /**
- * Enumeration of HTTP status codes.
+ * Canonical HTTP status codes recognized by the SDK. The enum is a closed set — codes not
+ * listed here are unknown to the SDK and trigger [IllegalArgumentException] from [fromCode].
+ *
+ * @property code Numeric status code as it appears on the wire.
  */
 @Suppress("unused")
 enum class Status(
@@ -83,9 +86,15 @@ enum class Status(
     THIS_IS_FINE(218) // Non-standard code, used by some Apache modules
     ;
 
+    /** True when the code is in the 2xx success range. */
     val isSuccess: Boolean = code in 200..299
 
     companion object {
+        /**
+         * Returns the [Status] constant whose [code] matches [code].
+         *
+         * @throws IllegalArgumentException if [code] is not in the SDK's recognized set.
+         */
         @JvmStatic
         @Throws(IllegalArgumentException::class)
         fun fromCode(code: Int): Status {

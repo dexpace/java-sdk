@@ -8,9 +8,26 @@ import java.io.Closeable
 import java.io.IOException
 
 /**
- * Represents an immutable HTTP response.
+ * Immutable HTTP response produced by a transport.
  *
- * Use [ResponseBuilder] to create an instance.
+ * Constructed exclusively through [ResponseBuilder]; the private constructor combined with
+ * `@ConsistentCopyVisibility` gates the data-class `copy` too. Use [newBuilder] for
+ * non-destructive mutation.
+ *
+ * Implements [Closeable] so callers can release the response body in a `use {}` /
+ * try-with-resources block. [close] is idempotent and forwards to the body.
+ *
+ * ## Thread-safety
+ *
+ * The header/metadata surface is immutable and safe to share. The [body], when present,
+ * carries single-use stream state — see [ResponseBody] for that contract.
+ *
+ * @property request Request that produced this response.
+ * @property protocol Wire protocol negotiated for the exchange.
+ * @property status Parsed HTTP status.
+ * @property message Reason phrase from the status line, or `null` if absent.
+ * @property headers Response headers; may be empty but never `null`.
+ * @property body Response body, or `null` for status codes without a payload (e.g. 204).
  */
 @ConsistentCopyVisibility
 data class Response private constructor(
@@ -29,11 +46,11 @@ data class Response private constructor(
     fun newBuilder(): ResponseBuilder = ResponseBuilder(this)
 
     /**
-     * Closes the response body and releases any resources.
+     * Closes the response body and releases any transport resources. Idempotent — the
+     * underlying body is expected to no-op on a second close. After this call the body
+     * cannot be read.
      *
-     * After calling this method, the response body cannot be read.
-     *
-     * @throws IOException If an I/O error occurs.
+     * @throws IOException If the body's close fails.
      */
     @Throws(IOException::class)
     override fun close() {
@@ -41,7 +58,8 @@ data class Response private constructor(
     }
 
     /**
-     * Builder class for [Response].
+     * Mutable builder for [Response]. Implements the generic [Builder] contract so it can be
+     * driven by builder-folding pipeline steps.
      */
     class ResponseBuilder : Builder<Response> {
         private var request: Request? = null
@@ -207,6 +225,10 @@ data class Response private constructor(
     }
 
     companion object {
+        /**
+         * Returns a fresh empty [ResponseBuilder]. Java-friendly entry point matching the
+         * `Response.builder()` idiom.
+         */
         @JvmStatic
         fun builder() = ResponseBuilder()
     }

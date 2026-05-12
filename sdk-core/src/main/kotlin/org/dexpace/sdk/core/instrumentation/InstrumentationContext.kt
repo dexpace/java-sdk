@@ -10,6 +10,10 @@ package org.dexpace.sdk.core.instrumentation
  * Compliant to the [W3C Trace Context specification](https://www.w3.org/TR/trace-context/).
  */
 interface InstrumentationContext {
+    /**
+     * Encoding flavour of [traceId]. Drives how the trace id is generated and rendered for
+     * propagation — different backends (Datadog vs. W3C) expect different wire formats.
+     */
     val traceIdType: TraceIdType
     /**
      * Represents the unique identifier for a trace within a distributed tracing system.
@@ -90,13 +94,24 @@ interface InstrumentationContext {
     val span: Span
 }
 
+/**
+ * Trace identifier — the value that correlates all spans belonging to the same logical trace
+ * across services. The encoding (hex, decimal, length) depends on the originating [TraceIdType].
+ * Modelled as an inline value class so no wrapper is allocated at runtime.
+ */
 @JvmInline
 value class TraceId(val value: String) {
     companion object {
+        /** Sentinel "invalid" trace id — 32 hex zeros, matching the W3C spec reserved value. */
         val NOOP = TraceId("00000000000000000000000000000000")
     }
 }
 
+/**
+ * Span identifier — uniquely identifies a single span within its parent trace. Rendered as a
+ * 16-character hex string per the W3C Trace Context spec. Modelled as an inline value class
+ * so no wrapper is allocated at runtime.
+ */
 @JvmInline
 value class SpanId(val value: String) {
     companion object {
@@ -111,6 +126,10 @@ value class SpanId(val value: String) {
     }
 }
 
+/**
+ * W3C trace-flags — a two-character hex string carrying span-level bits such as the sampled
+ * flag. Modelled as an inline value class so no wrapper is allocated at runtime.
+ */
 @JvmInline
 value class TraceFlags(val value: String) {
     companion object {
@@ -124,6 +143,11 @@ value class TraceFlags(val value: String) {
     }
 }
 
+/**
+ * W3C trace-state — vendor-specific list of `key=value` pairs propagated alongside the trace
+ * context, allowing multiple tracing systems to coexist. Modelled as an inline value class so
+ * no wrapper is allocated at runtime.
+ */
 @JvmInline
 value class TraceState(val value: String) {
     companion object {

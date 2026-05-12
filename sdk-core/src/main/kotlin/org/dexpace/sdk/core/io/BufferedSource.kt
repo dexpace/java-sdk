@@ -9,6 +9,12 @@ import java.nio.charset.Charset
  * deserialization, body-logging snapshots, and `java.io` interop.
  *
  * Implementations are obtained from an [IoProvider] — callers do not construct them directly.
+ *
+ * ## Thread-safety
+ *
+ * Instances are not safe for concurrent use; serialize external access if a source is shared
+ * across threads. Slices and `peek()` views are independent and may move on different threads,
+ * but each individual view is still single-threaded.
  */
 interface BufferedSource : Source {
     /**

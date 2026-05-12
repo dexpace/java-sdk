@@ -1,5 +1,12 @@
 package org.dexpace.sdk.core.http.common
 
+/**
+ * Pre-constructed [MediaType] constants for the most common HTTP content types.
+ *
+ * Each constant is exposed as a `@JvmField` static so Java callers see a plain field
+ * reference (`CommonMediaTypes.APPLICATION_JSON`) rather than a `getXxx()` accessor.
+ * Reusing these instances avoids re-parsing the same media-type string on hot paths.
+ */
 @Suppress("unused")
 object CommonMediaTypes {
     // Text Types

@@ -20,7 +20,17 @@ import java.nio.charset.Charset
 import java.util.Locale
 
 /**
- * Represents a media type, as defined in the HTTP specification.
+ * Represents a media type, as defined in the HTTP specification (RFC 7231 §3.1.1.1).
+ *
+ * Instances are immutable and constructed exclusively through [of] and [parse]; both
+ * factories normalise the type, subtype, and parameter keys to lower case so that
+ * equality (via `data class`) is case-insensitive in practice. Parameter values are
+ * also lower-cased — callers that need case-preserving values should attach them
+ * out-of-band.
+ *
+ * Wildcards: a wildcard type is only allowed when the subtype is also a wildcard
+ * (i.e. the bare accept-anything form). Half-wildcard combinations follow normal
+ * validation rules.
  *
  * @property type The primary type (e.g., "application", "text").
  * @property subtype The subtype (e.g., "json", "plain").
@@ -33,15 +43,16 @@ data class MediaType private constructor(
     val subtype: String,
     val parameters: Map<String, String> = emptyMap()
 ) {
-    /**
-     * The full representation of a standard media type consisting of type/subtype
-     */
+    /** The bare type/subtype form, without any parameters. */
     val fullType: String
         get() = "$type/$subtype"
 
     /**
-     * The charset parameter if present, null otherwise
-     * */
+     * The `charset` parameter resolved through [Charset.forName], or `null` if the parameter
+     * is absent or names an unknown charset. Unknown-charset failures are swallowed
+     * deliberately so callers can fall back to a default rather than wrapping every access
+     * in a try/catch.
+     */
     val charset: Charset?
         get() {
             return parameters["charset"]?.let {
@@ -54,10 +65,12 @@ data class MediaType private constructor(
         }
 
     /**
-     * Checks if this media type includes the given media type.
+     * Checks if this media type includes [other], treating wildcards in either the type or
+     * subtype position as matching anything. A wildcard-subtype receiver matches any
+     * concrete subtype with the same type; the reverse is not true. Parameters are not
+     * considered.
      *
-     * @param other The media type to compare against.
-     * @return `true` if this media type includes the given media type, `false` otherwise.
+     * @return `true` if this media type's pattern matches [other], `false` otherwise.
      */
     fun includes(other: MediaType): Boolean {
         val typeMatches = this.type == "*" || this.type.equals(other.type, ignoreCase = true)
@@ -67,8 +80,9 @@ data class MediaType private constructor(
     }
 
     /**
-     * Returns the full representation of a standard media type consisting of type/subtype followed by all parameters, if any
-     * */
+     * Returns the wire form: type/subtype followed by `;key=value` for each parameter.
+     * Parameters are joined without spaces around the `;` separator.
+     */
     override fun toString(): String {
         val formattedParams =
             parameters.entries.joinToString(separator = ";") { (key, value) ->
@@ -79,7 +93,11 @@ data class MediaType private constructor(
 
     companion object {
         /**
-         * Factory method for creating a MediaType.
+         * Constructs a [MediaType] from explicit parts. All inputs are lower-cased and
+         * validated: [type] and [subtype] must be non-blank, and a wildcard [type] is only
+         * permitted when [subtype] is also a wildcard.
+         *
+         * @throws IllegalArgumentException if validation fails.
          */
         @JvmStatic
         @JvmOverloads

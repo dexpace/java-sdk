@@ -46,6 +46,10 @@ import kotlin.concurrent.withLock
  * captured buffer is read-only from this wrapper's perspective; concurrent readers each
  * receive a separate `peek()` view, which is safe as long as no external code mutates the
  * captured buffer.
+ *
+ * @param delegate Body whose bytes will be captured and re-served.
+ * @param provider I/O provider used to allocate the capture [Buffer]. Defaults to the
+ *   globally installed provider.
  */
 class LoggableResponseBody @JvmOverloads constructor(
     private val delegate: ResponseBody,

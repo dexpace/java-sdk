@@ -9,6 +9,11 @@ import org.dexpace.sdk.core.io.Source
  * Okio calls `read(sink: okio.Buffer, byteCount: Long)` with the same `sink` reference for
  * the lifetime of a buffered consumer. The wrapper around that buffer is cached so the adapter
  * doesn't allocate a fresh [OkioBuffer] on every chunk read.
+ *
+ * ## Thread-safety
+ *
+ * Not safe for concurrent use — Okio buffered sources are single-threaded, and the cached
+ * wrapper field is read/written without synchronization.
  */
 internal class ForeignSourceAdapter(private val delegate: Source) : okio.Source {
 

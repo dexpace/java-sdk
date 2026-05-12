@@ -15,17 +15,31 @@ import java.nio.charset.Charset
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * The payload portion of an HTTP request.
+ *
+ * A body produces bytes on demand via [writeTo]; the transport drives the write. Concrete
+ * implementations differ on whether they can be replayed (see [isReplayable]) — that
+ * property is what retry logic queries before deciding whether to buffer the body in memory.
+ *
+ * ## Thread-safety
+ *
+ * Implementations are not required to be thread-safe. Concurrent [writeTo] on the same
+ * instance is undefined; the built-in stream-backed bodies use atomic guards to fail loudly
+ * rather than silently emitting corrupt bytes.
+ */
 abstract class RequestBody {
-    /** Returns the media type of the request body. */
+    /** Returns the media type of the request body, or `null` when unspecified. */
     abstract fun mediaType(): MediaType?
 
-    /** Returns the number of bytes that will be written to [writeTo], or -1 if unknown. */
+    /** Returns the number of bytes that will be written to [writeTo], or `-1` if unknown. */
     open fun contentLength(): Long = -1
 
     /**
-     * Writes the request body to [sink].
+     * Writes the body to [sink]. Called once per send attempt; replayable bodies may have
+     * this method invoked multiple times across retries.
      *
-     * @throws IOException if an I/O error occurs.
+     * @throws IOException if an I/O error occurs while writing.
      */
     @Throws(IOException::class)
     abstract fun writeTo(sink: BufferedSink)
@@ -57,6 +71,9 @@ abstract class RequestBody {
         return BufferRequestBody(buffer, mediaType(), buffer.size)
     }
 
+    /**
+     * Factory entry points for the built-in body shapes. Java callers use `RequestBody.create(...)`.
+     */
     companion object {
         /**
          * Creates a request body backed by [source]. The body is **single-use** — [writeTo]

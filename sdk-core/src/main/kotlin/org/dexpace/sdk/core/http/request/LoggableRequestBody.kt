@@ -37,6 +37,10 @@ import java.io.IOException
  * ## Thread safety
  *
  * Not thread-safe. One writer at a time.
+ *
+ * @param delegate Underlying body whose writes are mirrored into the tap.
+ * @param provider I/O provider used to allocate the tap [Buffer]. Defaults to the globally
+ *   installed provider.
  */
 class LoggableRequestBody @JvmOverloads constructor(
     private val delegate: RequestBody,

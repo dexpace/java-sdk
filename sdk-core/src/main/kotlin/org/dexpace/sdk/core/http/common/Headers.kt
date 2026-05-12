@@ -5,10 +5,20 @@ import java.util.Locale
 /**
  * Represents a collection of HTTP headers.
  *
- * Header names are stored case-insensitively (lower-cased via [Locale.US]) but each
- * name retains its original ordering. Both a [String]-based API and an
- * [HttpHeaderName]-typed API are exposed — they are equivalent and interoperate
- * freely: a header added under one form is visible to the other.
+ * Header names are normalised to lower case (via [Locale.US]) at storage time so that
+ * lookup, mutation, and equality are all case-insensitive. Insertion order of distinct
+ * names is preserved by the backing [LinkedHashMap]. Both a [String]-based API and an
+ * [HttpHeaderName]-typed API are exposed — they are equivalent and interoperate freely:
+ * a header added under one form is visible to the other.
+ *
+ * Multi-value semantics: [add] appends to the list of values for a name; [set] replaces
+ * the entire list. This matches the HTTP requirement that some headers (`Set-Cookie`,
+ * `WWW-Authenticate`, `Via`) may legitimately repeat.
+ *
+ * ## Thread-safety
+ *
+ * [Headers] itself is immutable and therefore freely shareable. [Builder] is **not**
+ * thread-safe — confine each builder instance to a single thread or guard externally.
  */
 @Suppress("unused")
 @ConsistentCopyVisibility
@@ -218,13 +228,19 @@ data class Headers private constructor(
     }
 
     companion object {
+        /** Returns a builder pre-filled with the entries of [headers]. */
         @JvmStatic
         fun builder(headers: Headers): Builder = Builder(headers)
 
+        /** Returns an empty builder. */
         @JvmStatic
         fun builder(): Builder = Builder()
 
-        // TODO: Using Local.US all the time might be wrong, double check.
+        /**
+         * Normalises a header name to its canonical (lower-case, trimmed) storage key.
+         * `Locale.US` is used deliberately — HTTP header names are ASCII-only per RFC 7230,
+         * so locale-sensitive folding (Turkish `i`, etc.) would be incorrect here.
+         */
         private fun sanitizeName(value: String): String = value.lowercase(Locale.US).trim()
     }
 }

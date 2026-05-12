@@ -19,6 +19,7 @@ import java.util.Collections
  * Construct via [HttpPipelineBuilder]; the constructor is internal.
  */
 class HttpPipeline internal constructor(
+    /** Transport invoked once the step chain is exhausted; the terminal slot of [Stage.SEND]. */
     val httpClient: HttpClient,
     internal val stepArray: Array<HttpStep>,
 ) {

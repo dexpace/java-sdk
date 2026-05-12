@@ -7,6 +7,11 @@ package org.dexpace.sdk.core.http.pipeline
  *
  * Sparse [order] values (100s apart) leave room to insert new stages later without
  * renumbering existing ones.
+ *
+ * @property order Run-order key used by [HttpPipelineBuilder.build] to emit steps; lower
+ *   values run first.
+ * @property isPillar True if the stage admits at most one step (singleton). False for
+ *   user-extensible stages backed by an ordered deque.
  */
 @Suppress("unused")
 enum class Stage(val order: Int, val isPillar: Boolean) {

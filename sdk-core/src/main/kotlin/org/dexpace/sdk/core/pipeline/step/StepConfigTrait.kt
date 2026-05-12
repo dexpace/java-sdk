@@ -1,102 +1,70 @@
 package org.dexpace.sdk.core.pipeline.step
 
 /**
- * Represents the configuration for a step in a pipeline.
+ * Marker root for opt-in configuration mixins applied to a [PipelineStep].
  *
- * This interface provides configurable properties for a step, such as its
- * name, description, versioning, retry mechanism, and associated tags.
+ * Configuration is decomposed into orthogonal traits ([PipelineStepMetadataTrait],
+ * [PipelineStepRetryConfigTrait], ...) rather than a single monolithic config object — a step opts
+ * into only the facets it cares about. This keeps the public API of trivial steps minimal while
+ * letting feature-rich steps surface their knobs through stable interfaces.
  */
 interface PipelineStepConfigTrait
 
 /**
- * Provides metadata properties for configuring a pipeline step.
+ * Mixin that attaches human-readable metadata (name, description, version, tags) to a step. Used by
+ * logging, tracing, and tooling that needs to identify a step at runtime.
  */
 interface PipelineStepMetadataTrait : PipelineStepConfigTrait {
-    /**
-     * The name associated with a specific step configuration.
-     */
+    /** Stable identifier for this step. Override to surface a meaningful name in logs and traces. */
     val name: String
         get() = "Default name"
 
-    /**
-     * A textual description to identify or document the purpose of a step in the pipeline.
-     *
-     * Used for logging and documentation purposes.
-     */
+    /** Free-form description of what the step does. Surfaced in logs and tooling. */
     val description: String
         get() = "Default description"
 
-    /**
-     * The version identifier for a step configuration in the pipeline.
-     */
+    /** Version string for the step's behavior. Bump when behavior changes in a non-back-compatible way. */
     val version: String
         get() = "Default version"
 
-    /**
-     * Represents a list of metadata tags that categorize or describe a step within a pipeline.
-     *
-     * By default, the list is empty, indicating that no tags are associated with the step.
-     */
+    /** Optional category / capability tags. Defaults to an empty list when no tags apply. */
     val tags: List<String>
         get() = emptyList()
 }
 
 /**
- * Defines the retry configuration for a step in a pipeline. This configuration allows customization
- * of retry behavior in scenarios where a step execution encounters errors or transient failures.
+ * Mixin describing how a step should be retried on failure. Defaults provide a reasonable
+ * exponential-backoff-disabled fixed-delay policy; override individual members to tune.
  */
 interface PipelineStepRetryConfigTrait : PipelineStepConfigTrait {
-    /**
-     * The maximum time, in milliseconds, allowed for a retry operation to complete
-     * within the configured step execution process.
-     *
-     * This value sets an upper boundary for how long a retry mechanism should
-     * wait before considering a timeout scenario during the execution of a step.
-     */
+    /** Per-attempt timeout ceiling in milliseconds. Overshoots are treated as failures by the retry driver. */
     val timeoutMilliseconds: Long
         get() = 10000
 
-    /**
-     * Indicates whether an exponential backoff strategy is enabled for retrying steps.
-     *
-     * Default value is `false`.
-     */
+    /** When true, the backoff between attempts grows geometrically by [multiplier]; otherwise fixed at [initialBackoffMilliseconds]. */
     val exponentialBackoff: Boolean
         get() = false
 
-    /**
-     * The initial backoff time in milliseconds for retrying a step in the pipeline.
-     */
+    /** Initial backoff between retries in milliseconds. Also the constant backoff when [exponentialBackoff] is false. */
     val initialBackoffMilliseconds: Long
         get() = 1000
 
-    /**
-     * The maximum allowed backoff duration in milliseconds for retry attempts.
-     */
+    /** Upper bound on the per-attempt backoff. Prevents [exponentialBackoff] from producing pathologically long delays. */
     val maxBackoffMilliseconds: Long
         get() = 10000
 
-    /**
-     * A multiplier value used for incrementally adjusting delays or backoff times, typically
-     * in retry mechanisms.
-     */
+    /** Geometric growth factor applied when [exponentialBackoff] is true. */
     val multiplier: Double
         get() = 2.0
 
-    /**
-     * Specifies the maximum number of retry attempts allowed for a step when an error occurs.
-     *
-     * This value determines how many times a step will retry execution before failing permanently.
-     * It is used in conjunction with backoff and retry configurations to control the retry mechanism.
-     */
+    /** Maximum retry attempts before the failure propagates to the caller. */
     val maxRetries: Int
         get() = 3
 
     /**
-     * Specifies the list of exception types that should trigger a retry mechanism
-     * when encountered during the execution of a step.
-     *
-     * If no exceptions are specified, the retry mechanism will effectively be disabled.
+     * Throwable types that trigger a retry. Throwables outside this list fail fast; an empty list
+     * effectively disables retry. Defaults to `Exception` so any checked / unchecked exception is
+     * eligible — narrow this in custom configs to avoid retrying programmer errors.
      */
     val retryOnExceptions: List<Class<out Throwable>>
         get() = listOf(Exception::class.java)

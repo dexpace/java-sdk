@@ -9,6 +9,11 @@ import java.nio.charset.Charset
  * `java.io` interop.
  *
  * Implementations are obtained from an [IoProvider] — callers do not construct them directly.
+ *
+ * ## Thread-safety
+ *
+ * Instances are not safe for concurrent use; serialize external access if a sink is shared
+ * across threads. Adapters skip synchronized lazy-init on [buffer] for the same reason.
  */
 interface BufferedSink : Sink {
     /**
@@ -19,6 +24,7 @@ interface BufferedSink : Sink {
      */
     val buffer: Buffer
 
+    /** Writes every byte of [source] into this sink. */
     @Throws(IOException::class)
     fun write(source: ByteArray): BufferedSink
 
@@ -35,12 +41,18 @@ interface BufferedSink : Sink {
     @Throws(IOException::class)
     fun writeAll(source: Source): Long
 
+    /** UTF-8 encodes [string] and writes it. */
     @Throws(IOException::class)
     fun writeUtf8(string: String): BufferedSink
 
+    /**
+     * UTF-8 encodes the substring of [string] from [beginIndex] (inclusive) to [endIndex]
+     * (exclusive) and writes it.
+     */
     @Throws(IOException::class)
     fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink
 
+    /** Encodes [string] using [charset] and writes the resulting bytes. */
     @Throws(IOException::class)
     fun writeString(string: String, charset: Charset): BufferedSink
 

@@ -36,6 +36,11 @@ class ProxyOptions @JvmOverloads constructor(
     /** True if [host] matches any of the configured `nonProxyHosts` patterns. */
     fun bypassesProxy(host: String): Boolean = nonProxyPatterns.any { it.matcher(host).matches() }
 
+    /**
+     * Proxy protocol. [HTTP] is a CONNECT-tunneling or forward HTTP proxy; [SOCKS4] / [SOCKS5] are
+     * the corresponding SOCKS variants. Transport adapters dispatch on this value to pick the right
+     * `java.net.Proxy.Type`.
+     */
     enum class Type { HTTP, SOCKS4, SOCKS5 }
 
     companion object {

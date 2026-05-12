@@ -14,12 +14,19 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Buffers are cheap — every call to `IoProvider.buffer()` returns a fresh instance. When a
  * fast path is available (operations between two [OkioBuffer] or [OkioBufferedSource]
  * instances) the implementation uses Okio's native methods to avoid intermediate copies.
+ *
+ * ## Thread-safety
+ *
+ * Not safe for concurrent use; [closedFlag] is the only atomic, and it exists solely so a
+ * `close()` on one thread is observable by a slice reading on another.
  */
 internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
 
-    // Shared by every slice() spawned from this buffer so that closing the buffer invalidates
-    // outstanding slices. okio.Buffer.close() is a no-op for in-memory buffers, but the slice
-    // contract still requires the invariant — track closure ourselves.
+    /**
+     * Shared by every [slice] spawned from this buffer so that closing the buffer invalidates
+     * outstanding slices. [okio.Buffer.close] is a no-op for in-memory buffers, but the slice
+     * contract still requires the invariant — track closure ourselves.
+     */
     internal val closedFlag = AtomicBoolean(false)
 
     override val size: Long get() = delegate.size
