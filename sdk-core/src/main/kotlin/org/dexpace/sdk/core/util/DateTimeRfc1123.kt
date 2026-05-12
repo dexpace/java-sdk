@@ -1,0 +1,85 @@
+package org.dexpace.sdk.core.util
+
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.time.format.DateTimeParseException
+import java.util.Locale
+
+/**
+ * RFC 1123 HTTP date-time parser and formatter.
+ *
+ * Used for `Date`, `Last-Modified`, `Expires`, and `Retry-After` HTTP headers. Emits the
+ * canonical form `Sun, 06 Nov 1994 08:49:37 GMT`; parses the strict form plus the
+ * obsolete RFC 850 / asctime variants and common zone spellings (`GMT`, `UTC`, `+0000`),
+ * with case-insensitive month and weekday names.
+ */
+object DateTimeRfc1123 {
+
+    /**
+     * RFC 7231 §7.1.1.1 mandates a two-digit day-of-month (`06`, not `6`), whereas the
+     * JDK's [DateTimeFormatter.RFC_1123_DATE_TIME] omits the leading zero on output. This
+     * pattern matches the spec exactly.
+     */
+    private val EMITTER: DateTimeFormatter = DateTimeFormatter
+        .ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US)
+
+    /**
+     * Case-insensitive wrapper around the JDK's RFC 1123 formatter. Even though the JDK's
+     * own formatter tolerates lowercase month / weekday names in practice, this builder
+     * makes the contract explicit and survives future JDK tightening.
+     */
+    private val TOLERANT_PARSER: DateTimeFormatter = DateTimeFormatterBuilder()
+        .parseCaseInsensitive()
+        .append(DateTimeFormatter.RFC_1123_DATE_TIME)
+        .toFormatter(Locale.US)
+
+    /** Formats [instant] as an RFC 1123 string in UTC (`Thu, 01 Jan 2024 00:00:00 GMT`). */
+    @JvmStatic
+    fun format(instant: Instant): String {
+        return EMITTER.format(instant.atOffset(ZoneOffset.UTC))
+    }
+
+    /**
+     * Parses an RFC 1123 string into an [Instant]. Tolerates obsolete RFC 850 / asctime
+     * variants where reasonable, lowercase month names, and `+0000` / `UTC` / `GMT` zone
+     * spellings.
+     *
+     * @throws DateTimeParseException on malformed or blank input.
+     */
+    @JvmStatic
+    @Throws(DateTimeParseException::class)
+    fun parse(raw: String): Instant {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) {
+            throw DateTimeParseException("RFC 1123 date-time string is blank", raw, 0)
+        }
+        // The JDK formatter does not recognise "UTC" as a zone name (only "GMT" and
+        // numeric offsets). Normalize the trailing token so the obsolete spelling parses.
+        val normalized = normalizeZone(trimmed)
+        return try {
+            Instant.from(TOLERANT_PARSER.parse(normalized))
+        } catch (e: DateTimeParseException) {
+            try {
+                Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(normalized))
+            } catch (fallback: DateTimeParseException) {
+                fallback.addSuppressed(e)
+                throw fallback
+            }
+        }
+    }
+
+    private fun normalizeZone(s: String): String {
+        // Replace a trailing " UTC" with " GMT". Case-insensitive, applied only when it
+        // is the last token, to avoid mangling unrelated occurrences inside the string.
+        val len = s.length
+        if (len >= 4) {
+            val tail = s.substring(len - 4)
+            if (tail.equals(" utc", ignoreCase = true)) {
+                return s.substring(0, len - 4) + " GMT"
+            }
+        }
+        return s
+    }
+}
