@@ -40,6 +40,9 @@ class ProxyOptions @JvmOverloads constructor(
      * Renders the proxy configuration without leaking credentials. [username] and [password]
      * are masked to `***` when present so accidental log captures (and the JDK's default
      * `Object.toString()` exposure) do not surface secrets.
+     *
+     * If a custom [challengeHandler] holds credentials, override its `toString()` to mask
+     * them — this method does not redact nested handlers.
      */
     override fun toString(): String =
         "ProxyOptions(type=$type, address=$address, nonProxyHosts=$nonProxyHosts, " +

@@ -54,10 +54,20 @@ class UrlRedactorTest {
     }
 
     @Test
-    fun `fragment is preserved verbatim`() {
+    fun `fragment without equals sign is preserved verbatim`() {
         val url = URL("https://api.example.com/x?api-version=1#section")
         val out = UrlRedactor.redact(url)
         assertTrue(out.endsWith("#section"), "expected preserved fragment in: $out")
+    }
+
+    @Test
+    fun `fragment with disallowed query-param-shaped token is redacted`() {
+        val url = URL("https://api.example.com/x#token=secret")
+        val out = UrlRedactor.redact(url)
+        assertTrue(out.contains("#"), "fragment marker should be present: $out")
+        assertTrue(out.contains("token="), "fragment key should be kept: $out")
+        assertTrue(out.contains("***"), "fragment value should be redacted: $out")
+        assertTrue(!out.contains("secret"), "raw fragment value leaked: $out")
     }
 
     @Test

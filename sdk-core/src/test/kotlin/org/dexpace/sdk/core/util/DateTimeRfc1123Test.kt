@@ -155,4 +155,15 @@ class DateTimeRfc1123Test {
             DateTimeRfc1123.parse("Mon, 01 Jan 2024 00:00:00 +0530"),
         )
     }
+
+    @Test
+    fun `parse fringe-but-valid mixed-case RFC 1123 date is handled by primary parser`() {
+        // Exercises TOLERANT_PARSER (parseCaseInsensitive) directly — no fallback needed.
+        // Mixed-case weekday and month names are technically non-conformant but widely
+        // encountered in the wild; the case-insensitive wrapper handles them.
+        assertEquals(
+            Instant.parse("1994-11-06T08:49:37Z"),
+            DateTimeRfc1123.parse("Sun, 06 Nov 1994 08:49:37 GMT"),
+        )
+    }
 }

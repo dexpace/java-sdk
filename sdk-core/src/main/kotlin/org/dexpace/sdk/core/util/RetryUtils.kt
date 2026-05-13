@@ -30,25 +30,20 @@ object RetryUtils {
 
     /**
      * Returns `true` if [t] or any throwable in its cause chain is an [IOException] or
-     * [TimeoutException]. Walks the chain iteratively up to [MAX_DEPTH] levels and
-     * tracks visited references so a self-referential chain (e.g. an exception whose
-     * `cause` is itself) terminates cleanly instead of looping forever.
+     * [TimeoutException]. Walks the chain iteratively and tracks visited references so a
+     * self-referential chain (e.g. an exception whose `cause` is itself) terminates
+     * cleanly instead of looping forever.
      */
     @JvmStatic
     fun isRetryable(t: Throwable): Boolean {
         var current: Throwable? = t
-        var depth = 0
         // Identity-based tracking: HashSet uses Object.equals/hashCode, which for
         // Throwables defaults to identity — exactly what we need to detect a cycle.
-        val seen = HashSet<Throwable>(4)
-        while (current != null && depth < MAX_DEPTH) {
+        val seen = HashSet<Throwable>()
+        while (current != null && seen.add(current)) {
             if (current is IOException || current is TimeoutException) return true
-            if (!seen.add(current)) return false
             current = current.cause
-            depth++
         }
         return false
     }
-
-    private const val MAX_DEPTH: Int = 16
 }

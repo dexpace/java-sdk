@@ -14,7 +14,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * `globalContext` is taken from the owning [ClientLogger] and emitted on every log; the map reference
  * is shared, never copied per event.
  *
- * Not thread-safe — a `LoggingEvent` is single-shot, intended to be built and `log()`'d on one thread.
+ * Single-shot. Intended to be built and `log()`'d once. The `consumed` guard makes concurrent misuse
+ * a no-op rather than a double-log, but field accumulation (`field()`, `event()`, `cause()`) is NOT
+ * thread-safe — these must happen on one thread, then `log()` may be called from any thread.
  */
 class LoggingEvent internal constructor(
     private val logger: ClientLogger?,

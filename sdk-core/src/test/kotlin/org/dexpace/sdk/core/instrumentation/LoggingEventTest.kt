@@ -119,6 +119,29 @@ class LoggingEventTest {
         assertEquals("first", fake.records.single().message)
     }
 
+    @Test
+    fun `single-thread accumulation then concurrent second log is a no-op`() {
+        // Build and accumulate on the current thread; then race two threads calling log().
+        // Only one should produce a record — the consumed AtomicBoolean ensures the second
+        // caller loses the CAS and exits silently.
+        val (logger, fake) = enabledLogger()
+        val ev = logger.atInfo().field("k", "v").event("e")
+
+        val barrier = java.util.concurrent.CyclicBarrier(2)
+        val t1 = Thread {
+            barrier.await()
+            ev.log("from-t1")
+        }
+        val t2 = Thread {
+            barrier.await()
+            ev.log("from-t2")
+        }
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+
+        assertEquals(1, fake.records.size)
+    }
+
     // -- Field rendering edge cases ------------------------------------------------------------
 
     @Test

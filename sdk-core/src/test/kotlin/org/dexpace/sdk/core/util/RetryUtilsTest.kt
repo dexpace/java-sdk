@@ -107,12 +107,12 @@ class RetryUtilsTest {
     }
 
     @Test
-    fun `chain beyond MAX_DEPTH does not find IOException at the bottom`() {
-        // 20-level chain — deeper than MAX_DEPTH (16). The bottom is an IOException but
-        // we should bail before reaching it.
+    fun `20-level-deep chain ending in IOException is retryable`() {
+        // Without a MAX_DEPTH cap the full chain is walked; the IOException at the
+        // bottom must be found regardless of depth.
         var current: Throwable = IOException("bottom")
         repeat(19) { i -> current = RuntimeException("level-$i", current) }
-        assertFalse(RetryUtils.isRetryable(current))
+        assertTrue(RetryUtils.isRetryable(current))
     }
 
     @Test

@@ -12,8 +12,10 @@ import java.net.URLDecoder
  *  - **Query parameter values** are replaced with `***` unless the parameter name (decoded,
  *    compared case-insensitively) appears in the supplied allow-list. Multi-value keys are
  *    treated atomically — either all values for a key are kept, or all are redacted.
+ *  - **Fragment tokens** that have the form `key=value` are redacted under the same allow-list
+ *    as query parameters. Plain fragments (no `=`) are preserved verbatim.
  *
- * The fragment is preserved verbatim; the path and scheme are not modified.
+ * The path and scheme are not modified.
  *
  * Designed for hot-path logging: the fast path (no `?`, no userinfo) returns
  * `url.toString()` with no rebuild. On any unexpected failure, returns `"[malformed url]"`
@@ -23,7 +25,11 @@ import java.net.URLDecoder
  */
 object UrlRedactor {
 
-    /** Default allow-list: just `api-version`, the canonical safe-to-log REST query param. */
+    /**
+     * Default allow-list: just `api-version`, the canonical safe-to-log REST query param.
+     * This allow-list also governs fragment redaction — `key=value` tokens in the fragment
+     * are redacted under the same rules as query parameters.
+     */
     @JvmField
     val DEFAULT_ALLOWED: Set<String> = setOf("api-version")
 
@@ -53,8 +59,9 @@ object UrlRedactor {
             val raw = url.toString()
             val hasUserInfo = url.userInfo != null
             val hasQuery = raw.indexOf('?') >= 0
+            val hasFragment = url.ref != null
 
-            if (!hasUserInfo && !hasQuery) {
+            if (!hasUserInfo && !hasQuery && !hasFragment) {
                 raw
             } else {
                 rebuild(url, raw, lowercaseAllowList(allowedQueryParams))
@@ -99,7 +106,8 @@ object UrlRedactor {
 
         val fragment = url.ref
         if (fragment != null) {
-            out.append('#').append(fragment)
+            out.append('#')
+            appendRedactedQuery(out, fragment, allowedLower)
         }
 
         return out.toString()

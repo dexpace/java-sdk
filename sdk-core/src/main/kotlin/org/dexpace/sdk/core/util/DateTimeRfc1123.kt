@@ -57,16 +57,7 @@ object DateTimeRfc1123 {
         // The JDK formatter does not recognise "UTC" as a zone name (only "GMT" and
         // numeric offsets). Normalize the trailing token so aliased spellings parse.
         val normalized = normalizeZone(trimmed)
-        return try {
-            Instant.from(TOLERANT_PARSER.parse(normalized))
-        } catch (e: DateTimeParseException) {
-            try {
-                Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(normalized))
-            } catch (fallback: DateTimeParseException) {
-                fallback.addSuppressed(e)
-                throw fallback
-            }
-        }
+        return Instant.from(TOLERANT_PARSER.parse(normalized))
     }
 
     private fun normalizeZone(s: String): String {
