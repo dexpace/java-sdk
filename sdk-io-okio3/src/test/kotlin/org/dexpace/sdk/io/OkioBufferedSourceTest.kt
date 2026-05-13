@@ -205,6 +205,42 @@ class OkioBufferedSourceTest {
         assertFailsWith<IllegalStateException> { slice.readByte() }
     }
 
+    // ----- close-flag isolation (H6) -----
+
+    @Test
+    fun `closing a peek view does not prevent root from closing its delegate`() {
+        val closeCount = java.util.concurrent.atomic.AtomicInteger(0)
+        // Use a counting InputStream so we can observe delegate close() calls.
+        val bytes = "hello".toByteArray()
+        val trackingStream = object : java.io.InputStream() {
+            private val inner = java.io.ByteArrayInputStream(bytes)
+            override fun read(): Int = inner.read()
+            override fun read(b: ByteArray, off: Int, len: Int): Int = inner.read(b, off, len)
+            override fun close() {
+                closeCount.incrementAndGet()
+                super.close()
+            }
+        }
+        val root = OkioIoProvider.source(trackingStream)
+        val peek = root.peek()
+
+        // Close the peek view first — this must NOT close the root's underlying transport.
+        peek.close()
+        assertEquals(0, closeCount.get(), "closing the peek should not close the root's delegate")
+
+        // Now close the root — the underlying InputStream must be closed exactly once.
+        root.close()
+        assertEquals(1, closeCount.get(), "root.close() must close the delegate exactly once")
+    }
+
+    @Test
+    fun `closing root source invalidates its peek views`() {
+        val src = streamSource("payload")
+        val peek = src.peek()
+        src.close()
+        assertFailsWith<java.io.IOException> { peek.readByte() }
+    }
+
     // ----- A minimal non-Okio Buffer used to force the fallback branch -----
 
     private class NonOkioBuffer : Buffer {

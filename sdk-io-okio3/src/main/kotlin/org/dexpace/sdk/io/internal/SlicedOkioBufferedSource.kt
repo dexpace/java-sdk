@@ -89,7 +89,12 @@ internal class SlicedOkioBufferedSource(
         val transferred = if (sink is OkioBuffer) {
             peeked.read(sink.delegate, cap)
         } else {
-            val available = minOf(cap, peeked.buffer.size.coerceAtLeast(1L))
+            // Pull a chunk from the upstream source into the peek view's buffer before
+            // consulting its size; without this the buffer can be empty and each call would
+            // read only a single byte (the old coerceAtLeast(1L) approach).
+            peeked.request(minOf(cap, SEGMENT_SIZE))
+            val available = minOf(cap, peeked.buffer.size)
+            if (available == 0L) return -1L
             val bytes = peeked.readByteArray(available)
             sink.write(bytes)
             bytes.size.toLong()
@@ -303,5 +308,6 @@ internal class SlicedOkioBufferedSource(
 
     private companion object {
         val EMPTY_BYTES = ByteArray(0)
+        const val SEGMENT_SIZE: Long = 8192L
     }
 }

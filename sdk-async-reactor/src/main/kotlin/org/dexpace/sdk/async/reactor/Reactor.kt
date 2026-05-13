@@ -33,7 +33,7 @@ private val LOG = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
  */
 fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
     val mdc = MdcSnapshot.capture()
-    return Mono.fromFuture { executeAsync(request) }
+    return Mono.fromFuture { mdc.withMdc { executeAsync(request) } }
         .doOnSubscribe {
             mdc.withMdc {
                 LOG.atVerbose()
@@ -65,7 +65,7 @@ fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
  */
 fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
     val mdc = MdcSnapshot.capture()
-    return Mono.fromFuture { sendAsync(request) }
+    return Mono.fromFuture { mdc.withMdc { sendAsync(request) } }
         .doOnSubscribe {
             mdc.withMdc {
                 LOG.atVerbose()
@@ -109,8 +109,18 @@ fun ServerSentEventReader.toFlux(): Flux<ServerSentEvent> = Flux.generate { sink
 
 /**
  * Builds a one-shot [Flux] that reads SSE events from [source] until the source is exhausted.
- * Convenience over `ServerSentEventReader(source).toFlux()` so callers don't have to construct
- * the reader by hand.
+ *
+ * Resource lifetime: this extension does NOT close the underlying [BufferedSource] on Flux
+ * termination (complete, error, or cancel). The caller owns the source and is responsible for
+ * closing it. If close-on-cancel is desired, chain `.doFinally { this.close() }` on the result.
+ *
+ * [Flux.using] is used here so the [ServerSentEventReader] is created and scoped alongside
+ * the subscription. The reader does not hold any closeable resource beyond this source, so the
+ * cleanup lambda is a no-op.
  */
 fun BufferedSource.readServerSentEventsAsFlux(): Flux<ServerSentEvent> =
-    ServerSentEventReader(this).toFlux()
+    Flux.using(
+        { ServerSentEventReader(this@readServerSentEventsAsFlux) },
+        { reader -> reader.toFlux() },
+        { /* ServerSentEventReader holds no additional resources beyond the caller-owned source */ },
+    )

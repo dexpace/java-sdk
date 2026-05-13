@@ -13,27 +13,53 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * ## Thread-safety
  *
- * Not safe for concurrent use. [closedFlag] is atomic only so that a `close()` on one thread
- * is observable by a slice reading on another; the source itself is single-threaded.
+ * Not safe for concurrent use. The atomic flags are only used to make close state visible
+ * across threads (e.g. when a slice on one thread detects parent closure on another); the
+ * source itself is not intended for concurrent reads.
+ *
+ * ## Close semantics
+ *
+ * Two separate flags govern closure:
+ * - [selfClosedFlag] — per-instance; guards THIS source's own [delegate.close] call (single-shot).
+ * - [parentClosed] — shared with every slice/peek spawned from the ROOT; signals "parent is gone"
+ *   to derived views WITHOUT blocking the root from closing its own delegate.
+ *
+ * The root source flips [parentClosed] on close so that all outstanding slices start throwing.
+ * A peek view (constructed via [peek]) shares [parentClosed] but has its own [selfClosedFlag];
+ * closing the peek does NOT win the parent's flag and therefore does NOT prevent the root's
+ * later [close] from reaching [delegate.close].
  */
 internal class OkioBufferedSource private constructor(
     val delegate: okio.BufferedSource,
     /**
-     * Shared closed-state. The root source allocates a fresh flag; peek/slice views inherit
-     * the root's flag so closing the parent invalidates outstanding views. [okio.BufferedSource]
-     * has no public closed-flag, and Okio's `peek()` keeps reading from shared segments after
-     * the parent closes — which is not what we want here.
+     * Shared closed-state passed DOWN to slices so they can detect parent closure.
+     * Only the ROOT source sets this flag on close; peek views share it read-only.
      */
-    internal val closedFlag: AtomicBoolean,
+    internal val parentClosed: AtomicBoolean,
+    /** Whether THIS specific instance owns the [parentClosed] flag (i.e. it is the root). */
+    private val isRoot: Boolean,
 ) : BufferedSource {
 
-    /** Primary constructor: a root source allocates its own [closedFlag]. */
-    constructor(delegate: okio.BufferedSource) : this(delegate, AtomicBoolean(false))
+    /** Guards [delegate.close] for THIS instance — never shared. */
+    private val selfClosedFlag = AtomicBoolean(false)
+
+    /**
+     * Primary constructor: creates a ROOT source with its own fresh [parentClosed] flag.
+     * Only the root sets [parentClosed] on close.
+     */
+    constructor(delegate: okio.BufferedSource) : this(delegate, AtomicBoolean(false), isRoot = true)
+
+    /**
+     * Internal constructor for peek views: shares the root's [parentClosed] flag but is NOT
+     * the root — it will not flip [parentClosed] on close.
+     */
+    private constructor(delegate: okio.BufferedSource, parentClosed: AtomicBoolean) :
+        this(delegate, parentClosed, isRoot = false)
 
     override val buffer: Buffer by lazy(LazyThreadSafetyMode.NONE) { OkioBuffer(delegate.buffer) }
 
     private fun checkOpen() {
-        if (closedFlag.get()) throw IOException("source closed")
+        if (selfClosedFlag.get() || parentClosed.get()) throw IOException("source closed")
     }
 
     @Throws(IOException::class)
@@ -55,11 +81,13 @@ internal class OkioBufferedSource private constructor(
 
     @Throws(IOException::class)
     override fun close() {
-        // Idempotent: only set the shared flag the first time, but always allow Okio's own
-        // double-close (it tolerates it). Peek/slice views share `closedFlag` — closing any
-        // one of them invalidates every view spawned from the same root.
-        if (closedFlag.compareAndSet(false, true)) {
+        // Single-shot: each instance closes its own delegate exactly once.
+        if (selfClosedFlag.compareAndSet(false, true)) {
             delegate.close()
+        }
+        // The root also signals all outstanding slices that the parent is gone.
+        if (isRoot) {
+            parentClosed.set(true)
         }
     }
 
@@ -103,10 +131,11 @@ internal class OkioBufferedSource private constructor(
         checkOpen()
         return delegate.readString(charset)
     }
-    // Share `closedFlag` with the peek view so closing the parent invalidates outstanding
-    // peeks. Reading from the peek itself does not advance the parent (Okio's `peek()`
-    // contract); close-state propagation is the only thing this wrapper adds.
-    override fun peek(): BufferedSource = OkioBufferedSource(delegate.peek(), closedFlag)
+    // Share `parentClosed` with the peek view so closing the ROOT invalidates outstanding
+    // peeks. The peek view is not the root — it will not flip parentClosed on its own close.
+    // Reading from the peek itself does not advance the parent (Okio's `peek()` contract);
+    // close-state propagation is the only thing this wrapper adds.
+    override fun peek(): BufferedSource = OkioBufferedSource(delegate.peek(), parentClosed)
     override fun inputStream(): InputStream = delegate.inputStream()
     @Throws(IOException::class)
     override fun skip(byteCount: Long) {
@@ -124,7 +153,7 @@ internal class OkioBufferedSource private constructor(
             peeked = delegate.peek(),
             maxBytes = byteCount,
             pendingSkip = offset,
-            parentClosed = closedFlag,
+            parentClosed = parentClosed,
         )
     }
 }

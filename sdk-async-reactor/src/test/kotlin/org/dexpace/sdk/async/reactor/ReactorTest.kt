@@ -10,11 +10,15 @@ import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.http.sse.ServerSentEventReader
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
+import reactor.core.scheduler.Schedulers
 import reactor.test.StepVerifier
 import java.io.IOException
 import java.net.URL
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -142,6 +146,48 @@ class ReactorTest {
             // After block() returns, the caller's MDC should still be intact — withMdc inside the
             // adapter's hooks restores the previous (= caller's) MDC on exit.
             assertEquals("reactor-caller-preserve", MDC.get("trace.id"))
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `cancelling executeMono subscription cancels the underlying CompletableFuture`() {
+        val futureLatch = CompletableFuture<CompletableFuture<Response>>()
+        val client = AsyncHttpClient { _ ->
+            val f = CompletableFuture<Response>()
+            futureLatch.complete(f)
+            f
+        }
+        val mono = client.executeMono(getRequest())
+        // StepVerifier creates subscription then cancels it.
+        StepVerifier.create(mono)
+            .thenCancel()
+            .verify(Duration.ofSeconds(2))
+        // Retrieve the underlying future that was created during subscription.
+        val underlying = futureLatch.get(2, TimeUnit.SECONDS)
+        assertTrue(underlying.isCancelled, "Disposing the Mono subscription should cancel the underlying CompletableFuture")
+    }
+
+    @Test
+    fun `mdc propagates into supplier when subscribed on a different scheduler`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "reactor-supplier-mdc")
+        try {
+            val seenTraceId = AtomicReference<String?>()
+            val client = AsyncHttpClient { request ->
+                seenTraceId.set(MDC.get("trace.id"))
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+            // subscribeOn pushes subscription (and thus the Mono.fromFuture supplier) onto a
+            // Reactor scheduler thread — the mdc.withMdc { ... } wrap must re-apply MDC there.
+            client.executeMono(getRequest())
+                .subscribeOn(Schedulers.boundedElastic())
+                .block(Duration.ofSeconds(2))
+            assertEquals("reactor-supplier-mdc", seenTraceId.get(),
+                "MDC must be restored inside the Mono.fromFuture supplier even on a scheduler thread")
         } finally {
             MDC.clear()
             restoreMdcAdapter(originalAdapter)

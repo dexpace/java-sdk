@@ -20,6 +20,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Not safe for concurrent use; [closedFlag] is the only atomic, and it exists solely so a
  * `close()` on one thread is observable by a slice reading on another.
+ *
+ * ## Post-close read/write behavior
+ *
+ * After [close], reads and writes continue to work because Okio's in-memory [okio.Buffer] is
+ * not closeable in any meaningful way — its [okio.Buffer.close] is effectively a no-op that
+ * only clears the buffer. The [closedFlag] exists solely to invalidate outstanding slices
+ * spawned via [slice]; it does NOT guard the read/write methods of this instance.
  */
 internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
 

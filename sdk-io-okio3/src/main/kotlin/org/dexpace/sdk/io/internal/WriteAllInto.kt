@@ -22,9 +22,11 @@ internal fun writeAllInto(sink: okio.BufferedSink, source: Source): Long {
             var total = 0L
             while (true) {
                 val read = source.read(tmp, SEGMENT_SIZE)
-                // Guard against a foreign Source returning 0 for a nonzero request — without
-                // this the loop would spin forever. Per contract, 0 means "nothing right now",
-                // and we treat it as the end of the pump.
+                // The Source contract forbids returning 0 for a non-zero byteCount in blocking
+                // mode. We treat 0 as exhaustion conservatively to avoid an infinite loop.
+                // A well-behaved blocking Source should return -1 (EOF) instead of 0; the
+                // defensive break here exists to handle misbehaving foreign implementations
+                // without spinning forever.
                 if (read <= 0L) break
                 sink.write(tmp.delegate, tmp.delegate.size)
                 total += read

@@ -53,7 +53,9 @@ private fun CompletableFuture<Response>.bridgeToNetty(executor: EventExecutor): 
     val promise = executor.newPromise<Response>()
     val mdc = MdcSnapshot.capture()
     source.whenComplete { response, error ->
-        if (error != null) promise.setFailure(Futures.unwrap(error)) else promise.setSuccess(response)
+        mdc.withMdc {
+            if (error != null) promise.tryFailure(Futures.unwrap(error)) else promise.trySuccess(response)
+        }
     }
     // Forward Netty cancellation back to the source future. Listener fires on `executor`.
     promise.addListener {

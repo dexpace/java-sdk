@@ -17,6 +17,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -68,17 +69,48 @@ class NettyTest {
 
     @Test
     fun `cancelling the Netty promise cancels the underlying CompletableFuture`() {
-        val cancelled = AtomicBoolean(false)
+        val cancelLatch = CompletableFuture<Unit>()
         val sourceFuture = CompletableFuture<Response>().also { f ->
-            f.whenComplete { _, _ -> if (f.isCancelled) cancelled.set(true) }
+            f.whenComplete { _, _ -> if (f.isCancelled) cancelLatch.complete(Unit) }
         }
         val client = AsyncHttpClient { _ -> sourceFuture }
         val nettyFuture = client.executeNetty(getRequest(), executor)
         // Cancel via Netty's API.
         nettyFuture.cancel(true)
-        // Listener fires on the event executor; give it a moment to propagate to the source.
-        Thread.sleep(50)
-        assertTrue(cancelled.get(), "cancelling the Netty promise should cancel the source CompletableFuture")
+        // Wait deterministically for the cancel to propagate to the source future.
+        cancelLatch.get(2, TimeUnit.SECONDS)
+        assertTrue(sourceFuture.isCancelled, "cancelling the Netty promise should cancel the source CompletableFuture")
+    }
+
+    @Test
+    fun `completing source future after promise is already cancelled does not throw`() {
+        // Race: promise cancelled first, then source future completes — trySuccess must not throw.
+        val sourceFuture = CompletableFuture<Response>()
+        val client = AsyncHttpClient { _ -> sourceFuture }
+        val nettyFuture = client.executeNetty(getRequest(), executor)
+
+        // Cancel the Netty promise.
+        nettyFuture.cancel(true)
+        assertTrue(nettyFuture.isCancelled)
+
+        // Now complete the source future after the promise is done — this must NOT propagate an exception.
+        val completionErrorRef = AtomicReference<Throwable?>()
+        val completionLatch = CompletableFuture<Unit>()
+        Thread {
+            try {
+                sourceFuture.complete(mockResponse(getRequest(), 200))
+            } catch (t: Throwable) {
+                completionErrorRef.set(t)
+            } finally {
+                completionLatch.complete(Unit)
+            }
+        }.also { it.isDaemon = true; it.start() }
+
+        completionLatch.get(2, TimeUnit.SECONDS)
+        val err = completionErrorRef.get()
+        if (err != null) throw AssertionError("trySuccess threw unexpectedly after cancel: $err", err)
+        // Promise remains cancelled.
+        assertTrue(nettyFuture.isCancelled)
     }
 
     @Test
@@ -95,6 +127,36 @@ class NettyTest {
             val nettyFuture = async.executeNetty(getRequest(), executor)
             nettyFuture.get(2, TimeUnit.SECONDS)
             assertEquals("netty-transport-test", seenTraceId.get())
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `mdc propagates into whenComplete callback thread`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "netty-whencomplete-mdc")
+        try {
+            val seenTraceId = AtomicReference<String?>()
+            val gate = CompletableFuture<Unit>()
+            val async = AsyncHttpClient { request ->
+                val f = CompletableFuture<Response>()
+                // Complete on a separate thread to ensure whenComplete fires off-caller-thread.
+                Thread {
+                    gate.get(2, TimeUnit.SECONDS)
+                    f.complete(mockResponse(request, 200))
+                }.also { it.isDaemon = true; it.start() }
+                f
+            }
+            val nettyFuture = async.executeNetty(getRequest(), executor)
+            // Attach a listener that captures what MDC looks like on the whenComplete thread.
+            val mdcLatch = CompletableFuture<Unit>()
+            nettyFuture.addListener { seenTraceId.set(MDC.get("trace.id")); mdcLatch.complete(Unit) }
+            gate.complete(Unit)
+            mdcLatch.get(2, TimeUnit.SECONDS)
+            assertEquals("netty-whencomplete-mdc", seenTraceId.get())
         } finally {
             MDC.clear()
             restoreMdcAdapter(originalAdapter)
