@@ -1,3 +1,5 @@
+@file:JvmName("ReactorAdapters")
+
 package org.dexpace.sdk.async.reactor
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
@@ -12,7 +14,7 @@ import org.dexpace.sdk.core.io.BufferedSource
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 
-private val LOG = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
+private val log = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
 
 /**
  * Wraps [AsyncHttpClient.executeAsync] in a [Mono]. Each subscription invokes the supplier so
@@ -36,7 +38,7 @@ fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
     return Mono.fromFuture { mdc.withMdc { executeAsync(request) } }
         .doOnSubscribe {
             mdc.withMdc {
-                LOG.atVerbose()
+                log.atVerbose()
                     .event("async.adapter.subscribed")
                     .field("adapter.type", "reactor")
                     .log()
@@ -44,7 +46,7 @@ fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
         }
         .doOnCancel {
             mdc.withMdc {
-                LOG.atVerbose()
+                log.atVerbose()
                     .event("async.adapter.cancel_propagated")
                     .field("adapter.type", "reactor")
                     .log()
@@ -68,7 +70,7 @@ fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
     return Mono.fromFuture { mdc.withMdc { sendAsync(request) } }
         .doOnSubscribe {
             mdc.withMdc {
-                LOG.atVerbose()
+                log.atVerbose()
                     .event("async.adapter.subscribed")
                     .field("adapter.type", "reactor")
                     .log()
@@ -76,7 +78,7 @@ fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
         }
         .doOnCancel {
             mdc.withMdc {
-                LOG.atVerbose()
+                log.atVerbose()
                     .event("async.adapter.cancel_propagated")
                     .field("adapter.type", "reactor")
                     .log()

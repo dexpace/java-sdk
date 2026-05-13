@@ -1,12 +1,14 @@
+@file:JvmName("AsyncHttpClients")
+
 package org.dexpace.sdk.core.client
 
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
+import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.Executor
-import java.util.concurrent.ForkJoinPool
 
 /**
  * Asynchronous transport SPI. The async-first counterpart of [HttpClient] — implementations
@@ -77,6 +79,7 @@ fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
  *
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
+@Throws(IOException::class)
 fun AsyncHttpClient.asBlocking(): HttpClient = HttpClient { request ->
     try {
         executeAsync(request).join()

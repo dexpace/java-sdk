@@ -1,3 +1,5 @@
+@file:JvmName("Coroutines")
+
 package org.dexpace.sdk.async.coroutines
 
 import kotlinx.coroutines.CoroutineScope
@@ -16,7 +18,7 @@ import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
-private val LOG = ClientLogger("org.dexpace.sdk.async.coroutines.Coroutines")
+private val log = ClientLogger("org.dexpace.sdk.async.coroutines.Coroutines")
 
 /**
  * Suspend-friendly facade over [AsyncHttpClient]. Returns the [Response] directly; the underlying
@@ -71,7 +73,7 @@ fun <T> CoroutineScope.completableFutureOf(
  * `runInterruptible` will then abort the in-flight call on cancellation.
  */
 fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient {
-    LOG.atVerbose()
+    log.atVerbose()
         .event("async.adapter.wrapped")
         .field("adapter.type", "coroutines")
         .field("scope.coroutineContext", scope.coroutineContext.toString())

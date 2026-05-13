@@ -1,3 +1,5 @@
+@file:JvmName("NettyAdapters")
+
 package org.dexpace.sdk.async.netty
 
 import io.netty.util.concurrent.EventExecutor
@@ -11,7 +13,7 @@ import org.dexpace.sdk.core.instrumentation.MdcSnapshot
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
 
-private val LOG = ClientLogger("org.dexpace.sdk.async.netty.Netty")
+private val log = ClientLogger("org.dexpace.sdk.async.netty.Netty")
 
 /**
  * Wraps [AsyncHttpClient.executeAsync] in a Netty [Future]. The returned future fires its
@@ -62,7 +64,7 @@ private fun CompletableFuture<Response>.bridgeToNetty(executor: EventExecutor): 
         if (it.isCancelled && !source.isDone) {
             source.cancel(true)
             mdc.withMdc {
-                LOG.atVerbose()
+                log.atVerbose()
                     .event("async.adapter.cancel_propagated")
                     .field("adapter.type", "netty")
                     .log()

@@ -1,3 +1,5 @@
+@file:JvmName("HttpPipelineBridges")
+
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
@@ -6,13 +8,17 @@ import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.Executor
-import java.util.concurrent.ForkJoinPool
 
 /**
  * Adapts a synchronous [HttpPipeline] into an [AsyncHttpPipeline] by submitting each
- * `send(request)` call to [executor]. Default executor is the common [ForkJoinPool] —
- * production callers should pass a dedicated pool, or
- * `Executors.newVirtualThreadPerTaskExecutor()` on JDK 21+ (see `sdk-async-virtualthreads`).
+ * `send(request)` call to [executor]. Callers MUST supply an executor — there is intentionally
+ * no default. Recommended setups:
+ *  - JDK 21+: `Executors.newVirtualThreadPerTaskExecutor()` (or use `sdk-async-virtualthreads`
+ *    which wires this for you with MDC propagation).
+ *  - JDK 8–20: a `ThreadPoolExecutor` sized for your concurrent-request ceiling.
+ *
+ * `ForkJoinPool.commonPool()` is **not** an acceptable production choice — blocking HTTP calls
+ * starve every other commonPool consumer (parallel streams, CompletableFuture default chains).
  *
  * The returned `AsyncHttpPipeline` is a single-step facade around the wrapped sync pipeline;
  * the wrapped pipeline's individual steps remain synchronous and run on the dispatch thread.
@@ -22,8 +28,7 @@ import java.util.concurrent.ForkJoinPool
  * Cancellation of the returned future does NOT interrupt the in-flight sync pipeline —
  * Java's `CompletableFuture` has no such hook for arbitrary tasks.
  */
-@JvmOverloads
-fun HttpPipeline.toAsync(executor: Executor = ForkJoinPool.commonPool()): AsyncHttpPipeline {
+fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
     val sync = this
     return AsyncHttpPipeline.of { request ->
         CompletableFuture.supplyAsync({ sync.send(request) }, executor)

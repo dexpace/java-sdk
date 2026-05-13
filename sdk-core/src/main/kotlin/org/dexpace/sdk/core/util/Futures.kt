@@ -49,22 +49,26 @@ object Futures {
     }
 
     /**
-     * Schedules a future that completes (with `Unit`) after [delay] elapses on [scheduler].
+     * Schedules a future that completes (with `null`) after [delay] elapses on [scheduler].
      * The SDK's async retry/redirect steps compose this with `thenCompose` to insert async
      * delays into a future chain without blocking a thread.
+     *
+     * The return type is `CompletableFuture<Void>` (not `Unit`) for Java-interop ergonomics —
+     * Java callers can compose with `CompletableFuture<Void>` chains naturally using
+     * `thenRun`, `thenCompose`, etc., without needing to adapt a Kotlin `Unit` value.
      *
      * Cancellation of the returned future cancels the scheduled task.
      */
     @JvmStatic
-    fun delay(scheduler: ScheduledExecutorService, delay: JDuration): CompletableFuture<Unit> {
+    fun delay(scheduler: ScheduledExecutorService, delay: JDuration): CompletableFuture<Void> {
         require(!delay.isNegative) { "delay must be non-negative (got $delay)" }
-        val future = CompletableFuture<Unit>()
+        val future = CompletableFuture<Void>()
         if (delay.isZero) {
-            future.complete(Unit)
+            future.complete(null)
             return future
         }
         val scheduled = scheduler.schedule(
-            { future.complete(Unit) },
+            { future.complete(null) },
             delay.toNanos(),
             TimeUnit.NANOSECONDS,
         )

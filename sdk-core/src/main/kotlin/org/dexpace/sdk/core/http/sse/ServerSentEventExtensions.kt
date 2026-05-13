@@ -1,3 +1,5 @@
+@file:JvmName("ServerSentEvents")
+
 package org.dexpace.sdk.core.http.sse
 
 import org.dexpace.sdk.core.io.BufferedSource
@@ -17,7 +19,7 @@ import org.dexpace.sdk.core.io.BufferedSource
  * Example:
  * ```
  * source.readServerSentEvents().forEach { event ->
- *     println(event.data.joinToString("\n"))
+ *     // handle event.data
  * }
  * ```
  */
@@ -25,3 +27,22 @@ fun BufferedSource.readServerSentEvents(): Sequence<ServerSentEvent> {
     val reader = ServerSentEventReader(this)
     return generateSequence { reader.next() }
 }
+
+/**
+ * Returns the SSE event stream as an [Iterable] so that Java callers can iterate with a
+ * standard for-each loop without dealing with [Sequence] (which is Kotlin-first and has no
+ * convenient Java for-each binding).
+ *
+ * Delegates to [readServerSentEvents] and wraps the result via [Sequence.asIterable]. All
+ * semantics — lazy evaluation, single-pass restriction, exception propagation — are identical
+ * to [readServerSentEvents].
+ *
+ * Java usage:
+ * ```java
+ * for (ServerSentEvent event : ServerSentEvents.readServerSentEventsAsIterable(source)) {
+ *     // handle event.data
+ * }
+ * ```
+ */
+fun BufferedSource.readServerSentEventsAsIterable(): Iterable<ServerSentEvent> =
+    readServerSentEvents().asIterable()

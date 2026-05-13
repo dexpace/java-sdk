@@ -80,7 +80,7 @@ class FuturesTest {
     }
 
     @Test
-    fun `delay completes with Unit after the requested duration elapses`() {
+    fun `delay completes after the requested duration elapses`() {
         val before = System.nanoTime()
         Futures.delay(scheduler, Duration.ofMillis(40)).join()
         val elapsedMs = (System.nanoTime() - before) / 1_000_000
@@ -88,10 +88,10 @@ class FuturesTest {
     }
 
     @Test
-    fun `delay of zero duration completes immediately`() {
+    fun `delay of zero duration completes immediately with null`() {
         val future = Futures.delay(scheduler, Duration.ZERO)
         assertTrue(future.isDone)
-        assertEquals(Unit, future.join())
+        assertEquals(null, future.join())
     }
 
     @Test

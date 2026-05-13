@@ -1,3 +1,5 @@
+@file:JvmName("SpanExtensions")
+
 package org.dexpace.sdk.core.instrumentation
 
 import org.slf4j.MDC
