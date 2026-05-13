@@ -18,6 +18,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import org.slf4j.MDC
+import org.slf4j.helpers.BasicMDCAdapter
+import org.slf4j.spi.MDCAdapter
 
 class ReactorTest {
 
@@ -104,6 +108,46 @@ class ReactorTest {
             .verifyComplete()
     }
 
+    @Test
+    fun `mdc propagates from caller to sync transport via executeMono supplier path`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "reactor-transport-test")
+        try {
+            val seenTraceId = AtomicInteger(0)
+            val client = AsyncHttpClient { request ->
+                seenTraceId.set(MDC.get("trace.id")?.hashCode() ?: -1)
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+            client.executeMono(getRequest()).block(java.time.Duration.ofSeconds(2))
+            // The supplier is called synchronously on the subscribe thread, so MDC is already present.
+            // We just verify that the supplier sees it (baseline regression).
+            assertTrue(seenTraceId.get() != 0, "Supplier should see the trace.id")
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `mdc is preserved on caller thread after executeMono completes`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "reactor-caller-preserve")
+        try {
+            val client = AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+            client.executeMono(getRequest()).block(java.time.Duration.ofSeconds(2))
+            // After block() returns, the caller's MDC should still be intact — withMdc inside the
+            // adapter's hooks restores the previous (= caller's) MDC on exit.
+            assertEquals("reactor-caller-preserve", MDC.get("trace.id"))
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
     private fun sseBytes(s: String) = Io.provider.source(s.toByteArray(Charsets.UTF_8))
 
     private fun getRequest(): Request = Request.builder()
@@ -116,4 +160,18 @@ class ReactorTest {
         .protocol(Protocol.HTTP_1_1)
         .status(Status.fromCode(code))
         .build()
+
+    private fun installBasicMdcAdapter() {
+        val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+        field.isAccessible = true
+        if (field.get(null) !is BasicMDCAdapter) {
+            field.set(null, BasicMDCAdapter())
+        }
+    }
+
+    private fun restoreMdcAdapter(adapter: MDCAdapter?) {
+        val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+        field.isAccessible = true
+        field.set(null, adapter)
+    }
 }

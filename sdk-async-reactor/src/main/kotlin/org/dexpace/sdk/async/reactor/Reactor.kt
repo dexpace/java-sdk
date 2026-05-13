@@ -7,6 +7,7 @@ import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.sse.ServerSentEvent
 import org.dexpace.sdk.core.http.sse.ServerSentEventReader
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.MdcSnapshot
 import org.dexpace.sdk.core.io.BufferedSource
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
@@ -21,37 +22,67 @@ private val LOG = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
  * Cancellation: cancelling the [Mono] subscription cancels the underlying future via
  * `CompletableFuture.cancel(true)`. Whether the in-flight transport sees the interrupt is up
  * to the [AsyncHttpClient] implementation.
+ *
+ * ## MDC propagation
+ *
+ * SLF4J MDC entries set on the caller's thread are captured at entry and reinstated inside
+ * the adapter's own `.doOnSubscribe` / `.doOnCancel` hooks, so the log events emitted from
+ * those hooks carry `trace.id` / `span.id` even when the hook fires on a different scheduler.
+ * To extend MDC propagation through user-supplied downstream operators, enable
+ * `Hooks.enableAutomaticContextPropagation()` at the application level.
  */
-fun AsyncHttpClient.executeMono(request: Request): Mono<Response> =
-    Mono.fromFuture { executeAsync(request) }
+fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
+    val mdc = MdcSnapshot.capture()
+    return Mono.fromFuture { executeAsync(request) }
         .doOnSubscribe {
-            LOG.atVerbose()
-                .event("async.adapter.subscribed")
-                .field("adapter.type", "reactor")
-                .log()
+            mdc.withMdc {
+                LOG.atVerbose()
+                    .event("async.adapter.subscribed")
+                    .field("adapter.type", "reactor")
+                    .log()
+            }
         }
         .doOnCancel {
-            LOG.atVerbose()
-                .event("async.adapter.cancel_propagated")
-                .field("adapter.type", "reactor")
-                .log()
+            mdc.withMdc {
+                LOG.atVerbose()
+                    .event("async.adapter.cancel_propagated")
+                    .field("adapter.type", "reactor")
+                    .log()
+            }
         }
+}
 
-/** Pipeline-level [Mono] facade — see [executeMono]. */
-fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> =
-    Mono.fromFuture { sendAsync(request) }
+/**
+ * Pipeline-level [Mono] facade — see [executeMono].
+ *
+ * ## MDC propagation
+ *
+ * SLF4J MDC entries set on the caller's thread are captured at entry and reinstated inside
+ * the adapter's own `.doOnSubscribe` / `.doOnCancel` hooks, so the log events emitted from
+ * those hooks carry `trace.id` / `span.id` even when the hook fires on a different scheduler.
+ * To extend MDC propagation through user-supplied downstream operators, enable
+ * `Hooks.enableAutomaticContextPropagation()` at the application level.
+ */
+fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
+    val mdc = MdcSnapshot.capture()
+    return Mono.fromFuture { sendAsync(request) }
         .doOnSubscribe {
-            LOG.atVerbose()
-                .event("async.adapter.subscribed")
-                .field("adapter.type", "reactor")
-                .log()
+            mdc.withMdc {
+                LOG.atVerbose()
+                    .event("async.adapter.subscribed")
+                    .field("adapter.type", "reactor")
+                    .log()
+            }
         }
         .doOnCancel {
-            LOG.atVerbose()
-                .event("async.adapter.cancel_propagated")
-                .field("adapter.type", "reactor")
-                .log()
+            mdc.withMdc {
+                LOG.atVerbose()
+                    .event("async.adapter.cancel_propagated")
+                    .field("adapter.type", "reactor")
+                    .log()
+            }
         }
+}
 
 /**
  * Exposes the SSE event stream as a Reactor [Flux]. Backpressure is honored via
