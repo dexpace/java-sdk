@@ -35,7 +35,11 @@ kover {
     reports {
         filters {
             excludes {
-                // Generated service-client compat layer.
+                // Generated service-client compat layer (sdk-core/src/main/java/).
+                // These classes are compiled into BARE packages (no org.dexpace prefix) —
+                // "annotations.*" is the fully-qualified name pattern, not a suffix glob.
+                // Kotlin SDK classes live under org.dexpace.sdk.core.* and are unaffected
+                // by these patterns.
                 classes(
                     "annotations.*",
                     "binarydata.*",
@@ -48,7 +52,7 @@ kover {
                     "traits.*",
                     "utils.*",
                 )
-                // Test fixtures (test-only support code).
+                // Test fixtures (test-only support code, fully-qualified org.dexpace namespace).
                 classes("org.dexpace.sdk.core.testing.*")
             }
         }

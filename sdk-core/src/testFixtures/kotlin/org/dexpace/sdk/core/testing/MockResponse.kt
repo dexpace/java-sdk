@@ -68,10 +68,11 @@ class MockResponse internal constructor(
          * Convenience: encode [content] as UTF-8 and use it as the response body. Sets the
          * `Content-Type` header to [mediaType] when supplied.
          *
-         * Builds the body lazily through `Io.provider`, so the application must have
-         * installed an [org.dexpace.sdk.core.io.IoProvider] (e.g.
-         * `Io.installProvider(OkioIoProvider)`) before the fake client serves a request
-         * whose body is read.
+         * **Precondition: `Io.installProvider(...)` must have been called** before any test
+         * reads this body. The body source is resolved lazily via `Io.provider`; failure to
+         * install a provider causes an `IllegalStateException` on the first `body.source()`
+         * call rather than at [Builder] construction time. Tests that only inspect headers or
+         * status and never read the body may omit provider installation.
          */
         @JvmOverloads
         fun body(content: String, mediaType: MediaType? = null): Builder = apply {
