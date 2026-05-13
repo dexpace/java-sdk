@@ -230,9 +230,9 @@ class HeadersTest {
     }
 
     @Test
-    fun `companion builder(headers) clones entries`() {
+    fun `newBuilder clones entries`() {
         val seed = Headers.builder().set("Authorization", "Bearer abc").build()
-        val derived = Headers.builder(seed).set("Content-Type", "application/json").build()
+        val derived = seed.newBuilder().set("Content-Type", "application/json").build()
         assertEquals("Bearer abc", derived.get("Authorization"))
         assertEquals("application/json", derived.get("Content-Type"))
         // Modifying the derived instance did not touch the seed.

@@ -223,10 +223,6 @@ data class Headers private constructor(
     }
 
     companion object {
-        /** Returns a builder pre-filled with the entries of [headers]. */
-        @JvmStatic
-        fun builder(headers: Headers): Builder = Builder(headers)
-
         /** Returns an empty builder. */
         @JvmStatic
         fun builder(): Builder = Builder()

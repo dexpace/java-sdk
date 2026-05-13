@@ -82,6 +82,23 @@ class BasicChallengeHandlerTest {
     }
 
     @Test
+    fun `whitespace-only username is accepted (RFC 7617 allows empty username)`() {
+        // RFC 7617 permits non-empty credentials; blank-but-non-empty usernames are
+        // unusual but valid per the spec. isNotEmpty() is the guard, not isNotBlank().
+        val handler = BasicChallengeHandler(" ", "p")
+        val result = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))
+        assertNotNull(result)
+    }
+
+    @Test
+    fun `whitespace-only password is accepted (RFC 7617 allows empty password)`() {
+        // RFC 7617 permits a colon-separated pair where the password may be blank.
+        val handler = BasicChallengeHandler("u", " ")
+        val result = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))
+        assertNotNull(result)
+    }
+
+    @Test
     fun `header value is identical across calls (precomputed once)`() {
         val handler = BasicChallengeHandler("a", "b")
         val first = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))!!.second

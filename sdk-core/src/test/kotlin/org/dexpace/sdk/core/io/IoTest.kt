@@ -1,5 +1,6 @@
 package org.dexpace.sdk.core.io
 
+import org.dexpace.sdk.core.testing.withProvider
 import org.dexpace.sdk.io.OkioIoProvider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -9,25 +10,23 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Exercises [Io.installProvider], [Io.provider], and [Io.withProvider] — the entry points
- * into the SDK's global IoProvider seam.
+ * Exercises [Io.installProvider] and [Io.provider] — the entry points into the SDK's global
+ * IoProvider seam — and the test-fixtures [org.dexpace.sdk.core.testing.withProvider] seam.
  *
- * These tests rely on `Io.withProvider` to scope alternative providers so other tests in the
- * suite (which expect [OkioIoProvider] to be installed) are not disturbed.
+ * Tests that need a scoped provider use [org.dexpace.sdk.core.testing.withProvider] (from
+ * the test-fixtures artifact) so the overall installed provider state is restored on exit.
  */
 class IoTest {
 
     @BeforeTest
     fun installProvider() {
-        // Make sure something is installed for the @Test that exercises "no provider installed"
-        // before flipping the state. We use withProvider() inside those tests so the overall
-        // installed provider state is restored on exit.
+        // Ensure a provider is installed before each test; idempotent for OkioIoProvider.
         Io.installProvider(OkioIoProvider)
     }
 
     @AfterTest
     fun restoreProvider() {
-        // Re-install OkioIoProvider in case any test in this class clobbered it; idempotent.
+        // Re-install OkioIoProvider in case any test clobbered it; idempotent.
         Io.installProvider(OkioIoProvider)
     }
 
@@ -57,10 +56,12 @@ class IoTest {
         assertSame(OkioIoProvider, Io.provider)
     }
 
+    // ---- org.dexpace.sdk.core.testing.withProvider seam -------------------------
+
     @Test
-    fun `withProvider scopes a temporary provider`() {
+    fun `testing withProvider scopes a temporary provider`() {
         val scoped = object : IoProvider by OkioIoProvider {}
-        Io.withProvider(scoped) {
+        withProvider(scoped) {
             assertSame(scoped, Io.provider)
         }
         // After exit, the previous provider is restored.
@@ -68,10 +69,10 @@ class IoTest {
     }
 
     @Test
-    fun `withProvider restores previous provider when block throws`() {
+    fun `testing withProvider restores previous provider when block throws`() {
         val scoped = object : IoProvider by OkioIoProvider {}
         assertFailsWith<IllegalStateException> {
-            Io.withProvider(scoped) {
+            withProvider(scoped) {
                 error("boom")
             }
         }
@@ -80,9 +81,9 @@ class IoTest {
     }
 
     @Test
-    fun `withProvider returns the block result`() {
+    fun `testing withProvider returns the block result`() {
         val scoped = object : IoProvider by OkioIoProvider {}
-        val result = Io.withProvider(scoped) { 42 }
+        val result = withProvider(scoped) { 42 }
         assertSame(42, result)
     }
 
@@ -94,7 +95,7 @@ class IoTest {
         // another anonymous one — the conflict throws and the message must contain both
         // class descriptors. This covers Io.installProvider's Elvis branches.
         val anon1 = object : IoProvider by OkioIoProvider {}
-        Io.withProvider(anon1) {
+        withProvider(anon1) {
             val anon2 = object : IoProvider by OkioIoProvider {}
             val thrown = assertFailsWith<IllegalStateException> { Io.installProvider(anon2) }
             assertTrue(thrown.message!!.contains("already installed"))
@@ -102,12 +103,12 @@ class IoTest {
     }
 
     @Test
-    fun `withProvider supports nesting with restoration of outer scope`() {
+    fun `testing withProvider supports nesting with restoration of outer scope`() {
         val a = object : IoProvider by OkioIoProvider {}
         val b = object : IoProvider by OkioIoProvider {}
-        Io.withProvider(a) {
+        withProvider(a) {
             assertSame(a, Io.provider)
-            Io.withProvider(b) {
+            withProvider(b) {
                 assertSame(b, Io.provider)
             }
             // Inner exit restores `a` (not the top-level OkioIoProvider).

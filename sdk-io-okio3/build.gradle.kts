@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":sdk-core"))
     implementation("com.squareup.okio:okio:3.17.0")
     testImplementation(kotlin("test"))
+    testImplementation(testFixtures(project(":sdk-core")))
 }
 
 tasks.test {

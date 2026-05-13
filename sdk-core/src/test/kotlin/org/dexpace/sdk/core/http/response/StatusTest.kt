@@ -70,4 +70,38 @@ class StatusTest {
             assertEquals(s, Status.fromCode(s.code), "round trip failed for $s")
         }
     }
+
+    // ---- LOOKUP map coverage (M2) -----------------------------------------------
+
+    @Test
+    fun `fromCode returns correct entries for representative codes`() {
+        assertEquals(Status.OK, Status.fromCode(200))
+        assertEquals(Status.NOT_FOUND, Status.fromCode(404))
+        assertEquals(Status.INTERNAL_SERVER_ERROR, Status.fromCode(500))
+        assertEquals(Status.CONTINUE, Status.fromCode(100))
+    }
+
+    @Test
+    fun `fromCodeOrNull returns correct entries for representative codes`() {
+        assertEquals(Status.OK, Status.fromCodeOrNull(200))
+        assertEquals(Status.NOT_FOUND, Status.fromCodeOrNull(404))
+        assertEquals(Status.INTERNAL_SERVER_ERROR, Status.fromCodeOrNull(500))
+        assertEquals(Status.CONTINUE, Status.fromCodeOrNull(100))
+    }
+
+    @Test
+    fun `fromCodeOrNull returns null for non-existent codes`() {
+        assertNull(Status.fromCodeOrNull(1))
+        assertNull(Status.fromCodeOrNull(99))
+        assertNull(Status.fromCodeOrNull(600))
+        assertNull(Status.fromCodeOrNull(Integer.MAX_VALUE))
+    }
+
+    @Test
+    fun `fromCode throws for non-existent codes with correct message`() {
+        val ex1 = assertFailsWith<IllegalArgumentException> { Status.fromCode(1) }
+        assertEquals("Invalid status code: 1", ex1.message)
+        val ex2 = assertFailsWith<IllegalArgumentException> { Status.fromCode(600) }
+        assertEquals("Invalid status code: 600", ex2.message)
+    }
 }

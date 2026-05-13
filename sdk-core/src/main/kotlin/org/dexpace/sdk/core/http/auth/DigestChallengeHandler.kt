@@ -7,7 +7,7 @@ import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * RFC 7616 `Digest` authentication handler.
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * legacy MD5.
  *
  * Thread-safety: safe across concurrent requests. The nonce counter is an
- * [AtomicInteger]; `MessageDigest` is not thread-safe and is therefore instantiated
+ * [AtomicLong]; `MessageDigest` is not thread-safe and is therefore instantiated
  * per call (microsecond cost, acceptable per spec).
  *
  * If the JVM lacks `MD5` or `SHA-256` (should never happen), the handler throws
@@ -42,7 +42,7 @@ class DigestChallengeHandler @JvmOverloads constructor(
         require(preferredAlgorithms.isNotEmpty()) { "preferredAlgorithms must not be empty" }
     }
 
-    private val nonceCount = AtomicInteger(0)
+    private val nonceCount = AtomicLong(0)
 
     override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean =
         pickChallenge(challenges) != null
@@ -231,7 +231,7 @@ class DigestChallengeHandler @JvmOverloads constructor(
     }
 
     /** Pads [count] to exactly 8 lower-case hex digits per RFC 7616 §3.4. */
-    private fun ncHex(count: Int): String = String.format(Locale.US, "%08x", count)
+    private fun ncHex(count: Long): String = String.format(Locale.US, "%08x", count)
 
     /** Non-blocking cnonce: 16 hex chars (high 64 bits of a fresh type-4 UUID). */
     private fun generateCnonce(): String {

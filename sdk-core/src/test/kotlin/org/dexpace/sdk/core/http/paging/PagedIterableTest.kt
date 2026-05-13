@@ -311,6 +311,29 @@ class PagedIterableTest {
         assertEquals(1, firstPageCalls.get(), "firstPage is still invoked under the lazy contract")
     }
 
+    @Test
+    fun `explicit finite maxPages cap defends against infinite nextLink loop`() {
+        // Recommended production pattern: always supply a finite maxPages cap.
+        // Without a cap, a misbehaving server that always returns the same nextLink would
+        // loop forever. This test verifies that the recommended explicit-cap pattern works.
+        val callCount = AtomicInteger(0)
+        val cap = 5L
+        val iterable = PagedIterable<Int>(
+            firstPage = { page(listOf(1), nextLink = "loop") },
+            nextPage = { _, _ ->
+                callCount.incrementAndGet()
+                page(listOf(2), nextLink = "loop") // always returns same link
+            },
+            maxPages = cap,
+        )
+
+        val items = iterable.toList()
+        // cap pages × 1 item each = cap items total (first page + (cap-1) nextPage calls).
+        assertEquals(cap.toInt(), items.size)
+        // nextPage was called (cap - 1) times (first page doesn't count).
+        assertEquals((cap - 1).toInt(), callCount.get())
+    }
+
     // ---------------------------------------------------------------------
     // Stream interop
     // ---------------------------------------------------------------------

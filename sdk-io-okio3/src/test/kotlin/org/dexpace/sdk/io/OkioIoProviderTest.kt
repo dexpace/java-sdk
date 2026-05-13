@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.io.IoProvider
+import org.dexpace.sdk.core.testing.withProvider
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -133,7 +134,7 @@ class OkioIoProviderTest {
     @Test
     fun `withProvider restores previous provider on exit`() {
         val fake = object : IoProvider by OkioIoProvider {}
-        Io.withProvider(fake) {
+        withProvider(fake) {
             assertSame(fake, Io.provider)
         }
         assertSame(OkioIoProvider, Io.provider)
@@ -143,7 +144,7 @@ class OkioIoProviderTest {
     fun `withProvider restores previous provider on exception`() {
         val fake = object : IoProvider by OkioIoProvider {}
         assertFailsWith<IllegalStateException> {
-            Io.withProvider(fake) {
+            withProvider(fake) {
                 error("boom")
             }
         }

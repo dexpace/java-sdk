@@ -90,6 +90,8 @@ enum class Status(
     val isSuccess: Boolean = code in 200..299
 
     companion object {
+        private val LOOKUP: Map<Int, Status> = entries.associateBy { it.code }
+
         /**
          * Returns the [Status] constant whose [code] matches [code].
          *
@@ -98,7 +100,7 @@ enum class Status(
         @JvmStatic
         @Throws(IllegalArgumentException::class)
         fun fromCode(code: Int): Status =
-            fromCodeOrNull(code) ?: throw IllegalArgumentException("Invalid status code: $code")
+            LOOKUP[code] ?: throw IllegalArgumentException("Invalid status code: $code")
 
         /**
          * Returns the [Status] constant whose [code] matches [code], or `null` when no
@@ -107,6 +109,6 @@ enum class Status(
          * code) rather than the throwing [fromCode].
          */
         @JvmStatic
-        fun fromCodeOrNull(code: Int): Status? = entries.find { it.code == code }
+        fun fromCodeOrNull(code: Int): Status? = LOOKUP[code]
     }
 }

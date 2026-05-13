@@ -20,8 +20,8 @@ class BasicChallengeHandler(username: String, password: String) : ChallengeHandl
     private val authHeaderValue: String
 
     init {
-        require(username.isNotBlank()) { "username must not be blank" }
-        require(password.isNotBlank()) { "password must not be blank" }
+        require(username.isNotEmpty()) { "username must not be empty" }
+        require(password.isNotEmpty()) { "password must not be empty" }
         val encoded = Base64.getEncoder()
             .encodeToString("$username:$password".toByteArray(Charsets.UTF_8))
         authHeaderValue = "Basic $encoded"

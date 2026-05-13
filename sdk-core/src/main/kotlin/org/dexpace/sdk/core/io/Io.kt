@@ -23,7 +23,7 @@ import kotlin.concurrent.withLock
  * ## Thread-safety
  *
  * Reads of [provider] go through a `@Volatile` field so callers see the install effect without
- * locking. Writes ([installProvider], [withProvider]) take a [ReentrantLock] so concurrent
+ * locking. Writes ([installProvider], [swapProvider]) take a [ReentrantLock] so concurrent
  * installs cannot race past the conflict check.
  */
 object Io {
@@ -46,7 +46,8 @@ object Io {
      *
      * Idempotent when called with the same instance — re-installing the exact provider that
      * is already installed is a no-op. Installing a **different** [IoProvider] when one is
-     * already installed throws [IllegalStateException]; use [withProvider] for scoped
+     * already installed throws [IllegalStateException]; use
+     * `org.dexpace.sdk.core.testing.withProvider` (test-fixtures artifact) for scoped
      * overrides instead of double-installing.
      *
      * The first install is unconditional; subsequent installs are checked under a lock so
@@ -60,7 +61,7 @@ object Io {
                     "An IoProvider (${existing::class.qualifiedName ?: existing::class}) is " +
                         "already installed; refusing to overwrite with a different provider " +
                         "(${provider::class.qualifiedName ?: provider::class}). " +
-                        "Use Io.withProvider { ... } for scoped overrides."
+                        "Use withProvider { ... } from org.dexpace.sdk.core.testing for scoped overrides."
                 )
             }
             installed = provider
@@ -68,24 +69,10 @@ object Io {
     }
 
     /**
-     * Runs [block] with [provider] installed, then restores whatever provider was previously
-     * installed (or none). Intended for tests; not designed for concurrent use.
-     *
-     * ## Thread-safety caveat
-     *
-     * This is NOT safe for concurrent test execution. The installed provider is a single
-     * JVM-wide field, so parallel `@BeforeTest` blocks across test classes (or any other
-     * concurrent caller) will overwrite each other's overrides and produce flaky results.
-     * If you need test isolation across threads, install one provider for the whole JVM and
-     * design tests around it, or move scoping into a [ThreadLocal] — the simpler model here
-     * trades concurrent test parallelism for an uncluttered production lookup path.
+     * Swaps the installed provider without checking for conflicts. Intended as a
+     * package-private seam for [org.dexpace.sdk.core.testing.withProvider]; not part of the
+     * public API.
      */
-    fun <T> withProvider(provider: IoProvider, block: () -> T): T {
-        val previous = lock.withLock { installed.also { installed = provider } }
-        try {
-            return block()
-        } finally {
-            lock.withLock { installed = previous }
-        }
-    }
+    internal fun swapProvider(provider: IoProvider?): IoProvider? =
+        lock.withLock { installed.also { installed = provider } }
 }

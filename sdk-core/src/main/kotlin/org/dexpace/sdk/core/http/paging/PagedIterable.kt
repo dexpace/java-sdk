@@ -29,9 +29,10 @@ import java.util.stream.StreamSupport
  * - `nextLink` or `continuationToken` is an empty `String` (`""`) → done.
  * - Otherwise → call [nextPage]. If it returns `null`, done. Else yield and repeat.
  *
- * **Safety cap.** [maxPages] (default `Long.MAX_VALUE`) bounds the total number of pages
- * yielded. Use this to defend against misbehaving servers that return the same `nextLink`
- * forever — without it, the iterable would loop indefinitely.
+ * **Safety cap.** [maxPages] defaults to `Long.MAX_VALUE`. **Production callers should set
+ * a finite cap** to defend against servers that return the same `nextLink` repeatedly. The
+ * default is unbounded to match `Iterable` semantics; an explicit cap is the caller's
+ * responsibility.
  *
  * **Fetch strategy.** Pages are fetched sequentially and lazily — no pre-fetch. The next
  * [nextPage] call only happens when the consumer pulls the next yield. Callers wanting
@@ -64,6 +65,11 @@ class PagedIterable<T> @JvmOverloads constructor(
      * in `use {}` / try-with-resources) to release the underlying response body. The
      * flattening [iterator] path closes pages automatically — only direct callers of
      * [byPage] need to manage page lifecycle.
+     *
+     * [maxPages] defaults to `Long.MAX_VALUE`. **Production callers should set a finite
+     * cap** to defend against servers that return the same `nextLink` repeatedly. The
+     * default is unbounded to match `Iterable` semantics; an explicit cap is the caller's
+     * responsibility.
      *
      * @param options Caller-supplied paging options forwarded to [firstPage] and
      *   [nextPage]. Default is a fresh, empty [PagingOptions].

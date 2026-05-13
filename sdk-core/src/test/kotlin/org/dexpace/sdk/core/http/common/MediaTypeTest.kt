@@ -98,6 +98,39 @@ class MediaTypeTest {
     }
 
     @Test
+    fun `parse preserves parameter value case (boundary is case-sensitive)`() {
+        val mt = MediaType.parse("multipart/form-data; boundary=AbCdEf")
+        assertEquals("AbCdEf", mt.parameters["boundary"])
+    }
+
+    @Test
+    fun `parse strips outer quotes from quoted parameter values`() {
+        // charset="utf-8" → charset value should be utf-8 (unquoted)
+        val mt = MediaType.parse("text/plain; charset=\"utf-8\"")
+        assertEquals("utf-8", mt.parameters["charset"])
+    }
+
+    @Test
+    fun `charset resolves correctly from a quoted parameter value`() {
+        val mt = MediaType.parse("text/plain; charset=\"utf-8\"")
+        assertEquals(java.nio.charset.StandardCharsets.UTF_8, mt.charset)
+    }
+
+    @Test
+    fun `parse unescapes quoted-pair sequences in parameter values`() {
+        // boundary="abc\"def" → unescaped value is abc"def
+        val mt = MediaType.parse("multipart/form-data; boundary=\"abc\\\"def\"")
+        assertEquals("abc\"def", mt.parameters["boundary"])
+    }
+
+    @Test
+    fun `parse unescapes backslash sequences in parameter values`() {
+        // boundary="abc\\def" → unescaped value is abc\def
+        val mt = MediaType.parse("multipart/form-data; boundary=\"abc\\\\def\"")
+        assertEquals("abc\\def", mt.parameters["boundary"])
+    }
+
+    @Test
     fun `parse accepts wildcard-wildcard`() {
         val mt = MediaType.parse("*/*")
         assertEquals("*", mt.type)
@@ -117,7 +150,7 @@ class MediaTypeTest {
     @Test
     fun `of accepts an explicit parameter map`() {
         // `of` lower-cases parameter keys but preserves the original value casing.
-        // `parse`, by contrast, lower-cases both — exercised separately.
+        // `parse` also preserves value casing — both factories are consistent on this.
         val mt = MediaType.of("text", "plain", mapOf("Charset" to "UTF-8"))
         assertEquals("UTF-8", mt.parameters["charset"])
     }

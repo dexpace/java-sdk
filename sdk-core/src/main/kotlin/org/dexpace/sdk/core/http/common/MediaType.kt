@@ -25,8 +25,7 @@ import java.util.Locale
  * Instances are immutable and constructed exclusively through [of] and [parse]; both
  * factories normalise the type, subtype, and parameter keys to lower case so that
  * equality (via `data class`) is case-insensitive in practice. Parameter values are
- * also lower-cased — callers that need case-preserving values should attach them
- * out-of-band.
+ * case-preserved — boundaries, base64 tokens, and other values must not be folded.
  *
  * Wildcards: a wildcard type is only allowed when the subtype is also a wildcard
  * (i.e. the bare accept-anything form). Half-wildcard combinations follow normal
@@ -52,11 +51,15 @@ data class MediaType private constructor(
      * is absent or names an unknown charset. Unknown-charset failures are swallowed
      * deliberately so callers can fall back to a default rather than wrapping every access
      * in a try/catch.
+     *
+     * The lookup is case-insensitive: `UTF-8`, `utf-8`, and `Utf-8` all resolve to the same
+     * [Charset]. The raw parameter value (with its original casing) is passed to
+     * [Charset.forName], which handles case-insensitive matching per the JDK contract.
      */
     val charset: Charset?
-        get() = parameters["charset"]?.let {
+        get() = parameters["charset"]?.let { charsetValue ->
             try {
-                Charset.forName(it)
+                Charset.forName(charsetValue.lowercase(Locale.US))
             } catch (_: Exception) {
                 null
             }
@@ -150,11 +153,32 @@ data class MediaType private constructor(
                         throw IllegalArgumentException("Invalid parameter format: $parameter")
                     }
                     val key = parameter.substring(0, equalsIndex).trim()
-                    val value = parameter.substring(equalsIndex + 1).trim()
-                    if (key.isEmpty() || value.isEmpty()) {
+                    val rawValue = parameter.substring(equalsIndex + 1).trim()
+                    if (key.isEmpty() || rawValue.isEmpty()) {
                         throw IllegalArgumentException("Invalid parameter format: $parameter")
                     }
-                    key.lowercase(Locale.US) to value.lowercase(Locale.US)
+                    // RFC 7230 §3.2.6: strip surrounding double-quotes and unescape
+                    // quoted-pair sequences (`\"` → `"`, `\\` → `\`).
+                    val value = if (rawValue.startsWith("\"") && rawValue.endsWith("\"") && rawValue.length >= 2) {
+                        val inner = rawValue.substring(1, rawValue.length - 1)
+                        val sb = StringBuilder(inner.length)
+                        var i = 0
+                        while (i < inner.length) {
+                            if (inner[i] == '\\' && i + 1 < inner.length) {
+                                sb.append(inner[i + 1])
+                                i += 2
+                            } else {
+                                sb.append(inner[i])
+                                i++
+                            }
+                        }
+                        sb.toString()
+                    } else {
+                        rawValue
+                    }
+                    // Keys are lower-cased for case-insensitive lookup; values are preserved
+                    // because boundaries, base64 tokens, etc. are case-sensitive.
+                    key.lowercase(Locale.US) to value
                 }
 
             return MediaType(type, subtype, parametersMap)

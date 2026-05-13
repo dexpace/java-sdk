@@ -590,7 +590,7 @@ class DigestChallengeHandlerTest {
 
     @Test
     fun `concurrent nc increments produce monotonic, non-repeating sequence`() {
-        // Verify thread safety of the AtomicInteger-backed nc.
+        // Verify thread safety of the AtomicLong-backed nc.
         val handler = DigestChallengeHandler("u", "p")
         val challenge = AuthenticateChallenge(
             "Digest",
@@ -628,6 +628,39 @@ class DigestChallengeHandlerTest {
         assertEquals(collected.toSet().size, collected.size, "no duplicate nc values across threads")
         // Highest value should be threadCount*iterationsPerThread.
         assertEquals(threadCount * iterationsPerThread, collected.max())
+    }
+
+    // ---- AtomicLong overflow safety (H4) ----------------------------------------
+
+    @Test
+    fun `nc counter past Int MAX_VALUE stays positive and well-formed`() {
+        // Verify that using AtomicLong prevents the counter from wrapping to negative
+        // after surpassing Int.MAX_VALUE. We seed the counter via reflection so the test
+        // completes in microseconds rather than performing 2^31 actual calls.
+        val handler = DigestChallengeHandler("u", "p")
+        val nonceCountField = DigestChallengeHandler::class.java
+            .getDeclaredField("nonceCount")
+        nonceCountField.isAccessible = true
+        val atomicLong = nonceCountField.get(handler) as java.util.concurrent.atomic.AtomicLong
+        // Seed to just below Int.MAX_VALUE so the next increment crosses the boundary.
+        atomicLong.set(Int.MAX_VALUE.toLong())
+
+        val challenge = AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+        )
+        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
+        val parsed = parseDigestHeader(value)
+        val ncStr = parsed["nc"]!!
+
+        // nc must be 8 hex chars.
+        assertEquals(8, ncStr.length, "nc must be 8 hex chars after crossing Int.MAX_VALUE")
+        assertTrue(ncStr.all { it in '0'..'9' || it in 'a'..'f' }, "nc must be lower-case hex")
+
+        // The value after Int.MAX_VALUE (0x7fffffff) incremented by 1 is 0x80000000,
+        // which is positive as a Long (unlike Int, which would overflow to negative).
+        val ncValue = java.lang.Long.parseUnsignedLong(ncStr, 16)
+        assertTrue(ncValue > Int.MAX_VALUE.toLong(), "nc must be greater than Int.MAX_VALUE when AtomicLong is used")
     }
 
     private fun md5HexUtf8(s: String): String {
