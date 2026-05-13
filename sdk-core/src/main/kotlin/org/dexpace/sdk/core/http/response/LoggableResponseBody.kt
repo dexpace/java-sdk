@@ -153,13 +153,15 @@ class LoggableResponseBody @JvmOverloads constructor(
         val buf = provider.buffer()
         try {
             delegate.source().use { src -> buf.writeAll(src) }
-            // Drain completed cleanly; the source-level `use {}` has now closed the source
-            // and, by ownership, the delegate. Record that so close() doesn't try again.
-            delegateClosed = true
         } catch (t: Throwable) {
             // Keep whatever was read so logging can still inspect the partial body. Surface
             // the error on source() / re-throws; snapshot() returns the partial bytes.
             drainError = t
+        } finally {
+            // `.use {}` closes the source on both success and failure; closing the source
+            // closes the delegate by ownership. Mark this unconditionally so close() does
+            // not double-close (some sockets / streams throw on the second close).
+            delegateClosed = true
         }
         captured = buf
         return buf

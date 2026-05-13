@@ -57,15 +57,19 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
     private val logger = ClientLogger(DefaultInstrumentationStep::class)
 
     // Lazily constructed so a step instance never installed in a pipeline doesn't pay
-    // the counter/histogram registration cost.
-    private val requestCounter: LongCounter by lazy {
+    // the counter/histogram registration cost. `PUBLICATION` mode avoids the synchronized
+    // block that the default `SYNCHRONIZED` mode uses for first-read coordination — that
+    // monitor would pin a virtual-thread carrier during init (see CLAUDE.md "ReentrantLock
+    // over synchronized"). With OTel meter implementations being idempotent on register-by-
+    // name, racing initializers cost at most one redundant registration that is discarded.
+    private val requestCounter: LongCounter by lazy(LazyThreadSafetyMode.PUBLICATION) {
         options.meter.counter(
             name = "http.client.request.count",
             description = "Total HTTP requests sent through this pipeline.",
             unit = "{request}",
         )
     }
-    private val latencyHistogram: DoubleHistogram by lazy {
+    private val latencyHistogram: DoubleHistogram by lazy(LazyThreadSafetyMode.PUBLICATION) {
         options.meter.histogram(
             name = "http.client.request.duration",
             description = "End-to-end duration of the downstream pipeline per request.",

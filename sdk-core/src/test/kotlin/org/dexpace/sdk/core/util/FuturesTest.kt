@@ -54,16 +54,29 @@ class FuturesTest {
     }
 
     @Test
-    fun `unwrap terminates on a self-referential cause chain`() {
-        // Defensive: a self-cause CompletionException would loop forever without a depth cap.
-        val cycle = CompletionException("a", null) // can't set cause to itself directly; simulate via inheritance
-        // Cannot literally self-reference; verify the bounded walk terminates on a deep chain.
-        var current: Throwable = IOException("leaf")
+    fun `unwrap walks an arbitrarily-deep wrapper chain to the leaf`() {
+        // 20 levels: matches the deep-chain test pattern in RetryUtilsTest after M4 removed
+        // the MAX_DEPTH cap. The HashSet-based cycle guard replaces the depth cap, so a
+        // long-but-acyclic chain unwraps fully to the IOException leaf.
+        val leaf = IOException("leaf")
+        var current: Throwable = leaf
         repeat(20) { current = CompletionException("wrap-$it", current) }
-        // After 16 unwrap levels we stop walking; the result may still be a CompletionException
-        // but the method must return rather than loop. Just assert termination.
-        val result = Futures.unwrap(current)
-        assertTrue(result is Throwable)
+        assertSame(leaf, Futures.unwrap(current))
+    }
+
+    @Test
+    fun `unwrap terminates on a cyclic wrapper chain`() {
+        // initCause forbids direct self-causation but allows a -> b -> a. Without the
+        // identity-set cycle guard the walk would loop forever. The single-arg
+        // CompletionException constructor is protected, so subclass to build cause-less
+        // instances we can wire up via initCause.
+        class NoCauseCE(message: String) : CompletionException(message)
+        val a = NoCauseCE("a")
+        val b = NoCauseCE("b")
+        a.initCause(b)
+        b.initCause(a)
+        val result = Futures.unwrap(a)
+        assertTrue(result === a || result === b, "expected the call to return on cycle detection")
     }
 
     @Test

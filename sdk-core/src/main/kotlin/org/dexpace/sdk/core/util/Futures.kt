@@ -32,17 +32,17 @@ object Futures {
      * `CompletableFuture` wraps every exceptional completion in `CompletionException` when
      * the caller blocks via `join()` / `get()`; callers writing `catch (IOException e)` lose
      * the typing without this unwrap.
+     *
+     * Walks the cause chain through wrappers, terminating on the first non-wrapper, a null
+     * cause, or a cycle (detected via identity in a `HashSet`).
      */
     @JvmStatic
     fun unwrap(t: Throwable): Throwable {
         var current: Throwable = t
-        // Bounded walk in case a pathological cause chain self-references.
-        repeat(16) {
-            if (current !is CompletionException && current !is java.util.concurrent.ExecutionException) {
-                return current
-            }
+        val seen = HashSet<Throwable>()
+        while (current is CompletionException || current is java.util.concurrent.ExecutionException) {
+            if (!seen.add(current)) return current
             val cause = current.cause ?: return current
-            if (cause === current) return current
             current = cause
         }
         return current
