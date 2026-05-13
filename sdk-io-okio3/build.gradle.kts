@@ -1,6 +1,8 @@
 plugins {
     kotlin("jvm")
     id("org.jetbrains.kotlinx.kover")
+    `maven-publish`
+    signing
 }
 
 group = "org.dexpace"
@@ -14,14 +16,36 @@ version = "0.0.1-alpha.1"
 
 dependencies {
     implementation(project(":sdk-core"))
-    implementation("com.squareup.okio:okio:3.17.0")
+    implementation(libs.okio)
     testImplementation(kotlin("test"))
     testImplementation(testFixtures(project(":sdk-core")))
-    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
+    testRuntimeOnly(libs.slf4j.nop)
 }
 
 tasks.test {
     useJUnitPlatform()
 }
 
+publishing {
+    publications {
+        create<MavenPublication>("library") {
+            from(components["java"])
+            pom {
+                name.set(project.name)
+                description.set("Dexpace Java SDK — ${project.name}")
+                // TODO: set url, licenses, developers, scm when publishing to a public repo
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "local"
+            url = uri(rootProject.layout.buildDirectory.dir("staging-repo"))
+        }
+    }
+}
 
+signing {
+    isRequired = false
+    sign(publishing.publications["library"])
+}

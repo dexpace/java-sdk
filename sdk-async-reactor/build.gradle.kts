@@ -1,6 +1,8 @@
 plugins {
     kotlin("jvm")
     id("org.jetbrains.kotlinx.kover")
+    `maven-publish`
+    signing
 }
 
 group = "org.dexpace"
@@ -10,17 +12,41 @@ dependencies {
     implementation(project(":sdk-core"))
     // Reactor itself is Java 8 compatible and ships with `Mono.fromFuture(...)` / `Mono.toFuture()`
     // — no extra adapter library required to bridge `CompletableFuture` to `Mono`/`Flux`.
-    implementation("io.projectreactor:reactor-core:3.8.5")
+    implementation(libs.reactor.core)
 
     testImplementation(kotlin("test"))
-    testImplementation("io.projectreactor:reactor-test:3.8.5")
+    testImplementation(libs.reactor.test)
     // SSE tests use the real OkioIoProvider as the input source — the okio adapter only
     // takes a dependency on sdk-core, so there's no module cycle.
     testImplementation(project(":sdk-io-okio3"))
-    testImplementation("org.slf4j:slf4j-api:2.0.18")
-    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
+    testImplementation(libs.slf4j.api)
+    testRuntimeOnly(libs.slf4j.nop)
 }
 
 tasks.test {
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("library") {
+            from(components["java"])
+            pom {
+                name.set(project.name)
+                description.set("Dexpace Java SDK — ${project.name}")
+                // TODO: set url, licenses, developers, scm when publishing to a public repo
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "local"
+            url = uri(rootProject.layout.buildDirectory.dir("staging-repo"))
+        }
+    }
+}
+
+signing {
+    isRequired = false
+    sign(publishing.publications["library"])
 }

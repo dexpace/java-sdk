@@ -6,18 +6,27 @@ plugins {
     // `apply false` brings the Kotlin plugin onto the classpath so each subproject can
     // declare `plugins { kotlin("jvm") }` without restating the version — but does not
     // apply Kotlin to the root project itself (which has no source).
-    kotlin("jvm") version "2.3.21" apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+
     // Kover is applied to the root so it can aggregate coverage across subprojects. Each
     // subproject opts in via `plugins { id("org.jetbrains.kotlinx.kover") }`; the root
     // collates their `kover.xml` / `kover.html` reports into one combined view.
-    id("org.jetbrains.kotlinx.kover") version "0.9.8"
+    alias(libs.plugins.kover)
+
+    // Binary-compatibility-validator generates .api snapshot files per module so that
+    // accidental public-API breakage is caught in CI. Run `./gradlew apiDump` to regenerate
+    // the baseline after intentional API changes.
+    alias(libs.plugins.binary.compatibility.validator)
+
+    // ktlint enforces Kotlin style across all source sets.
+    alias(libs.plugins.ktlint)
+
+    // detekt performs static analysis across all source sets.
+    alias(libs.plugins.detekt)
 }
 
 group = "org.dexpace"
 version = "0.0.1-alpha.1"
-
-
-// TODO: Enable code linting with KtLint via a convention plugin (org.jlleitschuh.gradle.ktlint)
 
 // Coverage: aggregate every Kover-enabled subproject through this root project's reports.
 // The legacy Java compat tree (`sdk-core/src/main/java/`) is excluded — it is generated
@@ -83,14 +92,26 @@ allprojects {
             jvmToolchain(8)
         }
 
+        // NOTE: Any new module that REQUIRES JDK 21+ APIs (e.g. virtual threads, sequenced
+        // collections) MUST override both `jvmToolchain(21)` in its kotlin/java extension
+        // blocks AND set `compilerOptions { jvmTarget.set(JvmTarget.JVM_21) }` in its own
+        // build script. Failing to do so produces bytecode that references Java 21 stdlib
+        // symbols but targets JVM_1_8 format — consumers on JDK 8 will see NoSuchMethodError
+        // at runtime, and Gradle's JVM-target-validation will reject the mismatch.
         tasks.withType<KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_1_8)
+                // TODO: re-enable allWarningsAsErrors once tier-3 polish lands
+                allWarningsAsErrors.set(false)
+                // TODO: re-enable -Xexplicit-api=strict once all public declarations in
+                // sdk-core and adapter modules have explicit visibility modifiers. Groups
+                // A/B/C are adding those in the same style-compliance pass.
+                // freeCompilerArgs.add("-Xexplicit-api=strict")
             }
         }
 
         dependencies {
-            add("compileOnly", "org.slf4j:slf4j-api:2.0.18")
+            add("compileOnly", libs.slf4j.api)
         }
     }
 
@@ -105,5 +126,32 @@ allprojects {
                 languageVersion.set(JavaLanguageVersion.of(8))
             }
         }
+    }
+
+    // Reproducible archives: strip timestamps and sort archive entries so that
+    // byte-for-byte identical JARs are produced from the same source across machines.
+    tasks.withType<AbstractArchiveTask>().configureEach {
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }
+}
+
+// Apply ktlint and detekt to every subproject via the root build.
+subprojects {
+    apply(plugin = "org.jlleitschuh.gradle.ktlint")
+    apply(plugin = "io.gitlab.arturbosch.detekt")
+
+    // ktlint: report-only during initial adoption. The existing codebase has style violations
+    // that groups A/B/C will address in the same style-compliance pass. Set ignoreFailures=false
+    // once those groups have landed their changes.
+    configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+        ignoreFailures.set(true)
+    }
+
+    detekt {
+        config.setFrom("$rootDir/config/detekt.yml")
+        buildUponDefaultConfig = true
+        // TODO: set ignoreFailures = false once detekt baseline is established
+        ignoreFailures = true
     }
 }

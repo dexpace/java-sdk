@@ -1,0 +1,10 @@
+public final class org/dexpace/sdk/io/OkioIoProvider : org/dexpace/sdk/core/io/IoProvider {
+	public static final field INSTANCE Lorg/dexpace/sdk/io/OkioIoProvider;
+	public fun buffer ()Lorg/dexpace/sdk/core/io/Buffer;
+	public fun bufferedSink (Lorg/dexpace/sdk/core/io/Sink;)Lorg/dexpace/sdk/core/io/BufferedSink;
+	public fun bufferedSource (Lorg/dexpace/sdk/core/io/Source;)Lorg/dexpace/sdk/core/io/BufferedSource;
+	public fun sink (Ljava/io/OutputStream;)Lorg/dexpace/sdk/core/io/BufferedSink;
+	public fun source (Ljava/io/InputStream;)Lorg/dexpace/sdk/core/io/BufferedSource;
+	public fun source ([B)Lorg/dexpace/sdk/core/io/BufferedSource;
+}
+

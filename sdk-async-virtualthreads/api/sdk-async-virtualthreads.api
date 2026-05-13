@@ -1,0 +1,9 @@
+public final class org/dexpace/sdk/async/virtualthreads/VirtualThreadAdapters {
+	public static final fun asAsyncVirtualThreads (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/async/virtualthreads/VirtualThreadAsyncHttpClient;
+}
+
+public final class org/dexpace/sdk/async/virtualthreads/VirtualThreadAsyncHttpClient : java/lang/AutoCloseable, org/dexpace/sdk/core/client/AsyncHttpClient {
+	public fun close ()V
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+}
+

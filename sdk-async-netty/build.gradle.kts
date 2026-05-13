@@ -1,6 +1,8 @@
 plugins {
     kotlin("jvm")
     id("org.jetbrains.kotlinx.kover")
+    `maven-publish`
+    signing
 }
 
 group = "org.dexpace"
@@ -11,13 +13,37 @@ dependencies {
     // `netty-common` carries `io.netty.util.concurrent.Future`/`Promise`/`EventExecutor` —
     // the smallest surface needed to bridge `CompletableFuture` ↔ Netty futures without
     // pulling in the transport layer (`netty-handler`, `netty-codec`, etc.).
-    implementation("io.netty:netty-common:4.2.13.Final")
+    implementation(libs.netty.common)
 
     testImplementation(kotlin("test"))
-    testImplementation("org.slf4j:slf4j-api:2.0.18")
-    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
+    testImplementation(libs.slf4j.api)
+    testRuntimeOnly(libs.slf4j.nop)
 }
 
 tasks.test {
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("library") {
+            from(components["java"])
+            pom {
+                name.set(project.name)
+                description.set("Dexpace Java SDK — ${project.name}")
+                // TODO: set url, licenses, developers, scm when publishing to a public repo
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "local"
+            url = uri(rootProject.layout.buildDirectory.dir("staging-repo"))
+        }
+    }
+}
+
+signing {
+    isRequired = false
+    sign(publishing.publications["library"])
 }

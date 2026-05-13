@@ -1,0 +1,5 @@
+public final class org/dexpace/sdk/async/netty/NettyAdapters {
+	public static final fun executeNetty (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lio/netty/util/concurrent/EventExecutor;)Lio/netty/util/concurrent/Future;
+	public static final fun sendNetty (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;Lorg/dexpace/sdk/core/http/request/Request;Lio/netty/util/concurrent/EventExecutor;)Lio/netty/util/concurrent/Future;
+}
+

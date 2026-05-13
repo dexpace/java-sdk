@@ -1,6 +1,8 @@
 plugins {
     kotlin("jvm")
     id("org.jetbrains.kotlinx.kover")
+    `maven-publish`
+    signing
 }
 
 group = "org.dexpace"
@@ -14,20 +16,44 @@ dependencies {
     // `kotlinx-coroutines-core` provides `suspend` machinery; `-jdk8` adds the
     // `CompletableFuture.await()` extension and `coroutineScope.future { ... }` builder that
     // bridge in both directions between coroutines and `CompletableFuture`.
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.11.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:1.11.0")
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.jdk8)
+    implementation(libs.kotlinx.coroutines.slf4j)
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    testImplementation(libs.kotlinx.coroutines.test)
     // slf4j-api is testImplementation (not testRuntimeOnly) so MDC tests can reference
     // org.slf4j.MDC and org.slf4j.helpers.BasicMDCAdapter at compile time. slf4j-nop is
     // the runtime binding; MDC functionality in tests is provided via the reflection-
     // installed BasicMDCAdapter (see installBasicMdcAdapter() in each test file).
-    testImplementation("org.slf4j:slf4j-api:2.0.18")
-    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
+    testImplementation(libs.slf4j.api)
+    testRuntimeOnly(libs.slf4j.nop)
 }
 
 tasks.test {
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("library") {
+            from(components["java"])
+            pom {
+                name.set(project.name)
+                description.set("Dexpace Java SDK — ${project.name}")
+                // TODO: set url, licenses, developers, scm when publishing to a public repo
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "local"
+            url = uri(rootProject.layout.buildDirectory.dir("staging-repo"))
+        }
+    }
+}
+
+signing {
+    isRequired = false
+    sign(publishing.publications["library"])
 }

@@ -1,0 +1,8 @@
+public final class org/dexpace/sdk/async/coroutines/Coroutines {
+	public static final fun asAsyncCoroutines (Lorg/dexpace/sdk/core/client/HttpClient;Lkotlinx/coroutines/CoroutineScope;)Lorg/dexpace/sdk/core/client/AsyncHttpClient;
+	public static final fun completableFutureOf (Lkotlinx/coroutines/CoroutineScope;Lkotlin/coroutines/CoroutineContext;Lkotlin/jvm/functions/Function2;)Ljava/util/concurrent/CompletableFuture;
+	public static synthetic fun completableFutureOf$default (Lkotlinx/coroutines/CoroutineScope;Lkotlin/coroutines/CoroutineContext;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Ljava/util/concurrent/CompletableFuture;
+	public static final fun execute (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun send (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;Lorg/dexpace/sdk/core/http/request/Request;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+

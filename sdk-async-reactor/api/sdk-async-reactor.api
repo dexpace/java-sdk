@@ -1,0 +1,7 @@
+public final class org/dexpace/sdk/async/reactor/ReactorAdapters {
+	public static final fun executeMono (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;)Lreactor/core/publisher/Mono;
+	public static final fun readServerSentEventsAsFlux (Lorg/dexpace/sdk/core/io/BufferedSource;)Lreactor/core/publisher/Flux;
+	public static final fun sendMono (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;Lorg/dexpace/sdk/core/http/request/Request;)Lreactor/core/publisher/Mono;
+	public static final fun toFlux (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;)Lreactor/core/publisher/Flux;
+}
+
