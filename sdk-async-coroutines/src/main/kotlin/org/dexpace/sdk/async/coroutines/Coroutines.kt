@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.future.future
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.slf4j.MDCContext
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
@@ -49,11 +50,14 @@ suspend fun AsyncHttpPipeline.send(request: Request): Response = sendAsync(reque
  * the only dispatcher thread and the coroutine cannot progress — deadlock. Pass an explicit
  * non-blocking dispatcher such as [Dispatchers.Default] when consumers will block, or use
  * `await()` from `kotlinx-coroutines-jdk8` inside a coroutine.
+ *
+ * The current thread's MDC is captured via `MDCContext()` so log events emitted inside [block]
+ * see the caller's `trace.id` / `span.id`.
  */
 fun <T> CoroutineScope.completableFutureOf(
     context: CoroutineContext = EmptyCoroutineContext,
     block: suspend CoroutineScope.() -> T,
-): CompletableFuture<T> = this.future(context, block = block)
+): CompletableFuture<T> = this.future(context + MDCContext(), block = block)
 
 /**
  * Adapts a synchronous [HttpClient] into an [AsyncHttpClient] backed by a coroutine [scope].
@@ -73,6 +77,6 @@ fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient {
         .field("scope.coroutineContext", scope.coroutineContext.toString())
         .log()
     return AsyncHttpClient { request ->
-        scope.future { runInterruptible(Dispatchers.IO) { execute(request) } }
+        scope.future(MDCContext()) { runInterruptible(Dispatchers.IO) { execute(request) } }
     }
 }

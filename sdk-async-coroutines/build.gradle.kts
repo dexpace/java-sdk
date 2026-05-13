@@ -16,12 +16,15 @@ dependencies {
     // bridge in both directions between coroutines and `CompletableFuture`.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:1.9.0")
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
-    // sdk-core references SLF4J via `compileOnly`; tests that load sdk-core classes need a
-    // binding on the runtime classpath. `slf4j-nop` is the same one sdk-core's own tests use.
-    testRuntimeOnly("org.slf4j:slf4j-api:2.0.17")
+    // slf4j-api is testImplementation (not testRuntimeOnly) so MDC tests can reference
+    // org.slf4j.MDC and org.slf4j.helpers.BasicMDCAdapter at compile time. slf4j-nop is
+    // the runtime binding; MDC functionality in tests is provided via the reflection-
+    // installed BasicMDCAdapter (see installBasicMdcAdapter() in each test file).
+    testImplementation("org.slf4j:slf4j-api:2.0.17")
     testRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
 }
 

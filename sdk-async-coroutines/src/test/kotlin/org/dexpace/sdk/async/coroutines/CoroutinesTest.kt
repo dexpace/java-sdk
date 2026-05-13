@@ -23,10 +23,14 @@ import java.io.IOException
 import java.net.URL
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertTrue
+import org.slf4j.MDC
+import org.slf4j.helpers.BasicMDCAdapter
+import org.slf4j.spi.MDCAdapter
 
 class CoroutinesTest {
 
@@ -133,6 +137,53 @@ class CoroutinesTest {
         }
     }
 
+    @Test
+    fun `mdc propagates from caller across asAsyncCoroutines to the sync transport`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "coroutines-test")
+        try {
+            val seenTraceId = AtomicReference<String?>()
+            val sync = HttpClient { request ->
+                seenTraceId.set(MDC.get("trace.id"))
+                mockResponse(request, 200)
+            }
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val async = sync.asAsyncCoroutines(scope)
+                async.executeAsync(getRequest()).get(2, TimeUnit.SECONDS)
+                assertEquals("coroutines-test", seenTraceId.get())
+            } finally {
+                scope.cancel()
+            }
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `mdc propagates across completableFutureOf coroutine launch`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "cf-of-test")
+        try {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val future = scope.completableFutureOf {
+                    delay(5)
+                    MDC.get("trace.id") ?: "<missing>"
+                }
+                assertEquals("cf-of-test", future.get(2, TimeUnit.SECONDS))
+            } finally {
+                scope.cancel()
+            }
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
     private fun getRequest(): Request = Request.builder()
         .method(Method.GET)
         .url(URL("https://api.example.com/"))
@@ -143,4 +194,18 @@ class CoroutinesTest {
         .protocol(Protocol.HTTP_1_1)
         .status(Status.fromCode(code))
         .build()
+}
+
+private fun installBasicMdcAdapter() {
+    val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+    field.isAccessible = true
+    if (field.get(null) !is BasicMDCAdapter) {
+        field.set(null, BasicMDCAdapter())
+    }
+}
+
+private fun restoreMdcAdapter(adapter: MDCAdapter?) {
+    val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+    field.isAccessible = true
+    field.set(null, adapter)
 }
