@@ -24,10 +24,23 @@ import org.slf4j.event.Level
  *
  * `globalContext` is attached to every event automatically; the map reference is
  * shared, not copied.
+ *
+ * ## MDC key allow-list
+ *
+ * [mdcKeys] controls which SLF4J MDC keys are folded into the structured event. The
+ * default is `setOf("trace.id", "span.id")` — only these two keys reach the event as
+ * structured fields. Pass `null` to fold every MDC key (backwards-compatible behaviour
+ * prior to this allow-list). Pass a custom `Set<String>` to include additional keys
+ * (e.g. `setOf("trace.id", "span.id", "x-app-tenant")`).
+ *
+ * **Behavioural change:** the previous default was to fold all MDC keys. The new default
+ * allows only `trace.id` and `span.id` to prevent arbitrary application MDC leaking into
+ * SDK-owned log events.
  */
 class ClientLogger private constructor(
     internal val slf4j: Logger,
     internal val globalContext: Map<String, Any?>,
+    internal val mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
 ) {
     /**
      * Creates a logger by SLF4J logger name.
@@ -35,32 +48,51 @@ class ClientLogger private constructor(
      * @param name the SLF4J logger name; must be non-empty.
      * @param globalContext key-value pairs attached to every event emitted through this logger.
      *   The map reference is retained (not copied); callers should pass an immutable map.
+     * @param mdcKeys MDC keys to fold into each event. Default = `setOf("trace.id", "span.id")`.
+     *   Pass `null` for unfiltered fold (backwards-compat with pre-allow-list behaviour).
      */
     @JvmOverloads
     constructor(
         name: String,
         globalContext: Map<String, Any?> = emptyMap(),
-    ) : this(LoggerFactory.getLogger(requireNonEmpty(name)), globalContext)
+        mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
+    ) : this(LoggerFactory.getLogger(requireNonEmpty(name)), globalContext, mdcKeys)
 
     /** Secondary constructor for the common `ClientLogger(MyClass::class)` Kotlin form. */
     @JvmOverloads
-    constructor(klass: kotlin.reflect.KClass<*>, globalContext: Map<String, Any?> = emptyMap()) :
-        this(klass.java.name, globalContext)
+    constructor(
+        klass: kotlin.reflect.KClass<*>,
+        globalContext: Map<String, Any?> = emptyMap(),
+        mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
+    ) : this(klass.java.name, globalContext, mdcKeys)
 
     /** Secondary constructor for the common `new ClientLogger(MyClass.class)` Java form. */
     @JvmOverloads
-    constructor(klass: Class<*>, globalContext: Map<String, Any?> = emptyMap()) :
-        this(klass.name, globalContext)
+    constructor(
+        klass: Class<*>,
+        globalContext: Map<String, Any?> = emptyMap(),
+        mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
+    ) : this(klass.name, globalContext, mdcKeys)
 
     /** Test-only seam: inject a pre-built [Logger] (e.g. a fake) without going through `LoggerFactory`. */
     internal companion object {
-        internal fun forTesting(slf4j: Logger, globalContext: Map<String, Any?> = emptyMap()): ClientLogger =
-            ClientLogger(slf4j, globalContext)
+        internal fun forTesting(
+            slf4j: Logger,
+            globalContext: Map<String, Any?> = emptyMap(),
+            mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
+        ): ClientLogger = ClientLogger(slf4j, globalContext, mdcKeys)
 
         private fun requireNonEmpty(name: String): String {
             require(name.isNotEmpty()) { "name must not be empty" }
             return name
         }
+
+        /**
+         * Default MDC key allow-list: only `trace.id` and `span.id` are folded into
+         * structured events. Prevents arbitrary application MDC from leaking into SDK events.
+         * Pass `null` to [ClientLogger] for unfiltered fold (backwards-compat behaviour).
+         */
+        val DEFAULT_MDC_KEYS: Set<String> = setOf("trace.id", "span.id")
     }
 
     /**

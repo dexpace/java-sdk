@@ -76,6 +76,24 @@ open class DefaultRetryStep @JvmOverloads constructor(
      */
     private val options: HttpRetryOptions = clampOptions(options)
 
+    /**
+     * Sends [request] through the downstream pipeline with automatic retry on retryable failures.
+     *
+     * ## Request immutability invariant
+     *
+     * Retries re-invoke `next.copy().process()` which reuses the pipeline's in-flight
+     * `state.request`. Steps upstream of the retry step MUST NOT mutate the request between
+     * retries via `next.process(...)` substitution; doing so leaks the mutation into the retry
+     * attempt. The current step ordering avoids this; future steps must respect the same
+     * invariant.
+     *
+     * ## Suppressed exceptions on success
+     *
+     * When a retry sequence ends with a successful retryable response after one or more prior
+     * exception failures, the accumulated `suppressed` exceptions are NOT propagated to the
+     * caller; the success-response path discards them. Operators see retry attempts via the
+     * `http.retry` log events emitted at each attempt.
+     */
     @Throws(IOException::class)
     override fun process(request: Request, next: PipelineNext): Response {
         var tryCount = 0

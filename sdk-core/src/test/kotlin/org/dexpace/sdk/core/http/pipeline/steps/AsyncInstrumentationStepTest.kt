@@ -13,9 +13,20 @@ import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
+import org.dexpace.sdk.core.instrumentation.InstrumentationContext
+import org.dexpace.sdk.core.instrumentation.NoopInstrumentationContext
 import org.dexpace.sdk.core.instrumentation.NoopTracer
 import org.dexpace.sdk.core.instrumentation.Span
+import org.dexpace.sdk.core.instrumentation.SpanId
+import org.dexpace.sdk.core.instrumentation.TraceFlags
+import org.dexpace.sdk.core.instrumentation.TraceId
+import org.dexpace.sdk.core.instrumentation.TraceIdType
+import org.dexpace.sdk.core.instrumentation.TraceState
 import org.dexpace.sdk.core.instrumentation.Tracer
+import org.dexpace.sdk.core.instrumentation.TracingScope
+import org.dexpace.sdk.core.instrumentation.installBasicMdcAdapter
+import org.dexpace.sdk.core.util.Futures
+import org.slf4j.MDC
 import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
 import org.dexpace.sdk.core.instrumentation.metrics.LongCounter
 import org.dexpace.sdk.core.instrumentation.metrics.Meter
@@ -253,6 +264,88 @@ class AsyncInstrumentationStepTest {
     }
 
     @Test
+    fun `http_response event carries trace_id from MDC set by span scope`() {
+        // B5: verify that the response event captured by FakeSlf4jLogger carries trace.id.
+        // We set up MDC before the pipeline call so the MdcSnapshot capture inside the
+        // use{} block picks up the trace.id installed by the span's makeCurrentWithLoggingContext.
+        installBasicMdcAdapter()
+        val fakeSlf4j = FakeSlf4jLogger("test.async.mdc")
+        // Use a logger with null mdcKeys to fold all MDC entries (including trace.id).
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j, mdcKeys = null)
+        val tracer = MdcInjectingTracer(traceId = "mdc-trace-99", spanId = "mdc-span-88")
+        val fakeAsync = AsyncHttpClient { request ->
+            CompletableFuture.completedFuture(okResponse(request, 200))
+        }
+        val pipeline = AsyncHttpPipelineBuilder(fakeAsync)
+            .append(
+                DefaultAsyncInstrumentationStep(
+                    options = HttpInstrumentationOptions(
+                        logLevel = HttpLogLevel.HEADERS,
+                        tracer = tracer,
+                    ),
+                    logger = clientLogger,
+                ),
+            )
+            .build()
+
+        pipeline.sendAsync(getRequest("https://api.example.com/mdc-test")).join()
+
+        val responseRecord = fakeSlf4j.records.firstOrNull { rec ->
+            rec.keyValues.any { it.key == "event" && it.value == "http.response" }
+        }
+        assertNotNull(responseRecord, "expected http.response event")
+        val kv = responseRecord.keyValues.associate { it.key to it.value }
+        assertEquals("mdc-trace-99", kv["trace.id"], "trace.id must be present in the http.response event")
+    }
+
+    @Test
+    fun `processAsync handles a synchronous throw from next as a failed future`() {
+        // B13: a next step whose processAsync throws synchronously must be normalised to a
+        // failed future; failure event emitted; span ended with the throwable.
+        val fakeSlf4j = FakeSlf4jLogger("test.async.sync.throw")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val tracer = RecordingTracer()
+        val throwingNext = AsyncHttpClient { _ ->
+            throw IllegalArgumentException("validation")
+        }
+        val pipeline = AsyncHttpPipelineBuilder(throwingNext)
+            .append(
+                DefaultAsyncInstrumentationStep(
+                    options = HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
+                    logger = clientLogger,
+                ),
+            )
+            .build()
+
+        val future = pipeline.sendAsync(getRequest("https://api.example.com/throw"))
+        assertTrue(future.isCompletedExceptionally, "future must be exceptionally complete")
+
+        lateinit var caught: Throwable
+        try {
+            future.join()
+            fail("expected future.join() to throw")
+        } catch (e: Throwable) {
+            caught = e
+        }
+        val root = Futures.unwrap(caught)
+        assertTrue(root is IllegalArgumentException, "unwrapped cause must be IllegalArgumentException")
+        assertEquals("validation", root.message)
+
+        // Failure event was emitted.
+        val failureRecord = fakeSlf4j.records.firstOrNull { rec ->
+            rec.keyValues.any { it.key == "event" && it.value == "http.response" } &&
+                rec.keyValues.any { it.key == "error.type" }
+        }
+        assertNotNull(failureRecord, "expected failure event (http.response with error.type)")
+
+        // span.end(t) was called.
+        val span = tracer.starts.single()
+        assertFalse(span.endedNormally, "span must end with error on synchronous throw")
+        assertNotNull(span.endThrowable)
+        assertTrue(span.endThrowable is IllegalArgumentException)
+    }
+
+    @Test
     fun `emits http_request event for a POST with a body`() {
         val fakeSlf4j = FakeSlf4jLogger("test.async.instrumentation.post")
         val clientLogger = ClientLogger.forTesting(fakeSlf4j)
@@ -382,5 +475,47 @@ class AsyncInstrumentationStepTest {
             histograms.add(h)
             return h
         }
+    }
+
+    /**
+     * A tracer that installs the given trace/span IDs into MDC when [makeCurrent] is called,
+     * so the MdcSnapshot captured inside the span scope picks them up.
+     */
+    private class MdcInjectingSpan(
+        val name: String,
+        val traceId: String,
+        val spanId: String,
+    ) : Span {
+        var endedNormally = false
+        var endThrowable: Throwable? = null
+
+        override val isRecording: Boolean = true
+        override val context: InstrumentationContext = object : InstrumentationContext {
+            override val traceIdType = TraceIdType.NOOP
+            override val traceId = TraceId(this@MdcInjectingSpan.traceId)
+            override val spanId = SpanId(this@MdcInjectingSpan.spanId)
+            override val traceFlags = TraceFlags.NOOP
+            override val traceState = TraceState.NOOP
+            override val isValid = true
+            override val isRemote = false
+            override val span: Span = Span.NOOP
+        }
+        override fun setAttribute(key: String, value: Any): Span = this
+        override fun setError(errorType: String): Span = this
+        override fun makeCurrent(): TracingScope {
+            MDC.put("trace.id", traceId)
+            MDC.put("span.id", spanId)
+            return TracingScope {
+                MDC.remove("trace.id")
+                MDC.remove("span.id")
+            }
+        }
+        override fun end() { endedNormally = true }
+        override fun end(throwable: Throwable) { endedNormally = false; endThrowable = throwable }
+    }
+
+    private class MdcInjectingTracer(val traceId: String, val spanId: String) : Tracer {
+        override fun startSpan(name: String, attributes: Map<String, Any>): Span =
+            MdcInjectingSpan(name, traceId, spanId)
     }
 }

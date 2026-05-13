@@ -21,8 +21,12 @@ import org.slf4j.MDC
  * future chains, capture and restore manually.
  */
 fun Span.makeCurrentWithLoggingContext(): TracingScope {
+    // Check isRecording BEFORE calling makeCurrent so that a non-recording span whose
+    // makeCurrent() is not a no-op (e.g. a real OTel non-sampled span that still pushes
+    // propagation context) still has its scope properly returned without the MDC wrapper.
+    // The caller sees the raw scope and is responsible for closing it.
+    if (!isRecording) return makeCurrent()
     val inner = makeCurrent()
-    if (!isRecording) return inner
     val ctx = context
     val traceId = ctx.traceId.value
     val spanId = ctx.spanId.value

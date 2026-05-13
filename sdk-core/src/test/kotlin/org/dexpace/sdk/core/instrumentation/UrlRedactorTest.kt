@@ -124,4 +124,20 @@ class UrlRedactorTest {
         assertTrue(out.startsWith("http://"))
         assertTrue(!out.contains("abc"))
     }
+
+    @Test
+    fun `fragment with trailing ampersand drops the trailing separator`() {
+        // A fragment like "token=secret&" has a trailing '&' that produces an empty final
+        // pair. appendRedactedQuery intentionally drops this empty pair — the output contains
+        // the redacted key=value without a trailing '&'. This is the documented behaviour:
+        // a trailing '&' in a fragment or query is almost always malformed input.
+        val url = URL("https://api.example.com/x#token=secret&")
+        val out = UrlRedactor.redact(url)
+        assertTrue(out.contains("#"), "fragment marker should be present: $out")
+        assertTrue(out.contains("token="), "fragment key should be kept: $out")
+        assertTrue(out.contains("***"), "fragment value should be redacted: $out")
+        assertTrue(!out.contains("secret"), "raw value leaked: $out")
+        // The trailing '&' is intentionally dropped — the output must NOT end with '&'.
+        assertTrue(!out.endsWith("&"), "trailing '&' must be dropped; got: $out")
+    }
 }

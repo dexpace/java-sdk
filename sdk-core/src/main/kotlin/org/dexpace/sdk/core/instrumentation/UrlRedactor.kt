@@ -126,8 +126,14 @@ object UrlRedactor {
             appendRedactedPair(out, pair, allowedLower)
             cursor = end + 1
         }
-        // Trailing `&` produces a final empty pair which the loop above swallows; we
-        // intentionally do not re-emit it (the input was likely malformed anyway).
+        // Trailing `&` — for both query strings and fragment strings — produces a final
+        // empty pair which the loop above swallows (appendRedactedPair is a no-op on an
+        // empty pair). We intentionally do not re-emit the trailing `&`; an input of
+        // "a=1&" or a fragment of "a=1&" would produce "a=1" or "a=***" without the
+        // trailing separator. This is intentional: an empty trailing pair is almost always
+        // a malformed input, and re-emitting it would make the redacted output equally
+        // malformed. The same behaviour applies when this function is called for fragment
+        // redaction (the '#' prefix is appended by the caller before this function is invoked).
     }
 
     private fun appendRedactedPair(out: StringBuilder, pair: String, allowedLower: Set<String>) {

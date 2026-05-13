@@ -546,4 +546,57 @@ class LoggingEventTest {
         val rendered = fake.records.single().keyValues.toMap()["err"] as String
         assertContains(rendered, "anon-msg")
     }
+
+    // -- MDC allow-list (B9) ------------------------------------------------------------------
+
+    @Test
+    fun `default allow-list folds only trace_id and span_id from MDC`() {
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "t1")
+        MDC.put("span.id", "s1")
+        MDC.put("x-app-tenant", "acme")
+        MDC.put("user.id", "u42")
+        val (logger, fake) = enabledLogger() // default mdcKeys = setOf("trace.id", "span.id")
+        logger.atInfo().event("test.event").log()
+        val kv = fake.records.single().keyValues.toMap()
+        // Only allowed keys reach the event.
+        assertEquals("t1", kv["trace.id"])
+        assertEquals("s1", kv["span.id"])
+        assertNull(kv["x-app-tenant"], "x-app-tenant must not reach event with default allow-list")
+        assertNull(kv["user.id"], "user.id must not reach event with default allow-list")
+    }
+
+    @Test
+    fun `custom allow-list includes additional MDC keys`() {
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "t2")
+        MDC.put("span.id", "s2")
+        MDC.put("x-app-tenant", "widgets")
+        MDC.put("user.id", "u99")
+        val fake = FakeSlf4jLogger(threshold = org.slf4j.event.Level.TRACE)
+        val logger = ClientLogger.forTesting(fake, mdcKeys = setOf("trace.id", "span.id", "x-app-tenant"))
+        logger.atInfo().event("test.event").log()
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("t2", kv["trace.id"])
+        assertEquals("s2", kv["span.id"])
+        assertEquals("widgets", kv["x-app-tenant"])
+        // user.id is not in the custom allow-list.
+        assertNull(kv["user.id"], "user.id must not reach event — not in custom allow-list")
+    }
+
+    @Test
+    fun `null mdcKeys folds all MDC entries (backwards-compat)`() {
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "t3")
+        MDC.put("x-app-tenant", "legacy")
+        MDC.put("user.id", "u0")
+        val fake = FakeSlf4jLogger(threshold = org.slf4j.event.Level.TRACE)
+        val logger = ClientLogger.forTesting(fake, mdcKeys = null)
+        logger.atInfo().event("test.event").log()
+        val kv = fake.records.single().keyValues.toMap()
+        // With null allow-list, all MDC keys are folded.
+        assertEquals("t3", kv["trace.id"])
+        assertEquals("legacy", kv["x-app-tenant"])
+        assertEquals("u0", kv["user.id"])
+    }
 }

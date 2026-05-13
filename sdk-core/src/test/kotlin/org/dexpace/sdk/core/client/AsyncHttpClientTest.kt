@@ -68,22 +68,6 @@ class AsyncHttpClientTest {
     }
 
     @Test
-    fun `asAsync uses the ForkJoinPool common pool by default`() {
-        val capturedThread = AtomicReference<String>()
-        val syncClient = HttpClient { request ->
-            capturedThread.set(Thread.currentThread().name)
-            mockResponse(request, 200)
-        }
-        // Default executor is ForkJoinPool.commonPool — thread name starts with "ForkJoin".
-        syncClient.asAsync().executeAsync(getRequest()).get(2, TimeUnit.SECONDS)
-        assertNotNull(capturedThread.get())
-        assertTrue(
-            capturedThread.get().contains("ForkJoin") || capturedThread.get().contains("commonPool"),
-            "expected ForkJoin pool thread, got ${capturedThread.get()}",
-        )
-    }
-
-    @Test
     fun `round-trip via asAsync then asBlocking preserves the response`() {
         val syncClient = HttpClient { request -> mockResponse(request, 201) }
         val roundTripped = syncClient.asAsync(executor).asBlocking()

@@ -43,6 +43,27 @@ class SpanLoggingExtensionsTest {
     }
 
     @Test
+    fun `non-recording span returns the exact scope object returned by makeCurrent`() {
+        // A non-recording span whose makeCurrent() returns a distinct (non-no-op) scope object.
+        // makeCurrentWithLoggingContext must return that SAME scope instance, not a wrapper.
+        val stubScope = object : TracingScope {
+            override fun close() {}
+        }
+        val span = object : Span {
+            override val isRecording: Boolean = false
+            override val context: InstrumentationContext = NoopInstrumentationContext
+            override fun setAttribute(key: String, value: Any): Span = this
+            override fun setError(errorType: String): Span = this
+            override fun makeCurrent(): TracingScope = stubScope
+            override fun end() = Unit
+            override fun end(throwable: Throwable) = Unit
+        }
+        val returned = span.makeCurrentWithLoggingContext()
+        // Must be the exact object from makeCurrent(), not wrapped.
+        assertEquals(stubScope, returned, "expected the stub scope to be returned unwrapped")
+    }
+
+    @Test
     fun `nested scopes restore the outer MDC values on close`() {
         val outer = recordingTestSpan(traceId = "outer-trace", spanId = "outer-span")
         val inner = recordingTestSpan(traceId = "inner-trace", spanId = "inner-span")

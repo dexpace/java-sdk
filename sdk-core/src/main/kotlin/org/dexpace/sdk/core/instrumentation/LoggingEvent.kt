@@ -150,8 +150,9 @@ class LoggingEvent internal constructor(
         }
 
         // Fold SLF4J MDC into the structured event so trace.id / span.id set by an
-        // enclosing TracingScope (or any other MDC key set by the application) reaches
-        // log backends as structured fields, not just as %X{...} pattern lookups.
+        // enclosing TracingScope reaches log backends as structured fields. Only keys
+        // in the logger's mdcKeys allow-list are folded (default: "trace.id", "span.id").
+        // Pass mdcKeys = null on ClientLogger to fold everything (backwards-compat).
         // Per-event fields (added below) take precedence: any MDC key whose name is
         // already in the per-event `fields` map is skipped here so the event list does
         // not carry duplicate KeyValuePair entries (which JSON appenders would emit as
@@ -159,9 +160,13 @@ class LoggingEvent internal constructor(
         val mdcMap = MDC.getCopyOfContextMap()
         if (mdcMap != null) {
             val perEventKeys = fields
+            val allowedMdcKeys = logger.mdcKeys
             for ((k, v) in mdcMap) {
                 if (v != null && perEventKeys?.containsKey(k) != true) {
-                    builder.addKeyValue(k, v)
+                    // null allow-list means "all keys" (unfiltered); non-null is an explicit set.
+                    if (allowedMdcKeys == null || allowedMdcKeys.contains(k)) {
+                        builder.addKeyValue(k, v)
+                    }
                 }
             }
         }

@@ -15,7 +15,8 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
         stageOf = AsyncHttpStep::stage,
         onPillarReplaced = { stage, prev, next ->
             LOG.atWarning()
-                .event("async.pipeline.pillar.replaced")
+                .event("pipeline.pillar.replaced")
+                .field("pipeline.kind", "async")
                 .field("stage", stage.name)
                 .field("previous", prev::class.simpleName ?: "<anonymous>")
                 .field("replacement", next::class.simpleName ?: "<anonymous>")

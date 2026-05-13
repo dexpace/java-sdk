@@ -243,21 +243,26 @@ class RedirectStepTest {
     // ----------------- Resource lifecycle on loop detection -----------------
 
     @Test
-    fun `loop detection closes the response before returning`() {
-        // a → b → a: the second response (pointing back to /x) should be closed by loop
-        // detection before it is returned to the caller.
-        val closedCount = java.util.concurrent.atomic.AtomicInteger(0)
-        val client = LoopDetectionTrackingClient(closedCount)
+    fun `loop detection returns response with body still open`() {
+        // a → b → a: the redirect chain visits /x → /y → /x.
+        //   - The first response (302→/y) is legitimately closed before reissue (correct behavior).
+        //   - The second response (302→/x) triggers loop detection and must be RETURNED unclosed.
+        //     The caller owns close-responsibility, matching every other `return current` path.
+        //
+        // We verify by tracking which response bodies were closed: the second-issued response
+        // (the loop-detected one) must NOT have been closed when returned.
+        val secondResponseClosed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val client = LoopDetectionBodyTrackingClient(secondResponseClosed)
         val pipeline = HttpPipelineBuilder(client)
             .append(DefaultRedirectStep())
             .build()
 
         val response = pipeline.send(getRequest("https://a.example.com/x"))
-        // The loop-detected response is returned; it must have been closed by the step.
         assertEquals(302, response.status.code)
-        assertTrue(
-            closedCount.get() >= 1,
-            "loop-detected response must be closed before returning; closed=${closedCount.get()}",
+        // The loop-detected response (second response) must NOT have been closed by the step.
+        assertFalse(
+            secondResponseClosed.get(),
+            "loop-detected response body must NOT be closed before returning",
         )
     }
 
@@ -924,6 +929,50 @@ class RedirectStepTest {
 
         override fun close() {
             closedCounter.incrementAndGet()
+        }
+    }
+
+    /**
+     * Returns redirect responses where only the SECOND response body tracks its close call.
+     * Call 1 → 302 pointing to /y (body not tracked).
+     * Call 2 → 302 pointing back to /x (body tracks close via [secondResponseClosed]).
+     * This lets us verify that the loop-detected response is returned unclosed, without
+     * conflating it with the legitimate close of the first redirect response.
+     */
+    private class LoopDetectionBodyTrackingClient(
+        private val secondResponseClosed: java.util.concurrent.atomic.AtomicBoolean,
+    ) : HttpClient {
+        private var calls = 0
+
+        override fun execute(request: Request): Response {
+            calls++
+            val headersBuilder = org.dexpace.sdk.core.http.common.Headers.Builder()
+            val location = if (calls == 1) "https://a.example.com/y" else "https://a.example.com/x"
+            headersBuilder.add("Location", location)
+            val body: org.dexpace.sdk.core.http.response.ResponseBody = if (calls == 2) {
+                object : org.dexpace.sdk.core.http.response.ResponseBody() {
+                    override fun mediaType(): MediaType? = null
+                    override fun contentLength(): Long = 0
+                    override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+                        fail("not expected to read this body in loop-detect test")
+                    override fun close() { secondResponseClosed.set(true) }
+                }
+            } else {
+                object : org.dexpace.sdk.core.http.response.ResponseBody() {
+                    override fun mediaType(): MediaType? = null
+                    override fun contentLength(): Long = 0
+                    override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+                        fail("not expected to read this body")
+                    override fun close() { /* first response close is OK */ }
+                }
+            }
+            return Response.builder()
+                .request(request)
+                .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                .status(org.dexpace.sdk.core.http.response.Status.fromCode(302))
+                .headers(headersBuilder.build())
+                .body(body)
+                .build()
         }
     }
 }

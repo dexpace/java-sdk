@@ -74,6 +74,9 @@ open class BearerTokenAuthStep @JvmOverloads constructor(
             val now = clock.now()
             cachedToken?.takeIf { !it.isExpiredAt(now, refreshMargin) }?.let { return@withLock it }
             val fresh = fetchFresh()
+            // The fresh-token validation does NOT apply `refreshMargin`: a provider that just
+            // minted a token returning expiration < margin is misbehaving (returning an
+            // effectively-expired token), and the IllegalStateException must fire regardless of margin.
             check(!fresh.isExpiredAt(now)) {
                 "BearerTokenProvider returned an already-expired token"
             }

@@ -49,9 +49,10 @@ class SetDateStep @JvmOverloads constructor(
         return try {
             DateTimeRfc1123.format(now)
         } catch (_: Throwable) {
-            // Defensive: if the formatter throws on a fringe Instant, fall back to the JDK
-            // formatter for maximum compatibility. This step deliberately doesn't depend on
-            // ClientLogger to keep it allocation-light on the hot path.
+            // Defensive: DateTimeRfc1123.format can throw for fringe Instant values that are
+            // outside the representable RFC 1123 range (e.g. Instant.MIN / Instant.MAX). The
+            // fallback to the JDK formatter is intentionally silent — no log, no rethrow — to
+            // keep this step allocation-light on the hot path.
             FALLBACK_FORMATTER.format(now)
         }
     }

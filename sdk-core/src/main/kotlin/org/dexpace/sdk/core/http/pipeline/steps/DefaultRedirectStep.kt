@@ -90,8 +90,10 @@ open class DefaultRedirectStep @JvmOverloads constructor(
             val nextUrlString = nextRequest.url.toString()
             if (!seenUris.add(nextUrlString)) {
                 // Cycle detected — return the current redirect response rather than looping.
+                // The caller receives the in-flight response with close-responsibility intact,
+                // matching the contract of every other `return current` path in this function.
+                // Closing here would deliver an already-closed body to the caller.
                 logRedirectLoop(current, nextRequest)
-                current.close()
                 return current
             }
             logRedirectHop(current, nextRequest, attempts)
@@ -264,6 +266,13 @@ open class DefaultRedirectStep @JvmOverloads constructor(
         from.protocol.equals("https", ignoreCase = true) &&
             to.protocol.equals("http", ignoreCase = true)
 
+    /**
+     * Emits the `http.redirect` log event for a single hop.
+     *
+     * **Breaking change (backwards-incompatible event-field change):** the older `url.from` /
+     * `url.to` fields have been removed. Operators and log parsers that referenced those keys
+     * must migrate to `redirect.from_url` / `redirect.target_url`.
+     */
     private fun logRedirectHop(response: Response, nextRequest: Request, attempt: Int) {
         logger.atInfo()
             .event("http.redirect")
@@ -271,8 +280,6 @@ open class DefaultRedirectStep @JvmOverloads constructor(
             // Log as 1-based so "attempt 1" is the first redirect hop; the internal counter
             // remains 0-based to keep the while-loop condition simple.
             .field("http.redirect.attempt", (attempt + 1).toLong())
-            .field("url.from", safeRedact(response.request.url))
-            .field("url.to", safeRedact(nextRequest.url))
             .field("redirect.from_url", safeRedact(response.request.url))
             .field("redirect.target_url", safeRedact(nextRequest.url))
             .log()

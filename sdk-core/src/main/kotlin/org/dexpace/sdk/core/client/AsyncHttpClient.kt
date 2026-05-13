@@ -50,16 +50,21 @@ fun interface AsyncHttpClient {
 
 /**
  * Wraps a blocking [HttpClient] as an [AsyncHttpClient] by submitting each `execute` call to
- * [executor]. Default executor is the JVM's [ForkJoinPool.commonPool] — fine for low-volume
- * use, but production code should pass a dedicated thread pool (or
- * `Executors.newVirtualThreadPerTaskExecutor()` on JDK 21+).
+ * [executor]. Callers MUST supply an executor sized for their workload — there is intentionally
+ * no default. Recommended setups:
+ *  - JDK 21+: `Executors.newVirtualThreadPerTaskExecutor()` (or use
+ *    `sdk-async-virtualthreads` which wires this for you with MDC propagation).
+ *  - JDK 8-20: a `ThreadPoolExecutor` sized for your concurrent-request ceiling.
+ *
+ * `ForkJoinPool.commonPool()` is **not** an acceptable production choice — it pins a small
+ * number of platform threads that the JVM shares with parallel streams and CompletableFuture
+ * default executors, so a blocking HTTP call starves every other commonPool consumer.
  *
  * The returned future completes with the response from `execute`. Cancellation of the future
  * does NOT interrupt the in-flight blocking call (Java's `CompletableFuture` has no such
  * hook); for true cancellation, use an [AsyncHttpClient] backed by an async transport.
  */
-@JvmOverloads
-fun HttpClient.asAsync(executor: Executor = ForkJoinPool.commonPool()): AsyncHttpClient =
+fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
     AsyncHttpClient { request ->
         CompletableFuture.supplyAsync({ execute(request) }, executor)
     }
