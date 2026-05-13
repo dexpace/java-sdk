@@ -4,10 +4,21 @@ import org.dexpace.sdk.core.http.request.Method
 import java.net.URI
 
 /**
+ * A named authorization header (name + value) returned by [ChallengeHandler.handleChallenges].
+ *
+ * Replaces the raw `Pair<String, String>` return type to make call sites self-documenting:
+ * `header.name` and `header.value` read clearly compared to `.first` and `.second`.
+ */
+data class AuthorizationHeader(
+    val name: String,
+    val value: String,
+)
+
+/**
  * Strategy for handling `WWW-Authenticate` (or `Proxy-Authenticate`) challenges.
  *
  * A handler inspects the parsed challenge list and either produces the
- * (header-name, value) pair to set on the retry request, or returns `null` to
+ * [AuthorizationHeader] to set on the retry request, or returns `null` to
  * signal that it cannot satisfy any of the offered challenges.
  *
  * Multiple handlers can be composed via [of]. The composite consults handlers in
@@ -26,9 +37,9 @@ interface ChallengeHandler {
      * cannot satisfy any offered challenge. The `method` and `uri` are required
      * for schemes (like Digest) that sign the request line.
      *
-     * The returned header name is `Authorization` for `WWW-Authenticate` challenges
-     * and `Proxy-Authorization` for `Proxy-Authenticate`. Callers signal which via
-     * [isProxy].
+     * The returned [AuthorizationHeader] name is `Authorization` for `WWW-Authenticate`
+     * challenges and `Proxy-Authorization` for `Proxy-Authenticate`. Callers signal
+     * which via [isProxy].
      *
      * Kotlin callers can omit [isProxy] thanks to the default value; Java callers
      * use the three-argument convenience overload below.
@@ -38,7 +49,7 @@ interface ChallengeHandler {
         uri: URI,
         challenges: List<AuthenticateChallenge>,
         isProxy: Boolean = false,
-    ): Pair<String, String>?
+    ): AuthorizationHeader?
 
     /**
      * Three-argument convenience overload that delegates to the full form with
@@ -51,7 +62,7 @@ interface ChallengeHandler {
         method: Method,
         uri: URI,
         challenges: List<AuthenticateChallenge>,
-    ): Pair<String, String>? = handleChallenges(method, uri, challenges, false)
+    ): AuthorizationHeader? = handleChallenges(method, uri, challenges, false)
 
     /** True if any offered challenge is one this handler can satisfy. */
     fun canHandle(challenges: List<AuthenticateChallenge>): Boolean

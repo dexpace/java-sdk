@@ -40,9 +40,9 @@ class BasicChallengeHandler(username: String, password: String) : ChallengeHandl
         uri: URI,
         challenges: List<AuthenticateChallenge>,
         isProxy: Boolean,
-    ): Pair<String, String>? {
+    ): AuthorizationHeader? {
         if (!canHandle(challenges)) return null
         val headerName = if (isProxy) "Proxy-Authorization" else "Authorization"
-        return headerName to authHeaderValue
+        return AuthorizationHeader(headerName, authHeaderValue)
     }
 }

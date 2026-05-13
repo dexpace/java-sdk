@@ -2,6 +2,7 @@ package org.dexpace.sdk.core.config
 
 import java.time.Duration
 import java.util.Locale
+import java.util.function.Function
 
 /**
  * Layered runtime configuration: explicit override -> environment variable -> system property -> default.
@@ -22,8 +23,8 @@ import java.util.Locale
  */
 class Configuration internal constructor(
     private val overrides: Map<String, String>,
-    private val envSource: (String) -> String? = { name -> System.getenv(name) },
-    private val propsSource: (String) -> String? = { name -> System.getProperty(name) },
+    private val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
+    private val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
 ) {
 
     /**
@@ -35,9 +36,9 @@ class Configuration internal constructor(
     @JvmOverloads
     fun get(name: String, default: String? = null): String? {
         overrides[name]?.let { return it }
-        val env = envSource(name)
+        val env = envSource.apply(name)
         if (!env.isNullOrEmpty()) return env
-        return propsSource(envToProp(name)) ?: default
+        return propsSource.apply(envToProp(name)) ?: default
     }
 
     /**
@@ -48,7 +49,7 @@ class Configuration internal constructor(
      *
      * Returns null when the property is unset.
      */
-    fun getProperty(name: String): String? = propsSource(name)
+    fun getProperty(name: String): String? = propsSource.apply(name)
 
     /**
      * Integer accessor. Returns [default] if the value is missing or not a valid integer.

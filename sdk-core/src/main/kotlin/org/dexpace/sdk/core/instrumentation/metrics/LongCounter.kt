@@ -35,9 +35,20 @@ interface LongCounter {
      *                   the call; implementations may retain a reference for asynchronous
      *                   export.
      *
-     * Note: `@JvmOverloads` is not supported on interface methods in Kotlin, so Java
-     * callers must always pass the attributes argument explicitly — use
-     * `Collections.emptyMap()` when no attributes are needed.
+     * Note: `@JvmOverloads` is not supported on interface methods in Kotlin. Java callers
+     * should use the companion-object helper [LongCounter.add] for the no-attributes form.
      */
     fun add(value: Long, attributes: Map<String, Any> = emptyMap())
+
+    companion object {
+        /**
+         * Java convenience helper: adds [value] to [counter] with no attributes.
+         *
+         * Java callers write `LongCounter.add(counter, 1L)` instead of
+         * `counter.add(1L, Collections.emptyMap())`.
+         * Kotlin callers continue to use the default-parameter form: `counter.add(1L)`.
+         */
+        @JvmStatic
+        fun add(counter: LongCounter, value: Long): Unit = counter.add(value, emptyMap())
+    }
 }

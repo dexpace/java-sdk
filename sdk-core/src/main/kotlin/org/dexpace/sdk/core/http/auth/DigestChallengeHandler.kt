@@ -52,11 +52,11 @@ class DigestChallengeHandler @JvmOverloads constructor(
         uri: URI,
         challenges: List<AuthenticateChallenge>,
         isProxy: Boolean,
-    ): Pair<String, String>? {
+    ): AuthorizationHeader? {
         val picked = pickChallenge(challenges) ?: return null
         val headerValue = buildAuthorization(method, uri, picked.first, picked.second)
         val headerName = if (isProxy) "Proxy-Authorization" else "Authorization"
-        return headerName to headerValue
+        return AuthorizationHeader(headerName, headerValue)
     }
 
     /**

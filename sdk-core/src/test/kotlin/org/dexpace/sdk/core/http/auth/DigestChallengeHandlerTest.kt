@@ -119,8 +119,8 @@ class DigestChallengeHandlerTest {
         )
         val result = handler.handleChallenges(Method.GET, uri, listOf(challenge))
         assertNotNull(result)
-        assertEquals("Authorization", result.first)
-        assertTrue(result.second.startsWith("Digest "))
+        assertEquals("Authorization", result.name)
+        assertTrue(result.value.startsWith("Digest "))
     }
 
     @Test
@@ -132,7 +132,7 @@ class DigestChallengeHandlerTest {
         )
         val result = handler.handleChallenges(Method.GET, uri, listOf(challenge), isProxy = true)
         assertNotNull(result)
-        assertEquals("Proxy-Authorization", result.first)
+        assertEquals("Proxy-Authorization", result.name)
     }
 
     @Test
@@ -169,9 +169,9 @@ class DigestChallengeHandlerTest {
             "Digest",
             mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
         )
-        val first = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second)
-        val second = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second)
-        val third = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second)
+        val first = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
+        val second = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
+        val third = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
         assertEquals("00000001", first["nc"])
         assertEquals("00000002", second["nc"])
         assertEquals("00000003", third["nc"])
@@ -184,8 +184,8 @@ class DigestChallengeHandlerTest {
             "Digest",
             mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
         )
-        val first = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second)
-        val second = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second)
+        val first = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
+        val second = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
         assertNotEquals(first["cnonce"], second["cnonce"])
     }
 
@@ -196,7 +196,7 @@ class DigestChallengeHandlerTest {
             "Digest",
             mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
         )
-        val parsed = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second)
+        val parsed = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
         val cnonce = parsed["cnonce"]
         assertNotNull(cnonce)
         assertEquals(16, cnonce.length, "cnonce length")
@@ -608,7 +608,7 @@ class DigestChallengeHandlerTest {
                     try {
                         start.await()
                         repeat(iterationsPerThread) {
-                            val header = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.second
+                            val header = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value
                             val parsed = parseDigestHeader(header)
                             all.add(Integer.parseInt(parsed["nc"]!!, 16))
                         }

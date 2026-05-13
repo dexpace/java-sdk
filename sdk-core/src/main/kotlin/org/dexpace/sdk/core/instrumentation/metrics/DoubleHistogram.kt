@@ -37,9 +37,21 @@ interface DoubleHistogram {
      *                   after the call; implementations may retain a reference for
      *                   asynchronous export.
      *
-     * Note: `@JvmOverloads` is not supported on interface methods in Kotlin, so Java
-     * callers must always pass the attributes argument explicitly — use
-     * `Collections.emptyMap()` when no attributes are needed.
+     * Note: `@JvmOverloads` is not supported on interface methods in Kotlin. Java callers
+     * should use the companion-object helper [DoubleHistogram.record] for the no-attributes
+     * form.
      */
     fun record(value: Double, attributes: Map<String, Any> = emptyMap())
+
+    companion object {
+        /**
+         * Java convenience helper: records [value] in [histogram] with no attributes.
+         *
+         * Java callers write `DoubleHistogram.record(histogram, 1.5)` instead of
+         * `histogram.record(1.5, Collections.emptyMap())`.
+         * Kotlin callers continue to use the default-parameter form: `histogram.record(1.5)`.
+         */
+        @JvmStatic
+        fun record(histogram: DoubleHistogram, value: Double): Unit = histogram.record(value, emptyMap())
+    }
 }

@@ -36,6 +36,16 @@ import org.slf4j.event.Level
  * **Behavioural change:** the previous default was to fold all MDC keys. The new default
  * allows only `trace.id` and `span.id` to prevent arbitrary application MDC leaking into
  * SDK-owned log events.
+ *
+ * ## SLF4J usage
+ *
+ * `ClientLogger` uses `LoggerFactory.getLogger` directly rather than delegating to a
+ * `kotlin-logging`-style wrapper. This is a deliberate deviation from styleguide §6.1:
+ * `ClientLogger` is itself a custom SLF4J facade that provides the same lazy /
+ * zero-allocation semantics on the disabled-level path (via [LoggingEvent.NOOP]) plus
+ * an SDK-specific structured-field API tailored to the SDK's instrumentation needs.
+ * Wrapping it in another logging abstraction would add allocation and indirection with
+ * no benefit.
  */
 class ClientLogger private constructor(
     internal val slf4j: Logger,
@@ -75,23 +85,19 @@ class ClientLogger private constructor(
     ) : this(klass.name, globalContext, mdcKeys)
 
     /** Test-only seam: inject a pre-built [Logger] (e.g. a fake) without going through `LoggerFactory`. */
-    internal companion object {
+    companion object {
         internal fun forTesting(
             slf4j: Logger,
             globalContext: Map<String, Any?> = emptyMap(),
             mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
         ): ClientLogger = ClientLogger(slf4j, globalContext, mdcKeys)
 
-        private fun requireNonEmpty(name: String): String {
-            require(name.isNotEmpty()) { "name must not be empty" }
-            return name
-        }
-
         /**
          * Default MDC key allow-list: only `trace.id` and `span.id` are folded into
          * structured events. Prevents arbitrary application MDC from leaking into SDK events.
          * Pass `null` to [ClientLogger] for unfiltered fold (backwards-compat behaviour).
          */
+        @JvmField
         val DEFAULT_MDC_KEYS: Set<String> = setOf("trace.id", "span.id")
     }
 
@@ -138,4 +144,13 @@ class ClientLogger private constructor(
         // SLF4J has no VERBOSE; map to DEBUG (the closest convention).
         LogLevel.VERBOSE -> Level.DEBUG
     }
+}
+
+/**
+ * Validates that [name] is non-empty and returns it. Extracted from the companion object
+ * because the companion should hold only constants and factories, not private helper logic.
+ */
+private fun requireNonEmpty(name: String): String {
+    require(name.isNotEmpty()) { "name must not be empty" }
+    return name
 }

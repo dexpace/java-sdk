@@ -5,6 +5,18 @@ import org.dexpace.sdk.core.http.request.Method
 import java.util.EnumSet
 
 /**
+ * Predicate that decides whether a redirect should be followed for a given [HttpRedirectCondition].
+ *
+ * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
+ */
+fun interface HttpRedirectPredicate {
+    /**
+     * Returns `true` if the redirect described by [condition] should be followed.
+     */
+    fun shouldRedirect(condition: HttpRedirectCondition): Boolean
+}
+
+/**
  * Configuration for [DefaultRedirectStep].
  *
  * Defaults mirror Azure Core's redirect policy:
@@ -32,5 +44,5 @@ class HttpRedirectOptions @JvmOverloads constructor(
     val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
     val follow303: Boolean = false,
     val allowSchemeDowngrade: Boolean = false,
-    val shouldRedirect: ((HttpRedirectCondition) -> Boolean)? = null,
+    val shouldRedirect: HttpRedirectPredicate? = null,
 )

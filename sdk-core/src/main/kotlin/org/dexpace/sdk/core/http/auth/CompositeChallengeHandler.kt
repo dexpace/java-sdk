@@ -27,7 +27,7 @@ internal class CompositeChallengeHandler(
         uri: URI,
         challenges: List<AuthenticateChallenge>,
         isProxy: Boolean,
-    ): Pair<String, String>? =
+    ): AuthorizationHeader? =
         handlers.firstOrNull { it.canHandle(challenges) }
             ?.handleChallenges(method, uri, challenges, isProxy)
 }

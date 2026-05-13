@@ -6,6 +6,33 @@ import java.time.Duration
 import java.util.Collections
 
 /**
+ * Predicate that decides whether a request should be retried based on the HTTP response or
+ * exception captured in [HttpRetryCondition].
+ *
+ * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
+ */
+fun interface HttpRetryConditionPredicate {
+    /**
+     * Returns `true` if the request should be retried for the given [condition].
+     */
+    fun shouldRetry(condition: HttpRetryCondition): Boolean
+}
+
+/**
+ * Provider that computes a custom retry delay from [HttpRetryCondition]. Returning `null`
+ * defers to the next delay-resolution step (Retry-After headers, then backoff).
+ *
+ * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
+ */
+fun interface HttpRetryDelayProvider {
+    /**
+     * Returns a custom delay for [condition], or `null` to fall through to the default
+     * delay resolution (Retry-After header parsing, then fixed or exponential backoff).
+     */
+    fun delayFor(condition: HttpRetryCondition): Duration?
+}
+
+/**
  * Configuration for [DefaultRetryStep]. Defaults mirror Azure Core's retry policy:
  *  - [maxRetries] = 3
  *  - [baseDelay] = 800ms (exponentially scaled per attempt)
@@ -29,9 +56,9 @@ class HttpRetryOptions @JvmOverloads constructor(
     val maxDelay: Duration = Duration.ofSeconds(8),
     val fixedDelay: Duration? = null,
     val retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS,
-    val shouldRetryCondition: (HttpRetryCondition) -> Boolean = ::defaultShouldRetryResponse,
-    val shouldRetryException: (HttpRetryCondition) -> Boolean = ::defaultShouldRetryException,
-    val delayFromCondition: (HttpRetryCondition) -> Duration? = { null },
+    val shouldRetryCondition: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryResponse),
+    val shouldRetryException: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryException),
+    val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
 ) {
     companion object {
         /**

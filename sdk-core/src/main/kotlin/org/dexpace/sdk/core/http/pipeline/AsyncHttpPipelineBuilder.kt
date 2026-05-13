@@ -93,8 +93,7 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     }
 
     companion object {
-        @PublishedApi
-        internal val LOG = ClientLogger(AsyncHttpPipelineBuilder::class)
+        private val LOG = ClientLogger(AsyncHttpPipelineBuilder::class)
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic

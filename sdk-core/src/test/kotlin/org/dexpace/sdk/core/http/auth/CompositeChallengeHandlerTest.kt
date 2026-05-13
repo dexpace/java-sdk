@@ -28,10 +28,10 @@ class CompositeChallengeHandlerTest {
             uri: URI,
             challenges: List<AuthenticateChallenge>,
             isProxy: Boolean,
-        ): Pair<String, String>? {
+        ): AuthorizationHeader? {
             if (!canHandle(challenges)) return null
             invocations++
-            return "X-Test" to label
+            return AuthorizationHeader("X-Test", label)
         }
     }
 
@@ -41,7 +41,7 @@ class CompositeChallengeHandlerTest {
         val second = FakeHandler("second")
         val composite = ChallengeHandler.of(first, second)
         val result = composite.handleChallenges(Method.GET, uri, emptyList())!!
-        assertEquals("first", result.second)
+        assertEquals("first", result.value)
         assertEquals(1, first.invocations)
         assertEquals(0, second.invocations)
     }
@@ -52,7 +52,7 @@ class CompositeChallengeHandlerTest {
         val second = FakeHandler("second")
         val composite = ChallengeHandler.of(first, second)
         val result = composite.handleChallenges(Method.GET, uri, emptyList())!!
-        assertEquals("second", result.second)
+        assertEquals("second", result.value)
         assertEquals(0, first.invocations)
         assertEquals(1, second.invocations)
     }
@@ -95,7 +95,7 @@ class CompositeChallengeHandlerTest {
         val composite = ChallengeHandler.of(digest, basic)
         val result = composite.handleChallenges(Method.GET, uri, challenges)
         assertNotNull(result)
-        assertTrue(result.second.startsWith("Digest "), "expected Digest header but got: ${result.second}")
+        assertTrue(result.value.startsWith("Digest "), "expected Digest header but got: ${result.value}")
     }
 
     @Test
@@ -113,6 +113,6 @@ class CompositeChallengeHandlerTest {
         val composite = ChallengeHandler.of(basic, digest)
         val result = composite.handleChallenges(Method.GET, uri, challenges)
         assertNotNull(result)
-        assertTrue(result.second.startsWith("Basic "), "expected Basic header but got: ${result.second}")
+        assertTrue(result.value.startsWith("Basic "), "expected Basic header but got: ${result.value}")
     }
 }

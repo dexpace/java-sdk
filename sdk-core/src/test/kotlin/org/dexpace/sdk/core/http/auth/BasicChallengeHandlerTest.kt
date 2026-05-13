@@ -23,10 +23,10 @@ class BasicChallengeHandlerTest {
     @Test
     fun `constructor base64-encodes the credentials in the precomputed header`() {
         val handler = BasicChallengeHandler("alice", "wonderland")
-        val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))!!
+        val header = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))!!
         val expected = "Basic " + Base64.getEncoder()
             .encodeToString("alice:wonderland".toByteArray(Charsets.UTF_8))
-        assertEquals(expected, value)
+        assertEquals(expected, header.value)
     }
 
     @Test
@@ -54,7 +54,7 @@ class BasicChallengeHandlerTest {
         val handler = BasicChallengeHandler("u", "p")
         val result = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge), isProxy = false)
         assertNotNull(result)
-        assertEquals("Authorization", result.first)
+        assertEquals("Authorization", result.name)
     }
 
     @Test
@@ -62,7 +62,7 @@ class BasicChallengeHandlerTest {
         val handler = BasicChallengeHandler("u", "p")
         val result = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge), isProxy = true)
         assertNotNull(result)
-        assertEquals("Proxy-Authorization", result.first)
+        assertEquals("Proxy-Authorization", result.name)
     }
 
     @Test
@@ -101,8 +101,8 @@ class BasicChallengeHandlerTest {
     @Test
     fun `header value is identical across calls (precomputed once)`() {
         val handler = BasicChallengeHandler("a", "b")
-        val first = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))!!.second
-        val second = handler.handleChallenges(Method.POST, uri, listOf(basicChallenge))!!.second
+        val first = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))!!.value
+        val second = handler.handleChallenges(Method.POST, uri, listOf(basicChallenge))!!.value
         // Same reference would be ideal but a String equality assertion is what
         // we need to verify — handler shouldn't recompute base64 each call.
         assertEquals(first, second)

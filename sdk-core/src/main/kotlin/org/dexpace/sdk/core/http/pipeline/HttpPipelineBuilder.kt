@@ -116,8 +116,7 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
     }
 
     companion object {
-        @PublishedApi
-        internal val LOG = ClientLogger(HttpPipelineBuilder::class)
+        private val LOG = ClientLogger(HttpPipelineBuilder::class)
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic

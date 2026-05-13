@@ -6,6 +6,32 @@ import java.util.stream.Stream
 import java.util.stream.StreamSupport
 
 /**
+ * Fetches the first page of results for the given [PagingOptions]. Returns `null` to
+ * signal that there are no results.
+ *
+ * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
+ */
+fun interface FirstPageFetcher<T> {
+    /**
+     * Returns the first [PagedResponse] for [options], or `null` for an empty result set.
+     */
+    fun fetch(options: PagingOptions): PagedResponse<T>?
+}
+
+/**
+ * Fetches a subsequent page given the continuation token from the previous page.
+ *
+ * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
+ */
+fun interface NextPageFetcher<T> {
+    /**
+     * Returns the next [PagedResponse] for [options] and [continuationToken], or `null`
+     * to signal end of stream.
+     */
+    fun fetch(options: PagingOptions, continuationToken: String): PagedResponse<T>?
+}
+
+/**
  * Lazy iteration over a paginated REST API.
  *
  * `PagedIterable<T>` flattens a sequence of pages into an `Iterable<T>` for callers that
@@ -51,8 +77,8 @@ import java.util.stream.StreamSupport
  * @property maxPages Defensive cap on the total number of pages yielded.
  */
 class PagedIterable<T> @JvmOverloads constructor(
-    private val firstPage: (PagingOptions) -> PagedResponse<T>?,
-    private val nextPage: (PagingOptions, String) -> PagedResponse<T>? = { _, _ -> null },
+    private val firstPage: FirstPageFetcher<T>,
+    private val nextPage: NextPageFetcher<T> = NextPageFetcher { _, _ -> null },
     private val maxPages: Long = Long.MAX_VALUE,
 ) : Iterable<T> {
 
@@ -76,7 +102,7 @@ class PagedIterable<T> @JvmOverloads constructor(
      */
     @JvmOverloads
     fun byPage(options: PagingOptions = PagingOptions()): Sequence<PagedResponse<T>> = sequence {
-        var page: PagedResponse<T>? = firstPage(options)
+        var page: PagedResponse<T>? = firstPage.fetch(options)
         var pageCount = 0L
         while (page != null && pageCount < maxPages) {
             yield(page)
@@ -86,7 +112,7 @@ class PagedIterable<T> @JvmOverloads constructor(
             // Treat an empty string as "no more pages" — servers sometimes serialize a
             // missing cursor as `""` instead of omitting the field.
             val link = page.nextLink ?: page.continuationToken
-            page = if (link.isNullOrEmpty()) null else nextPage(options, link)
+            page = if (link.isNullOrEmpty()) null else nextPage.fetch(options, link)
         }
     }
 
@@ -111,7 +137,12 @@ class PagedIterable<T> @JvmOverloads constructor(
 
         override fun computeNext() {
             // Advance through pages until we find one with items left, or pages are exhausted.
-            while (currentItems == null || !currentItems!!.hasNext()) {
+            while (true) {
+                val items = currentItems
+                if (items != null && items.hasNext()) {
+                    setNext(items.next())
+                    return
+                }
                 currentPage?.close()
                 currentPage = null
                 currentItems = null
@@ -126,7 +157,6 @@ class PagedIterable<T> @JvmOverloads constructor(
                 currentPage = next
                 currentItems = next.value.iterator()
             }
-            setNext(currentItems!!.next())
         }
     }
 

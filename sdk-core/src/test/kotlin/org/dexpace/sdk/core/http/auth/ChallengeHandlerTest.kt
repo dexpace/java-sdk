@@ -28,9 +28,9 @@ class ChallengeHandlerTest {
             uri: URI,
             challenges: List<AuthenticateChallenge>,
             isProxy: Boolean,
-        ): Pair<String, String>? {
+        ): AuthorizationHeader? {
             lastIsProxy = isProxy
-            return if (acceptable) "X-Header" to "v" else null
+            return if (acceptable) AuthorizationHeader("X-Header", "v") else null
         }
 
         override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean = acceptable
@@ -41,7 +41,7 @@ class ChallengeHandlerTest {
         val handler = CapturingHandler()
         val result = handler.handleChallenges(Method.GET, URI.create("https://api"), emptyList())
         assertNotNull(result)
-        assertEquals("X-Header", result.first)
+        assertEquals("X-Header", result.name)
         assertEquals(false, handler.lastIsProxy)
     }
 
