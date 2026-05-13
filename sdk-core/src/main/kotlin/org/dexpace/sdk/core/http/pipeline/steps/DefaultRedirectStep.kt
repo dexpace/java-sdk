@@ -59,6 +59,20 @@ import java.util.Locale
  *
  * Stateless after construction — the [ClientLogger] is reused. Per-call state lives on
  * the stack frame of [process].
+ *
+ * ## Subclassing contract
+ *
+ * This class is `open` to permit extension, but it exposes **no** `protected open`
+ * extension points today. Subclasses that need to alter redirect behaviour should
+ * override [process] directly.
+ *
+ * If you override [process]:
+ * - You own the full redirect loop; none of the private helpers ([recreateRedirectRequest],
+ *   [resolveLocation], [enforceSchemeDowngradePolicy], etc.) are accessible from a subclass.
+ * - You must close any in-flight response body before issuing the follow-up request to
+ *   avoid resource leaks, matching the contract maintained by the base implementation.
+ * - The `Authorization` header stripping and `userinfo` removal from `Location` URLs are
+ *   security-critical; preserve them in any override.
  */
 open class DefaultRedirectStep @JvmOverloads constructor(
     private val options: HttpRedirectOptions = HttpRedirectOptions(),
@@ -77,7 +91,7 @@ open class DefaultRedirectStep @JvmOverloads constructor(
             if (!isRedirectStatus(current.status.code)) return current
 
             val condition = HttpRedirectCondition(current, attempts, seenUris)
-            val shouldRedirect = options.shouldRedirect?.invoke(condition)
+            val shouldRedirect = options.shouldRedirect?.shouldRedirect(condition)
                 ?: defaultShouldRedirect(condition)
             if (!shouldRedirect) return current
 

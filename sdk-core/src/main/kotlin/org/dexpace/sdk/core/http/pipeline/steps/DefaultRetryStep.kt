@@ -63,6 +63,46 @@ import java.util.concurrent.ThreadLocalRandom
  *
  * Stateless after construction. The [ClientLogger] and immutable [options] / [clock] are
  * reused across concurrent calls; per-request state lives on the loop's stack frame.
+ *
+ * ## Subclassing contract
+ *
+ * This class is open specifically to allow customisation of its retry-decision and delay
+ * extension points. Each `protected open` member has the following invariants:
+ *
+ * ### [computeResponseDelay]
+ * Called when a retryable response has been received and the loop is about to sleep.
+ * **Invariants the override MUST preserve:**
+ * - Must return a non-negative [Duration]. A negative value is silently treated as zero
+ *   by [sleepOrAbort], but the intent is that delays are non-negative.
+ * - Must not throw — any exception propagates out of [process] and aborts the request.
+ * **Default behaviour:** consults [HttpRetryOptions.delayFromCondition], then the
+ * `Retry-After` / `retry-after-ms` response headers, then falls back to fixed or
+ * exponential backoff.
+ * **When to override:** to apply request-specific delay logic (e.g. reading a custom
+ * header not in [HttpRetryOptions.retryAfterHeaders]).
+ *
+ * ### [computeExceptionDelay]
+ * Called when a retryable exception was thrown and the loop is about to sleep.
+ * **Invariants the override MUST preserve:**
+ * - Must return a non-negative [Duration].
+ * - Must not throw.
+ * **Default behaviour:** like [computeResponseDelay] but skips header parsing (there is
+ * no response to read headers from).
+ * **When to override:** same rationale as [computeResponseDelay]; exception-path delays
+ * that differ from response-path delays (e.g. back off harder on connection failures).
+ *
+ * ### [retryAfterFromHeaders]
+ * Called by the default [computeResponseDelay] implementation to parse the server-supplied
+ * `Retry-After` delay.
+ * **Invariants the override MUST preserve:**
+ * - May return `null` to fall through to the default backoff; must not throw.
+ * - If it returns a non-null [Duration], that value is used verbatim — it should be
+ *   non-negative.
+ * **Default behaviour:** walks [HttpRetryOptions.retryAfterHeaders] in order; parses the
+ * first parseable value as seconds, RFC 1123 date, or milliseconds depending on the
+ * header name.
+ * **When to override:** to support additional server-specific pacing headers beyond those
+ * in [HttpRetryOptions.retryAfterHeaders].
  */
 open class DefaultRetryStep @JvmOverloads constructor(
     options: HttpRetryOptions = HttpRetryOptions(),
@@ -102,21 +142,16 @@ open class DefaultRetryStep @JvmOverloads constructor(
         var suppressed: MutableList<Throwable>? = null
 
         while (true) {
-            val attemptResult = runCatching { next.copy().process() }
+            val attemptResult = runOnce(next)
 
             if (attemptResult.isSuccess) {
                 val response = attemptResult.getOrThrow()
-                if (tryCount < options.maxRetries) {
-                    val condition = HttpRetryCondition(response, null, tryCount, suppressed.orEmpty())
-                    if (invokeShouldRetryResponse(condition)) {
-                        val delay = computeResponseDelay(condition)
-                        logRetry(tryCount, delay, response.status.code, cause = null, retrySequenceStartNanos)
-                        // Release the failed-response body's resources before we sleep.
-                        closeQuietly(response)
-                        sleepOrAbort(delay, suppressed)
-                        tryCount++
-                        continue
-                    }
+                val shouldRetry = tryCount < options.maxRetries &&
+                    decideRetryResponse(response, tryCount, suppressed, retrySequenceStartNanos)
+                if (shouldRetry) {
+                    closeQuietly(response)
+                    tryCount++
+                    continue
                 }
                 return response
             }
@@ -136,17 +171,8 @@ open class DefaultRetryStep @JvmOverloads constructor(
                 throw exception
             }
             if (tryCount < options.maxRetries) {
-                val condition = HttpRetryCondition(null, exception, tryCount, suppressed.orEmpty())
-                if (invokeShouldRetryException(condition)) {
-                    val delay = computeExceptionDelay(condition)
-                    logRetry(tryCount, delay, statusCode = -1, cause = exception, retrySequenceStartNanos)
-                    val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
-                    // Append the current exception BEFORE sleeping. If the sleep is
-                    // interrupted, `sleepOrAbort` throws InterruptedIOException with the
-                    // accumulator's exceptions attached as suppressed — recording the
-                    // current exception first means it's not silently lost on interrupt.
-                    accumulator.add(exception)
-                    sleepOrAbort(delay, accumulator)
+                val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
+                if (decideRetryException(exception, tryCount, accumulator, retrySequenceStartNanos)) {
                     tryCount++
                     continue
                 }
@@ -169,6 +195,62 @@ open class DefaultRetryStep @JvmOverloads constructor(
             throw if (exception is IOException) exception
             else IOException("HTTP pipeline failure", exception)
         }
+    }
+
+    /**
+     * Executes a single pipeline attempt and returns the result (success or exception)
+     * wrapped in a [Result]. Errors ([Error] subclasses) are NOT caught here — they
+     * propagate immediately per the SDK cancellation / error-handling contract.
+     */
+    private fun runOnce(next: PipelineNext): Result<Response> = runCatching { next.copy().process() }
+
+    /**
+     * Decides whether to retry after a successful (but retryable-status) response.
+     * If retry is warranted, sleeps for the computed delay and returns `true`.
+     * Returns `false` when the response should be returned to the caller as-is.
+     *
+     * The response is NOT closed here; the caller closes it after this method returns `true`.
+     */
+    private fun decideRetryResponse(
+        response: Response,
+        tryCount: Int,
+        suppressed: List<Throwable>?,
+        retrySequenceStartNanos: Long,
+    ): Boolean {
+        val condition = HttpRetryCondition(response, null, tryCount, suppressed.orEmpty())
+        if (!invokeShouldRetryResponse(condition)) return false
+        val delay = computeResponseDelay(condition)
+        logRetry(tryCount, delay, response.status.code, cause = null, retrySequenceStartNanos)
+        // Release the failed-response body's resources before we sleep.
+        sleepOrAbort(delay, suppressed)
+        return true
+    }
+
+    /**
+     * Decides whether to retry after an exception. If retry is warranted, records the
+     * exception into [accumulator], sleeps for the computed delay, and returns `true`.
+     * Returns `false` when the exception should be rethrown as the terminal failure.
+     *
+     * The current exception is appended to [accumulator] BEFORE sleeping so that an
+     * interrupt during sleep doesn't silently discard it.
+     */
+    private fun decideRetryException(
+        exception: Exception,
+        tryCount: Int,
+        accumulator: MutableList<Throwable>,
+        retrySequenceStartNanos: Long,
+    ): Boolean {
+        val condition = HttpRetryCondition(null, exception, tryCount, accumulator)
+        if (!invokeShouldRetryException(condition)) return false
+        val delay = computeExceptionDelay(condition)
+        logRetry(tryCount, delay, statusCode = -1, cause = exception, retrySequenceStartNanos)
+        // Append the current exception BEFORE sleeping. If the sleep is
+        // interrupted, `sleepOrAbort` throws InterruptedIOException with the
+        // accumulator's exceptions attached as suppressed — recording the
+        // current exception first means it's not silently lost on interrupt.
+        accumulator.add(exception)
+        sleepOrAbort(delay, accumulator)
+        return true
     }
 
     /**
@@ -200,10 +282,10 @@ open class DefaultRetryStep @JvmOverloads constructor(
         invokeShouldRetry(options.shouldRetryException, condition)
 
     private fun invokeShouldRetry(
-        predicate: (HttpRetryCondition) -> Boolean,
+        predicate: HttpRetryConditionPredicate,
         condition: HttpRetryCondition,
     ): Boolean = try {
-        predicate(condition)
+        predicate.shouldRetry(condition)
     } catch (t: Throwable) {
         // Error subclasses still rethrown; an OOM in the predicate must not be wrapped.
         if (t is Error) throw t
@@ -234,7 +316,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
     }
 
     private fun invokeDelayFromCondition(condition: HttpRetryCondition): Duration? = try {
-        options.delayFromCondition(condition)
+        options.delayFromCondition.delayFor(condition)
     } catch (t: Throwable) {
         if (t is Error) throw t
         // Don't fail the whole pipeline if the user override misbehaves — fall back to

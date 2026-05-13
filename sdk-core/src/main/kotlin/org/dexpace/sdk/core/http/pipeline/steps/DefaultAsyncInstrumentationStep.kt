@@ -85,13 +85,7 @@ class DefaultAsyncInstrumentationStep @JvmOverloads constructor(
         )
         val startNanos = clock.monotonic()
 
-        val requestBody = request.body
-        val wrappedRequestBody = if (shouldCaptureBody() && requestBody != null) {
-            LoggableRequestBody(requestBody)
-        } else null
-        val outgoing = if (wrappedRequestBody != null) {
-            request.newBuilder().body(wrappedRequestBody).build()
-        } else request
+        val (outgoing, wrappedRequestBody) = buildOutgoingRequest(request)
 
         // Synchronous portion is wrapped in the MDC-aware scope. The scope closes BEFORE
         // the future's continuation runs — so the response/failure events emitted in
@@ -118,41 +112,89 @@ class DefaultAsyncInstrumentationStep @JvmOverloads constructor(
 
         val capturedMdc = mdc
         return downstream.handle { raw, err ->
-            val elapsedMs = elapsedMillis(startNanos)
-            if (err != null) {
-                // CompletableFuture wraps with CompletionException; unwrap so events see the original.
-                val cause = Futures.unwrap(err)
-                capturedMdc.withMdc {
-                    emitFailureEvent(outgoing, redactedUrl, cause, elapsedMs, wrappedRequestBody)
-                    recordMetrics(request, statusCode = -1, elapsedMs, errorType = cause::class.java.simpleName ?: "Throwable")
-                    span.end(cause)
-                }
-                // Re-throw via the future graph — handle's return becomes the new value/completion.
-                // B4: The CompletionException wrap is correct per CompletableFuture.join() semantics:
-                // join() rethrows a stored CompletionException as-is and the unwrap chain via
-                // Futures.unwrap exposes the original cause. RuntimeException / Error are rethrown
-                // directly since join() would not re-wrap them. Callers should use Futures.unwrap()
-                // or asBlocking() for the original-cause guarantee.
-                throw when {
-                    cause is RuntimeException -> cause
-                    cause is Error -> cause
-                    else -> CompletionException(cause)
-                }
-            } else {
-                capturedMdc.withMdc {
-                    val wrapped = wrapResponseForLogging(raw)
-                    emitResponseEvent(outgoing, wrapped, redactedUrl, elapsedMs, wrappedRequestBody)
-                    recordMetrics(request, statusCode = wrapped.status.code, elapsedMs, errorType = null)
-                    span.end()
-                    wrapped
-                }
+            handleCompletion(
+                span = span,
+                mdc = capturedMdc,
+                raw = raw,
+                err = err,
+                startNanos = startNanos,
+                request = request,
+                outgoing = outgoing,
+                redactedUrl = redactedUrl,
+                wrappedRequestBody = wrappedRequestBody,
+            )
+        }
+    }
+
+    /**
+     * Wraps the request body in a [LoggableRequestBody] when body capture is enabled.
+     * Returns the (possibly rewritten) outgoing request and the wrapper (or null when
+     * capture is disabled or the original request has no body).
+     */
+    private fun buildOutgoingRequest(request: Request): Pair<Request, LoggableRequestBody?> {
+        val requestBody = request.body
+        val wrappedRequestBody = if (shouldCaptureBody() && requestBody != null) {
+            LoggableRequestBody(requestBody)
+        } else null
+        val outgoing = if (wrappedRequestBody != null) {
+            request.newBuilder().body(wrappedRequestBody).build()
+        } else request
+        return outgoing to wrappedRequestBody
+    }
+
+    /**
+     * Handles completion of the downstream future (either success or failure).
+     * Emits the appropriate instrumentation events, records metrics, ends the span,
+     * and returns the (possibly logging-wrapped) response on success or re-throws on failure.
+     *
+     * This is the body of the `.handle { raw, err -> … }` callback, extracted to keep
+     * [processAsync] within the line-count budget.
+     */
+    private fun handleCompletion(
+        span: Span,
+        mdc: MdcSnapshot,
+        raw: Response?,
+        err: Throwable?,
+        startNanos: Long,
+        request: Request,
+        outgoing: Request,
+        redactedUrl: String,
+        wrappedRequestBody: LoggableRequestBody?,
+    ): Response {
+        val elapsedMs = elapsedMillis(startNanos)
+        if (err != null) {
+            // CompletableFuture wraps with CompletionException; unwrap so events see the original.
+            val cause = Futures.unwrap(err)
+            mdc.withMdc {
+                emitFailureEvent(outgoing, redactedUrl, cause, elapsedMs, wrappedRequestBody)
+                recordMetrics(request, statusCode = -1, elapsedMs, errorType = cause::class.java.simpleName ?: "Throwable")
+                span.end(cause)
+            }
+            // Re-throw via the future graph — handle's return becomes the new value/completion.
+            // B4: The CompletionException wrap is correct per CompletableFuture.join() semantics:
+            // join() rethrows a stored CompletionException as-is and the unwrap chain via
+            // Futures.unwrap exposes the original cause. RuntimeException / Error are rethrown
+            // directly since join() would not re-wrap them. Callers should use Futures.unwrap()
+            // or asBlocking() for the original-cause guarantee.
+            throw when {
+                cause is RuntimeException -> cause
+                cause is Error -> cause
+                else -> CompletionException(cause)
+            }
+        } else {
+            return mdc.withMdc {
+                val wrapped = wrapResponseForLogging(raw!!)
+                emitResponseEvent(outgoing, wrapped, redactedUrl, elapsedMs, wrappedRequestBody)
+                recordMetrics(request, statusCode = wrapped.status.code, elapsedMs, errorType = null)
+                span.end()
+                wrapped
             }
         }
     }
 
     // ===== Helpers duplicated from DefaultInstrumentationStep =====
     // Duplication is intentional for this commit.
-    // TODO(maintainability): extract InstrumentationEmitters shared helper
+    // TODO(omar 2026-08-01): extract InstrumentationEmitters shared helper used by both DefaultInstrumentationStep and DefaultAsyncInstrumentationStep
 
     private fun shouldCaptureBody(): Boolean = options.logLevel == HttpLogLevel.BODY_AND_HEADERS
 

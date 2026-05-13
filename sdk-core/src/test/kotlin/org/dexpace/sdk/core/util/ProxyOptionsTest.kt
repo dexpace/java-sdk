@@ -2,6 +2,7 @@ package org.dexpace.sdk.core.util
 
 import org.dexpace.sdk.core.config.ConfigurationBuilder
 import org.dexpace.sdk.core.http.auth.AuthenticateChallenge
+import org.dexpace.sdk.core.http.auth.AuthorizationHeader
 import org.dexpace.sdk.core.http.auth.ChallengeHandler
 import org.dexpace.sdk.core.http.request.Method
 import java.net.InetSocketAddress
@@ -902,17 +903,13 @@ class ProxyOptionsTest {
     }
 
     @Test
-    fun `static bridge for compileGlob via internal sdk_core mangled name`() {
-        // `internal fun compileGlob` is `@JvmStatic` on the Companion, so Kotlin emits a
-        // mangled static bridge on `ProxyOptions` named `compileGlob$sdk_core`. The unmangled
-        // `compileGlob` name is not exposed.
-        val method = ProxyOptions::class.java.getMethod(
-            "compileGlob\$sdk_core",
-            String::class.java,
-        )
-        val pattern = method.invoke(null, "*.example.com")
-        assertNotNull(pattern)
-        assertTrue(pattern is java.util.regex.Pattern)
+    fun `compileGlob is accessible from Kotlin as a companion function`() {
+        // `internal fun compileGlob` lives on the Companion object. Without @JvmStatic
+        // there is no static bridge on the outer class; callers use Kotlin accessor syntax.
+        val pattern = ProxyOptions.compileGlob("*.example.com")
+        // Verify the result is a non-null compiled regex.
+        assertTrue(pattern.matcher("api.example.com").matches())
+        assertFalse(pattern.matcher("api.other.com").matches())
     }
 
     // ----- Stub ChallengeHandler for tests -----
@@ -923,7 +920,7 @@ class ProxyOptionsTest {
             uri: URI,
             challenges: List<AuthenticateChallenge>,
             isProxy: Boolean,
-        ): Pair<String, String>? = if (isProxy) "Proxy-Authorization" to "stub" else null
+        ): AuthorizationHeader? = if (isProxy) AuthorizationHeader("Proxy-Authorization", "stub") else null
 
         override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean = true
     }

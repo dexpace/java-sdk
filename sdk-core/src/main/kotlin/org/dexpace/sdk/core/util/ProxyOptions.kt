@@ -142,7 +142,7 @@ class ProxyOptions @JvmOverloads constructor(
                         .field("host", sysHost)
                         .field("port", port)
                         .cause(t)
-                        .log("Invalid proxy address; ignoring")
+                        .field("message", "Invalid proxy address; ignoring").log()
                     null
                 }
             }
@@ -166,7 +166,7 @@ class ProxyOptions @JvmOverloads constructor(
                     .event("proxy.config.invalid")
                     .field("url", url)
                     .cause(t)
-                    .log("Could not parse proxy URL; ignoring")
+                    .field("message", "Could not parse proxy URL; ignoring").log()
                 return null
             }
 
@@ -175,7 +175,7 @@ class ProxyOptions @JvmOverloads constructor(
                 logger.atWarning()
                     .event("proxy.config.invalid")
                     .field("url", url)
-                    .log("Proxy URL has no host; ignoring")
+                    .field("message", "Proxy URL has no host; ignoring").log()
                 return null
             }
 
@@ -188,46 +188,55 @@ class ProxyOptions @JvmOverloads constructor(
                     .event("proxy.config.invalid")
                     .field("url", url)
                     .field("port", rawPort)
-                    .log("Proxy URL port out of range; ignoring")
+                    .field("message", "Proxy URL port out of range; ignoring").log()
                 return null
             }
 
-            // Userinfo may be `user`, `user:pass`, or absent. Split at the first colon — the
-            // password may itself contain colons, so a naive partition-style split is wrong.
-            val userinfo = uri.userInfo
-            val user: String?
-            val pass: String?
-            if (userinfo.isNullOrEmpty()) {
-                user = null
-                pass = null
-            } else {
-                val colon = userinfo.indexOf(':')
-                if (colon >= 0) {
-                    user = userinfo.substring(0, colon)
-                    pass = userinfo.substring(colon + 1)
-                } else {
-                    user = userinfo
-                    pass = null
-                }
-            }
+            val (user, pass) = extractUserInfo(uri.userInfo)
+            return buildOptions(host, rawPort, user, pass, nonProxyHosts)
+        }
 
-            return try {
-                ProxyOptions(
-                    type = Type.HTTP,
-                    address = InetSocketAddress(host, rawPort),
-                    nonProxyHosts = nonProxyHosts,
-                    username = user,
-                    password = pass,
-                )
-            } catch (t: IllegalArgumentException) {
-                logger.atWarning()
-                    .event("proxy.config.invalid")
-                    .field("host", host)
-                    .field("port", rawPort)
-                    .cause(t)
-                    .log("Invalid proxy address; ignoring")
-                null
+        /**
+         * Splits a URI `userinfo` component (`user`, `user:pass`, or absent) into a
+         * username / password pair. The password may contain colons, so the split is on
+         * the first colon only.
+         */
+        private fun extractUserInfo(userinfo: String?): Pair<String?, String?> {
+            if (userinfo.isNullOrEmpty()) return null to null
+            val colon = userinfo.indexOf(':')
+            return if (colon >= 0) {
+                userinfo.substring(0, colon) to userinfo.substring(colon + 1)
+            } else {
+                userinfo to null
             }
+        }
+
+        /**
+         * Constructs a [ProxyOptions] for the given [host] / [port] / credential triple.
+         * Returns null and logs at warning when [InetSocketAddress] rejects the arguments.
+         */
+        private fun buildOptions(
+            host: String,
+            port: Int,
+            user: String?,
+            pass: String?,
+            nonProxyHosts: List<String>,
+        ): ProxyOptions? = try {
+            ProxyOptions(
+                type = Type.HTTP,
+                address = InetSocketAddress(host, port),
+                nonProxyHosts = nonProxyHosts,
+                username = user,
+                password = pass,
+            )
+        } catch (t: IllegalArgumentException) {
+            logger.atWarning()
+                .event("proxy.config.invalid")
+                .field("host", host)
+                .field("port", port)
+                .cause(t)
+                .field("message", "Invalid proxy address; ignoring").log()
+            null
         }
 
         /**
@@ -242,14 +251,14 @@ class ProxyOptions @JvmOverloads constructor(
             val sysProp = config.getProperty("http.nonProxyHosts")
             if (!sysProp.isNullOrEmpty()) {
                 val parts = splitAndUnescape(sysProp, PROP_SPLIT, '|')
-                return if (parts.size == 1 && parts[0] == "*") Pair(emptyList(), true) else Pair(parts, false)
+                return if (parts.size == 1 && parts[0] == "*") emptyList<String>() to true else parts to false
             }
             val envVar = config.get(Configuration.NO_PROXY)
             if (!envVar.isNullOrEmpty()) {
                 val parts = splitAndUnescape(envVar, ENV_SPLIT, ',')
-                return if (parts.size == 1 && parts[0] == "*") Pair(emptyList(), true) else Pair(parts, false)
+                return if (parts.size == 1 && parts[0] == "*") emptyList<String>() to true else parts to false
             }
-            return Pair(emptyList(), false)
+            return emptyList<String>() to false
         }
 
         /**
@@ -272,21 +281,20 @@ class ProxyOptions @JvmOverloads constructor(
                 logger.atWarning()
                     .event("proxy.config.invalid")
                     .field("port", raw)
-                    .log("Proxy port is not numeric; ignoring")
+                    .field("message", "Proxy port is not numeric; ignoring").log()
                 return null
             }
             if (n < 0 || n > 65535) {
                 logger.atWarning()
                     .event("proxy.config.invalid")
                     .field("port", n)
-                    .log("Proxy port out of range; ignoring")
+                    .field("message", "Proxy port out of range; ignoring").log()
                 return null
             }
             return n
         }
 
         /** Converts a shell-style glob (`*.internal.example.com`, `127.*`) to a regex `Pattern`. */
-        @JvmStatic
         internal fun compileGlob(pattern: String): Pattern {
             val sb = StringBuilder(pattern.length + 8)
             for (c in pattern) {
