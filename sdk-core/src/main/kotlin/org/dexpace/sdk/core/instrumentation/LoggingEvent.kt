@@ -1,6 +1,7 @@
 package org.dexpace.sdk.core.instrumentation
 
 import java.util.concurrent.atomic.AtomicBoolean
+import org.slf4j.MDC
 
 /**
  * Fluent log-event builder returned by [ClientLogger.atError] / [atWarning] / [atInfo] / [atVerbose].
@@ -145,6 +146,23 @@ class LoggingEvent internal constructor(
         if (gc.isNotEmpty()) {
             for ((k, v) in gc) {
                 builder.addKeyValue(k, renderForLog(v))
+            }
+        }
+
+        // Fold SLF4J MDC into the structured event so trace.id / span.id set by an
+        // enclosing TracingScope (or any other MDC key set by the application) reaches
+        // log backends as structured fields, not just as %X{...} pattern lookups.
+        // Per-event fields (added below) take precedence: any MDC key whose name is
+        // already in the per-event `fields` map is skipped here so the event list does
+        // not carry duplicate KeyValuePair entries (which JSON appenders would emit as
+        // invalid duplicate-key JSON). The map lookup is O(1).
+        val mdcMap = MDC.getCopyOfContextMap()
+        if (mdcMap != null) {
+            val perEventKeys = fields
+            for ((k, v) in mdcMap) {
+                if (v != null && perEventKeys?.containsKey(k) != true) {
+                    builder.addKeyValue(k, v)
+                }
             }
         }
 

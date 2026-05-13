@@ -1,6 +1,10 @@
 package org.dexpace.sdk.core.instrumentation
 
+import org.slf4j.MDC
 import org.slf4j.event.Level
+import org.slf4j.spi.MDCAdapter
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -11,6 +15,26 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class LoggingEventTest {
+
+    // Saved before every test and restored after so that MDC tests installing
+    // BasicMDCAdapter do not bleed the non-nop adapter into the rest of the suite.
+    private var savedMdcAdapter: MDCAdapter? = null
+
+    @BeforeTest
+    fun saveMdcAdapter() {
+        savedMdcAdapter = MDC.getMDCAdapter()
+    }
+
+    @AfterTest
+    fun restoreMdcAdapter() {
+        MDC.clear()
+        val adapter = savedMdcAdapter
+        if (adapter != null) {
+            val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+            field.isAccessible = true
+            field.set(null, adapter)
+        }
+    }
 
     private fun enabledLogger(globalContext: Map<String, Any?> = emptyMap()): Pair<ClientLogger, FakeSlf4jLogger> {
         val fake = FakeSlf4jLogger(threshold = Level.TRACE)
@@ -467,6 +491,47 @@ class LoggingEventTest {
     fun `empty key rejected on Any field overload`() {
         val (logger, _) = enabledLogger()
         assertFailsWith<IllegalArgumentException> { logger.atInfo().field("", Any()) }
+    }
+
+    // -- SLF4J MDC folding -------------------------------------------------------------------
+    //
+    // These tests require a functional MDCAdapter. The class-level @BeforeTest / @AfterTest
+    // above save and restore the original adapter (plus clear MDC) around every test,
+    // so these two install BasicMDCAdapter explicitly and the teardown puts the nop adapter
+    // back — preventing state from bleeding into the rest of the suite.
+
+    @Test
+    fun `log folds MDC entries into the structured event`() {
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "abc123")
+        MDC.put("span.id", "def456")
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().event("test.event").log("hello")
+        val rec = fake.records.single()
+        val kv = rec.keyValues.toMap()
+        assertEquals("abc123", kv["trace.id"])
+        assertEquals("def456", kv["span.id"])
+        // Guard against Fix 2 regressing: there must be exactly one trace.id entry,
+        // not two (which would happen if the MDC entry were also emitted as a per-event
+        // field carrying the same key, producing a duplicate KeyValuePair).
+        val traceIdEntries = rec.keyValues.count { it.key == "trace.id" }
+        assertEquals(1, traceIdEntries, "expected exactly one trace.id entry; duplicate would mean Fix 2 regressed")
+    }
+
+    @Test
+    fun `per-event fields override MDC entries with the same key`() {
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "mdc-trace")
+        val (logger, fake) = enabledLogger()
+        logger.atInfo()
+            .event("test.event")
+            .field("trace.id", "event-trace")
+            .log("hello")
+        val rec = fake.records.single()
+        val kv = rec.keyValues.toMap()
+        assertEquals("event-trace", kv["trace.id"])
+        val traceIdEntries = rec.keyValues.count { it.key == "trace.id" }
+        assertEquals(1, traceIdEntries, "expected exactly one trace.id entry; duplicate would mean Fix 2 regressed")
     }
 
     // -- renderThrowable simpleName-null fallback --------------------------------------------

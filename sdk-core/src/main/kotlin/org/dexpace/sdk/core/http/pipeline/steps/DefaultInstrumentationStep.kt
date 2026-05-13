@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.LoggingEvent
 import org.dexpace.sdk.core.instrumentation.Span
 import org.dexpace.sdk.core.instrumentation.UrlRedactor
+import org.dexpace.sdk.core.instrumentation.makeCurrentWithLoggingContext
 import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
 import org.dexpace.sdk.core.instrumentation.metrics.LongCounter
 import org.dexpace.sdk.core.util.Clock
@@ -94,25 +95,25 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
             request.newBuilder().body(wrappedRequestBody).build()
         } else request
 
-        emitRequestEvent(outgoing, redactedUrl)
-
-        val response: Response
-        try {
-            response = next.process(outgoing)
-        } catch (t: Throwable) {
-            val elapsedMs = elapsedMillis(startNanos)
-            emitFailureEvent(outgoing, redactedUrl, t, elapsedMs, wrappedRequestBody)
-            recordMetrics(request, statusCode = -1, elapsedMs, errorType = t::class.java.simpleName ?: "Throwable")
-            span.end(t)
-            throw t
+        val response: Response = span.makeCurrentWithLoggingContext().use {
+            emitRequestEvent(outgoing, redactedUrl)
+            try {
+                val raw = next.process(outgoing)
+                val wrapped = wrapResponseForLogging(raw)
+                val elapsedMs = elapsedMillis(startNanos)
+                emitResponseEvent(outgoing, wrapped, redactedUrl, elapsedMs, wrappedRequestBody)
+                recordMetrics(request, statusCode = wrapped.status.code, elapsedMs, errorType = null)
+                span.end()
+                wrapped
+            } catch (t: Throwable) {
+                val elapsedMs = elapsedMillis(startNanos)
+                emitFailureEvent(outgoing, redactedUrl, t, elapsedMs, wrappedRequestBody)
+                recordMetrics(request, statusCode = -1, elapsedMs, errorType = t::class.java.simpleName ?: "Throwable")
+                span.end(t)
+                throw t
+            }
         }
-
-        val wrapped = wrapResponseForLogging(response)
-        val elapsedMs = elapsedMillis(startNanos)
-        emitResponseEvent(outgoing, wrapped, redactedUrl, elapsedMs, wrappedRequestBody)
-        recordMetrics(request, statusCode = wrapped.status.code, elapsedMs, errorType = null)
-        span.end()
-        return wrapped
+        return response
     }
 
     private fun shouldCaptureBody(): Boolean = options.logLevel == HttpLogLevel.BODY_AND_HEADERS

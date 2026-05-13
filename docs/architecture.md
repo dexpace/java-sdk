@@ -245,6 +245,10 @@ optional extension modules.
 The Java source tree contains the concrete OpenTelemetry integration and fallback
 implementations.
 
+## Log correlation
+
+Log correlation is wired through SLF4J MDC: `Span.makeCurrentWithLoggingContext()` pushes `trace.id` / `span.id` for the scope, and `LoggingEvent.log()` folds MDC into every emitted event as structured fields. MDC is per-thread; callers using `CompletableFuture` chains or coroutines must propagate explicitly (see `TracingScope` KDoc).
+
 ### Generics and Utilities
 
 | Type              | Package    | Role                                        |
