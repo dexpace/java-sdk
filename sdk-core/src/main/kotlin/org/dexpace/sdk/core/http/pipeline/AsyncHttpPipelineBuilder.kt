@@ -1,7 +1,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
-import org.slf4j.LoggerFactory
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 
 /**
  * Async counterpart of [HttpPipelineBuilder]. Mirrors the same API verbatim but typed over
@@ -14,10 +14,12 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     internal val steps: StagedSteps<AsyncHttpStep> = StagedSteps(
         stageOf = AsyncHttpStep::stage,
         onPillarReplaced = { stage, prev, next ->
-            LOG.warn(
-                "async.pipeline.pillar.replaced stage={} previous={} replacement={}",
-                stage, prev::class.simpleName, next::class.simpleName,
-            )
+            LOG.atWarning()
+                .event("async.pipeline.pillar.replaced")
+                .field("stage", stage.name)
+                .field("previous", prev::class.simpleName ?: "<anonymous>")
+                .field("replacement", next::class.simpleName ?: "<anonymous>")
+                .log()
         },
     )
 
@@ -91,7 +93,7 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
 
     companion object {
         @PublishedApi
-        internal val LOG = LoggerFactory.getLogger(AsyncHttpPipelineBuilder::class.java)
+        internal val LOG = ClientLogger(AsyncHttpPipelineBuilder::class)
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic

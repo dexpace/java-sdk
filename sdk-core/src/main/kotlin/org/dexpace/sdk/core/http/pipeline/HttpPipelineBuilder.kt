@@ -1,7 +1,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.HttpClient
-import org.slf4j.LoggerFactory
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 
 /**
  * Mutable builder for [HttpPipeline]. Steps are organised by their declared [Stage]:
@@ -23,10 +23,12 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
     internal val steps: StagedSteps<HttpStep> = StagedSteps(
         stageOf = HttpStep::stage,
         onPillarReplaced = { stage, prev, next ->
-            LOG.warn(
-                "pipeline.pillar.replaced stage={} previous={} replacement={}",
-                stage, prev::class.simpleName, next::class.simpleName,
-            )
+            LOG.atWarning()
+                .event("pipeline.pillar.replaced")
+                .field("stage", stage.name)
+                .field("previous", prev::class.simpleName ?: "<anonymous>")
+                .field("replacement", next::class.simpleName ?: "<anonymous>")
+                .log()
         },
     )
 
@@ -115,7 +117,7 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
 
     companion object {
         @PublishedApi
-        internal val LOG = LoggerFactory.getLogger(HttpPipelineBuilder::class.java)
+        internal val LOG = ClientLogger(HttpPipelineBuilder::class)
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
