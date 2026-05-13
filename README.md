@@ -87,7 +87,7 @@ It is intentionally not part of the hand-written Kotlin surface.
 | [I/O Module](docs/io.md) | I/O contracts and the `IoProvider` seam |
 | [HTTP Body Logging & Concurrency](docs/http-body-logging-and-concurrency.md) | Body logging system, concurrency model, thread safety |
 | [Pipeline Mechanism](docs/pipelines.md) | Pipeline architecture, stages, step composition, async pipeline |
-| [Style Guides](styleguide/) | Kotlin and Kotlin-on-JVM style guides this codebase follows |
+| [Style Guides](styleguide/README.md) | Kotlin and Kotlin-on-JVM style guides this codebase follows |
 
 ## Quick Start
 
