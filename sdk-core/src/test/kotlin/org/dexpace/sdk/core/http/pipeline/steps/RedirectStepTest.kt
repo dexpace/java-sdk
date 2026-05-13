@@ -237,26 +237,101 @@ class RedirectStepTest {
         assertEquals(2, fake.callCount)
     }
 
+    // ----------------- Resource lifecycle on loop detection -----------------
+
+    @Test
+    fun `loop detection closes the response before returning`() {
+        // a → b → a: the second response (pointing back to /x) should be closed by loop
+        // detection before it is returned to the caller.
+        val closedCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val client = LoopDetectionTrackingClient(closedCount)
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRedirectStep())
+            .build()
+
+        val response = pipeline.send(getRequest("https://a.example.com/x"))
+        // The loop-detected response is returned; it must have been closed by the step.
+        assertEquals(302, response.status.code)
+        assertTrue(
+            closedCount.get() >= 1,
+            "loop-detected response must be closed before returning; closed=${closedCount.get()}",
+        )
+    }
+
+    @Test
+    fun `exception from recreateRedirectRequest closes current response before propagating`() {
+        // Force an IllegalStateException via a 307 redirect with a non-replayable body AND
+        // allowedMethods that permit POST — recreateRedirectRequest throws before returning.
+        val closedCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val client = ThrowOnRecreateTrackingClient(closedCount)
+        val pipeline = HttpPipelineBuilder(client)
+            .append(
+                DefaultRedirectStep(
+                    HttpRedirectOptions(
+                        allowedMethods = java.util.EnumSet.allOf(Method::class.java),
+                    ),
+                ),
+            )
+            .build()
+
+        val nonReplayable = object : RequestBody() {
+            override fun mediaType() = MediaType.parse("text/plain")
+            override fun contentLength(): Long = 5
+            override fun isReplayable(): Boolean = false
+            override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {
+                sink.write("hello".toByteArray(Charsets.UTF_8))
+            }
+        }
+
+        val request = Request.builder()
+            .method(Method.POST)
+            .url("https://api.example.com/v1")
+            .body(nonReplayable)
+            .build()
+
+        assertFailsWith<IllegalStateException> {
+            pipeline.send(request)
+        }
+        assertTrue(
+            closedCount.get() >= 1,
+            "response must be closed when recreateRedirectRequest throws; closed=${closedCount.get()}",
+        )
+    }
+
     // ----------------- Max attempts -----------------
 
     @Test
-    fun `max attempts returns the last redirect response without throwing`() {
-        // maxAttempts = 2 + 3 redirects in a row → after 2 redirect hops, return the 3rd.
+    fun `max hops returns the last redirect response without throwing`() {
+        // maxHops = 2 + 3 redirects in a row → after 2 redirect hops, return the 3rd.
         val fake = FakeHttpClient()
             .enqueue { status(301).header("Location", "https://api.example.com/2") }
             .enqueue { status(301).header("Location", "https://api.example.com/3") }
             .enqueue { status(301).header("Location", "https://api.example.com/4") }
 
         val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRedirectStep(HttpRedirectOptions(maxAttempts = 2)))
+            .append(DefaultRedirectStep(HttpRedirectOptions(maxHops = 2)))
             .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/1"))
-        // After two redirect hops we hit maxAttempts; the returned response is the third
+        // After two redirect hops we hit maxHops; the returned response is the third
         // (last) 301 — the redirect itself, not its target.
         assertEquals(301, response.status.code)
         assertEquals("https://api.example.com/4", response.headers.get(HttpHeaderName.LOCATION))
         assertEquals(3, fake.callCount)
+    }
+
+    @Test
+    fun `maxHops zero disables redirect following entirely`() {
+        val fake = FakeHttpClient()
+            .enqueue { status(301).header("Location", "https://api.example.com/v2") }
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep(HttpRedirectOptions(maxHops = 0)))
+            .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/v1"))
+        assertEquals(301, response.status.code)
+        assertEquals(1, fake.callCount)
     }
 
     // ----------------- Location header edge cases -----------------
@@ -748,6 +823,69 @@ class RedirectStepTest {
         override fun contentLength(): Long = 0
         override fun source(): org.dexpace.sdk.core.io.BufferedSource =
             fail("not expected to read this body in close-tracking test")
+
+        override fun close() {
+            closedCounter.incrementAndGet()
+        }
+    }
+
+    /**
+     * Returns redirect responses that track [close] calls so the loop-detection branch can
+     * be verified to close the response. Call sequence: first call returns 302 pointing to /y,
+     * second call returns 302 pointing back to /x (triggering the loop-detection branch).
+     */
+    private class LoopDetectionTrackingClient(
+        private val closedCounter: java.util.concurrent.atomic.AtomicInteger,
+    ) : HttpClient {
+        private var calls = 0
+
+        override fun execute(request: Request): Response {
+            calls++
+            val headersBuilder = org.dexpace.sdk.core.http.common.Headers.Builder()
+            val location = if (calls == 1) "https://a.example.com/y" else "https://a.example.com/x"
+            headersBuilder.add("Location", location)
+            return Response.builder()
+                .request(request)
+                .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                .status(org.dexpace.sdk.core.http.response.Status.fromCode(302))
+                .headers(headersBuilder.build())
+                .body(CloseCountingBody(closedCounter))
+                .build()
+        }
+    }
+
+    /**
+     * Returns a 307 redirect on the first call; subsequent calls return 200. The close counter
+     * is incremented whenever the step closes the redirect response.  The request carries a
+     * non-replayable body so `recreateRedirectRequest` throws [IllegalStateException].
+     */
+    private class ThrowOnRecreateTrackingClient(
+        private val closedCounter: java.util.concurrent.atomic.AtomicInteger,
+    ) : HttpClient {
+        private var calls = 0
+
+        override fun execute(request: Request): Response {
+            calls++
+            val headersBuilder = org.dexpace.sdk.core.http.common.Headers.Builder()
+            headersBuilder.add("Location", "https://api.example.com/v2")
+            val statusCode = if (calls == 1) 307 else 200
+            return Response.builder()
+                .request(request)
+                .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                .status(org.dexpace.sdk.core.http.response.Status.fromCode(statusCode))
+                .headers(headersBuilder.build())
+                .body(CloseCountingBody(closedCounter))
+                .build()
+        }
+    }
+
+    private class CloseCountingBody(
+        private val closedCounter: java.util.concurrent.atomic.AtomicInteger,
+    ) : org.dexpace.sdk.core.http.response.ResponseBody() {
+        override fun mediaType(): MediaType? = null
+        override fun contentLength(): Long = 0
+        override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+            fail("not expected to read this body in close-counting test")
 
         override fun close() {
             closedCounter.incrementAndGet()

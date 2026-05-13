@@ -17,7 +17,7 @@ import java.util.Locale
 
 /**
  * Default [RedirectStep]. Follows 301, 302, 307, and 308 responses (303 opt-in via
- * [HttpRedirectOptions.follow303]) up to [HttpRedirectOptions.maxAttempts] hops.
+ * [HttpRedirectOptions.follow303]) up to [HttpRedirectOptions.maxHops] hops.
  *
  * ## Security
  *
@@ -46,13 +46,13 @@ import java.util.Locale
  * Every visited URI (starting with the original request) is recorded in a
  * `LinkedHashSet<String>`. If a redirect would revisit a URI already in the set, the
  * current response is returned without throwing — the caller can inspect the 3xx itself.
- * [HttpRedirectOptions.maxAttempts] is the second line of defense.
+ * [HttpRedirectOptions.maxHops] is the second line of defense.
  *
  * ## Performance
  *
- * - Iterative loop — stack-safe regardless of [HttpRedirectOptions.maxAttempts].
+ * - Iterative loop — stack-safe regardless of [HttpRedirectOptions.maxHops].
  * - [HttpRedirectCondition] is allocated only when [HttpRedirectOptions.shouldRedirect]
- *   is non-null, or after passing the cheap status-code prefilter.
+ *   is non-null, or after passing the cheap status-code pre-filter.
  * - URL parsing uses [java.net.URI] for `resolve(...)`; the result is short-lived.
  *
  * ## Thread-safety
@@ -74,7 +74,7 @@ open class DefaultRedirectStep @JvmOverloads constructor(
         var current: Response = next.copy().process()
         var attempts = 0
 
-        while (attempts < options.maxAttempts) {
+        while (attempts < options.maxHops) {
             if (!isRedirectStatus(current.status.code)) return current
 
             val condition = HttpRedirectCondition(current, attempts, seenUris)
@@ -82,11 +82,17 @@ open class DefaultRedirectStep @JvmOverloads constructor(
                 ?: defaultShouldRedirect(condition)
             if (!shouldRedirect) return current
 
-            val nextRequest = recreateRedirectRequest(current) ?: return current
+            val nextRequest = try {
+                recreateRedirectRequest(current)
+            } catch (t: Throwable) {
+                current.close()
+                throw t
+            } ?: return current
             val nextUrlString = nextRequest.url.toString()
             if (!seenUris.add(nextUrlString)) {
                 // Cycle detected — return the current redirect response rather than looping.
                 logRedirectLoop(current, nextRequest)
+                current.close()
                 return current
             }
             logRedirectHop(current, nextRequest, attempts)
@@ -263,7 +269,9 @@ open class DefaultRedirectStep @JvmOverloads constructor(
         logger.atInfo()
             .event("http.redirect")
             .field("http.response.status_code", response.status.code.toLong())
-            .field("http.redirect.attempt", attempt.toLong())
+            // Log as 1-based so "attempt 1" is the first redirect hop; the internal counter
+            // remains 0-based to keep the while-loop condition simple.
+            .field("http.redirect.attempt", (attempt + 1).toLong())
             .field("url.from", safeRedact(response.request.url))
             .field("url.to", safeRedact(nextRequest.url))
             .log()

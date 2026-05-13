@@ -35,6 +35,13 @@ class SetDateStep @JvmOverloads constructor(
         return next.process(stamped)
     }
 
+    /**
+     * Formats the current instant as an RFC 1123 date-time string.
+     *
+     * Falls back to `DateTimeFormatter.RFC_1123_DATE_TIME` if the primary formatter throws
+     * on a fringe `Instant`; the fallback path is intentionally silent (no log) to stay
+     * allocation-light on the hot path.
+     */
     private fun formatNow(): String {
         // Sample `clock.now()` exactly once so the primary and fallback formatters agree on
         // the instant even if the wall clock advances between calls.

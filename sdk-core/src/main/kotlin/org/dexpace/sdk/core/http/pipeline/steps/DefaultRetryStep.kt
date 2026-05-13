@@ -143,6 +143,11 @@ open class DefaultRetryStep @JvmOverloads constructor(
             // `IllegalStateException` (from a misbehaving `shouldRetry` predicate, say)
             // would silently bypass that catch. Wrap any non-IO exception so the
             // checked-exception contract is honored.
+            //
+            // Non-`IOException` causes are wrapped in `IOException("HTTP pipeline failure", cause)`
+            // to honor the `@Throws(IOException::class)` contract; the original cause is
+            // attached via the standard Java chained-exception mechanism so callers can
+            // retrieve it via `Throwable.getCause()`.
             throw if (exception is IOException) exception
             else IOException("HTTP pipeline failure", exception)
         }

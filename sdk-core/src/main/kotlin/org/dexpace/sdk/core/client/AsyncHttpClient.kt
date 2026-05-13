@@ -69,6 +69,8 @@ fun HttpClient.asAsync(executor: Executor = ForkJoinPool.commonPool()): AsyncHtt
  * and unwrapping the [CompletionException] so callers see the original exception. The current
  * thread blocks until the future completes — pair with virtual threads (JDK 21+) to keep
  * carrier threads available.
+ *
+ * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
 fun AsyncHttpClient.asBlocking(): HttpClient = HttpClient { request ->
     try {

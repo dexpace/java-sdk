@@ -8,7 +8,7 @@ import java.util.EnumSet
  * Configuration for [DefaultRedirectStep].
  *
  * Defaults mirror Azure Core's redirect policy:
- *  - [maxAttempts] = 3 hops before the step returns the last response without throwing.
+ *  - [maxHops] = 3 hops before the step returns the last response without throwing.
  *  - [allowedMethods] = `{GET, HEAD}` — only idempotent methods follow redirects by default,
  *    preventing accidental re-issue of `POST` against a different URI.
  *  - [locationHeader] = `Location` — overridable for service-specific custom headers.
@@ -23,7 +23,11 @@ import java.util.EnumSet
  * loop detection.
  */
 class HttpRedirectOptions @JvmOverloads constructor(
-    val maxAttempts: Int = 3,
+    /**
+     * Maximum number of redirect hops followed after the initial request; 0 disables
+     * redirect following entirely.
+     */
+    val maxHops: Int = 3,
     val allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
     val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
     val follow303: Boolean = false,

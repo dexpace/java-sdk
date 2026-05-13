@@ -90,7 +90,17 @@ open class BearerTokenAuthStep @JvmOverloads constructor(
      * **before** this method's own null check fires. The defensive check here remains for
      * platforms / contexts where intrinsics are disabled.
      */
-    @Suppress("UNNECESSARY_NOT_NULL_ASSERTION", "UNCHECKED_CAST", "RedundantNullableReturnType")
+    @Suppress(
+        // `as BearerToken?` widens the non-nullable SAM return to nullable so the
+        // compiler won't insert an implicit not-null assertion before our explicit
+        // check; without the cast the compiler would throw NPE before we can surface
+        // a friendlier IllegalStateException from the `?:` below.
+        "UNCHECKED_CAST",
+        // The local variable is intentionally typed as nullable (`BearerToken?`) even
+        // though the declared SAM return is non-null, to prevent the compiler from
+        // eliding the null check that follows.
+        "RedundantNullableReturnType",
+    )
     private fun fetchFresh(): BearerToken {
         val fetched: BearerToken? = provider.fetch(scopes) as BearerToken?
         return fetched ?: error("BearerTokenProvider returned null")
