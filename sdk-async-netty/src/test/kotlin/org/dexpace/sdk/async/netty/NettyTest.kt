@@ -8,11 +8,15 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.slf4j.MDC
+import org.slf4j.helpers.BasicMDCAdapter
+import org.slf4j.spi.MDCAdapter
 import java.io.IOException
 import java.net.URL
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -77,6 +81,44 @@ class NettyTest {
         assertTrue(cancelled.get(), "cancelling the Netty promise should cancel the source CompletableFuture")
     }
 
+    @Test
+    fun `mdc propagates from caller to sync transport via executeNetty`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "netty-transport-test")
+        try {
+            val seenTraceId = AtomicReference<String?>()
+            val async = AsyncHttpClient { request ->
+                seenTraceId.set(MDC.get("trace.id"))
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+            val nettyFuture = async.executeNetty(getRequest(), executor)
+            nettyFuture.get(2, TimeUnit.SECONDS)
+            assertEquals("netty-transport-test", seenTraceId.get())
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `mdc is preserved on caller thread after executeNetty completes`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "netty-caller-preserve")
+        try {
+            val async = AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+            async.executeNetty(getRequest(), executor)
+                .get(2, TimeUnit.SECONDS)
+            assertEquals("netty-caller-preserve", MDC.get("trace.id"))
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
     private fun getRequest(): Request = Request.builder()
         .method(Method.GET)
         .url(URL("https://api.example.com/"))
@@ -87,4 +129,18 @@ class NettyTest {
         .protocol(Protocol.HTTP_1_1)
         .status(Status.fromCode(code))
         .build()
+}
+
+private fun installBasicMdcAdapter() {
+    val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+    field.isAccessible = true
+    if (field.get(null) !is BasicMDCAdapter) {
+        field.set(null, BasicMDCAdapter())
+    }
+}
+
+private fun restoreMdcAdapter(adapter: MDCAdapter?) {
+    val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")
+    field.isAccessible = true
+    field.set(null, adapter)
 }

@@ -14,8 +14,8 @@ dependencies {
     implementation("io.netty:netty-common:4.1.115.Final")
 
     testImplementation(kotlin("test"))
-    testRuntimeOnly("org.slf4j:slf4j-api:2.0.17")
-    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
+    testImplementation("org.slf4j:slf4j-api:2.0.17")
+    testImplementation("org.slf4j:slf4j-nop:2.0.17")
 }
 
 tasks.test {

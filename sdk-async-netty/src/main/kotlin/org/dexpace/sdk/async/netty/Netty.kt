@@ -7,6 +7,7 @@ import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.MdcSnapshot
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
 
@@ -25,6 +26,13 @@ private val LOG = ClientLogger("org.dexpace.sdk.async.netty.Netty")
  *
  * The promise is created and completed on [executor]; this matches Netty's threading model
  * where listener callbacks fire on the event executor that owns the promise.
+ *
+ * ## MDC propagation
+ *
+ * The Netty cancel-propagation listener fires on the EventExecutor's event-loop thread, not the
+ * caller's. SLF4J MDC entries from the caller are captured at [executeNetty] entry via
+ * [MdcSnapshot] and reinstated inside the listener so the emitted `async.adapter.cancel_propagated`
+ * log event carries `trace.id` / `span.id`.
  */
 fun AsyncHttpClient.executeNetty(request: Request, executor: EventExecutor): Future<Response> =
     executeAsync(request).bridgeToNetty(executor)
@@ -43,6 +51,7 @@ fun AsyncHttpPipeline.sendNetty(request: Request, executor: EventExecutor): Futu
 private fun CompletableFuture<Response>.bridgeToNetty(executor: EventExecutor): Future<Response> {
     val source = this
     val promise = executor.newPromise<Response>()
+    val mdc = MdcSnapshot.capture()
     source.whenComplete { response, error ->
         if (error != null) promise.setFailure(Futures.unwrap(error)) else promise.setSuccess(response)
     }
@@ -50,10 +59,12 @@ private fun CompletableFuture<Response>.bridgeToNetty(executor: EventExecutor): 
     promise.addListener {
         if (it.isCancelled && !source.isDone) {
             source.cancel(true)
-            LOG.atVerbose()
-                .event("async.adapter.cancel_propagated")
-                .field("adapter.type", "netty")
-                .log()
+            mdc.withMdc {
+                LOG.atVerbose()
+                    .event("async.adapter.cancel_propagated")
+                    .field("adapter.type", "netty")
+                    .log()
+            }
         }
     }
     return promise
