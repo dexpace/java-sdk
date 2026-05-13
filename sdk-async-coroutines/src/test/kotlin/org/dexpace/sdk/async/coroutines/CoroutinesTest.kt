@@ -91,13 +91,19 @@ class CoroutinesTest {
     }
 
     @Test
-    fun `completableFutureOf bridges a suspending block into a future`() = runBlocking {
-        coroutineScope {
-            val future = completableFutureOf {
+    fun `completableFutureOf bridges a suspending block into a future`() {
+        // Use a Dispatchers.Default scope so future.get() (the Java-consumer pattern this
+        // bridge exists to serve) doesn't park the only dispatcher thread before the
+        // suspending block can complete.
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val future = scope.completableFutureOf {
                 delay(5)
                 42
             }
-            assertEquals(42, future.get())
+            assertEquals(42, future.get(2, TimeUnit.SECONDS))
+        } finally {
+            scope.cancel()
         }
     }
 

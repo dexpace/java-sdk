@@ -39,6 +39,13 @@ suspend fun AsyncHttpPipeline.send(request: Request): Response = sendAsync(reque
  * Cancellation of the returned future cancels the coroutine launched in [scope] (the bridge's
  * contract). The [context] parameter passes through to the underlying builder for dispatcher
  * selection at the bridge boundary.
+ *
+ * **Dispatcher footgun.** With the default [EmptyCoroutineContext], the future's coroutine
+ * inherits [scope]'s dispatcher. If [scope] is single-threaded (e.g. rooted in `runBlocking`)
+ * and the caller uses a blocking consumer like [CompletableFuture.get], the consumer parks
+ * the only dispatcher thread and the coroutine cannot progress — deadlock. Pass an explicit
+ * non-blocking dispatcher such as [Dispatchers.Default] when consumers will block, or use
+ * `await()` from `kotlinx-coroutines-jdk8` inside a coroutine.
  */
 fun <T> CoroutineScope.completableFutureOf(
     context: CoroutineContext = EmptyCoroutineContext,
