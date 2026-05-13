@@ -17,8 +17,8 @@ dependencies {
     // SSE tests use the real OkioIoProvider as the input source — the okio adapter only
     // takes a dependency on sdk-core, so there's no module cycle.
     testImplementation(project(":sdk-io-okio3"))
-    testImplementation("org.slf4j:slf4j-api:2.0.17")
-    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
+    testImplementation("org.slf4j:slf4j-api:2.0.18")
+    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
 }
 
 tasks.test {
