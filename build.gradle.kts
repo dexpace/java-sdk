@@ -10,7 +10,7 @@ plugins {
     // Kover is applied to the root so it can aggregate coverage across subprojects. Each
     // subproject opts in via `plugins { id("org.jetbrains.kotlinx.kover") }`; the root
     // collates their `kover.xml` / `kover.html` reports into one combined view.
-    id("org.jetbrains.kotlinx.kover") version "0.9.1"
+    id("org.jetbrains.kotlinx.kover") version "0.9.8"
 }
 
 group = "org.dexpace"
