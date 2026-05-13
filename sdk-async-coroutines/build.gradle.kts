@@ -14,12 +14,12 @@ dependencies {
     // `kotlinx-coroutines-core` provides `suspend` machinery; `-jdk8` adds the
     // `CompletableFuture.await()` extension and `coroutineScope.future { ... }` builder that
     // bridge in both directions between coroutines and `CompletableFuture`.
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-slf4j:1.11.0")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     // slf4j-api is testImplementation (not testRuntimeOnly) so MDC tests can reference
     // org.slf4j.MDC and org.slf4j.helpers.BasicMDCAdapter at compile time. slf4j-nop is
     // the runtime binding; MDC functionality in tests is provided via the reflection-
