@@ -31,10 +31,18 @@ private val LOG = ClientLogger("org.dexpace.sdk.async.virtualthreads.VirtualThre
  * If you need cancellation that interrupts the blocking call, wrap in coroutines instead —
  * see [org.dexpace.sdk.async.coroutines.asAsyncCoroutines] and `runInterruptible` (style
  * guide §2.8).
+ *
+ * ## MDC propagation
+ *
+ * Every task submitted to the underlying virtual-thread executor is wrapped in an MDC
+ * capture-and-restore step (see [MdcAwareExecutor]) so log events emitted on the virtual
+ * thread carry the caller's `trace.id` / `span.id`. Virtual threads do not inherit MDC by
+ * default.
  */
 fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
     val executor = Executors.newVirtualThreadPerTaskExecutor()
-    val async = asAsync(executor)
+    val mdcAware = MdcAwareExecutor(executor)
+    val async = asAsync(mdcAware)
     return VirtualThreadAsyncHttpClient(async, executor)
 }
 

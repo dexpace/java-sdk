@@ -35,7 +35,11 @@ tasks.withType<KotlinCompile>().configureEach {
 dependencies {
     implementation(project(":sdk-core"))
     testImplementation(kotlin("test"))
-    testRuntimeOnly("org.slf4j:slf4j-api:2.0.17")
+    // slf4j-api is testImplementation (not testRuntimeOnly) so MDC tests can reference
+    // org.slf4j.MDC and org.slf4j.helpers.BasicMDCAdapter at compile time. slf4j-nop is
+    // the runtime binding; MDC functionality in tests is provided via the reflection-
+    // installed BasicMDCAdapter (see installBasicMdcAdapter() in each test file).
+    testImplementation("org.slf4j:slf4j-api:2.0.17")
     testRuntimeOnly("org.slf4j:slf4j-nop:2.0.17")
 }
 
