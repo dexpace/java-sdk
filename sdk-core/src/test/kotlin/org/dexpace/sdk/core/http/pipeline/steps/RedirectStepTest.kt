@@ -9,6 +9,9 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
+import org.dexpace.sdk.core.instrumentation.UrlRedactor
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FakeHttpClient
 import org.dexpace.sdk.io.OkioIoProvider
@@ -779,6 +782,38 @@ class RedirectStepTest {
         assertNull(reissued.headers.get("Content-Type"), "Content-Type must be stripped")
         assertNull(reissued.headers.get("Content-Length"), "Content-Length must be stripped")
         assertNull(reissued.headers.get("Content-Encoding"), "Content-Encoding must be stripped")
+    }
+
+    // ----------------- Diagnostic field coverage -----------------
+
+    @Test
+    fun `redirect hop computes from and target URLs correctly for redirect_from_url and redirect_target_url fields`() {
+        val fromUrl = "https://api.example.com/v1"
+        val targetUrl = "https://api.example.com/v2"
+
+        val fake = FakeHttpClient()
+            .enqueue { status(301).header("Location", targetUrl) }
+            .enqueue { status(200) }
+
+        val fakeSlf4j = FakeSlf4jLogger("test.redirect")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(DefaultRedirectStep(HttpRedirectOptions(), clientLogger))
+            .build()
+
+        pipeline.send(getRequest(fromUrl))
+
+        val redirectRecord = fakeSlf4j.records.first { rec ->
+            rec.keyValues.any { it.key == "event" && it.value == "http.redirect" }
+        }
+        val kv = redirectRecord.keyValues.associate { it.key to it.value }
+
+        val expectedFromUrl = UrlRedactor.redact(java.net.URL(fromUrl))
+        val expectedTargetUrl = UrlRedactor.redact(java.net.URL(targetUrl))
+
+        assertEquals(expectedFromUrl, kv["redirect.from_url"])
+        assertEquals(expectedTargetUrl, kv["redirect.target_url"])
     }
 
     // ----------------- Helpers -----------------

@@ -14,6 +14,8 @@ import org.dexpace.sdk.core.http.response.LoggableResponseBody
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
 import org.dexpace.sdk.core.instrumentation.NoopTracer
 import org.dexpace.sdk.core.instrumentation.Span
 import org.dexpace.sdk.core.instrumentation.Tracer
@@ -608,6 +610,44 @@ class InstrumentationStepTest {
         // pipeline still returns the response — the step swallows the log error.
         val response = pipeline.send(req)
         assertEquals(200, response.status.code)
+    }
+
+    @Test
+    fun `emit_request_failed error_phase is request_event`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+
+        val fake = FakeHttpClient().enqueue { status(200) }
+        val throwingBody = object : RequestBody() {
+            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+            override fun contentLength(): Long = throw IllegalStateException("contentLength unknown")
+            override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {}
+        }
+        val pipeline = HttpPipelineBuilder(fake)
+            .append(
+                DefaultInstrumentationStep(
+                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS),
+                    FixedClock(),
+                    clientLogger,
+                ),
+            )
+            .build()
+
+        val req = Request.builder()
+            .method(Method.POST)
+            .url("https://api.example.com/x")
+            .body(throwingBody)
+            .build()
+
+        // Pipeline must still complete — emitInstrumentationError swallows the log failure.
+        val response = pipeline.send(req)
+        assertEquals(200, response.status.code)
+
+        val warningRecord = fakeSlf4j.records.first { rec ->
+            rec.keyValues.any { it.key == "event" && it.value == "http.instrumentation.emit_request_failed" }
+        }
+        val kv = warningRecord.keyValues.associate { it.key to it.value }
+        assertEquals("request_event", kv["error.phase"])
     }
 
     @Test

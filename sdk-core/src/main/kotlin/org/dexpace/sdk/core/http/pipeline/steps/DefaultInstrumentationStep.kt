@@ -53,9 +53,8 @@ import java.io.IOException
 class DefaultInstrumentationStep @JvmOverloads constructor(
     private val options: HttpInstrumentationOptions = HttpInstrumentationOptions(),
     private val clock: Clock = Clock.SYSTEM,
+    internal val logger: ClientLogger = ClientLogger(DefaultInstrumentationStep::class),
 ) : InstrumentationStep() {
-
-    private val logger = ClientLogger(DefaultInstrumentationStep::class)
 
     // Lazily constructed so a step instance never installed in a pipeline doesn't pay
     // the counter/histogram registration cost. `PUBLICATION` mode avoids the synchronized
@@ -150,7 +149,7 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
             appendHeadersFields(ev, request.headers, prefix = "http.request.header.")
             ev.log()
         } catch (t: Throwable) {
-            emitInstrumentationError("http.instrumentation.emit_request_failed", t)
+            emitInstrumentationError("http.instrumentation.emit_request_failed", "request_event", t)
         }
     }
 
@@ -189,7 +188,7 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
             }
             ev.log()
         } catch (t: Throwable) {
-            emitInstrumentationError("http.instrumentation.emit_response_failed", t)
+            emitInstrumentationError("http.instrumentation.emit_response_failed", "response_event", t)
         }
     }
 
@@ -216,7 +215,7 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
             }
             ev.log()
         } catch (t: Throwable) {
-            emitInstrumentationError("http.instrumentation.emit_failure_failed", t)
+            emitInstrumentationError("http.instrumentation.emit_failure_failed", "failure_event", t)
         }
     }
 
@@ -277,12 +276,13 @@ class DefaultInstrumentationStep @JvmOverloads constructor(
         return String(bytes, Charsets.UTF_8)
     }
 
-    private fun emitInstrumentationError(event: String, t: Throwable) {
+    private fun emitInstrumentationError(event: String, phase: String, t: Throwable) {
         // Best-effort secondary log. If this also throws, swallow — we're inside the logging
         // path already, and a thrown exception would corrupt the outer caller's flow.
         try {
             logger.atWarning()
                 .event(event)
+                .field("error.phase", phase)
                 .field("error.type", t.javaClass.simpleName ?: "Throwable")
                 .cause(t)
                 .log()

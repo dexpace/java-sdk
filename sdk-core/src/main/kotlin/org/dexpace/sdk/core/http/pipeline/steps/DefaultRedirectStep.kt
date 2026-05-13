@@ -62,9 +62,8 @@ import java.util.Locale
  */
 open class DefaultRedirectStep @JvmOverloads constructor(
     private val options: HttpRedirectOptions = HttpRedirectOptions(),
+    internal val logger: ClientLogger = ClientLogger(DefaultRedirectStep::class),
 ) : RedirectStep() {
-
-    private val logger = ClientLogger(DefaultRedirectStep::class)
 
     @Throws(IOException::class)
     override fun process(request: Request, next: PipelineNext): Response {
@@ -274,6 +273,8 @@ open class DefaultRedirectStep @JvmOverloads constructor(
             .field("http.redirect.attempt", (attempt + 1).toLong())
             .field("url.from", safeRedact(response.request.url))
             .field("url.to", safeRedact(nextRequest.url))
+            .field("redirect.from_url", safeRedact(response.request.url))
+            .field("redirect.target_url", safeRedact(nextRequest.url))
             .log()
     }
 

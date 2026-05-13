@@ -14,6 +14,8 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FakeHttpClient
@@ -1231,6 +1233,65 @@ class RetryStepTest {
         assertEquals(503, response.status.code)
         // Default is 3 retries → 1 original + 3 retries = 4 calls.
         assertEquals(4, fake.callCount)
+    }
+
+    // ----------------- Diagnostic field coverage -----------------
+
+    @Test
+    fun `retry on IOException emits retry_cause_class with exception simple name`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.retry")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+
+        val attempts = AtomicInteger(0)
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                val n = attempts.incrementAndGet()
+                if (n < 2) throw IOException("net")
+                return okResponse(request)
+            }
+        }
+
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock(), clientLogger))
+            .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+
+        val retryRecord = fakeSlf4j.records.first { rec ->
+            rec.keyValues.any { it.key == "event" && it.value == "http.retry" }
+        }
+        val kv = retryRecord.keyValues.associate { it.key to it.value }
+        assertEquals("IOException", kv["retry.cause_class"])
+    }
+
+    @Test
+    fun `retry emits non-negative total_elapsed_ms`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.retry")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+
+        val clock = FixedClock()
+        val attempts = AtomicInteger(0)
+        val client = object : HttpClient {
+            override fun execute(request: Request): Response {
+                val n = attempts.incrementAndGet()
+                if (n < 2) throw IOException("net")
+                return okResponse(request)
+            }
+        }
+
+        val pipeline = HttpPipelineBuilder(client)
+            .append(DefaultRetryStep(HttpRetryOptions(), clock, clientLogger))
+            .build()
+
+        pipeline.send(getRequest())
+
+        val retryRecord = fakeSlf4j.records.first { rec ->
+            rec.keyValues.any { it.key == "event" && it.value == "http.retry" }
+        }
+        val kv = retryRecord.keyValues.associate { it.key to it.value }
+        val elapsedMs = kv["retry.total_elapsed_ms"] as Long
+        assertTrue(elapsedMs >= 0L, "retry.total_elapsed_ms must be non-negative; got $elapsedMs")
     }
 
     // ----------------- Helpers -----------------

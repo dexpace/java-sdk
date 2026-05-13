@@ -67,9 +67,8 @@ import java.util.concurrent.ThreadLocalRandom
 open class DefaultRetryStep @JvmOverloads constructor(
     options: HttpRetryOptions = HttpRetryOptions(),
     private val clock: Clock = Clock.SYSTEM,
+    internal val logger: ClientLogger = ClientLogger(DefaultRetryStep::class),
 ) : RetryStep() {
-
-    private val logger = ClientLogger(DefaultRetryStep::class)
 
     /**
      * Effective options. `maxRetries < 0` is clamped to [DEFAULT_MAX_RETRIES] at
@@ -80,6 +79,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
     @Throws(IOException::class)
     override fun process(request: Request, next: PipelineNext): Response {
         var tryCount = 0
+        val retrySequenceStartNanos = clock.monotonic()
         // Lazily allocated on first failure so the success path never pays for the list.
         var suppressed: MutableList<Throwable>? = null
 
@@ -92,7 +92,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
                     val condition = HttpRetryCondition(response, null, tryCount, suppressed.orEmpty())
                     if (invokeShouldRetryResponse(condition)) {
                         val delay = computeResponseDelay(condition)
-                        logRetry(tryCount, delay, response.status.code, cause = null)
+                        logRetry(tryCount, delay, response.status.code, cause = null, retrySequenceStartNanos)
                         // Release the failed-response body's resources before we sleep.
                         closeQuietly(response)
                         sleepOrAbort(delay, suppressed)
@@ -121,7 +121,7 @@ open class DefaultRetryStep @JvmOverloads constructor(
                 val condition = HttpRetryCondition(null, exception, tryCount, suppressed.orEmpty())
                 if (invokeShouldRetryException(condition)) {
                     val delay = computeExceptionDelay(condition)
-                    logRetry(tryCount, delay, statusCode = -1, cause = exception)
+                    logRetry(tryCount, delay, statusCode = -1, cause = exception, retrySequenceStartNanos)
                     val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
                     // Append the current exception BEFORE sleeping. If the sleep is
                     // interrupted, `sleepOrAbort` throws InterruptedIOException with the
@@ -387,16 +387,18 @@ open class DefaultRetryStep @JvmOverloads constructor(
 
     // --------------- Logging ---------------
 
-    private fun logRetry(tryCount: Int, delay: Duration, statusCode: Int, cause: Throwable?) {
+    private fun logRetry(tryCount: Int, delay: Duration, statusCode: Int, cause: Throwable?, sequenceStartNanos: Long) {
         val event = logger.atInfo()
             .event("http.retry")
             .field("http.retry.try_count", tryCount.toLong())
             .field("http.retry.delay_ms", delay.toMillis())
+            .field("retry.total_elapsed_ms", (clock.monotonic() - sequenceStartNanos) / 1_000_000L)
         if (statusCode > 0) {
             event.field("http.response.status_code", statusCode.toLong())
         }
         if (cause != null) {
             event.field("error.type", cause::class.java.simpleName ?: "Throwable")
+                .field("retry.cause_class", cause::class.simpleName ?: "Throwable")
                 .cause(cause)
         }
         event.log()
