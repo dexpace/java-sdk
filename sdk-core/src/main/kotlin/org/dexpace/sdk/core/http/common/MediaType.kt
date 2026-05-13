@@ -53,8 +53,9 @@ data class MediaType private constructor(
      * in a try/catch.
      *
      * The lookup is case-insensitive: `UTF-8`, `utf-8`, and `Utf-8` all resolve to the same
-     * [Charset]. The raw parameter value (with its original casing) is passed to
-     * [Charset.forName], which handles case-insensitive matching per the JDK contract.
+     * [Charset]. The parameter value is lower-cased before being passed to [Charset.forName],
+     * normalising the cache key. The JDK accepts any case, but lowercasing here ensures a
+     * consistent canonical form for comparison and logging purposes.
      */
     val charset: Charset?
         get() = parameters["charset"]?.let { charsetValue ->

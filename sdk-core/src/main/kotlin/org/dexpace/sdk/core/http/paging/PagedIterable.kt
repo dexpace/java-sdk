@@ -97,6 +97,12 @@ class PagedIterable<T> @JvmOverloads constructor(
      * The iterator owns the pages it pulls through [byPage] and closes each one once its
      * items are exhausted — callers don't need to manage page lifecycle when iterating by
      * item.
+     *
+     * **Error propagation.** If `pages.next()` throws, the exception propagates immediately
+     * to the caller. Because Kotlin's `AbstractIterator` transitions to FAILED state after
+     * an exception escapes `computeNext`, subsequent calls to `hasNext()` throw
+     * `IllegalArgumentException` from the AbstractIterator machinery. Callers that need
+     * to detect the cause of the failure should catch the original exception on first throw.
      */
     override fun iterator(): Iterator<T> = object : AbstractIterator<T>() {
         private val pages = byPage().iterator()
@@ -113,6 +119,9 @@ class PagedIterable<T> @JvmOverloads constructor(
                     done()
                     return
                 }
+                // Any exception from pages.next() propagates directly to the caller.
+                // AbstractIterator transitions to FAILED state, so further hasNext() calls
+                // raise IllegalArgumentException — this is the correct fail-fast behavior.
                 val next = pages.next()
                 currentPage = next
                 currentItems = next.value.iterator()

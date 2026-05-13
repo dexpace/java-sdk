@@ -21,6 +21,15 @@ import java.util.regex.Pattern
  *
  * When both [username] / [password] and [challengeHandler] are supplied, [challengeHandler]
  * wins — it is strictly more flexible (Digest support).
+ *
+ * ## Bypass-all semantics (breaking change from pre-v2 API)
+ *
+ * The previous API used a `listOf("*")` sentinel value in [nonProxyHosts] to signal
+ * "bypass the proxy for every host". That sentinel has been replaced by the explicit
+ * [bypassAllHosts] flag. Callers that previously checked `nonProxyHosts == listOf("*")`
+ * must now check `bypassAllHosts == true` instead. The [nonProxyHosts] list is now a
+ * real host-pattern allow-list and `"*"` in it is treated as a glob matching any host,
+ * not as the bypass-all sentinel.
  */
 class ProxyOptions @JvmOverloads constructor(
     val type: Type,
@@ -29,12 +38,29 @@ class ProxyOptions @JvmOverloads constructor(
     val username: String? = null,
     val password: String? = null,
     val challengeHandler: ChallengeHandler? = null,
+    /**
+     * When `true`, the proxy is bypassed for every host regardless of [nonProxyHosts].
+     * Corresponds to `NO_PROXY=*` or `http.nonProxyHosts=*` in the environment.
+     *
+     * **Breaking change:** the previous sentinel `listOf("*")` in [nonProxyHosts] has
+     * been replaced by this flag. [fromConfiguration] sets this when the configuration
+     * specifies a bare `"*"` wildcard, and returns `null` so the caller routes directly
+     * without a proxy. When constructing [ProxyOptions] directly, set this flag rather
+     * than placing `"*"` in [nonProxyHosts].
+     */
+    val bypassAllHosts: Boolean = false,
 ) {
     // Pre-compiled at construction so per-request matches don't re-compile.
     private val nonProxyPatterns: List<Pattern> = nonProxyHosts.map { compileGlob(it) }
 
-    /** True if [host] matches any of the configured `nonProxyHosts` patterns. */
-    fun bypassesProxy(host: String): Boolean = nonProxyPatterns.any { it.matcher(host).matches() }
+    /**
+     * Returns `true` if [host] should bypass the proxy.
+     *
+     * Short-circuits immediately when [bypassAllHosts] is set. Otherwise checks whether
+     * [host] matches any of the configured [nonProxyHosts] glob patterns.
+     */
+    fun bypassesProxy(host: String): Boolean =
+        bypassAllHosts || nonProxyPatterns.any { it.matcher(host).matches() }
 
     /**
      * Renders the proxy configuration without leaking credentials. [username] and [password]
@@ -96,9 +122,9 @@ class ProxyOptions @JvmOverloads constructor(
             val sysPassword = config.getProperty("https.proxyPassword")
 
             // Resolve non-proxy host list with system property winning over env var.
-            val nonProxyHosts = resolveNonProxyHosts(config)
+            val (nonProxyHosts, bypassAll) = resolveNonProxyHosts(config)
             // NO_PROXY = "*" (or sysprop equivalent) → bypass everything; no proxy applies.
-            if (nonProxyHosts == BYPASS_ALL) return null
+            if (bypassAll) return null
 
             if (!sysHost.isNullOrEmpty()) {
                 val port = parsePort(sysPortRaw) ?: return null
@@ -208,21 +234,22 @@ class ProxyOptions @JvmOverloads constructor(
          * Resolves the effective non-proxy host list.
          *
          * System property `http.nonProxyHosts` (pipe-separated) wins over env var
-         * `NO_PROXY` (comma-separated). Returns [BYPASS_ALL] when the configured value is
-         * a single `*` — caller treats this as "no proxy applies to anything".
+         * `NO_PROXY` (comma-separated). Returns a pair of (hostList, bypassAll) where
+         * `bypassAll` is `true` when the configured value is the single bare `*` wildcard
+         * — the caller returns `null` in that case so the consumer routes directly.
          */
-        private fun resolveNonProxyHosts(config: Configuration): List<String> {
+        private fun resolveNonProxyHosts(config: Configuration): Pair<List<String>, Boolean> {
             val sysProp = config.getProperty("http.nonProxyHosts")
             if (!sysProp.isNullOrEmpty()) {
                 val parts = splitAndUnescape(sysProp, PROP_SPLIT, '|')
-                return if (parts.size == 1 && parts[0] == "*") BYPASS_ALL else parts
+                return if (parts.size == 1 && parts[0] == "*") Pair(emptyList(), true) else Pair(parts, false)
             }
             val envVar = config.get(Configuration.NO_PROXY)
             if (!envVar.isNullOrEmpty()) {
                 val parts = splitAndUnescape(envVar, ENV_SPLIT, ',')
-                return if (parts.size == 1 && parts[0] == "*") BYPASS_ALL else parts
+                return if (parts.size == 1 && parts[0] == "*") Pair(emptyList(), true) else Pair(parts, false)
             }
-            return emptyList()
+            return Pair(emptyList(), false)
         }
 
         /**
@@ -277,13 +304,7 @@ class ProxyOptions @JvmOverloads constructor(
             return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE)
         }
 
-        /**
-         * Sentinel returned by [resolveNonProxyHosts] when the user requested "bypass everything"
-         * (`NO_PROXY=*` or `http.nonProxyHosts=*`). The caller in [fromConfiguration] checks
-         * structural equality (via `==`, which is `List.equals`) and returns null so the
-         * consumer routes directly — a `listOf("*")` from any other source compares equal and
-         * is treated identically.
-         */
-        private val BYPASS_ALL: List<String> = listOf("*")
+        // Note: the previous BYPASS_ALL sentinel (listOf("*")) has been replaced by the
+        // explicit bypassAllHosts: Boolean field on ProxyOptions. See the class-level KDoc.
     }
 }

@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -394,6 +395,29 @@ class PagedIterableTest {
         // Pulling further forces the nextPage call, which throws.
         val ex = assertFailsWith<IOException> { iterator.hasNext() }
         assertEquals("404 on next page", ex.message)
+    }
+
+    @Test
+    fun `exception from pages next() propagates to the caller on first throw`() {
+        // When pages.next() throws, the original exception must propagate to the caller.
+        // AbstractIterator transitions to FAILED state after the throw, so subsequent
+        // hasNext() calls raise IllegalArgumentException (not the original IOException).
+        val iterable = PagedIterable<Int>(
+            firstPage = { page(listOf(1), nextLink = "p2") },
+            nextPage = { _, _ -> throw IOException("persistent failure") },
+        )
+
+        val iterator = iterable.iterator()
+        assertTrue(iterator.hasNext())
+        assertEquals(1, iterator.next())
+
+        // First attempt to advance past page 1 propagates the original IOException.
+        val ex = assertFailsWith<IOException> { iterator.hasNext() }
+        assertEquals("persistent failure", ex.message)
+
+        // AbstractIterator is now in FAILED state; further calls throw its own exception.
+        val failedStateEx = assertFailsWith<IllegalArgumentException> { iterator.hasNext() }
+        assertNotNull(failedStateEx.message)
     }
 
     // ---------------------------------------------------------------------

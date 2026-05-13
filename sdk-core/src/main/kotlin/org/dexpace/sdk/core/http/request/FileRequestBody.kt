@@ -94,6 +94,11 @@ class FileRequestBody @JvmOverloads constructor(
     @Throws(IOException::class)
     override fun writeTo(sink: BufferedSink) {
         FileChannel.open(file, StandardOpenOption.READ).use { channel ->
+            // `Channels.newChannel(OutputStream)` returns a WritableByteChannel whose
+            // `close()` ALSO closes the underlying OutputStream (per JDK docs). We do NOT
+            // close `target` explicitly here because doing so would close `sink.outputStream()`,
+            // which is owned by the caller. The wrapper is not AutoCloseable-managed; it will
+            // be reclaimed by GC normally.
             val target = Channels.newChannel(sink.outputStream())
             var transferred = 0L
             while (transferred < count) {
@@ -119,6 +124,11 @@ class FileRequestBody @JvmOverloads constructor(
      * Windows the mapping is invalidated when the underlying file is deleted while the channel
      * is open. Hold the buffer reference for as long as you need to read from it, and drop it
      * promptly to allow the OS to release the file/page mapping.
+     *
+     * **Windows note.** On Windows, the file-backed mapping prevents exclusive open of the
+     * file (e.g. by other processes expecting exclusive access) while the mapping exists.
+     * Hold the returned [ByteBuffer] no longer than needed and allow it to become unreachable
+     * so the GC can release the mapping promptly.
      *
      * @throws IllegalStateException if [count] exceeds [Int.MAX_VALUE] (a single ByteBuffer
      *   cannot address more than ~2 GiB). Map smaller slices manually for larger files.

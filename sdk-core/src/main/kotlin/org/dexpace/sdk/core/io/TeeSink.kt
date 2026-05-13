@@ -90,11 +90,16 @@ internal class TeeSink(
         var total = 0L
         while (true) {
             val read = source.read(scratch, SCRATCH_BYTES)
-            // Guard against a Source returning 0 for a nonzero request — without this the
-            // loop would spin forever. We treat 0 as the end of the pump.
-            if (read <= 0L) break
-            drainScratch()
-            total += read
+            when {
+                read == -1L -> break  // EOF — normal termination
+                read == 0L -> throw IOException(
+                    "Source returned 0 for byteCount=$SCRATCH_BYTES which violates the Source.read contract"
+                )
+                else -> {
+                    drainScratch()
+                    total += read
+                }
+            }
         }
         return total
     }

@@ -62,11 +62,15 @@ data class Headers private constructor(
     fun contains(name: HttpHeaderName): Boolean = headersMap.containsKey(name.caseInsensitiveName)
 
     /**
-     * Returns an unmodifiable set of all header names.
+     * Returns an unmodifiable snapshot of all header names at the time of the call.
      *
-     * @return an unmodifiable set of header names
+     * Returns a defensive copy (`Set<String>`) so that callers cannot observe later
+     * mutations to this [Headers] instance through the returned set, and so that they
+     * cannot accidentally mutate the backing map by casting the return value.
+     *
+     * @return an immutable snapshot of header names
      */
-    fun names(): Set<String> = headersMap.keys
+    fun names(): Set<String> = headersMap.keys.toSet()
 
     /**
      * Returns an unmodifiable list of all header entries.

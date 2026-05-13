@@ -60,9 +60,10 @@ class ServerSentEventReader(private val source: BufferedSource) {
                 continue
             }
 
-            // Comment line: latest wins.
+            // Comment line: latest wins. Per WHATWG SSE §9.2.6 the optional single
+            // leading space after the `:` is stripped (same rule applied to field values).
             if (line[0] == ':') {
-                comment = line.substring(1)
+                comment = line.substring(1).removePrefix(" ")
                 hasField = true
                 continue
             }

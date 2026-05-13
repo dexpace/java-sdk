@@ -164,6 +164,16 @@ class AuthChallengeParserTest {
     }
 
     @Test
+    fun `parses Bearer token68 with single-pad base64 value cmVhbA=`() {
+        // Regression guard: `cmVhbA=` is a single-padded base64 token. The parser must
+        // recover from consuming the first `=` and re-read the whole value as token68.
+        val challenges = AuthChallengeParser.parse("Bearer cmVhbA=")
+        assertEquals(1, challenges.size)
+        assertEquals("bearer", challenges[0].scheme)
+        assertEquals("cmVhbA=", challenges[0].parameters["token68"])
+    }
+
+    @Test
     fun `parses token68 with mixed case base64 characters`() {
         val challenges = AuthChallengeParser.parse("Bearer ABC123")
         assertEquals(1, challenges.size)

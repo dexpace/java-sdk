@@ -103,18 +103,20 @@ class TeeSinkTest {
     }
 
     @Test
-    fun `writeAll over a Source that returns 0 short-circuits the pump`() {
-        // The `if (read <= 0L) break` guard prevents an infinite spin.
+    fun `writeAll throws on a misbehaving 0-returning source`() {
+        // Per the Source.read contract, returning 0 for a non-zero byteCount is a
+        // contract violation by the source. TeeSink must throw rather than spinning
+        // forever or silently truncating the payload.
         val f = Fixture()
         val zeroSource = object : Source {
             override fun read(sink: Buffer, byteCount: Long): Long = 0L
             override fun close() {}
         }
-        val n = f.tee.writeAll(zeroSource)
-        f.tee.flush()
-        assertEquals(0L, n)
-        assertEquals(0, f.primaryOut.toByteArray().size)
-        assertEquals(0L, f.tap.size)
+        val ex = assertFailsWith<IOException> { f.tee.writeAll(zeroSource) }
+        assertTrue(
+            ex.message?.contains("Source returned 0") == true,
+            "Expected contract-violation message, got: ${ex.message}",
+        )
     }
 
     @Test

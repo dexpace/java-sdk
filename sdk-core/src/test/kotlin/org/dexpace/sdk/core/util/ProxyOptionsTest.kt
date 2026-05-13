@@ -795,6 +795,74 @@ class ProxyOptionsTest {
         assertTrue(s.contains("password=null"), s)
     }
 
+    // ----- bypassAllHosts flag -----
+
+    @Test
+    fun `bypassAllHosts=true makes bypassesProxy return true for any host`() {
+        val po = ProxyOptions(
+            ProxyOptions.Type.HTTP,
+            InetSocketAddress("proxy", 8080),
+            bypassAllHosts = true,
+        )
+        assertTrue(po.bypassesProxy("api.example.com"))
+        assertTrue(po.bypassesProxy("localhost"))
+        assertTrue(po.bypassesProxy("127.0.0.1"))
+        assertTrue(po.bypassesProxy("completely-unrelated.org"))
+    }
+
+    @Test
+    fun `bypassAllHosts=false defers to nonProxyHosts list`() {
+        val po = ProxyOptions(
+            ProxyOptions.Type.HTTP,
+            InetSocketAddress("proxy", 8080),
+            nonProxyHosts = listOf("*.internal.com"),
+            bypassAllHosts = false,
+        )
+        assertTrue(po.bypassesProxy("api.internal.com"))
+        assertFalse(po.bypassesProxy("external.com"))
+    }
+
+    @Test
+    fun `bypassAllHosts defaults to false`() {
+        val po = ProxyOptions(ProxyOptions.Type.HTTP, InetSocketAddress("proxy", 8080))
+        assertFalse(po.bypassAllHosts)
+        assertFalse(po.bypassesProxy("any.host"))
+    }
+
+    @Test
+    fun `fromConfiguration NO_PROXY=star sets bypassAllHosts and returns null`() {
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                when (name) {
+                    "HTTPS_PROXY" -> "http://proxy:8080"
+                    "NO_PROXY" -> "*"
+                    else -> null
+                }
+            }
+            .propsSource { null }
+            .build()
+        // The bypass-all case causes fromConfiguration to return null (no proxy).
+        assertNull(ProxyOptions.fromConfiguration(cfg))
+    }
+
+    @Test
+    fun `fromConfiguration normal nonProxyHosts does not set bypassAllHosts`() {
+        val cfg = ConfigurationBuilder()
+            .envSource { name ->
+                when (name) {
+                    "HTTPS_PROXY" -> "http://proxy:8080"
+                    "NO_PROXY" -> "*.internal.com,localhost"
+                    else -> null
+                }
+            }
+            .propsSource { null }
+            .build()
+        val po = ProxyOptions.fromConfiguration(cfg)
+        assertNotNull(po)
+        assertFalse(po.bypassAllHosts)
+        assertEquals(listOf("*.internal.com", "localhost"), po.nonProxyHosts)
+    }
+
     // ----- Type enum values -----
 
     @Test

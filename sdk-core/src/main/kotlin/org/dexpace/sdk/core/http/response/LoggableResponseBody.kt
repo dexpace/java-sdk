@@ -149,22 +149,41 @@ class LoggableResponseBody @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Drains the delegate body into an in-memory [Buffer] and caches the result.
+     *
+     * The capture buffer is allocated inside the try block so that a provider failure
+     * is also caught and cached in [drainError]. When `delegate.source()` throws before
+     * `.use {}` is entered the source was never obtained, so the delegate remains open
+     * and a subsequent [close] will still close it — `delegateClosed` is only set to
+     * `true` when we know the source ownership chain has already been closed via `.use {}`.
+     *
+     * If `provider.buffer()` throws (rare; would indicate a misconfigured provider),
+     * the error is cached in [drainError] and an empty buffer is used as the fallback
+     * capture so [captured] is never left null.
+     */
     private fun drainAndCache(): Buffer {
-        val buf = provider.buffer()
+        var buf: Buffer? = null
+        var src: BufferedSource? = null
         try {
-            delegate.source().use { src -> buf.writeAll(src) }
-        } catch (t: Throwable) {
-            // Keep whatever was read so logging can still inspect the partial body. Surface
-            // the error on source() / re-throws; snapshot() returns the partial bytes.
-            drainError = t
-        } finally {
-            // `.use {}` closes the source on both success and failure; closing the source
-            // closes the delegate by ownership. Mark this unconditionally so close() does
-            // not double-close (some sockets / streams throw on the second close).
+            buf = provider.buffer()
+            src = delegate.source()        // may throw — if it does, delegate is NOT yet closed
+            src.use { buf.writeAll(it) }   // closes src (and via ownership the delegate) on exit
             delegateClosed = true
+        } catch (t: Throwable) {
+            // Keep whatever was read before the failure so logging can still inspect partial bytes.
+            drainError = t
+            // If src was obtained, .use{} already closed it (and the delegate via ownership).
+            // If src is null, delegate.source() threw — delegate stays open; close() will close it.
+            if (src != null) delegateClosed = true
         }
-        captured = buf
-        return buf
+        // Ensure captured is always non-null even when buf allocation itself failed.
+        // The second provider.buffer() call here is only reached when the first one threw
+        // (extremely rare), so if it also throws the exception propagates to the caller —
+        // acceptable since the SDK invariant "provider is well-behaved" is violated.
+        val result = buf ?: provider.buffer()
+        captured = result
+        return result
     }
 
     private fun Throwable.asIOException(): IOException =

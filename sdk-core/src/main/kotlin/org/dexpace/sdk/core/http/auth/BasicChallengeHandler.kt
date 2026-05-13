@@ -20,6 +20,11 @@ class BasicChallengeHandler(username: String, password: String) : ChallengeHandl
     private val authHeaderValue: String
 
     init {
+        // isNotEmpty (not isNotBlank) is intentional: RFC 7617 (Basic auth) permits
+        // whitespace-only credentials; the user-supplied string is transmitted as-is
+        // inside the Base64-encoded `username:password` pair. DigestChallengeHandler uses
+        // the stricter isNotBlank because RFC 7616 Digest credentials must be meaningful
+        // tokens. The inconsistency between the two handlers is per-spec.
         require(username.isNotEmpty()) { "username must not be empty" }
         require(password.isNotEmpty()) { "password must not be empty" }
         val encoded = Base64.getEncoder()

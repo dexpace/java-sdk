@@ -101,6 +101,30 @@ class ServerSentEventReaderTest {
     }
 
     @Test
+    fun `comment line with optional leading space strips that space per WHATWG spec`() {
+        // WHATWG SSE §9.2.6: `: hello` — the space after `:` is stripped.
+        val src = source(": hello\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertEquals("hello", event?.comment)
+    }
+
+    @Test
+    fun `comment line with no space after colon is preserved verbatim`() {
+        // `:hello` — no space to strip, value stays `hello`.
+        val src = source(":hello\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertEquals("hello", event?.comment)
+    }
+
+    @Test
+    fun `comment line with two spaces preserves one after stripping the first`() {
+        // `:  hello` — strip exactly one leading space, leaving ` hello`.
+        val src = source(":  hello\n\n")
+        val event = ServerSentEventReader(src).next()
+        assertEquals(" hello", event?.comment)
+    }
+
+    @Test
     fun `comment-only event is emitted because comment counts as a field`() {
         // Per implementation guardrail: comment lines DO count as 'hasField' so that
         // server keep-alives are visible. The spec is silent on whether to expose

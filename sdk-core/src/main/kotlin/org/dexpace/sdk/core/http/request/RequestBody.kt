@@ -62,6 +62,10 @@ abstract class RequestBody {
      * **The original body must be considered consumed after this method returns** — for
      * stream-backed bodies the underlying stream is exhausted by the buffering step.
      * Continue using the returned value, not `this`.
+     *
+     * **Partial-write failure.** If `writeTo(buffer)` throws, the original body has been
+     * partially consumed; the caller has no way to recover from this state. Callers should
+     * use `toReplayable` only when they trust the body's `writeTo` not to fail mid-write.
      */
     @JvmOverloads
     open fun toReplayable(provider: IoProvider = Io.provider): RequestBody {
@@ -173,6 +177,11 @@ abstract class RequestBody {
          * Creates a replayable `application/x-www-form-urlencoded` body from [formData].
          * The encoded byte array is computed once at construction and reused for every
          * write — no provider lookup is needed at send time.
+         *
+         * The [charset] parameter affects BOTH the byte encoding of form values AND the
+         * percent-encoding character set used by `URLEncoder.encode`. Non-UTF-8 charsets
+         * are rarely needed for `application/x-www-form-urlencoded` and may produce body
+         * bytes that are not interoperable with all servers; UTF-8 is the safe default.
          */
         @JvmStatic
         @JvmOverloads

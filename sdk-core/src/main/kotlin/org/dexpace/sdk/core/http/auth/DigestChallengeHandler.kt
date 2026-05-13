@@ -230,8 +230,14 @@ class DigestChallengeHandler @JvmOverloads constructor(
         return if (query != null) "$path?$query" else path
     }
 
-    /** Pads [count] to exactly 8 lower-case hex digits per RFC 7616 §3.4. */
-    private fun ncHex(count: Long): String = String.format(Locale.US, "%08x", count)
+    /**
+     * Pads [count] to exactly 8 lower-case hex digits per RFC 7616 §3.4.
+     *
+     * The low 32 bits of [count] are used so that when the nonce counter wraps past
+     * 2^32 the output remains exactly 8 hex characters rather than growing to 9+.
+     * Masking with `0xFFFFFFFFL` extracts the unsigned low 32 bits before formatting.
+     */
+    private fun ncHex(count: Long): String = String.format(Locale.US, "%08x", count and 0xFFFFFFFFL)
 
     /** Non-blocking cnonce: 16 hex chars (high 64 bits of a fresh type-4 UUID). */
     private fun generateCnonce(): String {

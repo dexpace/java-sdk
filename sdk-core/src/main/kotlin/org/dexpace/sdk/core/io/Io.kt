@@ -50,8 +50,9 @@ object Io {
      * `org.dexpace.sdk.core.testing.withProvider` (test-fixtures artifact) for scoped
      * overrides instead of double-installing.
      *
-     * The first install is unconditional; subsequent installs are checked under a lock so
-     * concurrent installs cannot race past each other.
+     * All installs are serialized under a [ReentrantLock]: the first install succeeds
+     * unconditionally; subsequent installs of the same instance are no-ops; subsequent
+     * installs of a different provider throw [IllegalStateException].
      */
     fun installProvider(provider: IoProvider) {
         lock.withLock {
