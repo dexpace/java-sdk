@@ -6,8 +6,11 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
+
+private val LOG = ClientLogger("org.dexpace.sdk.async.netty.Netty")
 
 /**
  * Wraps [AsyncHttpClient.executeAsync] in a Netty [Future]. The returned future fires its
@@ -45,7 +48,13 @@ private fun CompletableFuture<Response>.bridgeToNetty(executor: EventExecutor): 
     }
     // Forward Netty cancellation back to the source future. Listener fires on `executor`.
     promise.addListener {
-        if (it.isCancelled && !source.isDone) source.cancel(true)
+        if (it.isCancelled && !source.isDone) {
+            source.cancel(true)
+            LOG.atVerbose()
+                .event("async.adapter.cancel_propagated")
+                .field("adapter.type", "netty")
+                .log()
+        }
     }
     return promise
 }

@@ -6,9 +6,12 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.sse.ServerSentEvent
 import org.dexpace.sdk.core.http.sse.ServerSentEventReader
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.BufferedSource
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+
+private val LOG = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
 
 /**
  * Wraps [AsyncHttpClient.executeAsync] in a [Mono]. Each subscription invokes the supplier so
@@ -21,10 +24,34 @@ import reactor.core.publisher.Mono
  */
 fun AsyncHttpClient.executeMono(request: Request): Mono<Response> =
     Mono.fromFuture { executeAsync(request) }
+        .doOnSubscribe {
+            LOG.atVerbose()
+                .event("async.adapter.subscribed")
+                .field("adapter.type", "reactor")
+                .log()
+        }
+        .doOnCancel {
+            LOG.atVerbose()
+                .event("async.adapter.cancel_propagated")
+                .field("adapter.type", "reactor")
+                .log()
+        }
 
 /** Pipeline-level [Mono] facade — see [executeMono]. */
 fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> =
     Mono.fromFuture { sendAsync(request) }
+        .doOnSubscribe {
+            LOG.atVerbose()
+                .event("async.adapter.subscribed")
+                .field("adapter.type", "reactor")
+                .log()
+        }
+        .doOnCancel {
+            LOG.atVerbose()
+                .event("async.adapter.cancel_propagated")
+                .field("adapter.type", "reactor")
+                .log()
+        }
 
 /**
  * Exposes the SSE event stream as a Reactor [Flux]. Backpressure is honored via

@@ -10,9 +10,12 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
+
+private val LOG = ClientLogger("org.dexpace.sdk.async.coroutines.Coroutines")
 
 /**
  * Suspend-friendly facade over [AsyncHttpClient]. Returns the [Response] directly; the underlying
@@ -63,6 +66,13 @@ fun <T> CoroutineScope.completableFutureOf(
  * executor-based bridge) when the underlying [HttpClient] respects [Thread.interrupt] —
  * `runInterruptible` will then abort the in-flight call on cancellation.
  */
-fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient = AsyncHttpClient { request ->
-    scope.future { runInterruptible(Dispatchers.IO) { execute(request) } }
+fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient {
+    LOG.atVerbose()
+        .event("async.adapter.wrapped")
+        .field("adapter.type", "coroutines")
+        .field("scope.coroutineContext", scope.coroutineContext.toString())
+        .log()
+    return AsyncHttpClient { request ->
+        scope.future { runInterruptible(Dispatchers.IO) { execute(request) } }
+    }
 }

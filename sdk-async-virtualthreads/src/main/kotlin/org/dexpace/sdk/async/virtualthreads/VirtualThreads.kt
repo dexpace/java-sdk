@@ -5,9 +5,12 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.client.asAsync
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+
+private val LOG = ClientLogger("org.dexpace.sdk.async.virtualthreads.VirtualThreads")
 
 /**
  * Wraps a blocking [HttpClient] as an [AsyncHttpClient] backed by a virtual-thread-per-task
@@ -53,6 +56,10 @@ class VirtualThreadAsyncHttpClient internal constructor(
 
     /** Shuts down the virtual-thread executor and waits for in-flight tasks to complete. */
     override fun close() {
+        LOG.atInfo()
+            .event("executor.closed")
+            .field("adapter.type", "virtualthreads")
+            .log()
         executor.close()
     }
 }
