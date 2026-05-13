@@ -236,9 +236,9 @@ See [docs/pipelines.md](docs/pipelines.md) for the full step-author walkthrough.
 | Gradle | 9.3.1 |
 | `sdk-core` / okio3 / coroutines / reactor / netty JVM target | Java 8 |
 | `sdk-async-virtualthreads` JVM target | Java 21 |
-| SLF4J API | 2.0.17 (compileOnly) |
+| SLF4J API | 2.0.18 (compileOnly) |
 | Okio | 3.17.0 (`sdk-io-okio3`) |
-| kotlinx-coroutines | 1.9.0 (`sdk-async-coroutines`) |
-| Reactor Core | 3.7.0 (`sdk-async-reactor`) |
-| Netty Common | 4.1.115 (`sdk-async-netty`) |
-| Kotlinx Kover | 0.9.1 (coverage; root) |
+| kotlinx-coroutines | 1.11.0 (`sdk-async-coroutines`) |
+| Reactor Core | 3.8.5 (`sdk-async-reactor`) |
+| Netty Common | 4.2.13.Final (`sdk-async-netty`) |
+| Kotlinx Kover | 0.9.8 (coverage; root) |

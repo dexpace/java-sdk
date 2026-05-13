@@ -54,8 +54,10 @@ The SDK is built around these principles:
    `MediaType`) are immutable data classes. Mutation happens exclusively through builder
    APIs that produce new instances.
 
-5. **Performance through pooling**: The I/O layer uses a segment-based architecture with
-   lock-free recycling to minimize allocation pressure and enable zero-copy transfers.
+5. **Pluggable I/O**: `sdk-core` defines only I/O contracts (`Source`, `Sink`,
+   `BufferedSource`, `BufferedSink`, `Buffer`). Concrete I/O implementations live in
+   adapter modules (today: `sdk-io-okio3`). Performance characteristics are a property
+   of the chosen adapter, not of the core.
 
 ---
 
@@ -63,30 +65,35 @@ The SDK is built around these principles:
 
 ```
 java-sdk/
-  sdk-core/                           Single production module
+  sdk-core/                           Primary SDK module (Java 8 target)
     src/main/kotlin/                  Kotlin sources — primary API
       org/dexpace/sdk/core/
-        io/                           Segment-based I/O (11 files)
-        http/request/                 Request, RequestBody, Method (3 files)
-        http/response/                Response, ResponseBody, Status (3 files)
-        http/common/                  Headers, MediaType, Protocol (4 files)
-        http/logging/                 Body logging and capture (4 files)
-        http/context/                 Call/dispatch/request/exchange contexts (5 files)
-        pipeline/                     Pipeline orchestration (4 files)
-        pipeline/step/                Step interfaces and config traits (2 files)
-        client/                       HttpClient interface (1 file)
-        serde/                        Serialization abstractions (3 files)
-        instrumentation/              Tracing, spans, scopes (6 files)
-        generics/                     BuilderTrait (1 file)
-        util/                         Annotations (1 file)
-    src/main/java/                    Java sources — legacy/compat layer (367 files)
+        io/                           I/O contracts: Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink
+        http/request/                 Request, RequestBody, LoggableRequestBody, Method
+        http/response/                Response, ResponseBody, LoggableResponseBody, Status
+        http/common/                  Headers, MediaType, Protocol, CommonMediaTypes
+        http/context/                 Call/dispatch/request/exchange contexts
+        pipeline/                     Pipeline orchestration
+        pipeline/step/                Step interfaces and config traits
+        client/                       HttpClient interface (transport SPI)
+        serde/                        Serialization abstractions
+        instrumentation/              Tracing, spans, scopes, logging
+        generics/                     Builder<T>
+        util/                         SDK-level annotations
+    src/main/java/                    Java sources — legacy/compat layer (~367 files)
+
+  sdk-io-okio3/                       Okio 3.x IoProvider implementation (Java 8 target)
+  sdk-async-coroutines/               Kotlin coroutines adapter (Java 8 target)
+  sdk-async-reactor/                  Reactor Mono/Flux adapter (Java 8 target)
+  sdk-async-netty/                    Netty Future adapter (Java 8 target)
+  sdk-async-virtualthreads/           Virtual-thread executor adapter (Java 21 target)
+
   docs/                               Design documentation
 ```
 
-The project uses a **single-module** architecture (`sdk-core`). The Kotlin `internal`
-visibility modifier is module-scoped — splitting into multiple modules would expose
-implementation details (like `Segment`, `SegmentPool`, `RealBufferedSource`) that are
-intentionally hidden. Keeping everything in one module preserves encapsulation.
+All modules except `sdk-async-virtualthreads` target Java 8 bytecode. `sdk-async-virtualthreads` overrides the toolchain to JDK 21 because virtual threads require it; consumers of that module must be on JDK 21+.
+
+`sdk-core` defines only contracts and contains no concrete I/O implementation. Adapter modules depend on `sdk-core` and bring exactly one third-party library each; consumers pay only for what they use.
 
 ---
 
@@ -145,14 +152,17 @@ The HTTP layer is split into four sub-packages:
 | `CommonMediaTypes` | Constants for common media types (JSON, XML, form-urlencoded, etc.)            |
 | `Protocol`         | HTTP protocol version (HTTP/1.0, HTTP/1.1, HTTP/2, etc.)                       |
 
-#### `http.logging`
+#### Body logging (`http.request` / `http.response`)
 
-| Type                   | Role                                                                |
-|------------------------|---------------------------------------------------------------------|
-| `LoggableRequestBody`  | Tee-write wrapper — captures request bytes during write for logging |
-| `LoggableResponseBody` | Eager-buffering wrapper — repeatable reads + snapshot for logging   |
-| `BodySnapshot`         | Immutable body capture with text detection and preview generation   |
-| `BodySegment`          | Fixed-size chunk + handler callback for streaming observation       |
+`LoggableRequestBody` lives in `http.request`; `LoggableResponseBody` lives in `http.response`.
+There is no separate `http.logging` package.
+
+| Type                   | Package        | Role                                                                |
+|------------------------|----------------|---------------------------------------------------------------------|
+| `LoggableRequestBody`  | `http.request` | Tee-write wrapper — captures request bytes during write for logging |
+| `LoggableResponseBody` | `http.response`| Eager-buffering wrapper — repeatable reads + snapshot for logging   |
+| `BodySnapshot`         | `http.request` or `http.response` | Immutable body capture with text detection and preview generation |
+| `BodySegment`          | (shared)       | Fixed-size chunk + handler callback for streaming observation       |
 
 See [HTTP Body Logging & Concurrency](http-body-logging-and-concurrency.md) for full design
 documentation.
@@ -417,15 +427,16 @@ full advantage of virtual threads on Java 21+ without code changes.
 ### Internal Visibility
 
 Kotlin's `internal` modifier scopes visibility to the compilation module. The SDK uses
-this extensively to hide implementation details:
+this to hide implementation details:
 
-- `Segment`, `SegmentPool` — internal (callers interact with `Buffer`, not segments)
-- `RealBufferedSource`, `RealBufferedSink` — internal (callers use `Source.buffered()`)
-- `PeekSource` — internal (callers use `BufferedSource.peek()`)
-- `InputStreamSource`, `OutputStreamSink` — private (factory functions are public)
+- `sdk-core` / `io` package — `TeeSink` is `internal`; callers interact through `Buffer`,
+  `Source`, `Sink`, `BufferedSource`, `BufferedSink`, `IoProvider`, and `Io` (all public).
+- `sdk-io-okio3` — the concrete adapter classes (`OkioBuffer`, `OkioBufferedSource`,
+  `OkioBufferedSink`) are `internal`; only `OkioIoProvider` is public.
 
-This is a key reason the project uses a single module: splitting `io` into `sdk-io` would
-force these types to become `public`, breaking encapsulation.
+Concrete I/O implementations belong in adapter modules, not in `sdk-core`. This keeps the
+core dependency-free while still letting `internal` hide adapter internals within their
+respective modules.
 
 ### Cancellation
 

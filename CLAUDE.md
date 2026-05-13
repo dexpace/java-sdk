@@ -16,17 +16,21 @@ No linter is wired up yet — `ktlint` and `kover` are TODOs in the root `build.
 
 ## Repository Layout
 
-Two Gradle modules (see `settings.gradle.kts`):
+Six Gradle modules (see `settings.gradle.kts`):
 
 - **`sdk-core`** — the production SDK. Kotlin 2.3.21, **JVM target Java 8**, zero external deps beyond `slf4j-api` (compileOnly) and `kotlin-reflect`. Holds all the public API surface (`org.dexpace.sdk.core.*`). Contains a large `src/main/java` legacy/compat tree (~367 files) that backs generated service clients.
-- **`sdk-io-okio3`** — the Okio 3.x implementation of `sdk-core`'s I/O contracts. The **only** I/O adapter today; other adapters (Okio 2, plain java.io, custom) can be added by implementing one `IoProvider` interface. Uses a newer JVM toolchain than `sdk-core` (21+) and is **not** subject to the Java 8 constraint. Do not pull Okio types into `sdk-core`.
+- **`sdk-io-okio3`** — the Okio 3.x implementation of `sdk-core`'s I/O contracts. **JVM target Java 8** (same as `sdk-core`). The **only** I/O adapter today; other adapters (Okio 2, plain java.io, custom) can be added by implementing one `IoProvider` interface. Do not pull Okio types into `sdk-core`.
+- **`sdk-async-coroutines`** — Kotlin coroutines adapter (`suspend` extensions, `CoroutineScope.completableFutureOf`, MDC propagation). JVM target Java 8.
+- **`sdk-async-reactor`** — Reactor `Mono`/`Flux` adapter, including SSE → `Flux` with backpressure. JVM target Java 8.
+- **`sdk-async-netty`** — Netty `io.netty.util.concurrent.Future` adapter with bidirectional cancellation. JVM target Java 8.
+- **`sdk-async-virtualthreads`** — JDK 21+ virtual-thread executor adapter (`AutoCloseable`). **JVM target Java 21** — consumers of this module must be on JDK 21+.
 
 ### Directory tree
 
 ```
 java-sdk/
 ├── build.gradle.kts                 # Root build — applies kotlin("jvm") + java to all subprojects, pins JVM target 1.8
-├── settings.gradle.kts              # Declares modules: sdk-core, sdk-io-okio3
+├── settings.gradle.kts              # Declares all 6 modules
 ├── gradle.properties, gradlew*      # Standard Gradle wrapper
 ├── docs/                            # Design docs — read before structural changes
 │   ├── architecture.md              # Big picture, package map, data flow
@@ -68,13 +72,22 @@ java-sdk/
 │       │
 │       └── test/                    # Empty placeholder — no tests yet
 │
-└── sdk-io-okio3/                    # Okio 3.x adapter (newer toolchain)
-    ├── build.gradle.kts
-    └── src/
-        ├── main/kotlin/org/dexpace/sdk/io/
-        │   ├── OkioIoProvider.kt    # Public — install via Io.installProvider(OkioIoProvider)
-        │   └── internal/            # internal adapter classes wrapping okio.{Buffer,BufferedSource,BufferedSink}
-        └── test/                    # JUnit Platform + kotlin("test")
+├── sdk-io-okio3/                    # Okio 3.x adapter (Java 8 target)
+│   ├── build.gradle.kts
+│   └── src/
+│       ├── main/kotlin/org/dexpace/sdk/io/
+│       │   ├── OkioIoProvider.kt    # Public — install via Io.installProvider(OkioIoProvider)
+│       │   └── internal/            # internal adapter classes wrapping okio.{Buffer,BufferedSource,BufferedSink}
+│       └── test/                    # JUnit Platform + kotlin("test")
+│
+├── sdk-async-coroutines/            # Kotlin coroutines adapter (Java 8 target)
+│   └── build.gradle.kts
+├── sdk-async-reactor/               # Reactor Mono/Flux adapter (Java 8 target)
+│   └── build.gradle.kts
+├── sdk-async-netty/                 # Netty Future adapter (Java 8 target)
+│   └── build.gradle.kts
+└── sdk-async-virtualthreads/        # Virtual-thread executor adapter (Java 21 target)
+    └── build.gradle.kts
 ```
 
 ## Architecture — Big Picture
@@ -108,6 +121,6 @@ Layered, from the bottom up:
 ## Things That Will Bite You
 
 - The repo is mid-refactor (branch: `OmarAlJarrah/memory-streams-initial-building-blocks`). The original `io/` module had a segment-pool design (`Segment.kt`, `SegmentPool.kt`, `Real*BufferedSource/Sink`, `PeekSource.kt`); those files appear `D` in `git status`. They were replaced by the contract-only design described above. Don't try to resurrect them — concrete implementations belong in adapter modules.
-- `sdk-io-okio3` uses a newer toolchain than `sdk-core`. Don't copy its `jvmToolchain(...)` value back into `sdk-core`.
+- `sdk-io-okio3` is **Java 8** like `sdk-core` — it inherits the toolchain from the root build. The **only** module on JDK 21 is `sdk-async-virtualthreads`. Do not copy `sdk-async-virtualthreads`'s `jvmToolchain(21)` override back into any other module.
 - `pr.diff` in the repo root is a generated artifact, not source — ignore it.
 - `Io.installProvider(...)` must run before any code that calls `Io.provider`. Tests use `Io.installProvider(OkioIoProvider)` in `@BeforeTest`; production code should install in the application's startup path.

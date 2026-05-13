@@ -10,6 +10,9 @@ version = "0.0.1-alpha.1"
 // repositories and shared compileOnly/implementation deps come from the root build.gradle.kts.
 
 dependencies {
+    // kotlin-reflect is used by ClientLogger (KClass constructor) and is not needed in other modules.
+    implementation(kotlin("reflect"))
+
     testImplementation(kotlin("test"))
     testImplementation(testFixtures(project(":sdk-core")))
 
@@ -17,7 +20,6 @@ dependencies {
     // (FakeSlf4jLogger, ClientLoggerTest) need it on the compile classpath, and the
     // runtime needs an implementation so LoggerFactory can resolve a binding.
     testCompileOnly("org.slf4j:slf4j-api:2.0.18")
-    testRuntimeOnly("org.slf4j:slf4j-api:2.0.18")
     testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
 
     // Tests that need a real `IoProvider` (e.g. `MockResponse.Builder.body(String)`)

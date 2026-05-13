@@ -17,6 +17,7 @@ dependencies {
     implementation("com.squareup.okio:okio:3.17.0")
     testImplementation(kotlin("test"))
     testImplementation(testFixtures(project(":sdk-core")))
+    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
 }
 
 tasks.test {

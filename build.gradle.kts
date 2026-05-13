@@ -58,8 +58,8 @@ kover {
         }
         verify {
             rule {
-                // Coverage gate: line + branch coverage must stay above the floor. The
-                // floor starts loose and is raised in dedicated coverage-PR commits.
+                // Floor on aggregate LINE coverage. Branch coverage is reported but not gated.
+                // The floor starts loose and is raised in dedicated coverage-PR commits.
                 minBound(80)
             }
         }
@@ -69,7 +69,6 @@ kover {
 allprojects {
     repositories {
         mavenCentral()
-        mavenLocal()
         maven {
             // For maven snapshots
             url = URI.create("https://oss.sonatype.org/content/repositories/snapshots/")
@@ -91,8 +90,7 @@ allprojects {
         }
 
         dependencies {
-            add("compileOnly", "org.slf4j:slf4j-api:2.0.17")
-            add("implementation", "org.jetbrains.kotlin:kotlin-reflect")
+            add("compileOnly", "org.slf4j:slf4j-api:2.0.18")
         }
     }
 

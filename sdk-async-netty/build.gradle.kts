@@ -15,7 +15,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.slf4j:slf4j-api:2.0.18")
-    testImplementation("org.slf4j:slf4j-nop:2.0.18")
+    testRuntimeOnly("org.slf4j:slf4j-nop:2.0.18")
 }
 
 tasks.test {
