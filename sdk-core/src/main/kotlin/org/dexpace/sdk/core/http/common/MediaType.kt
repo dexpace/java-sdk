@@ -19,6 +19,8 @@ package org.dexpace.sdk.core.http.common
 import java.nio.charset.Charset
 import java.util.Locale
 
+// Public API surface — not every accessor/factory on this class is referenced within this module; SDK consumers may use any.
+
 /**
  * Represents a media type, as defined in the HTTP specification (RFC 7231 §3.1.1.1).
  *

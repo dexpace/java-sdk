@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.request
 
+// Public API surface — not every HTTP method entry is referenced within this module; SDK consumers may use any.
+
 /**
  * HTTP request methods recognized by the SDK. Each constant carries the canonical token used
  * on the wire; [toString] returns that same token so the enum can be written directly into a

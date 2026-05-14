@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
+// Public API surface — not every pipeline-stage entry is referenced within this module; SDK consumers may use any.
+
 /**
  * Pipeline stage. Lower [order] runs first (closer to caller entry); higher [order] runs
  * later (closer to wire send). Pillar stages hold exactly one step each; non-pillar stages

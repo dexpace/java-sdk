@@ -2,6 +2,8 @@ package org.dexpace.sdk.core.http.common
 
 import java.util.Locale
 
+// Public API surface — not every accessor/mutator on this class is referenced within this module; SDK consumers may use any.
+
 /**
  * Represents a collection of HTTP headers.
  *

@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.common
 
+// Public API surface — not every media-type constant is referenced within this module; SDK consumers may use any.
+
 /**
  * Pre-constructed [MediaType] constants for the most common HTTP content types.
  *

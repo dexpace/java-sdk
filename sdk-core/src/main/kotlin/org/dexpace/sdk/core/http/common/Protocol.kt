@@ -2,6 +2,8 @@ package org.dexpace.sdk.core.http.common
 
 import java.util.Locale
 
+// Public API surface — not every protocol-version entry is referenced within this module; SDK consumers may use any.
+
 /**
  * Enumeration of HTTP protocol versions the SDK can describe on a [org.dexpace.sdk.core.http.response.Response].
  *

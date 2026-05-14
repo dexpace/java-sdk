@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.response
 
+// Public API surface — not every HTTP status-code entry is referenced within this module; SDK consumers may use any.
+
 /**
  * Canonical HTTP status codes recognized by the SDK. The enum is a closed set — codes not
  * listed here are unknown to the SDK and trigger [IllegalArgumentException] from [fromCode].

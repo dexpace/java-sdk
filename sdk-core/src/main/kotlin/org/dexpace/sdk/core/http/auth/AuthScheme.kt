@@ -1,5 +1,7 @@
 package org.dexpace.sdk.core.http.auth
 
+// Public API surface — not every auth-scheme entry is referenced within this module; SDK consumers may use any.
+
 /**
  * HTTP authentication schemes recognised by the SDK.
  *
