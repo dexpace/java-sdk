@@ -41,7 +41,25 @@ publishing {
             pom {
                 name.set(project.name)
                 description.set("Dexpace Java SDK — ${project.name}")
-                // TODO: set url, licenses, developers, scm when publishing to a public repo
+                url.set("https://github.com/dexpace/java-sdk")
+                licenses {
+                    license {
+                        name.set("Proprietary")
+                        url.set("https://github.com/dexpace/java-sdk/blob/main/LICENSE.md")
+                        distribution.set("repo")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("dexpace")
+                        name.set("Dexpace SDK Team")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/dexpace/java-sdk.git")
+                    developerConnection.set("scm:git:ssh://github.com/dexpace/java-sdk.git")
+                    url.set("https://github.com/dexpace/java-sdk")
+                }
             }
         }
     }
@@ -54,6 +72,11 @@ publishing {
 }
 
 signing {
-    isRequired = false
+    isRequired = (System.getenv("CI") == "true")
+    val signingKey = project.findProperty("signing.key") as String? ?: System.getenv("SIGNING_KEY")
+    val signingPassword = project.findProperty("signing.password") as String? ?: System.getenv("SIGNING_PASSWORD")
+    if (!signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+    }
     sign(publishing.publications["library"])
 }
