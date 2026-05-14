@@ -14,7 +14,7 @@ import org.dexpace.sdk.core.http.response.Response
  * accumulated from prior failed attempts; it is empty on the success path or on the first
  * decision after the initial attempt.
  */
-data class HttpRetryCondition(
+public data class HttpRetryCondition(
     val response: Response?,
     val exception: Exception?,
     val tryCount: Int,

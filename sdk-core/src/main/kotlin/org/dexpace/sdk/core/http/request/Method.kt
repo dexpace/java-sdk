@@ -8,8 +8,8 @@ package org.dexpace.sdk.core.http.request
  * @property method Canonical uppercase method token sent in the request line.
  */
 @Suppress("unused")
-enum class Method(
-    val method: String
+public enum class Method(
+    public val method: String
 ) {
     GET("GET"),
     POST("POST"),

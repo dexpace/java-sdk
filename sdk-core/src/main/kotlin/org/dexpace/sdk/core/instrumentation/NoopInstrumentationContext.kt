@@ -8,7 +8,7 @@ package org.dexpace.sdk.core.instrumentation
  *
  * Shipped as a Kotlin `object` so the instance is shared process-wide with no allocation.
  */
-object NoopInstrumentationContext : InstrumentationContext {
+public object NoopInstrumentationContext : InstrumentationContext {
     override val traceIdType: TraceIdType = TraceIdType.NOOP
 
     /**

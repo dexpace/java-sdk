@@ -23,7 +23,7 @@ import java.util.concurrent.CompletableFuture
  * state must be safe for concurrent invocation. Per-request state belongs in the
  * `AsyncPipelineCallState` (cloned via [AsyncPipelineNext.copy]).
  */
-interface AsyncHttpStep {
+public interface AsyncHttpStep {
     /**
      * Processes [request] and returns a future that completes with the [Response]. May call
      * [next] zero or more times — short-circuit by completing with a synthetic [Response];
@@ -35,8 +35,8 @@ interface AsyncHttpStep {
      * (`IllegalArgumentException`, `NullPointerException`) MAY be thrown synchronously
      * because they indicate caller bugs, not async failures.
      */
-    fun processAsync(request: Request, next: AsyncPipelineNext): CompletableFuture<Response>
+    public fun processAsync(request: Request, next: AsyncPipelineNext): CompletableFuture<Response>
 
     /** The pipeline stage this step occupies. */
-    val stage: Stage
+    public val stage: Stage
 }

@@ -28,12 +28,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * instance is undefined; the built-in stream-backed bodies use atomic guards to fail loudly
  * rather than silently emitting corrupt bytes.
  */
-abstract class RequestBody {
+public abstract class RequestBody {
     /** Returns the media type of the request body, or `null` when unspecified. */
-    abstract fun mediaType(): MediaType?
+    public abstract fun mediaType(): MediaType?
 
     /** Returns the number of bytes that will be written to [writeTo], or `-1` if unknown. */
-    open fun contentLength(): Long = -1
+    public open fun contentLength(): Long = -1
 
     /**
      * Writes the body to [sink]. Called once per send attempt; replayable bodies may have
@@ -42,7 +42,7 @@ abstract class RequestBody {
      * @throws IOException if an I/O error occurs while writing.
      */
     @Throws(IOException::class)
-    abstract fun writeTo(sink: BufferedSink)
+    public abstract fun writeTo(sink: BufferedSink)
 
     /**
      * Returns true when [writeTo] can be invoked more than once and produces the same bytes
@@ -52,7 +52,7 @@ abstract class RequestBody {
      * Default: false. Subclasses backed by replayable sources (byte arrays, strings, files,
      * already-buffered content) override to return true.
      */
-    open fun isReplayable(): Boolean = false
+    public open fun isReplayable(): Boolean = false
 
     /**
      * Returns a replayable equivalent of this body. If [isReplayable] is already true,
@@ -68,7 +68,7 @@ abstract class RequestBody {
      * use `toReplayable` only when they trust the body's `writeTo` not to fail mid-write.
      */
     @JvmOverloads
-    open fun toReplayable(provider: IoProvider = Io.provider): RequestBody {
+    public open fun toReplayable(provider: IoProvider = Io.provider): RequestBody {
         if (isReplayable()) return this
         val buffer = provider.buffer()
         writeTo(buffer)
@@ -78,7 +78,7 @@ abstract class RequestBody {
     /**
      * Factory entry points for the built-in body shapes. Java callers use `RequestBody.create(...)`.
      */
-    companion object {
+    public companion object {
         /**
          * Creates a request body backed by [source]. The body is **single-use** — [writeTo]
          * drains and closes the source.
@@ -89,7 +89,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1): RequestBody =
+        public fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1): RequestBody =
             BufferedSourceRequestBody(source, mediaType, contentLength)
 
         /**
@@ -99,7 +99,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(buffer: Buffer, mediaType: MediaType? = null, contentLength: Long = buffer.size): RequestBody =
+        public fun create(buffer: Buffer, mediaType: MediaType? = null, contentLength: Long = buffer.size): RequestBody =
             BufferRequestBody(buffer, mediaType, contentLength)
 
         /**
@@ -108,7 +108,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(bytes: ByteArray, mediaType: MediaType? = null): RequestBody =
+        public fun create(bytes: ByteArray, mediaType: MediaType? = null): RequestBody =
             ByteArrayRequestBody(bytes, mediaType)
 
         /**
@@ -116,7 +116,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(
+        public fun create(
             content: String,
             mediaType: MediaType? = null,
             charset: Charset = Charsets.UTF_8,
@@ -145,7 +145,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(
+        public fun create(
             input: InputStream,
             length: Long,
             mediaType: MediaType? = null,
@@ -166,7 +166,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(
+        public fun create(
             file: Path,
             mediaType: MediaType? = null,
             position: Long = 0,
@@ -185,7 +185,7 @@ abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(formData: Map<String, String>, charset: Charset = Charsets.UTF_8): RequestBody {
+        public fun create(formData: Map<String, String>, charset: Charset = Charsets.UTF_8): RequestBody {
             val encoded = formData.entries.joinToString("&") { (key, value) ->
                 "${URLEncoder.encode(key, charset.name())}=${URLEncoder.encode(value, charset.name())}"
             }

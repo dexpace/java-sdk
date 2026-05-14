@@ -14,7 +14,7 @@ package org.dexpace.sdk.core.http.pipeline
  *   user-extensible stages backed by an ordered deque.
  */
 @Suppress("unused")
-enum class Stage(val order: Int, val isPillar: Boolean) {
+public enum class Stage(public val order: Int, public val isPillar: Boolean) {
 
     // -- Wrapping steps (re-invoke downstream via next.copy()) --
     REDIRECT(100, true),         // pillar: RedirectStep singleton

@@ -41,7 +41,7 @@ private val log = ClientLogger("org.dexpace.sdk.async.virtualthreads.VirtualThre
  * thread carry the caller's `trace.id` / `span.id`. Virtual threads do not inherit MDC by
  * default.
  */
-fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
+public fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
     val executor = Executors.newVirtualThreadPerTaskExecutor()
     val mdcAware = MdcAwareExecutor(executor)
     val async = asAsync(mdcAware)
@@ -56,7 +56,7 @@ fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
  * Closing the executor does NOT cancel in-flight requests — virtual threads are
  * non-interruptible by default; the executor's `close()` waits for tasks to finish.
  */
-class VirtualThreadAsyncHttpClient internal constructor(
+public class VirtualThreadAsyncHttpClient internal constructor(
     private val delegate: AsyncHttpClient,
     private val executor: ExecutorService,
 ) : AsyncHttpClient, AutoCloseable {

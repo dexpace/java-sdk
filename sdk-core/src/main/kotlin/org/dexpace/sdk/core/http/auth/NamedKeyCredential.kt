@@ -12,7 +12,7 @@ package org.dexpace.sdk.core.http.auth
  * @param key the secret material; must not be blank.
  * @throws IllegalArgumentException if [name] or [key] is blank.
  */
-class NamedKeyCredential(val name: String, val key: String) : Credential {
+public class NamedKeyCredential(public val name: String, public val key: String) : Credential {
     init {
         require(name.isNotBlank()) { "name must not be blank" }
         require(key.isNotBlank()) { "key must not be blank" }

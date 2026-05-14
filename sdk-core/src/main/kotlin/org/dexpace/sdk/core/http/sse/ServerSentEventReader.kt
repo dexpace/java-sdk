@@ -17,7 +17,7 @@ import java.time.Duration
  *
  * **Threading**: not thread-safe. Drive it from one thread.
  */
-class ServerSentEventReader(private val source: BufferedSource) {
+public class ServerSentEventReader(private val source: BufferedSource) {
 
     private var bomConsumed: Boolean = false
 
@@ -32,7 +32,7 @@ class ServerSentEventReader(private val source: BufferedSource) {
      * lines (no fields seen) are skipped.
      */
     @Throws(IOException::class)
-    fun next(): ServerSentEvent? {
+    public fun next(): ServerSentEvent? {
         consumeBomIfNeeded()
 
         var id: String? = null

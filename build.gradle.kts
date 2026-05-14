@@ -90,6 +90,11 @@ allprojects {
     plugins.withId("org.jetbrains.kotlin.jvm") {
         extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
             jvmToolchain(8)
+            // Explicit-api strict mode: every public declaration in the main source set must
+            // specify a visibility modifier and (for non-trivial returns) an explicit return
+            // type. The DSL form scopes this to the main source set — tests and test
+            // fixtures keep Kotlin's default-public behaviour for terse `@Test fun foo() {}`.
+            explicitApi = org.jetbrains.kotlin.gradle.dsl.ExplicitApiMode.Strict
         }
 
         // NOTE: Any new module that REQUIRES JDK 21+ APIs (e.g. virtual threads, sequenced
@@ -103,10 +108,6 @@ allprojects {
                 jvmTarget.set(JvmTarget.JVM_1_8)
                 // TODO: re-enable allWarningsAsErrors once tier-3 polish lands
                 allWarningsAsErrors.set(false)
-                // TODO: re-enable -Xexplicit-api=strict once all public declarations in
-                // sdk-core and adapter modules have explicit visibility modifiers. Groups
-                // A/B/C are adding those in the same style-compliance pass.
-                // freeCompilerArgs.add("-Xexplicit-api=strict")
             }
         }
 

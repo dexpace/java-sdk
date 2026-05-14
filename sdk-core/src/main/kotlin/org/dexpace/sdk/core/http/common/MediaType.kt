@@ -37,7 +37,7 @@ import java.util.Locale
  */
 @Suppress("unused")
 @ConsistentCopyVisibility
-data class MediaType private constructor(
+public data class MediaType private constructor(
     val type: String,
     val subtype: String,
     val parameters: Map<String, String> = emptyMap()
@@ -74,7 +74,7 @@ data class MediaType private constructor(
      *
      * @return `true` if this media type's pattern matches [other], `false` otherwise.
      */
-    fun includes(other: MediaType): Boolean {
+    public fun includes(other: MediaType): Boolean {
         val typeMatches = type == "*" || type.equals(other.type, ignoreCase = true)
         val subtypeMatches = subtype == "*" || subtype.equals(other.subtype, ignoreCase = true)
         return typeMatches && subtypeMatches
@@ -91,7 +91,7 @@ data class MediaType private constructor(
         return if (formattedParams.isEmpty()) "$type/$subtype" else "$type/$subtype;$formattedParams"
     }
 
-    companion object {
+    public companion object {
         /**
          * Constructs a [MediaType] from explicit parts. All inputs are lower-cased and
          * validated: [type] and [subtype] must be non-blank, and a wildcard [type] is only
@@ -101,7 +101,7 @@ data class MediaType private constructor(
          */
         @JvmStatic
         @JvmOverloads
-        fun of(type: String, subtype: String, parameters: Map<String, String> = emptyMap()): MediaType {
+        public fun of(type: String, subtype: String, parameters: Map<String, String> = emptyMap()): MediaType {
             require(type.isNotBlank()) { "Type must not be blank" }
             require(subtype.isNotBlank()) { "Subtype must not be blank" }
             require(!(type == "*" && subtype != "*")) {
@@ -123,7 +123,7 @@ data class MediaType private constructor(
          * @throws IllegalArgumentException if the media type cannot be parsed.
          */
         @JvmStatic
-        fun parse(mediaType: String): MediaType {
+        public fun parse(mediaType: String): MediaType {
             require(mediaType.isNotBlank()) { "Media type must not be blank" }
 
             // Split into MIME type and optional parameters

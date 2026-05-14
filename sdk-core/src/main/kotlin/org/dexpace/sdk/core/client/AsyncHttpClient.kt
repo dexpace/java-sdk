@@ -40,14 +40,14 @@ import java.util.concurrent.Executor
  *   `executeAsync(...).join()` and unwraps the [CompletionException] so callers see the
  *   original [Exception] / [Response] semantics.
  */
-fun interface AsyncHttpClient {
+public fun interface AsyncHttpClient {
     /**
      * Sends [request] over the underlying transport. The returned future completes with the
      * matching [Response] (caller owns close) or completes exceptionally with the transport
      * failure. The future MUST NOT return `null` on success — implementations that have no
      * response must complete exceptionally instead.
      */
-    fun executeAsync(request: Request): CompletableFuture<Response>
+    public fun executeAsync(request: Request): CompletableFuture<Response>
 }
 
 /**
@@ -66,7 +66,7 @@ fun interface AsyncHttpClient {
  * does NOT interrupt the in-flight blocking call (Java's `CompletableFuture` has no such
  * hook); for true cancellation, use an [AsyncHttpClient] backed by an async transport.
  */
-fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
+public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
     AsyncHttpClient { request ->
         CompletableFuture.supplyAsync({ execute(request) }, executor)
     }
@@ -80,7 +80,7 @@ fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
 @Throws(IOException::class)
-fun AsyncHttpClient.asBlocking(): HttpClient = HttpClient { request ->
+public fun AsyncHttpClient.asBlocking(): HttpClient = HttpClient { request ->
     try {
         executeAsync(request).join()
     } catch (ce: CompletionException) {

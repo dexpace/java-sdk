@@ -36,11 +36,11 @@ private val log = ClientLogger("org.dexpace.sdk.async.netty.Netty")
  * [MdcSnapshot] and reinstated inside the listener so the emitted `async.adapter.cancel_propagated`
  * log event carries `trace.id` / `span.id`.
  */
-fun AsyncHttpClient.executeNetty(request: Request, executor: EventExecutor): Future<Response> =
+public fun AsyncHttpClient.executeNetty(request: Request, executor: EventExecutor): Future<Response> =
     executeAsync(request).bridgeToNetty(executor)
 
 /** Pipeline-level Netty future facade — see [executeNetty]. */
-fun AsyncHttpPipeline.sendNetty(request: Request, executor: EventExecutor): Future<Response> =
+public fun AsyncHttpPipeline.sendNetty(request: Request, executor: EventExecutor): Future<Response> =
     sendAsync(request).bridgeToNetty(executor)
 
 /**

@@ -16,7 +16,7 @@ import java.util.concurrent.TimeoutException
  * 501 and 505 are explicitly excluded because they indicate the server cannot or will not
  * fulfill the request regardless of retry; see the Azure SDK comparison report §2.3.
  */
-object RetryUtils {
+public object RetryUtils {
 
     /**
      * Returns `true` if the given HTTP [statusCode] is retryable.
@@ -24,7 +24,7 @@ object RetryUtils {
      * Retryable: 408, 429, and the 5xx range except for 501 and 505.
      */
     @JvmStatic
-    fun isRetryable(statusCode: Int): Boolean =
+    public fun isRetryable(statusCode: Int): Boolean =
         statusCode == 408 || statusCode == 429 ||
             (statusCode in 500..599 && statusCode != 501 && statusCode != 505)
 
@@ -35,7 +35,7 @@ object RetryUtils {
      * cleanly instead of looping forever.
      */
     @JvmStatic
-    fun isRetryable(t: Throwable): Boolean {
+    public fun isRetryable(t: Throwable): Boolean {
         var current: Throwable? = t
         // Identity-based tracking: HashSet uses Object.equals/hashCode, which for
         // Throwables defaults to identity — exactly what we need to detect a cycle.

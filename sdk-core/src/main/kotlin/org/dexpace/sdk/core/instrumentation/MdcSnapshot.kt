@@ -18,14 +18,14 @@ import org.slf4j.MDC
  * `CompletableFuture` continuation, an executor task, a Reactor signal, a Netty event-loop
  * callback) loses the entries. Adapter modules use [MdcSnapshot] to bridge that gap.
  */
-class MdcSnapshot private constructor(@PublishedApi internal val snapshot: Map<String, String>?) {
+public class MdcSnapshot private constructor(@PublishedApi internal val snapshot: Map<String, String>?) {
 
     /**
      * Replaces the current thread's MDC with the captured snapshot. Calling this on a thread
      * that already has MDC entries discards them — use [withMdc] instead when you want to
      * preserve the executing thread's MDC after the block.
      */
-    fun restore() {
+    public fun restore() {
         if (snapshot == null) MDC.clear() else MDC.setContextMap(snapshot)
     }
 
@@ -35,7 +35,7 @@ class MdcSnapshot private constructor(@PublishedApi internal val snapshot: Map<S
      * Use this at adapter-internal callback sites (Reactor `.doOn*`, Netty listeners, etc.)
      * to ensure log events emitted inside the block see the caller's MDC.
      */
-    inline fun <T> withMdc(block: () -> T): T {
+    public inline fun <T> withMdc(block: () -> T): T {
         val previous = MDC.getCopyOfContextMap()
         if (snapshot == null) MDC.clear() else MDC.setContextMap(snapshot)
         try {
@@ -45,13 +45,13 @@ class MdcSnapshot private constructor(@PublishedApi internal val snapshot: Map<S
         }
     }
 
-    companion object {
+    public companion object {
         /**
          * Captures the current thread's MDC into an immutable snapshot. Safe to call even when
          * no MDC adapter is installed (the captured snapshot will be `null`, treated as
          * "empty" by [restore] and [withMdc]).
          */
         @JvmStatic
-        fun capture(): MdcSnapshot = MdcSnapshot(MDC.getCopyOfContextMap())
+        public fun capture(): MdcSnapshot = MdcSnapshot(MDC.getCopyOfContextMap())
     }
 }

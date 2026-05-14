@@ -17,7 +17,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  *
  * Logging: pillar replacement emits a `pipeline.pillar.replaced` warning via SLF4J.
  */
-class HttpPipelineBuilder(private val httpClient: HttpClient) {
+public class HttpPipelineBuilder(private val httpClient: HttpClient) {
 
     @PublishedApi
     internal val steps: StagedSteps<HttpStep> = StagedSteps(
@@ -33,23 +33,23 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
     )
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
-    fun append(step: HttpStep): HttpPipelineBuilder = apply { steps.append(step) }
+    public fun append(step: HttpStep): HttpPipelineBuilder = apply { steps.append(step) }
 
     /** Prepend [step] at the head of its stage's deque (runs before steps already there). */
-    fun prepend(step: HttpStep): HttpPipelineBuilder = apply { steps.prepend(step) }
+    public fun prepend(step: HttpStep): HttpPipelineBuilder = apply { steps.prepend(step) }
 
     /** Appends every step in [batch] via [append], preserving iteration order. */
-    fun appendAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::append) }
+    public fun appendAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::append) }
 
     /**
      * Prepends every step in [batch] via [prepend], preserving iteration order. Note that
      * because each call uses [prepend], the final relative ordering inside each stage is the
      * reverse of [batch] — the last item ends up at the head.
      */
-    fun prependAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::prepend) }
+    public fun prependAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::prepend) }
 
     /** Insert [step] immediately after the first instance of [T] in the pipeline. */
-    inline fun <reified T : HttpStep> insertAfter(step: HttpStep): HttpPipelineBuilder =
+    public inline fun <reified T : HttpStep> insertAfter(step: HttpStep): HttpPipelineBuilder =
         spliceAt<T>(step) { idx, flat ->
             ArrayList<HttpStep>(flat.size + 1).apply {
                 addAll(flat.subList(0, idx + 1))
@@ -59,7 +59,7 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         }
 
     /** Insert [step] immediately before the first instance of [T] in the pipeline. */
-    inline fun <reified T : HttpStep> insertBefore(step: HttpStep): HttpPipelineBuilder =
+    public inline fun <reified T : HttpStep> insertBefore(step: HttpStep): HttpPipelineBuilder =
         spliceAt<T>(step) { idx, flat ->
             ArrayList<HttpStep>(flat.size + 1).apply {
                 addAll(flat.subList(0, idx))
@@ -69,7 +69,7 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         }
 
     /** Replace the first instance of [T] with [step]. */
-    inline fun <reified T : HttpStep> replace(step: HttpStep): HttpPipelineBuilder =
+    public inline fun <reified T : HttpStep> replace(step: HttpStep): HttpPipelineBuilder =
         spliceAt<T>(step) { idx, flat ->
             ArrayList<HttpStep>(flat.size).apply {
                 addAll(flat)
@@ -78,7 +78,7 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         }
 
     /** Remove every instance of [T] from the pipeline. No-op if none exist. */
-    inline fun <reified T : HttpStep> remove(): HttpPipelineBuilder {
+    public inline fun <reified T : HttpStep> remove(): HttpPipelineBuilder {
         steps.reload(steps.flatten().filter { it !is T })
         return this
     }
@@ -107,7 +107,7 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
      * `arrayOfNulls<HttpStep>` then fill — Kotlin's `List.toTypedArray<T>()` is erased to
      * `Array<Any?>` at runtime which fails the `Array<HttpStep>` cast.
      */
-    fun build(): HttpPipeline {
+    public fun build(): HttpPipeline {
         val ordered = steps.flatten()
         val array = arrayOfNulls<HttpStep>(ordered.size)
         for ((i, s) in ordered.withIndex()) array[i] = s
@@ -115,12 +115,12 @@ class HttpPipelineBuilder(private val httpClient: HttpClient) {
         return HttpPipeline(httpClient, array as Array<HttpStep>)
     }
 
-    companion object {
+    public companion object {
         private val LOG = ClientLogger(HttpPipelineBuilder::class)
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
-        fun from(pipeline: HttpPipeline): HttpPipelineBuilder = HttpPipelineBuilder(pipeline.httpClient)
+        public fun from(pipeline: HttpPipeline): HttpPipelineBuilder = HttpPipelineBuilder(pipeline.httpClient)
             .also { it.steps.reload(pipeline.steps) }
     }
 }

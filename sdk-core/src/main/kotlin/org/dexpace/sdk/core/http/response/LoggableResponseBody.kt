@@ -51,7 +51,7 @@ import kotlin.concurrent.withLock
  * @param provider I/O provider used to allocate the capture [Buffer]. Defaults to the
  *   globally installed provider.
  */
-class LoggableResponseBody @JvmOverloads constructor(
+public class LoggableResponseBody @JvmOverloads constructor(
     private val delegate: ResponseBody,
     private val provider: IoProvider = Io.provider,
 ) : ResponseBody() {
@@ -97,7 +97,7 @@ class LoggableResponseBody @JvmOverloads constructor(
      * @throws IllegalStateException if the captured body exceeds [Buffer.MAX_BYTE_ARRAY_SIZE].
      *         Use [snapshot] with a `maxBytes` cap for bodies that may be unbounded.
      */
-    fun snapshot(): ByteArray = ensureCaptured().snapshot()
+    public fun snapshot(): ByteArray = ensureCaptured().snapshot()
 
     /**
      * Returns up to [maxBytes] bytes of the captured body. Use for log previews of large
@@ -107,7 +107,7 @@ class LoggableResponseBody @JvmOverloads constructor(
      * [maxBytes] is silently clamped to [Buffer.MAX_BYTE_ARRAY_SIZE] so callers that pass
      * `Int.MAX_VALUE` on a multi-gigabyte body still receive a safely bounded array.
      */
-    fun snapshot(maxBytes: Int): ByteArray {
+    public fun snapshot(maxBytes: Int): ByteArray {
         require(maxBytes >= 0) { "maxBytes must be non-negative" }
         val cap = minOf(maxBytes, Buffer.MAX_BYTE_ARRAY_SIZE)
         val buf = ensureCaptured()
@@ -119,7 +119,7 @@ class LoggableResponseBody @JvmOverloads constructor(
      * Returns the exception that aborted the drain, or null if the body was captured
      * successfully (or has not been read yet). Calling this method does not trigger a drain.
      */
-    val captureException: Throwable? get() = drainError
+    public val captureException: Throwable? get() = drainError
 
     @Throws(IOException::class)
     override fun close() {

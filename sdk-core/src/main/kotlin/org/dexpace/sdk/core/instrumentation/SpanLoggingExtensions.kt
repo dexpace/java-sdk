@@ -22,7 +22,7 @@ import org.slf4j.MDC
  * coroutine callers, use `kotlinx-coroutines-slf4j`'s `MDCContext` element. For raw
  * future chains, capture and restore manually.
  */
-fun Span.makeCurrentWithLoggingContext(): TracingScope {
+public fun Span.makeCurrentWithLoggingContext(): TracingScope {
     // Check isRecording BEFORE calling makeCurrent so that a non-recording span whose
     // makeCurrent() is not a no-op (e.g. a real OTel non-sampled span that still pushes
     // propagation context) still has its scope properly returned without the MDC wrapper.

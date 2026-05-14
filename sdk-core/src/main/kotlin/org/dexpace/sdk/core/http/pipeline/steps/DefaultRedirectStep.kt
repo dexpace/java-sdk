@@ -74,7 +74,7 @@ import java.util.Locale
  * - The `Authorization` header stripping and `userinfo` removal from `Location` URLs are
  *   security-critical; preserve them in any override.
  */
-open class DefaultRedirectStep @JvmOverloads constructor(
+public open class DefaultRedirectStep @JvmOverloads constructor(
     private val options: HttpRedirectOptions = HttpRedirectOptions(),
     internal val logger: ClientLogger = ClientLogger(DefaultRedirectStep::class),
 ) : RedirectStep() {

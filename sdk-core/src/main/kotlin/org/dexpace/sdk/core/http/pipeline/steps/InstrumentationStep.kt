@@ -14,6 +14,6 @@ import org.dexpace.sdk.core.http.pipeline.Stage
  * users implementing custom instrumentation override [process] but inherit the pillar slot.
  * The shipped concrete implementation is [DefaultInstrumentationStep].
  */
-abstract class InstrumentationStep : HttpStep {
+public abstract class InstrumentationStep : HttpStep {
     final override val stage: Stage = Stage.LOGGING
 }

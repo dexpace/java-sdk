@@ -25,7 +25,7 @@ import java.net.URL
  * @property body Request body, or `null` for methods without a payload (typical for GET/HEAD).
  */
 @ConsistentCopyVisibility
-data class Request private constructor(
+public data class Request private constructor(
     val method: Method,
     val url: URL,
     val headers: Headers,
@@ -36,13 +36,13 @@ data class Request private constructor(
      *
      * @return A new builder.
      */
-    fun newBuilder(): RequestBuilder = RequestBuilder(this)
+    public fun newBuilder(): RequestBuilder = RequestBuilder(this)
 
     /**
      * Mutable builder for [Request]. Implements the generic [Builder] contract so it can be
      * driven by builder-folding pipeline steps.
      */
-    class RequestBuilder : Builder<Request> {
+    public class RequestBuilder : Builder<Request> {
         private var method: Method? = null
         private var url: URL? = null
         private var headersBuilder: Headers.Builder = Headers.Builder()
@@ -51,14 +51,14 @@ data class Request private constructor(
         /**
          * Creates a new builder.
          */
-        constructor()
+        public constructor()
 
         /**
          * Creates a builder initialized with the data from [request].
          *
          * @param request The request to copy data from.
          */
-        constructor(request: Request) {
+        public constructor(request: Request) {
             this.method = request.method
             this.url = request.url
             this.headersBuilder = request.headers.newBuilder()
@@ -71,7 +71,7 @@ data class Request private constructor(
          * @param method HTTP method, e.g., GET, POST.
          * @return This builder.
          */
-        fun method(method: Method) = apply {
+        public fun method(method: Method): RequestBuilder = apply {
             this.method = method
         }
 
@@ -81,7 +81,7 @@ data class Request private constructor(
          * @param body The request body.
          * @return This builder.
          */
-        fun body(body: RequestBody) = apply {
+        public fun body(body: RequestBody): RequestBuilder = apply {
             this.body = body
         }
 
@@ -93,7 +93,7 @@ data class Request private constructor(
          * @throws MalformedURLException If [url] is invalid.
          */
         @Throws(MalformedURLException::class)
-        fun url(url: String) = apply {
+        public fun url(url: String): RequestBuilder = apply {
             this.url = URL(url)
         }
 
@@ -103,7 +103,7 @@ data class Request private constructor(
          * @param url The URL as an [URL] object.
          * @return This builder.
          */
-        fun url(url: URL) = apply {
+        public fun url(url: URL): RequestBuilder = apply {
             this.url = url
         }
 
@@ -114,7 +114,7 @@ data class Request private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        fun addHeader(name: String, value: String) = apply {
+        public fun addHeader(name: String, value: String): RequestBuilder = apply {
             headersBuilder.add(name, value)
         }
 
@@ -125,7 +125,7 @@ data class Request private constructor(
          * @param values The header values list.
          * @return This builder.
          */
-        fun addHeader(name: String, values: List<String>) = apply {
+        public fun addHeader(name: String, values: List<String>): RequestBuilder = apply {
             headersBuilder.add(name, values)
         }
 
@@ -136,7 +136,7 @@ data class Request private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        fun setHeader(name: String, value: String) = apply {
+        public fun setHeader(name: String, value: String): RequestBuilder = apply {
             headersBuilder.set(name, value)
         }
 
@@ -147,7 +147,7 @@ data class Request private constructor(
          * @param values The header values list.
          * @return This builder.
          */
-        fun setHeader(name: String, values: List<String>) = apply {
+        public fun setHeader(name: String, values: List<String>): RequestBuilder = apply {
             headersBuilder.set(name, values)
         }
 
@@ -157,7 +157,7 @@ data class Request private constructor(
          * @param headers The [Headers] instance
          * @return This builder.
          */
-        fun headers(headers: Headers) = apply {
+        public fun headers(headers: Headers): RequestBuilder = apply {
             this.headersBuilder = headers.newBuilder()
         }
 
@@ -167,7 +167,7 @@ data class Request private constructor(
          * @param name The header name.
          * @return This builder.
          */
-        fun removeHeader(name: String) = apply {
+        public fun removeHeader(name: String): RequestBuilder = apply {
             headersBuilder.remove(name)
         }
 
@@ -177,7 +177,7 @@ data class Request private constructor(
          * @param name The typed header name.
          * @return This builder.
          */
-        fun removeHeader(name: HttpHeaderName) = apply {
+        public fun removeHeader(name: HttpHeaderName): RequestBuilder = apply {
             headersBuilder.remove(name)
         }
 
@@ -195,12 +195,12 @@ data class Request private constructor(
         )
     }
 
-    companion object {
+    public companion object {
         /**
          * Returns a fresh empty [RequestBuilder]. Java-friendly entry point matching the
          * `Request.builder()` idiom.
          */
         @JvmStatic
-        fun builder(): RequestBuilder = RequestBuilder()
+        public fun builder(): RequestBuilder = RequestBuilder()
     }
 }

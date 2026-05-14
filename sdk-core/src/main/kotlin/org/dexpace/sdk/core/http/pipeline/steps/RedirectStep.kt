@@ -13,6 +13,6 @@ import org.dexpace.sdk.core.http.pipeline.Stage
  * level — users implementing custom redirect behavior override [process] but inherit
  * the pillar slot. The shipped concrete implementation is [DefaultRedirectStep].
  */
-abstract class RedirectStep : HttpStep {
+public abstract class RedirectStep : HttpStep {
     final override val stage: Stage = Stage.REDIRECT
 }

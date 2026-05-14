@@ -21,15 +21,15 @@ import java.io.IOException
  * functional interfaces with abstract properties, and [stage] must be declared by every
  * step.
  */
-interface HttpStep {
+public interface HttpStep {
     /**
      * Processes [request] and returns the [Response]. May call [next] zero or more times
      * — short-circuit by returning a synthetic [Response]; re-invoke downstream multiple
      * times via [PipelineNext.copy] (required for retry / redirect).
      */
     @Throws(IOException::class)
-    fun process(request: Request, next: PipelineNext): Response
+    public fun process(request: Request, next: PipelineNext): Response
 
     /** The pipeline stage this step occupies. */
-    val stage: Stage
+    public val stage: Stage
 }

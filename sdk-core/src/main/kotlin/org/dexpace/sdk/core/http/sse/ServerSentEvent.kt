@@ -24,7 +24,7 @@ import java.time.Duration
  * @property comment Most recent comment line, or `null` if none was seen.
  * @property retry Reconnect interval advised by the server, or `null` if not advised.
  */
-data class ServerSentEvent @JvmOverloads constructor(
+public data class ServerSentEvent @JvmOverloads constructor(
     val id: String? = null,
     val event: String? = null,
     val data: List<String> = emptyList(),

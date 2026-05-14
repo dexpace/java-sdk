@@ -16,11 +16,11 @@ import java.util.concurrent.ConcurrentHashMap
  * trace ids do not need external synchronisation. [put] uses CAS-style `putIfAbsent` so two
  * threads racing to register the same trace id deterministically reject the second one.
  */
-object ContextStore {
+public object ContextStore {
     private val contexts: ConcurrentHashMap<String, CallContext> = ConcurrentHashMap()
 
     /** Returns the context registered under [runId], or `null` if none is present. */
-    fun get(runId: String): CallContext? = contexts[runId]
+    public fun get(runId: String): CallContext? = contexts[runId]
 
     /**
      * Registers [context] under [runId]; rejects duplicate ids with [IllegalArgumentException].
@@ -29,7 +29,7 @@ object ContextStore {
      * (e.g. context promotion).
      */
     @Throws(IllegalArgumentException::class)
-    fun put(runId: String, context: CallContext) {
+    public fun put(runId: String, context: CallContext) {
         val previous = contexts.putIfAbsent(runId, context)
         require(previous == null) { "Pipeline run id duplicated: $runId" }
     }
@@ -39,7 +39,7 @@ object ContextStore {
      * if no entry exists yet — used by the context promotion chain, where the first
      * promotion installs the entry and later promotions overwrite it.
      */
-    fun set(runId: String, context: CallContext) {
+    public fun set(runId: String, context: CallContext) {
         contexts[runId] = context
     }
 
@@ -49,7 +49,7 @@ object ContextStore {
      * rather than a thrown exception, which made the close contract awkward to honour from
      * cleanup paths.
      */
-    fun remove(traceId: String) {
+    public fun remove(traceId: String) {
         contexts.remove(traceId)
     }
 }

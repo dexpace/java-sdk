@@ -11,7 +11,7 @@ import java.time.Duration as JDuration
  * adapter modules (`sdk-async-coroutines`, `-reactor`, `-netty`, `-virtualthreads`) can lean
  * on them without duplicating.
  */
-object Futures {
+public object Futures {
 
     /**
      * Returns a future already completed exceptionally with [t]. Equivalent to JDK 9's
@@ -19,7 +19,7 @@ object Futures {
      * bytecode, see `CLAUDE.md`).
      */
     @JvmStatic
-    fun <T> failed(t: Throwable): CompletableFuture<T> {
+    public fun <T> failed(t: Throwable): CompletableFuture<T> {
         val f = CompletableFuture<T>()
         f.completeExceptionally(t)
         return f
@@ -37,7 +37,7 @@ object Futures {
      * cause, or a cycle (detected via identity in a `HashSet`).
      */
     @JvmStatic
-    fun unwrap(t: Throwable): Throwable {
+    public fun unwrap(t: Throwable): Throwable {
         var current: Throwable = t
         val seen = HashSet<Throwable>()
         while (current is CompletionException || current is java.util.concurrent.ExecutionException) {
@@ -60,7 +60,7 @@ object Futures {
      * Cancellation of the returned future cancels the scheduled task.
      */
     @JvmStatic
-    fun delay(scheduler: ScheduledExecutorService, delay: JDuration): CompletableFuture<Void> {
+    public fun delay(scheduler: ScheduledExecutorService, delay: JDuration): CompletableFuture<Void> {
         require(!delay.isNegative) { "delay must be non-negative (got $delay)" }
         val future = CompletableFuture<Void>()
         if (delay.isZero) {

@@ -31,7 +31,7 @@ import java.io.IOException
  * @property body Response body, or `null` for status codes without a payload (e.g. 204).
  */
 @ConsistentCopyVisibility
-data class Response private constructor(
+public data class Response private constructor(
     val request: Request,
     val protocol: Protocol,
     val status: Status,
@@ -44,7 +44,7 @@ data class Response private constructor(
      *
      * @return A new builder.
      */
-    fun newBuilder(): ResponseBuilder = ResponseBuilder(this)
+    public fun newBuilder(): ResponseBuilder = ResponseBuilder(this)
 
     /**
      * Closes the response body and releases any transport resources. Idempotent — the
@@ -62,7 +62,7 @@ data class Response private constructor(
      * Mutable builder for [Response]. Implements the generic [Builder] contract so it can be
      * driven by builder-folding pipeline steps.
      */
-    class ResponseBuilder : Builder<Response> {
+    public class ResponseBuilder : Builder<Response> {
         private var request: Request? = null
         private var protocol: Protocol? = null
         private var status: Status? = null
@@ -73,14 +73,14 @@ data class Response private constructor(
         /**
          * Creates an empty builder.
          */
-        constructor()
+        public constructor()
 
         /**
          * Creates a builder initialized with the data from [response].
          *
          * @param response The response to copy data from.
          */
-        constructor(response: Response) {
+        public constructor(response: Response) {
             this.request = response.request
             this.protocol = response.protocol
             this.status = response.status
@@ -95,7 +95,7 @@ data class Response private constructor(
          * @param request The originating request.
          * @return This builder.
          */
-        fun request(request: Request) = apply {
+        public fun request(request: Request): ResponseBuilder = apply {
             this.request = request
         }
 
@@ -105,7 +105,7 @@ data class Response private constructor(
          * @param protocol The protocol (e.g., HTTP/1.1).
          * @return This builder.
          */
-        fun protocol(protocol: Protocol) = apply {
+        public fun protocol(protocol: Protocol): ResponseBuilder = apply {
             this.protocol = protocol
         }
 
@@ -115,7 +115,7 @@ data class Response private constructor(
          * @param status The HTTP status code.
          * @return This builder.
          */
-        fun status(status: Status) = apply {
+        public fun status(status: Status): ResponseBuilder = apply {
             this.status = status
         }
 
@@ -125,7 +125,7 @@ data class Response private constructor(
          * @param message The reason phrase.
          * @return This builder.
          */
-        fun message(message: String) = apply {
+        public fun message(message: String): ResponseBuilder = apply {
             this.message = message
         }
 
@@ -136,7 +136,7 @@ data class Response private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        fun addHeader(name: String, value: String) = apply {
+        public fun addHeader(name: String, value: String): ResponseBuilder = apply {
             headersBuilder.add(name, value)
         }
 
@@ -147,7 +147,7 @@ data class Response private constructor(
          * @param values The header values.
          * @return This builder.
          */
-        fun addHeader(name: String, values: List<String>) = apply {
+        public fun addHeader(name: String, values: List<String>): ResponseBuilder = apply {
             headersBuilder.add(name, values)
         }
 
@@ -158,7 +158,7 @@ data class Response private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        fun setHeader(name: String, value: String) = apply {
+        public fun setHeader(name: String, value: String): ResponseBuilder = apply {
             headersBuilder.set(name, value)
         }
 
@@ -169,7 +169,7 @@ data class Response private constructor(
          * @param values The header values list.
          * @return This builder.
          */
-        fun setHeader(name: String, values: List<String>) = apply {
+        public fun setHeader(name: String, values: List<String>): ResponseBuilder = apply {
             headersBuilder.set(name, values)
         }
 
@@ -179,7 +179,7 @@ data class Response private constructor(
          * @param name The header name.
          * @return This builder.
          */
-        fun removeHeader(name: String) = apply {
+        public fun removeHeader(name: String): ResponseBuilder = apply {
             headersBuilder.remove(name)
         }
 
@@ -189,7 +189,7 @@ data class Response private constructor(
          * @param name The typed header name.
          * @return This builder.
          */
-        fun removeHeader(name: HttpHeaderName) = apply {
+        public fun removeHeader(name: HttpHeaderName): ResponseBuilder = apply {
             headersBuilder.remove(name)
         }
 
@@ -199,7 +199,7 @@ data class Response private constructor(
          * @param headers The response headers.
          * @return This builder.
          */
-        fun headers(headers: Headers) = apply {
+        public fun headers(headers: Headers): ResponseBuilder = apply {
             headersBuilder = headers.newBuilder()
         }
 
@@ -209,7 +209,7 @@ data class Response private constructor(
          * @param body The response body, or null if none.
          * @return This builder.
          */
-        fun body(body: ResponseBody?) = apply {
+        public fun body(body: ResponseBody?): ResponseBuilder = apply {
             this.body = body
         }
 
@@ -229,12 +229,12 @@ data class Response private constructor(
         )
     }
 
-    companion object {
+    public companion object {
         /**
          * Returns a fresh empty [ResponseBuilder]. Java-friendly entry point matching the
          * `Response.builder()` idiom.
          */
         @JvmStatic
-        fun builder(): ResponseBuilder = ResponseBuilder()
+        public fun builder(): ResponseBuilder = ResponseBuilder()
     }
 }

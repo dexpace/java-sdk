@@ -28,7 +28,7 @@ import java.util.concurrent.Executor
  * Cancellation of the returned future does NOT interrupt the in-flight sync pipeline —
  * Java's `CompletableFuture` has no such hook for arbitrary tasks.
  */
-fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
+public fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
     val sync = this
     return AsyncHttpPipeline.of { request ->
         CompletableFuture.supplyAsync({ sync.send(request) }, executor)
@@ -41,7 +41,7 @@ fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
  * future completes; pair with virtual threads (JDK 21+) on the caller side to keep carrier
  * threads available.
  */
-fun AsyncHttpPipeline.toBlocking(): HttpPipeline {
+public fun AsyncHttpPipeline.toBlocking(): HttpPipeline {
     val async = this
     return HttpPipeline.of { request ->
         try {

@@ -11,7 +11,7 @@ import java.util.Locale
  * without prior HTTP/1.1 upgrade.
  */
 @Suppress("unused")
-enum class Protocol(private val protocolString: String) {
+public enum class Protocol(private val protocolString: String) {
     /** HTTP/1.0 — legacy; unlikely to be seen in practice. */
     HTTP_1_0("http/1.0"),
 
@@ -31,7 +31,7 @@ enum class Protocol(private val protocolString: String) {
     /** Returns the canonical wire form (e.g. `"http/1.1"`). */
     override fun toString(): String = protocolString
 
-    companion object {
+    public companion object {
         // `Locale.US` is used deliberately — protocol identifiers are ASCII-only, so
         // locale-sensitive folding (e.g. Turkish `i`) would be incorrect here.
         private val LOOKUP: Map<String, Protocol> = entries.associateBy {
@@ -46,7 +46,7 @@ enum class Protocol(private val protocolString: String) {
          * @throws IllegalArgumentException if [protocol] does not match a known value.
          */
         @JvmStatic
-        fun get(protocol: String): Protocol {
+        public fun get(protocol: String): Protocol {
             val normalised = protocol.uppercase(Locale.US)
             return when (normalised) {
                 "HTTP/2", "HTTP/2.0" -> HTTP_2

@@ -47,7 +47,7 @@ import org.slf4j.event.Level
  * Wrapping it in another logging abstraction would add allocation and indirection with
  * no benefit.
  */
-class ClientLogger private constructor(
+public class ClientLogger private constructor(
     internal val slf4j: Logger,
     internal val globalContext: Map<String, Any?>,
     internal val mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
@@ -62,7 +62,7 @@ class ClientLogger private constructor(
      *   Pass `null` for unfiltered fold (backwards-compat with pre-allow-list behaviour).
      */
     @JvmOverloads
-    constructor(
+    public constructor(
         name: String,
         globalContext: Map<String, Any?> = emptyMap(),
         mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
@@ -70,7 +70,7 @@ class ClientLogger private constructor(
 
     /** Secondary constructor for the common `ClientLogger(MyClass::class)` Kotlin form. */
     @JvmOverloads
-    constructor(
+    public constructor(
         klass: kotlin.reflect.KClass<*>,
         globalContext: Map<String, Any?> = emptyMap(),
         mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
@@ -78,14 +78,14 @@ class ClientLogger private constructor(
 
     /** Secondary constructor for the common `new ClientLogger(MyClass.class)` Java form. */
     @JvmOverloads
-    constructor(
+    public constructor(
         klass: Class<*>,
         globalContext: Map<String, Any?> = emptyMap(),
         mdcKeys: Set<String>? = DEFAULT_MDC_KEYS,
     ) : this(klass.name, globalContext, mdcKeys)
 
     /** Test-only seam: inject a pre-built [Logger] (e.g. a fake) without going through `LoggerFactory`. */
-    companion object {
+    public companion object {
         internal fun forTesting(
             slf4j: Logger,
             globalContext: Map<String, Any?> = emptyMap(),
@@ -98,32 +98,32 @@ class ClientLogger private constructor(
          * Pass `null` to [ClientLogger] for unfiltered fold (backwards-compat behaviour).
          */
         @JvmField
-        val DEFAULT_MDC_KEYS: Set<String> = setOf("trace.id", "span.id")
+        public val DEFAULT_MDC_KEYS: Set<String> = setOf("trace.id", "span.id")
     }
 
     /**
      * Returns a [LoggingEvent] at [LogLevel.ERROR]. Returns [LoggingEvent.NOOP] (shared singleton,
      * zero allocation) when the underlying SLF4J `ERROR` level is disabled.
      */
-    fun atError(): LoggingEvent = LoggingEvent.create(this, LogLevel.ERROR)
+    public fun atError(): LoggingEvent = LoggingEvent.create(this, LogLevel.ERROR)
 
     /**
      * Returns a [LoggingEvent] at [LogLevel.WARNING]. Returns [LoggingEvent.NOOP] (shared singleton,
      * zero allocation) when the underlying SLF4J `WARN` level is disabled.
      */
-    fun atWarning(): LoggingEvent = LoggingEvent.create(this, LogLevel.WARNING)
+    public fun atWarning(): LoggingEvent = LoggingEvent.create(this, LogLevel.WARNING)
 
     /**
      * Returns a [LoggingEvent] at [LogLevel.INFO]. Returns [LoggingEvent.NOOP] (shared singleton,
      * zero allocation) when the underlying SLF4J `INFO` level is disabled.
      */
-    fun atInfo(): LoggingEvent = LoggingEvent.create(this, LogLevel.INFO)
+    public fun atInfo(): LoggingEvent = LoggingEvent.create(this, LogLevel.INFO)
 
     /**
      * Returns a [LoggingEvent] at [LogLevel.VERBOSE]. Returns [LoggingEvent.NOOP] (shared singleton,
      * zero allocation) when the underlying SLF4J `DEBUG` level is disabled.
      */
-    fun atVerbose(): LoggingEvent = LoggingEvent.create(this, LogLevel.VERBOSE)
+    public fun atVerbose(): LoggingEvent = LoggingEvent.create(this, LogLevel.VERBOSE)
 
     /**
      * Returns `true` when the underlying SLF4J logger has [level] enabled. Useful for guarding
@@ -133,7 +133,7 @@ class ClientLogger private constructor(
      * Equivalent to SLF4J `Logger.isEnabledForLevel(Level)`; named `canLog` to read naturally
      * at call sites such as `if (logger.canLog(LogLevel.VERBOSE)) { … }`.
      */
-    fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(toSlf4j(level))
+    public fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(toSlf4j(level))
 
     internal fun slf4jLevel(level: LogLevel): Level = toSlf4j(level)
 

@@ -33,7 +33,7 @@ import java.io.IOException
  * themselves be safe for concurrent invocation — see [KeyCredentialAuthStep] (stateless)
  * and [BearerTokenAuthStep] (lock-guarded token cache).
  */
-abstract class AuthStep : HttpStep {
+public abstract class AuthStep : HttpStep {
     final override val stage: Stage = Stage.AUTH
 
     @Throws(IOException::class)

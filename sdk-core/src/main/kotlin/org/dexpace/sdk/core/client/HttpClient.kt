@@ -19,10 +19,10 @@ import org.dexpace.sdk.core.http.response.Response
  * Implementations should honor `Thread.interrupt()` on blocking I/O and propagate the interrupt
  * (preserving status) per the SDK's cancellation contract (see `docs/architecture.md`).
  */
-fun interface HttpClient {
+public fun interface HttpClient {
     /**
      * Sends [request] over the underlying transport and returns the matching [Response]. The
      * response body is not pre-buffered — callers are responsible for closing it.
      */
-    fun execute(request: Request): Response
+    public fun execute(request: Request): Response
 }

@@ -14,6 +14,6 @@ import org.dexpace.sdk.core.http.pipeline.Stage
  * users implementing custom retry behaviour override [HttpStep.process] but inherit the
  * pillar slot. The shipped concrete implementation is [DefaultRetryStep].
  */
-abstract class RetryStep : HttpStep {
+public abstract class RetryStep : HttpStep {
     final override val stage: Stage = Stage.RETRY
 }

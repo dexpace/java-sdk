@@ -9,7 +9,7 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * context's [InstrumentationContext]; once a [Response] arrives [toExchangeContext]
  * promotes this into an [ExchangeContext].
  */
-data class RequestContext(
+public data class RequestContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
 ) : CallContext {
@@ -17,7 +17,7 @@ data class RequestContext(
      * Promotes this request context into an [ExchangeContext] bound to [response] and
      * stores the new context in [ContextStore] keyed by the trace id.
      */
-    fun toExchangeContext(response: Response): ExchangeContext =
+    public fun toExchangeContext(response: Response): ExchangeContext =
         ExchangeContext(
             instrumentationContext = instrumentationContext,
             request = request,

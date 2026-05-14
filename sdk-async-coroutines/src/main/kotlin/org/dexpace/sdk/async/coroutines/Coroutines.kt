@@ -29,13 +29,13 @@ private val log = ClientLogger("org.dexpace.sdk.async.coroutines.Coroutines")
  * the [AsyncHttpClient] implementation — see [AsyncHttpClient.executeAsync]'s cancellation
  * contract.
  */
-suspend fun AsyncHttpClient.execute(request: Request): Response = executeAsync(request).await()
+public suspend fun AsyncHttpClient.execute(request: Request): Response = executeAsync(request).await()
 
 /**
  * Suspend-friendly facade over [AsyncHttpPipeline.sendAsync]. Mirrors [execute] above but for
  * the pipeline entry point.
  */
-suspend fun AsyncHttpPipeline.send(request: Request): Response = sendAsync(request).await()
+public suspend fun AsyncHttpPipeline.send(request: Request): Response = sendAsync(request).await()
 
 /**
  * Builds a [CompletableFuture] from a suspending block inside [scope]. Thin re-export of
@@ -56,7 +56,7 @@ suspend fun AsyncHttpPipeline.send(request: Request): Response = sendAsync(reque
  * The current thread's MDC is captured via `MDCContext()` so log events emitted inside [block]
  * see the caller's `trace.id` / `span.id`.
  */
-fun <T> CoroutineScope.completableFutureOf(
+public fun <T> CoroutineScope.completableFutureOf(
     context: CoroutineContext = EmptyCoroutineContext,
     block: suspend CoroutineScope.() -> T,
 ): CompletableFuture<T> = this.future(context + MDCContext(), block = block)
@@ -72,7 +72,7 @@ fun <T> CoroutineScope.completableFutureOf(
  * executor-based bridge) when the underlying [HttpClient] respects [Thread.interrupt] —
  * `runInterruptible` will then abort the in-flight call on cancellation.
  */
-fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient {
+public fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient {
     log.atVerbose()
         .event("async.adapter.wrapped")
         .field("adapter.type", "coroutines")

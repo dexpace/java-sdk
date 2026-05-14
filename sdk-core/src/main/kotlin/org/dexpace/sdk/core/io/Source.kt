@@ -10,7 +10,7 @@ import java.io.IOException
  * with [Source] directly — they obtain a [BufferedSource] from an [IoProvider] which adds the
  * typed read surface.
  */
-interface Source : Closeable {
+public interface Source : Closeable {
     /**
      * Reads up to [byteCount] bytes from this source and appends them to [sink].
      *
@@ -22,5 +22,5 @@ interface Source : Closeable {
      * @throws IOException on underlying I/O failure.
      */
     @Throws(IOException::class)
-    fun read(sink: Buffer, byteCount: Long): Long
+    public fun read(sink: Buffer, byteCount: Long): Long
 }

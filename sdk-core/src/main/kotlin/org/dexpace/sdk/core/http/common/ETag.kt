@@ -12,26 +12,26 @@ package org.dexpace.sdk.core.http.common
  * [toHeaderValue]. Round-trips with [parse] preserve the textual form exactly.
  */
 @JvmInline
-value class ETag private constructor(private val raw: String) {
+public value class ETag private constructor(private val raw: String) {
     /** Returns the raw header form, e.g. `"\"foo\""`, `W/"foo"`, or `*`. */
-    fun toHeaderValue(): String = raw
+    public fun toHeaderValue(): String = raw
 
     override fun toString(): String = raw
 
     /** `true` when this is a weak validator (`W/"opaque"`). */
-    val isWeak: Boolean get() = raw.startsWith("W/")
+    public val isWeak: Boolean get() = raw.startsWith("W/")
 
     /** `true` when this is a strong validator (`"opaque"` with no `W/` prefix and not `*`). */
-    val isStrong: Boolean get() = !isWeak && raw != "*"
+    public val isStrong: Boolean get() = !isWeak && raw != "*"
 
     /** `true` when this is the [ANY] singleton (`*`). */
-    val isAny: Boolean get() = raw == "*"
+    public val isAny: Boolean get() = raw == "*"
 
     /** The opaque (unquoted) tag value, or `"*"` for [ANY]. */
-    val opaque: String
+    public val opaque: String
         get() = if (isAny) "*" else raw.removePrefix("W/").trim('"')
 
-    companion object {
+    public companion object {
         /**
          * Matches any entity: `If-Match: *` / `If-None-Match: *`.
          *
@@ -41,7 +41,7 @@ value class ETag private constructor(private val raw: String) {
          * `ETag.getANY()`; Kotlin callers see `ETag.ANY`.
          */
         @JvmStatic
-        val ANY: ETag = ETag("*")
+        public val ANY: ETag = ETag("*")
 
         /**
          * Strong validator: `"opaque"`. The supplied [opaque] value is quote-wrapped.
@@ -49,7 +49,7 @@ value class ETag private constructor(private val raw: String) {
          * @throws IllegalArgumentException if [opaque] is empty (use [ANY] for `*`).
          */
         @JvmStatic
-        fun strong(opaque: String): ETag {
+        public fun strong(opaque: String): ETag {
             require(opaque.isNotEmpty()) { "opaque must not be empty (use ETag.ANY for `*`)" }
             return ETag("\"$opaque\"")
         }
@@ -59,7 +59,7 @@ value class ETag private constructor(private val raw: String) {
          * — it is technically valid per RFC 7232 §2.3.
          */
         @JvmStatic
-        fun weak(opaque: String): ETag = ETag("W/\"$opaque\"")
+        public fun weak(opaque: String): ETag = ETag("W/\"$opaque\"")
 
         /**
          * Parses a raw header form. Returns [ANY] for `*`, `null` for blank or missing
@@ -74,7 +74,7 @@ value class ETag private constructor(private val raw: String) {
          *   recognised ETag form.
          */
         @JvmStatic
-        fun parse(raw: String?): ETag? {
+        public fun parse(raw: String?): ETag? {
             val trimmed = raw?.trim() ?: return null
             if (trimmed.isEmpty()) return null
             if (trimmed == "*") return ANY

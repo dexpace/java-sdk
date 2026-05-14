@@ -9,11 +9,11 @@ import java.util.EnumSet
  *
  * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
  */
-fun interface HttpRedirectPredicate {
+public fun interface HttpRedirectPredicate {
     /**
      * Returns `true` if the redirect described by [condition] should be followed.
      */
-    fun shouldRedirect(condition: HttpRedirectCondition): Boolean
+    public fun shouldRedirect(condition: HttpRedirectCondition): Boolean
 }
 
 /**
@@ -34,15 +34,15 @@ fun interface HttpRedirectPredicate {
  * default predicate inspects status, allowed method, presence of [locationHeader], and
  * loop detection.
  */
-class HttpRedirectOptions @JvmOverloads constructor(
+public class HttpRedirectOptions @JvmOverloads constructor(
     /**
      * Maximum number of redirect hops followed after the initial request; 0 disables
      * redirect following entirely.
      */
-    val maxHops: Int = 3,
-    val allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
-    val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
-    val follow303: Boolean = false,
-    val allowSchemeDowngrade: Boolean = false,
-    val shouldRedirect: HttpRedirectPredicate? = null,
+    public val maxHops: Int = 3,
+    public val allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
+    public val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
+    public val follow303: Boolean = false,
+    public val allowSchemeDowngrade: Boolean = false,
+    public val shouldRedirect: HttpRedirectPredicate? = null,
 )

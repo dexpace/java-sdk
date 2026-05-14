@@ -31,13 +31,13 @@ import java.util.regex.Pattern
  * real host-pattern allow-list and `"*"` in it is treated as a glob matching any host,
  * not as the bypass-all sentinel.
  */
-class ProxyOptions @JvmOverloads constructor(
-    val type: Type,
-    val address: InetSocketAddress,
-    val nonProxyHosts: List<String> = emptyList(),
-    val username: String? = null,
-    val password: String? = null,
-    val challengeHandler: ChallengeHandler? = null,
+public class ProxyOptions @JvmOverloads constructor(
+    public val type: Type,
+    public val address: InetSocketAddress,
+    public val nonProxyHosts: List<String> = emptyList(),
+    public val username: String? = null,
+    public val password: String? = null,
+    public val challengeHandler: ChallengeHandler? = null,
     /**
      * When `true`, the proxy is bypassed for every host regardless of [nonProxyHosts].
      * Corresponds to `NO_PROXY=*` or `http.nonProxyHosts=*` in the environment.
@@ -48,7 +48,7 @@ class ProxyOptions @JvmOverloads constructor(
      * without a proxy. When constructing [ProxyOptions] directly, set this flag rather
      * than placing `"*"` in [nonProxyHosts].
      */
-    val bypassAllHosts: Boolean = false,
+    public val bypassAllHosts: Boolean = false,
 ) {
     // Pre-compiled at construction so per-request matches don't re-compile.
     private val nonProxyPatterns: List<Pattern> = nonProxyHosts.map { compileGlob(it) }
@@ -59,7 +59,7 @@ class ProxyOptions @JvmOverloads constructor(
      * Short-circuits immediately when [bypassAllHosts] is set. Otherwise checks whether
      * [host] matches any of the configured [nonProxyHosts] glob patterns.
      */
-    fun bypassesProxy(host: String): Boolean =
+    public fun bypassesProxy(host: String): Boolean =
         bypassAllHosts || nonProxyPatterns.any { it.matcher(host).matches() }
 
     /**
@@ -80,9 +80,9 @@ class ProxyOptions @JvmOverloads constructor(
      * the corresponding SOCKS variants. Transport adapters dispatch on this value to pick the right
      * `java.net.Proxy.Type`.
      */
-    enum class Type { HTTP, SOCKS4, SOCKS5 }
+    public enum class Type { HTTP, SOCKS4, SOCKS5 }
 
-    companion object {
+    public companion object {
         private val logger = ClientLogger(ProxyOptions::class)
 
         // Splitters per source: env var `NO_PROXY` uses comma; system property `http.nonProxyHosts`
@@ -106,7 +106,7 @@ class ProxyOptions @JvmOverloads constructor(
          *   the proxy for everything (returns null).
          */
         @JvmStatic
-        fun fromConfiguration(config: Configuration): ProxyOptions? {
+        public fun fromConfiguration(config: Configuration): ProxyOptions? {
             // 1. System property layer first: prefer https.* then fall back to http.*.
             // Use getProperty (case-preserving) — not get(...) — because these keys live as
             // system properties only and the JVM convention is camelCase (`https.proxyHost`).

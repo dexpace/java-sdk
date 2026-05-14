@@ -21,7 +21,7 @@ import java.util.function.Function
  * The process-wide global slot is published via `@Volatile`; readers observe the most-recently-set
  * configuration under last-write-wins semantics.
  */
-class Configuration internal constructor(
+public class Configuration internal constructor(
     private val overrides: Map<String, String>,
     private val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
     private val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
@@ -34,7 +34,7 @@ class Configuration internal constructor(
      * system property (using the normalized name) -> [default].
      */
     @JvmOverloads
-    fun get(name: String, default: String? = null): String? {
+    public fun get(name: String, default: String? = null): String? {
         overrides[name]?.let { return it }
         val env = envSource.apply(name)
         if (!env.isNullOrEmpty()) return env
@@ -49,18 +49,18 @@ class Configuration internal constructor(
      *
      * Returns null when the property is unset.
      */
-    fun getProperty(name: String): String? = propsSource.apply(name)
+    public fun getProperty(name: String): String? = propsSource.apply(name)
 
     /**
      * Integer accessor. Returns [default] if the value is missing or not a valid integer.
      */
-    fun getInt(name: String, default: Int): Int = get(name)?.toIntOrNull() ?: default
+    public fun getInt(name: String, default: Int): Int = get(name)?.toIntOrNull() ?: default
 
     /**
      * Strict boolean accessor. Only `"true"` and `"false"` (case-insensitive) are recognized;
      * other values (including `"1"`, `"yes"`, `"on"`) fall through to [default].
      */
-    fun getBoolean(name: String, default: Boolean): Boolean {
+    public fun getBoolean(name: String, default: Boolean): Boolean {
         val raw = get(name) ?: return default
         return when (raw.lowercase(Locale.US)) {
             "true" -> true
@@ -74,34 +74,34 @@ class Configuration internal constructor(
      * A bare number is interpreted as milliseconds (`1000` -> 1 second).
      * Returns [default] on parse failure.
      */
-    fun getDuration(name: String, default: Duration): Duration =
+    public fun getDuration(name: String, default: Duration): Duration =
         get(name)?.let { parseDuration(it) } ?: default
 
-    companion object {
+    public companion object {
         // Well-known keys. `const val` so callers reference them as `Configuration.MAX_RETRY_ATTEMPTS`
         // from both Kotlin and Java without going through `Companion`.
 
         /** Maximum number of retry attempts for retryable transport failures. */
-        const val MAX_RETRY_ATTEMPTS: String = "MAX_RETRY_ATTEMPTS"
+        public const val MAX_RETRY_ATTEMPTS: String = "MAX_RETRY_ATTEMPTS"
 
         /** SLF4J-style log level for the SDK's [org.dexpace.sdk.core.instrumentation.ClientLogger]. */
-        const val LOG_LEVEL: String = "LOG_LEVEL"
+        public const val LOG_LEVEL: String = "LOG_LEVEL"
 
         /** Standard environment variable for the plain-HTTP proxy URL (`http://user:pass@host:port`). */
-        const val HTTP_PROXY: String = "HTTP_PROXY"
+        public const val HTTP_PROXY: String = "HTTP_PROXY"
 
         /** Standard environment variable for the HTTPS proxy URL, preferred over [HTTP_PROXY]. */
-        const val HTTPS_PROXY: String = "HTTPS_PROXY"
+        public const val HTTPS_PROXY: String = "HTTPS_PROXY"
 
         /** Standard environment variable for the comma-separated no-proxy host list. */
-        const val NO_PROXY: String = "NO_PROXY"
+        public const val NO_PROXY: String = "NO_PROXY"
 
         @Volatile
         private var global: Configuration = Configuration(emptyMap())
 
         /** Returns the process-wide global configuration. Defaults to an empty configuration. */
         @JvmStatic
-        fun getGlobalConfiguration(): Configuration = global
+        public fun getGlobalConfiguration(): Configuration = global
 
         /**
          * Replace the process-wide global configuration. Last-write-wins via `@Volatile`.
@@ -110,7 +110,7 @@ class Configuration internal constructor(
          * Java caller passes `null`, so no explicit guard is needed here.
          */
         @JvmStatic
-        fun setGlobalConfiguration(c: Configuration) {
+        public fun setGlobalConfiguration(c: Configuration) {
             global = c
         }
 

@@ -48,7 +48,7 @@ import java.util.concurrent.CompletionException
  * Stateless after construction (the `ClientLogger`, counters, and histograms are reused). Safe
  * to share across concurrent requests.
  */
-class DefaultAsyncInstrumentationStep @JvmOverloads constructor(
+public class DefaultAsyncInstrumentationStep @JvmOverloads constructor(
     private val options: HttpInstrumentationOptions = HttpInstrumentationOptions(),
     private val clock: Clock = Clock.SYSTEM,
     internal val logger: ClientLogger = ClientLogger(DefaultAsyncInstrumentationStep::class),

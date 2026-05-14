@@ -11,11 +11,11 @@ import java.util.Collections
  *
  * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
  */
-fun interface HttpRetryConditionPredicate {
+public fun interface HttpRetryConditionPredicate {
     /**
      * Returns `true` if the request should be retried for the given [condition].
      */
-    fun shouldRetry(condition: HttpRetryCondition): Boolean
+    public fun shouldRetry(condition: HttpRetryCondition): Boolean
 }
 
 /**
@@ -24,12 +24,12 @@ fun interface HttpRetryConditionPredicate {
  *
  * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
  */
-fun interface HttpRetryDelayProvider {
+public fun interface HttpRetryDelayProvider {
     /**
      * Returns a custom delay for [condition], or `null` to fall through to the default
      * delay resolution (Retry-After header parsing, then fixed or exponential backoff).
      */
-    fun delayFor(condition: HttpRetryCondition): Duration?
+    public fun delayFor(condition: HttpRetryCondition): Duration?
 }
 
 /**
@@ -50,23 +50,23 @@ fun interface HttpRetryDelayProvider {
  * The companion [HttpRetryOptions.fixed] factory builds an options instance whose delay
  * never grows — useful for test injection or high-throughput retry against flaky endpoints.
  */
-class HttpRetryOptions @JvmOverloads constructor(
-    val maxRetries: Int = 3,
-    val baseDelay: Duration = Duration.ofMillis(800),
-    val maxDelay: Duration = Duration.ofSeconds(8),
-    val fixedDelay: Duration? = null,
-    val retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS,
-    val shouldRetryCondition: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryResponse),
-    val shouldRetryException: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryException),
-    val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
+public class HttpRetryOptions @JvmOverloads constructor(
+    public val maxRetries: Int = 3,
+    public val baseDelay: Duration = Duration.ofMillis(800),
+    public val maxDelay: Duration = Duration.ofSeconds(8),
+    public val fixedDelay: Duration? = null,
+    public val retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS,
+    public val shouldRetryCondition: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryResponse),
+    public val shouldRetryException: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryException),
+    public val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
 ) {
-    companion object {
+    public companion object {
         /**
          * The three `Retry-After` header forms parsed by [DefaultRetryStep]. Order matters —
          * the first header present on the response wins.
          */
         @JvmField
-        val DEFAULT_RETRY_AFTER_HEADERS: List<HttpHeaderName> = Collections.unmodifiableList(
+        public val DEFAULT_RETRY_AFTER_HEADERS: List<HttpHeaderName> = Collections.unmodifiableList(
             listOf(
                 HttpHeaderName.RETRY_AFTER,
                 HttpHeaderName.RETRY_AFTER_MS,
@@ -80,7 +80,7 @@ class HttpRetryOptions @JvmOverloads constructor(
          * so the backoff path is unreachable.
          */
         @JvmStatic
-        fun fixed(maxRetries: Int, delay: Duration): HttpRetryOptions = HttpRetryOptions(
+        public fun fixed(maxRetries: Int, delay: Duration): HttpRetryOptions = HttpRetryOptions(
             maxRetries = maxRetries,
             fixedDelay = delay,
             baseDelay = Duration.ZERO,

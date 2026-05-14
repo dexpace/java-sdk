@@ -6,6 +6,6 @@ package org.dexpace.sdk.core.instrumentation
  * [org.dexpace.sdk.core.http.pipeline.steps.HttpInstrumentationOptions] when no concrete tracer
  * is installed.
  */
-object NoopTracer : Tracer {
+public object NoopTracer : Tracer {
     override fun startSpan(name: String, attributes: Map<String, Any>): Span = Span.NOOP
 }

@@ -26,12 +26,12 @@ import java.io.IOException
  * @property value Optional deserialized payload describing the error (e.g. a JSON error body).
  * @param cause Underlying cause to chain into the [IOException], or `null`.
  */
-open class HttpResponseException
+public open class HttpResponseException
 @JvmOverloads
 constructor(
     message: String,
-    val response: Response?,
-    val value: Any? = null,
+    public val response: Response?,
+    public val value: Any? = null,
     cause: Throwable? = null,
 ) : IOException(message, cause) {
 
@@ -39,7 +39,7 @@ constructor(
      * Whether this exception represents a retryable condition. Computed once at
      * construction; querying is free.
      */
-    val isRetryable: Boolean = computeIsRetryable(response, cause)
+    public val isRetryable: Boolean = computeIsRetryable(response, cause)
 
     private companion object {
         private fun computeIsRetryable(response: Response?, cause: Throwable?): Boolean {

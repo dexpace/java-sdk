@@ -7,7 +7,7 @@ package org.dexpace.sdk.core.instrumentation
  * returns `this`, both `end` overloads are no-ops, and [makeCurrent] reuses a cached
  * [TracingScope] singleton so the disabled-tracing path is allocation-free.
  */
-object NoopSpan : Span {
+public object NoopSpan : Span {
     /** Reused across every [makeCurrent] call so the no-op path allocates no SAM adapter. */
     private val NOOP_SCOPE: TracingScope = TracingScope { }
 
@@ -24,10 +24,10 @@ object NoopSpan : Span {
     override fun setError(errorType: String): Span = this
 
     /** No-op. */
-    override fun end() = Unit
+    override fun end(): Unit = Unit
 
     /** No-op; the throwable is silently dropped. */
-    override fun end(throwable: Throwable) = Unit
+    override fun end(throwable: Throwable): Unit = Unit
 
     /** Returns the cached no-op [TracingScope] singleton; no allocation per call. */
     override fun makeCurrent(): TracingScope = NOOP_SCOPE

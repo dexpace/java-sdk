@@ -12,16 +12,16 @@ import java.io.OutputStream
  * scratch buffer. Stream / buffer overloads do **not** close their targets — the caller retains
  * ownership.
  */
-interface Serializer {
+public interface Serializer {
     /** Encode [input] and return the result as a new string. */
-    fun serialize(input: Any): String
+    public fun serialize(input: Any): String
 
     /** Encode [input] and return the result as a freshly-allocated byte array. */
-    fun serializeToByteArray(input: Any): ByteArray
+    public fun serializeToByteArray(input: Any): ByteArray
 
     /** Stream [input]'s encoding into [outputStream]. The caller owns closing the stream. */
-    fun serialize(input: Any, outputStream: OutputStream)
+    public fun serialize(input: Any, outputStream: OutputStream)
 
     /** Encode [input] into the caller-supplied [buffer]. Behavior on overflow is implementation-defined. */
-    fun serialize(input: Any, buffer: ByteArray)
+    public fun serialize(input: Any, buffer: ByteArray)
 }

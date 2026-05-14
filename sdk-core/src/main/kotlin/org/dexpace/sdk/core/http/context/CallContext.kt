@@ -18,9 +18,9 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * [ContextStore] is thread-safe (concurrent-map backed), so contexts for different trace
  * ids can be promoted / removed concurrently without external synchronisation.
  */
-interface CallContext : AutoCloseable {
+public interface CallContext : AutoCloseable {
     /** Distributed-tracing context for this call; identifies the trace, span, and sampling flags. */
-    val instrumentationContext: InstrumentationContext
+    public val instrumentationContext: InstrumentationContext
 
     /** Removes this context from [ContextStore] keyed by the call's trace id. */
     override fun close() {

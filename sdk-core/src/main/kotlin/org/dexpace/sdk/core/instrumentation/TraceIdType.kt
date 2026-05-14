@@ -13,7 +13,7 @@ import java.util.concurrent.ThreadLocalRandom
  *   Context spec.
  * - [NOOP] — placeholder used by no-op contexts; always returns [TraceId.NOOP].
  */
-enum class TraceIdType(val generate: () -> TraceId) {
+public enum class TraceIdType(public val generate: () -> TraceId) {
     DATADOG(::generateDatadogTraceId),
     W3C(::generateW3CTraceId),
     NOOP(::generateNoopTraceId)

@@ -15,7 +15,7 @@ import java.util.Base64
  * Security: `Basic` transmits the password in a trivially reversible form. Use only
  * over HTTPS or trusted-network tunnels.
  */
-class BasicChallengeHandler(username: String, password: String) : ChallengeHandler {
+public class BasicChallengeHandler(username: String, password: String) : ChallengeHandler {
 
     private val authHeaderValue: String
 

@@ -8,10 +8,10 @@ package org.dexpace.sdk.core.serde
  * makes it easy to swap formats at the edge of the SDK. Concrete implementations live outside
  * `sdk-core` since `sdk-core` deliberately ships no embedded serializer.
  */
-interface Serde {
+public interface Serde {
     /** Encoder used for writing values out as wire bytes / strings / streams. */
-    val serializer: Serializer
+    public val serializer: Serializer
 
     /** Decoder used for reading values out of wire bytes / strings / streams. */
-    val deserializer: Deserializer
+    public val deserializer: Deserializer
 }

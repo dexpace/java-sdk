@@ -33,7 +33,7 @@ private val log = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
  * To extend MDC propagation through user-supplied downstream operators, enable
  * `Hooks.enableAutomaticContextPropagation()` at the application level.
  */
-fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
+public fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
     val mdc = MdcSnapshot.capture()
     return Mono.fromFuture { mdc.withMdc { executeAsync(request) } }
         .doOnSubscribe {
@@ -65,7 +65,7 @@ fun AsyncHttpClient.executeMono(request: Request): Mono<Response> {
  * To extend MDC propagation through user-supplied downstream operators, enable
  * `Hooks.enableAutomaticContextPropagation()` at the application level.
  */
-fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
+public fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
     val mdc = MdcSnapshot.capture()
     return Mono.fromFuture { mdc.withMdc { sendAsync(request) } }
         .doOnSubscribe {
@@ -98,7 +98,7 @@ fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
  * Note: the underlying [BufferedSource] is single-threaded. Repeated subscribers MUST NOT
  * share a [BufferedSource]; create a fresh reader (and a fresh source) per subscription.
  */
-fun ServerSentEventReader.toFlux(): Flux<ServerSentEvent> = Flux.generate { sink ->
+public fun ServerSentEventReader.toFlux(): Flux<ServerSentEvent> = Flux.generate { sink ->
     val event = try {
         next()
     } catch (e: Exception) {
@@ -120,7 +120,7 @@ fun ServerSentEventReader.toFlux(): Flux<ServerSentEvent> = Flux.generate { sink
  * the subscription. The reader does not hold any closeable resource beyond this source, so the
  * cleanup lambda is a no-op.
  */
-fun BufferedSource.readServerSentEventsAsFlux(): Flux<ServerSentEvent> =
+public fun BufferedSource.readServerSentEventsAsFlux(): Flux<ServerSentEvent> =
     Flux.using(
         { ServerSentEventReader(this@readServerSentEventsAsFlux) },
         { reader -> reader.toFlux() },

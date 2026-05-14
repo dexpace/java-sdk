@@ -16,9 +16,9 @@ import java.io.IOException
  * Buffers are not thread-safe; serialize external access if shared. Adapters may use lock-free
  * structures internally, but the public surface assumes single-threaded use.
  */
-interface Buffer : BufferedSource, BufferedSink {
+public interface Buffer : BufferedSource, BufferedSink {
     /** The number of bytes currently held. */
-    val size: Long
+    public val size: Long
 
     /**
      * Returns an immutable byte-array copy of the buffer's contents. Buffer is unchanged.
@@ -26,10 +26,10 @@ interface Buffer : BufferedSource, BufferedSink {
      * Throws [IllegalStateException] when [size] exceeds [MAX_BYTE_ARRAY_SIZE]. For larger
      * buffers, callers should stream via [BufferedSource.inputStream] or [copyTo] instead.
      */
-    fun snapshot(): ByteArray
+    public fun snapshot(): ByteArray
 
     /** Discards every byte. */
-    fun clear()
+    public fun clear()
 
     /**
      * Copies [byteCount] bytes starting at [offset] into [out]. This buffer is unchanged.
@@ -40,16 +40,16 @@ interface Buffer : BufferedSource, BufferedSink {
      *         `offset + byteCount` exceeds [size].
      */
     @Throws(IOException::class)
-    fun copyTo(out: Buffer, offset: Long = 0, byteCount: Long = size - offset): Buffer
+    public fun copyTo(out: Buffer, offset: Long = 0, byteCount: Long = size - offset): Buffer
 
     override val buffer: Buffer get() = this
 
-    companion object {
+    public companion object {
         /**
          * The maximum number of bytes that can be safely returned as a single [ByteArray] on
          * the JVM. Hotspot reserves a few words for the array header; this matches the
          * effective limit used by `ByteArrayOutputStream` and similar JDK collections.
          */
-        const val MAX_BYTE_ARRAY_SIZE: Int = Int.MAX_VALUE - 8
+        public const val MAX_BYTE_ARRAY_SIZE: Int = Int.MAX_VALUE - 8
     }
 }

@@ -13,15 +13,15 @@ import java.time.Duration
  * The default implementations of [onError], [onClose], and [onRetry] are no-ops so
  * simple listeners can supply just [onEvent].
  */
-interface ServerSentEventListener {
+public interface ServerSentEventListener {
     /** Invoked once per parsed event. */
-    fun onEvent(event: ServerSentEvent)
+    public fun onEvent(event: ServerSentEvent)
 
     /** Default: no-op. Override to log or recover. */
-    fun onError(t: Throwable) {}
+    public fun onError(t: Throwable) {}
 
     /** Default: no-op. Override to release resources or notify observers. */
-    fun onClose() {}
+    public fun onClose() {}
 
     /**
      * Invoked with the server-advised reconnect interval ([ServerSentEvent.retry]). The SDK
@@ -30,5 +30,5 @@ interface ServerSentEventListener {
      *
      * Default: no-op.
      */
-    fun onRetry(delay: Duration) {}
+    public fun onRetry(delay: Duration) {}
 }

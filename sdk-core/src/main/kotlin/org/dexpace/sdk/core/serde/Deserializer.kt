@@ -12,16 +12,16 @@ import java.io.InputStream
  * downstream overload. The bare overloads here exist for the common "the caller already knows T at
  * compile time" case.
  */
-interface Deserializer {
+public interface Deserializer {
     /** Decode a complete document from the in-memory [input] string. */
-    fun <T> deserialize(input: String): T
+    public fun <T> deserialize(input: String): T
 
     /** Decode a complete document from the in-memory [input] byte array. */
-    fun <T> deserialize(input: ByteArray): T
+    public fun <T> deserialize(input: ByteArray): T
 
     /**
      * Decode a complete document by streaming from [inputStream]. The implementation owns reading
      * to EOF but **does not** close the stream — the caller retains ownership.
      */
-    fun <T> deserialize(inputStream: InputStream): T
+    public fun <T> deserialize(inputStream: InputStream): T
 }

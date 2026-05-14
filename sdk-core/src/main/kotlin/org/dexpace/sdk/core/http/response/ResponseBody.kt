@@ -36,16 +36,16 @@ import java.io.InputStream
  * @see org.dexpace.sdk.core.http.logging.LoggableResponseBody for a buffered wrapper that
  *      supports repeatable reads and non-destructive logging.
  */
-abstract class ResponseBody : Closeable {
+public abstract class ResponseBody : Closeable {
     /**
      * Returns the media type of the response body, or null if unknown.
      */
-    abstract fun mediaType(): MediaType?
+    public abstract fun mediaType(): MediaType?
 
     /**
      * Returns the content length, or -1 if unknown.
      */
-    abstract fun contentLength(): Long
+    public abstract fun contentLength(): Long
 
     /**
      * Returns a [BufferedSource] to read the response body.
@@ -54,7 +54,7 @@ abstract class ResponseBody : Closeable {
      *
      * @return The buffered source.
      */
-    abstract fun source(): BufferedSource
+    public abstract fun source(): BufferedSource
 
     /**
      * Closes the response body and releases any transport resources.
@@ -73,7 +73,7 @@ abstract class ResponseBody : Closeable {
     /**
      * Factory entry point for adapter / test code that already holds a [BufferedSource].
      */
-    companion object {
+    public companion object {
 
         /**
          * Creates a new response body wrapping [source]. The returned body is single-use
@@ -87,7 +87,7 @@ abstract class ResponseBody : Closeable {
          */
         @JvmStatic
         @JvmOverloads
-        fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1L): ResponseBody =
+        public fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1L): ResponseBody =
             object : ResponseBody() {
                 override fun mediaType(): MediaType? = mediaType
 

@@ -35,7 +35,7 @@ import java.io.OutputStream
  * instances follow the underlying contracts: individual [Buffer], [BufferedSource], and
  * [BufferedSink] instances are single-threaded.
  */
-object OkioIoProvider : IoProvider {
+public object OkioIoProvider : IoProvider {
 
     override fun buffer(): Buffer = OkioBuffer()
 

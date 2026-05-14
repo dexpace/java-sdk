@@ -11,11 +11,11 @@ import java.util.stream.StreamSupport
  *
  * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
  */
-fun interface FirstPageFetcher<T> {
+public fun interface FirstPageFetcher<T> {
     /**
      * Returns the first [PagedResponse] for [options], or `null` for an empty result set.
      */
-    fun fetch(options: PagingOptions): PagedResponse<T>?
+    public fun fetch(options: PagingOptions): PagedResponse<T>?
 }
 
 /**
@@ -23,12 +23,12 @@ fun interface FirstPageFetcher<T> {
  *
  * Kotlin callers may pass a lambda; Java callers may use a lambda or implement this interface.
  */
-fun interface NextPageFetcher<T> {
+public fun interface NextPageFetcher<T> {
     /**
      * Returns the next [PagedResponse] for [options] and [continuationToken], or `null`
      * to signal end of stream.
      */
-    fun fetch(options: PagingOptions, continuationToken: String): PagedResponse<T>?
+    public fun fetch(options: PagingOptions, continuationToken: String): PagedResponse<T>?
 }
 
 /**
@@ -76,7 +76,7 @@ fun interface NextPageFetcher<T> {
  * @property nextPage Fetches a subsequent page given the link from the previous page.
  * @property maxPages Defensive cap on the total number of pages yielded.
  */
-class PagedIterable<T> @JvmOverloads constructor(
+public class PagedIterable<T> @JvmOverloads constructor(
     private val firstPage: FirstPageFetcher<T>,
     private val nextPage: NextPageFetcher<T> = NextPageFetcher { _, _ -> null },
     private val maxPages: Long = Long.MAX_VALUE,
@@ -101,7 +101,7 @@ class PagedIterable<T> @JvmOverloads constructor(
      *   [nextPage]. Default is a fresh, empty [PagingOptions].
      */
     @JvmOverloads
-    fun byPage(options: PagingOptions = PagingOptions()): Sequence<PagedResponse<T>> = sequence {
+    public fun byPage(options: PagingOptions = PagingOptions()): Sequence<PagedResponse<T>> = sequence {
         var page: PagedResponse<T>? = firstPage.fetch(options)
         var pageCount = 0L
         while (page != null && pageCount < maxPages) {
@@ -164,7 +164,7 @@ class PagedIterable<T> @JvmOverloads constructor(
      * Java 8 `Stream<T>` view over the same iteration as [iterator]. Sequential,
      * `ORDERED`, unknown-size.
      */
-    fun stream(): Stream<T> {
+    public fun stream(): Stream<T> {
         val spliterator = Spliterators.spliteratorUnknownSize(
             iterator(),
             Spliterator.ORDERED,

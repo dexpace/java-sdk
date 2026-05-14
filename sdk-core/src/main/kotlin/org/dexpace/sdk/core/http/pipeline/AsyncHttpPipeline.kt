@@ -20,13 +20,13 @@ import java.util.concurrent.CompletableFuture
  *
  * Construct via [AsyncHttpPipelineBuilder]; the constructor is internal.
  */
-class AsyncHttpPipeline internal constructor(
+public class AsyncHttpPipeline internal constructor(
     /** The transport that receives the request when no further step remains. */
-    val httpClient: AsyncHttpClient,
+    public val httpClient: AsyncHttpClient,
     internal val stepArray: Array<AsyncHttpStep>,
 ) {
     /** Unmodifiable list view of the ordered steps. Backed by [stepArray]; for inspection only. */
-    val steps: List<AsyncHttpStep> = Collections.unmodifiableList(stepArray.asList())
+    public val steps: List<AsyncHttpStep> = Collections.unmodifiableList(stepArray.asList())
 
     /**
      * Runs [request] through the pipeline. Empty pipelines short-circuit directly to
@@ -38,7 +38,7 @@ class AsyncHttpPipeline internal constructor(
      * or step failure. Synchronous exceptions thrown by the first step are normalised into
      * a failed future so callers see a uniform async error model.
      */
-    fun sendAsync(request: Request): CompletableFuture<Response> {
+    public fun sendAsync(request: Request): CompletableFuture<Response> {
         if (stepArray.isEmpty()) {
             return try {
                 httpClient.executeAsync(request)
@@ -53,7 +53,7 @@ class AsyncHttpPipeline internal constructor(
         return AsyncPipelineNext(state).processAsync()
     }
 
-    companion object {
+    public companion object {
         /**
          * Builds a step-less [AsyncHttpPipeline] that forwards every `sendAsync` directly to
          * [client]. Equivalent to `AsyncHttpPipelineBuilder(client).build()` but avoids the
@@ -62,7 +62,7 @@ class AsyncHttpPipeline internal constructor(
          * to wrap a sync pipeline as async.
          */
         @JvmStatic
-        fun of(client: AsyncHttpClient): AsyncHttpPipeline =
+        public fun of(client: AsyncHttpClient): AsyncHttpPipeline =
             AsyncHttpPipelineBuilder(client).build()
     }
 }

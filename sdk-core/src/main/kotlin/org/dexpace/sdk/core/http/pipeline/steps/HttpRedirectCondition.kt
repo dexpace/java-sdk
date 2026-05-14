@@ -14,7 +14,7 @@ import org.dexpace.sdk.core.http.response.Response
  * Construction is avoided on the no-redirect fast path (non-3xx status, no `Location`
  * header) — the step short-circuits before allocating one.
  */
-data class HttpRedirectCondition(
+public data class HttpRedirectCondition(
     val response: Response,
     val tryCount: Int,
     val redirectedUris: Set<String>,

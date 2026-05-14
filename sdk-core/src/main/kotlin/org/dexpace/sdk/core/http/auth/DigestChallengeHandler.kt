@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
  * If the JVM lacks `MD5` or `SHA-256` (should never happen), the handler throws
  * `IllegalStateException` wrapping the underlying `NoSuchAlgorithmException`.
  */
-class DigestChallengeHandler @JvmOverloads constructor(
+public class DigestChallengeHandler @JvmOverloads constructor(
     private val username: String,
     private val password: String,
     private val preferredAlgorithms: List<DigestAlgorithm> = DEFAULT_PREFERENCE,
@@ -251,7 +251,7 @@ class DigestChallengeHandler @JvmOverloads constructor(
         return sb.toString()
     }
 
-    companion object {
+    public companion object {
         private val DEFAULT_PREFERENCE: List<DigestAlgorithm> = listOf(
             DigestAlgorithm.SHA_256,
             DigestAlgorithm.SHA_256_SESS,

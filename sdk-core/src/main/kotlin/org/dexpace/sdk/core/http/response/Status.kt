@@ -7,8 +7,8 @@ package org.dexpace.sdk.core.http.response
  * @property code Numeric status code as it appears on the wire.
  */
 @Suppress("unused")
-enum class Status(
-    val code: Int
+public enum class Status(
+    public val code: Int
 ) {
     // Informational responses (100–199)
     CONTINUE(100),
@@ -87,9 +87,9 @@ enum class Status(
     ;
 
     /** True when the code is in the 2xx success range. */
-    val isSuccess: Boolean = code in 200..299
+    public val isSuccess: Boolean = code in 200..299
 
-    companion object {
+    public companion object {
         private val LOOKUP: Map<Int, Status> = entries.associateBy { it.code }
 
         /**
@@ -99,7 +99,7 @@ enum class Status(
          */
         @JvmStatic
         @Throws(IllegalArgumentException::class)
-        fun fromCode(code: Int): Status =
+        public fun fromCode(code: Int): Status =
             LOOKUP[code] ?: throw IllegalArgumentException("Invalid status code: $code")
 
         /**
@@ -109,6 +109,6 @@ enum class Status(
          * code) rather than the throwing [fromCode].
          */
         @JvmStatic
-        fun fromCodeOrNull(code: Int): Status? = LOOKUP[code]
+        public fun fromCodeOrNull(code: Int): Status? = LOOKUP[code]
     }
 }

@@ -20,7 +20,7 @@ import java.util.Locale
  * Malformed challenges are skipped — the parser does not throw on bad input. This
  * matches the [edge-case guardrails][to-implement.md] for Rank 12.
  */
-object AuthChallengeParser {
+public object AuthChallengeParser {
 
     /**
      * Parses [header] and returns the list of challenges it contains. Returns an
@@ -30,7 +30,7 @@ object AuthChallengeParser {
      * values are stored verbatim with quoting and escaping removed.
      */
     @JvmStatic
-    fun parse(header: String): List<AuthenticateChallenge> {
+    public fun parse(header: String): List<AuthenticateChallenge> {
         if (header.isBlank()) return emptyList()
         val cursor = Cursor(header)
         val out = ArrayList<AuthenticateChallenge>(2)

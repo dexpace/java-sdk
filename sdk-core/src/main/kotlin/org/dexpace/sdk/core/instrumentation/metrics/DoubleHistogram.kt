@@ -21,7 +21,7 @@ package org.dexpace.sdk.core.instrumentation.metrics
  * measurement is expected to be a hot-path operation invoked from request handling
  * threads.
  */
-interface DoubleHistogram {
+public interface DoubleHistogram {
 
     /**
      * Records [value] in the histogram, optionally tagged with the supplied [attributes].
@@ -41,9 +41,9 @@ interface DoubleHistogram {
      * should use the companion-object helper [DoubleHistogram.record] for the no-attributes
      * form.
      */
-    fun record(value: Double, attributes: Map<String, Any> = emptyMap())
+    public fun record(value: Double, attributes: Map<String, Any> = emptyMap())
 
-    companion object {
+    public companion object {
         /**
          * Java convenience helper: records [value] in [histogram] with no attributes.
          *
@@ -52,6 +52,6 @@ interface DoubleHistogram {
          * Kotlin callers continue to use the default-parameter form: `histogram.record(1.5)`.
          */
         @JvmStatic
-        fun record(histogram: DoubleHistogram, value: Double): Unit = histogram.record(value, emptyMap())
+        public fun record(histogram: DoubleHistogram, value: Double): Unit = histogram.record(value, emptyMap())
     }
 }

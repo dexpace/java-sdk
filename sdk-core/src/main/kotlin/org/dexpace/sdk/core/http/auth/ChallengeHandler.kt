@@ -9,7 +9,7 @@ import java.net.URI
  * Replaces the raw `Pair<String, String>` return type to make call sites self-documenting:
  * `header.name` and `header.value` read clearly compared to `.first` and `.second`.
  */
-data class AuthorizationHeader(
+public data class AuthorizationHeader(
     val name: String,
     val value: String,
 )
@@ -30,7 +30,7 @@ data class AuthorizationHeader(
  * invocation across requests. Stateful counters (e.g. Digest's `nc`) must be
  * thread-safe primitives.
  */
-interface ChallengeHandler {
+public interface ChallengeHandler {
 
     /**
      * Returns the header to set on the retry request, or `null` if this handler
@@ -44,7 +44,7 @@ interface ChallengeHandler {
      * Kotlin callers can omit [isProxy] thanks to the default value; Java callers
      * use the three-argument convenience overload below.
      */
-    fun handleChallenges(
+    public fun handleChallenges(
         method: Method,
         uri: URI,
         challenges: List<AuthenticateChallenge>,
@@ -58,23 +58,23 @@ interface ChallengeHandler {
      * `@JvmOverloads` is disallowed on interface methods, so the default-argument
      * Kotlin form alone does not produce a Java-visible overload.
      */
-    fun handleChallenges(
+    public fun handleChallenges(
         method: Method,
         uri: URI,
         challenges: List<AuthenticateChallenge>,
     ): AuthorizationHeader? = handleChallenges(method, uri, challenges, false)
 
     /** True if any offered challenge is one this handler can satisfy. */
-    fun canHandle(challenges: List<AuthenticateChallenge>): Boolean
+    public fun canHandle(challenges: List<AuthenticateChallenge>): Boolean
 
-    companion object {
+    public companion object {
         /**
          * Composes [handlers] into one. The composite delegates to the first
          * handler whose [canHandle] returns true. Order matters — register Digest
          * before Basic when both might apply.
          */
         @JvmStatic
-        fun of(vararg handlers: ChallengeHandler): ChallengeHandler =
+        public fun of(vararg handlers: ChallengeHandler): ChallengeHandler =
             CompositeChallengeHandler(handlers.toList())
     }
 }

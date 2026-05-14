@@ -11,14 +11,14 @@ import java.io.IOException
  * Single instance per `pipeline.send(...)` call. Cloning is cheap — one [PipelineCallState]
  * allocation per [copy] — and the underlying steps array is shared across copies.
  */
-class PipelineNext internal constructor(private val state: PipelineCallState) {
+public class PipelineNext internal constructor(private val state: PipelineCallState) {
 
     /**
      * Advances to the next step and invokes it. If no further step exists, dispatches the
      * request to the pipeline's [org.dexpace.sdk.core.client.HttpClient].
      */
     @Throws(IOException::class)
-    fun process(): Response {
+    public fun process(): Response {
         val nextStep = state.advance()
         return if (nextStep == null) state.httpClient.execute(state.request)
         else nextStep.process(state.request, this)
@@ -32,7 +32,7 @@ class PipelineNext internal constructor(private val state: PipelineCallState) {
      * wrapping the body in `LoggableRequestBody` so the bytes can be captured for logging.
      */
     @Throws(IOException::class)
-    fun process(request: Request): Response {
+    public fun process(request: Request): Response {
         state.request = request
         return process()
     }
@@ -42,5 +42,5 @@ class PipelineNext internal constructor(private val state: PipelineCallState) {
      * any step that re-invokes the downstream chain more than once — re-using `this` would
      * advance past steps already visited on the previous invocation.
      */
-    fun copy(): PipelineNext = PipelineNext(state.copy())
+    public fun copy(): PipelineNext = PipelineNext(state.copy())
 }

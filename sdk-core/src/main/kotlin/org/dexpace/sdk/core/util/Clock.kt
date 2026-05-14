@@ -12,19 +12,19 @@ import java.time.Instant
  *
  * Production code uses [SYSTEM]; tests pass a fake.
  */
-interface Clock {
+public interface Clock {
     /**
      * Returns the current wall-clock instant. May go backwards if the OS clock is adjusted.
      * For elapsed-time measurement, use [monotonic] instead.
      */
-    fun now(): Instant
+    public fun now(): Instant
 
     /**
      * Returns a monotonically non-decreasing nanosecond counter suitable for measuring
      * elapsed durations. The absolute value is not meaningful — only deltas between calls
      * are.
      */
-    fun monotonic(): Long
+    public fun monotonic(): Long
 
     /**
      * Blocks the current thread for [duration]. A zero duration is allowed and may return
@@ -40,12 +40,12 @@ interface Clock {
      *         the exception so downstream handlers observe the interrupted state.
      */
     @Throws(InterruptedException::class)
-    fun sleep(duration: Duration)
+    public fun sleep(duration: Duration)
 
-    companion object {
+    public companion object {
         /** Shared system clock backed by [Instant.now], [System.nanoTime], and [Thread.sleep]. */
         @JvmField
-        val SYSTEM: Clock = SystemClock()
+        public val SYSTEM: Clock = SystemClock()
     }
 }
 

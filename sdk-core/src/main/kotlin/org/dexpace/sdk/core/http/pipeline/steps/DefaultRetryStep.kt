@@ -104,7 +104,7 @@ import java.util.concurrent.ThreadLocalRandom
  * **When to override:** to support additional server-specific pacing headers beyond those
  * in [HttpRetryOptions.retryAfterHeaders].
  */
-open class DefaultRetryStep @JvmOverloads constructor(
+public open class DefaultRetryStep @JvmOverloads constructor(
     options: HttpRetryOptions = HttpRetryOptions(),
     private val clock: Clock = Clock.SYSTEM,
     internal val logger: ClientLogger = ClientLogger(DefaultRetryStep::class),
@@ -527,12 +527,12 @@ open class DefaultRetryStep @JvmOverloads constructor(
         )
     }
 
-    companion object {
+    public companion object {
         /**
          * Default [HttpRetryOptions.maxRetries] applied when the caller passes a negative
          * value. Matches Azure Core's `RetryOptions` default.
          */
-        const val DEFAULT_MAX_RETRIES: Int = 3
+        public const val DEFAULT_MAX_RETRIES: Int = 3
 
         /**
          * Upper bound on `tryCount` used for the `1L shl tryCount` term in
@@ -540,13 +540,13 @@ open class DefaultRetryStep @JvmOverloads constructor(
          * always clamped to [HttpRetryOptions.maxDelay] long before this bound is hit, so the
          * cap is a paranoid guard against integer overflow rather than a behavior knob.
          */
-        const val MAX_SHIFT_TRY_COUNT: Int = 30
+        public const val MAX_SHIFT_TRY_COUNT: Int = 30
 
         /**
          * Threshold above which a `Retry-After` value triggers a verbose log. Values larger
          * than this almost always indicate either a misbehaving upstream or a long
          * maintenance window — callers may want to override via [HttpRetryOptions.delayFromCondition].
          */
-        const val LARGE_RETRY_AFTER_SECONDS: Long = 60L * 60L
+        public const val LARGE_RETRY_AFTER_SECONDS: Long = 60L * 60L
     }
 }

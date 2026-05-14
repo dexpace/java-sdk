@@ -22,7 +22,7 @@ import java.time.ZoneId
  * Thread-safety: stateless after construction — safe to share across concurrent requests.
  * Cancellation: blocking-free; no interrupt handling needed.
  */
-class SetDateStep @JvmOverloads constructor(
+public class SetDateStep @JvmOverloads constructor(
     private val clock: Clock = Clock.SYSTEM,
 ) : HttpStep {
     override val stage: Stage = Stage.POST_RETRY

@@ -19,7 +19,7 @@ import org.slf4j.MDC
  * a no-op rather than a double-log, but field accumulation (`field()`, `event()`, `cause()`) is NOT
  * thread-safe — these must happen on one thread, then `log()` may be called from any thread.
  */
-class LoggingEvent internal constructor(
+public class LoggingEvent internal constructor(
     private val logger: ClientLogger?,
     private val level: LogLevel?,
     private val enabled: Boolean,
@@ -46,7 +46,7 @@ class LoggingEvent internal constructor(
      * @param value the field value, or `null` to record the explicit absence.
      * @throws IllegalArgumentException if [key] is empty.
      */
-    fun field(key: String, value: String?): LoggingEvent {
+    public fun field(key: String, value: String?): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value ?: NULL_PLACEHOLDER)
@@ -59,7 +59,7 @@ class LoggingEvent internal constructor(
     // that's unavoidable without a custom SLF4J SPI.
 
     /** Attaches a `Long`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    fun field(key: String, value: Long): LoggingEvent {
+    public fun field(key: String, value: Long): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -67,7 +67,7 @@ class LoggingEvent internal constructor(
     }
 
     /** Attaches an `Int`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    fun field(key: String, value: Int): LoggingEvent {
+    public fun field(key: String, value: Int): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -75,7 +75,7 @@ class LoggingEvent internal constructor(
     }
 
     /** Attaches a `Boolean`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    fun field(key: String, value: Boolean): LoggingEvent {
+    public fun field(key: String, value: Boolean): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -83,7 +83,7 @@ class LoggingEvent internal constructor(
     }
 
     /** Attaches a `Double`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    fun field(key: String, value: Double): LoggingEvent {
+    public fun field(key: String, value: Double): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -98,7 +98,7 @@ class LoggingEvent internal constructor(
      * @param key the field key; must be non-empty.
      * @throws IllegalArgumentException if [key] is empty.
      */
-    fun field(key: String, value: Any?): LoggingEvent {
+    public fun field(key: String, value: Any?): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -109,7 +109,7 @@ class LoggingEvent internal constructor(
      * Sets the structured event-name tag emitted under the [EVENT_KEY] key. An empty name
      * clears any previously set value rather than emitting `event=""`.
      */
-    fun event(name: String): LoggingEvent {
+    public fun event(name: String): LoggingEvent {
         if (!enabled) return this
         // Empty event name → do not emit `event=""`; treat as cleared.
         eventName = if (name.isEmpty()) null else name
@@ -117,7 +117,7 @@ class LoggingEvent internal constructor(
     }
 
     /** Attaches a throwable cause to the event; forwarded to SLF4J's `setCause` on [log]. */
-    fun cause(t: Throwable?): LoggingEvent {
+    public fun cause(t: Throwable?): LoggingEvent {
         if (!enabled) return this
         cause = t
         return this
@@ -132,7 +132,7 @@ class LoggingEvent internal constructor(
      *   are typically the primary payload.
      */
     @JvmOverloads
-    fun log(message: String = "") {
+    public fun log(message: String = "") {
         if (!enabled) return
         if (!consumed.compareAndSet(false, true)) return
 
@@ -229,9 +229,9 @@ class LoggingEvent internal constructor(
         if (s.length <= MAX_FIELD_LEN) s
         else s.substring(0, MAX_FIELD_LEN) + TRUNCATED_SUFFIX
 
-    companion object {
+    public companion object {
         /** Standard structured key for the categorisation tag set by [LoggingEvent.event]. */
-        const val EVENT_KEY: String = "event"
+        public const val EVENT_KEY: String = "event"
 
         /**
          * Literal string `"null"` used in place of a `null` field value. Emitting the literal
@@ -254,7 +254,7 @@ class LoggingEvent internal constructor(
          * `log()` is a no-op. Allocates nothing per call site — the whole point of the facade.
          */
         @JvmField
-        val NOOP: LoggingEvent = LoggingEvent(logger = null, level = null, enabled = false)
+        public val NOOP: LoggingEvent = LoggingEvent(logger = null, level = null, enabled = false)
 
         /**
          * Returns a real enabled event when [logger] has [level] enabled, otherwise [NOOP].

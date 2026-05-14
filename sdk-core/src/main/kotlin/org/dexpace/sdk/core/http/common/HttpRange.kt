@@ -12,13 +12,13 @@ package org.dexpace.sdk.core.http.common
  * form, so unusual but valid whitespace and casing survive a parse/format cycle.
  */
 @JvmInline
-value class HttpRange private constructor(private val raw: String) {
+public value class HttpRange private constructor(private val raw: String) {
     /** Header value (e.g. `"bytes=0-1023"`). */
-    fun toHeaderValue(): String = raw
+    public fun toHeaderValue(): String = raw
 
     override fun toString(): String = raw
 
-    companion object {
+    public companion object {
         /**
          * Range `bytes=offset-(offset+length-1)`.
          *
@@ -26,7 +26,7 @@ value class HttpRange private constructor(private val raw: String) {
          * @throws ArithmeticException if `offset + length - 1` overflows `Long`.
          */
         @JvmStatic
-        fun bytes(offset: Long, length: Long): HttpRange {
+        public fun bytes(offset: Long, length: Long): HttpRange {
             require(offset >= 0) { "offset must be non-negative (got $offset)" }
             require(length > 0) { "length must be positive (got $length)" }
             // Math.addExact throws ArithmeticException on overflow; matches the spec
@@ -41,7 +41,7 @@ value class HttpRange private constructor(private val raw: String) {
          * @throws IllegalArgumentException if [length] <= 0.
          */
         @JvmStatic
-        fun suffix(length: Long): HttpRange {
+        public fun suffix(length: Long): HttpRange {
             require(length > 0) { "suffix length must be positive (got $length)" }
             return HttpRange("bytes=-$length")
         }
@@ -52,7 +52,7 @@ value class HttpRange private constructor(private val raw: String) {
          * @throws IllegalArgumentException if [offset] < 0.
          */
         @JvmStatic
-        fun from(offset: Long): HttpRange {
+        public fun from(offset: Long): HttpRange {
             require(offset >= 0) { "offset must be non-negative (got $offset)" }
             return HttpRange("bytes=$offset-")
         }
@@ -68,7 +68,7 @@ value class HttpRange private constructor(private val raw: String) {
          *   contains a comma (multi-range).
          */
         @JvmStatic
-        fun parse(raw: String): HttpRange {
+        public fun parse(raw: String): HttpRange {
             require(raw.startsWith("bytes=", ignoreCase = true)) {
                 "unsupported range unit (only 'bytes' supported): $raw"
             }

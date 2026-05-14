@@ -18,7 +18,7 @@ import java.time.Instant
  * @param expiresAt the instant the token becomes invalid, or null for a non-expiring token.
  * @throws IllegalArgumentException if [token] is blank.
  */
-data class BearerToken(val token: String, val expiresAt: Instant?) : Credential {
+public data class BearerToken(val token: String, val expiresAt: Instant?) : Credential {
     init { require(token.isNotBlank()) { "token must not be blank" } }
 
     /**
@@ -32,6 +32,6 @@ data class BearerToken(val token: String, val expiresAt: Instant?) : Credential 
      * @param marginBefore extra time treated as "already expired"; defaults to zero.
      */
     @JvmOverloads
-    fun isExpiredAt(now: Instant, marginBefore: Duration = Duration.ZERO): Boolean =
+    public fun isExpiredAt(now: Instant, marginBefore: Duration = Duration.ZERO): Boolean =
         expiresAt != null && now.plus(marginBefore).isAfter(expiresAt)
 }

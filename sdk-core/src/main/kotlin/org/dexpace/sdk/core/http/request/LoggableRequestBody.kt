@@ -49,7 +49,7 @@ import java.io.IOException
  * @param provider I/O provider used to allocate the tap [Buffer]. Defaults to the globally
  *   installed provider.
  */
-class LoggableRequestBody @JvmOverloads constructor(
+public class LoggableRequestBody @JvmOverloads constructor(
     private val delegate: RequestBody,
     private val provider: IoProvider = Io.provider,
 ) : RequestBody() {
@@ -87,7 +87,7 @@ class LoggableRequestBody @JvmOverloads constructor(
      * @throws IllegalStateException if the captured size exceeds [Buffer.MAX_BYTE_ARRAY_SIZE].
      *         Call [snapshot] with a `maxBytes` cap for unbounded captures.
      */
-    fun snapshot(): ByteArray = tap.snapshot()
+    public fun snapshot(): ByteArray = tap.snapshot()
 
     /**
      * Returns up to [maxBytes] bytes captured so far. Useful for previewing large request
@@ -97,7 +97,7 @@ class LoggableRequestBody @JvmOverloads constructor(
      * [maxBytes] is silently clamped to [Buffer.MAX_BYTE_ARRAY_SIZE] so callers that pass
      * `Int.MAX_VALUE` on a multi-gigabyte body still receive a safely bounded array.
      */
-    fun snapshot(maxBytes: Int): ByteArray {
+    public fun snapshot(maxBytes: Int): ByteArray {
         require(maxBytes >= 0) { "maxBytes must be non-negative" }
         val cap = minOf(maxBytes, Buffer.MAX_BYTE_ARRAY_SIZE)
         if (tap.size <= cap) return tap.snapshot()

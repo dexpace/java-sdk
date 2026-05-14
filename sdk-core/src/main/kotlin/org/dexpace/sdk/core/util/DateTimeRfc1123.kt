@@ -15,7 +15,7 @@ import java.util.Locale
  * obsolete RFC 850 / asctime variants and common zone spellings (`GMT`, `UTC`, `+0000`,
  * `+00:00`), with case-insensitive month and weekday names.
  */
-object DateTimeRfc1123 {
+public object DateTimeRfc1123 {
 
     /**
      * RFC 7231 §7.1.1.1 mandates a two-digit day-of-month (`06`, not `6`), whereas the
@@ -37,7 +37,7 @@ object DateTimeRfc1123 {
 
     /** Formats [instant] as an RFC 1123 string in UTC (`Thu, 01 Jan 2024 00:00:00 GMT`). */
     @JvmStatic
-    fun format(instant: Instant): String =
+    public fun format(instant: Instant): String =
         EMITTER.format(instant.atOffset(ZoneOffset.UTC))
 
     /**
@@ -49,7 +49,7 @@ object DateTimeRfc1123 {
      */
     @JvmStatic
     @Throws(DateTimeParseException::class)
-    fun parse(raw: String): Instant {
+    public fun parse(raw: String): Instant {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) {
             throw DateTimeParseException("RFC 1123 date-time string is blank", raw, 0)

@@ -12,7 +12,7 @@ package org.dexpace.sdk.core.instrumentation.metrics
  * (e.g. from a future `sdk-instrumentation-otel` adapter module). `sdk-core` itself
  * deliberately ships no metrics runtime.
  */
-object NoopMeter : Meter {
+public object NoopMeter : Meter {
 
     /**
      * Returns the shared [NoopCounter] singleton, ignoring all arguments.

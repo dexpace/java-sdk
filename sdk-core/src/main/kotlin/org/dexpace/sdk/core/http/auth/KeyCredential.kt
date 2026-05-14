@@ -17,10 +17,10 @@ import org.dexpace.sdk.core.http.common.HttpHeaderName
  * @param prefix optional scheme prefix prepended to the key with a single separating space.
  * @throws IllegalArgumentException if [apiKey] is blank.
  */
-class KeyCredential @JvmOverloads constructor(
-    val apiKey: String,
-    val headerName: HttpHeaderName = HttpHeaderName.AUTHORIZATION,
-    val prefix: String? = null,
+public class KeyCredential @JvmOverloads constructor(
+    public val apiKey: String,
+    public val headerName: HttpHeaderName = HttpHeaderName.AUTHORIZATION,
+    public val prefix: String? = null,
 ) : Credential {
     init { require(apiKey.isNotBlank()) { "apiKey must not be blank" } }
 }

@@ -23,7 +23,7 @@ import java.net.URLDecoder
  *
  * Thread-safe: stateless singleton.
  */
-object UrlRedactor {
+public object UrlRedactor {
 
     /**
      * Default allow-list: just `api-version`, the canonical safe-to-log REST query param.
@@ -31,7 +31,7 @@ object UrlRedactor {
      * are redacted under the same rules as query parameters.
      */
     @JvmField
-    val DEFAULT_ALLOWED: Set<String> = setOf("api-version")
+    public val DEFAULT_ALLOWED: Set<String> = setOf("api-version")
 
     private const val REDACTED = "***"
 
@@ -54,7 +54,7 @@ object UrlRedactor {
      */
     @JvmStatic
     @JvmOverloads
-    fun redact(url: URL, allowedQueryParams: Set<String> = DEFAULT_ALLOWED): String =
+    public fun redact(url: URL, allowedQueryParams: Set<String> = DEFAULT_ALLOWED): String =
         try {
             val raw = url.toString()
             val hasUserInfo = url.userInfo != null

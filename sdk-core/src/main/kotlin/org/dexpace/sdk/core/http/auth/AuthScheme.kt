@@ -7,7 +7,7 @@ package org.dexpace.sdk.core.http.auth
  * mark requests that must skip auth ([NO_AUTH]).
  */
 @Suppress("unused")
-enum class AuthScheme {
+public enum class AuthScheme {
     /** OAuth 2.0 bearer tokens. */
     OAUTH2,
 

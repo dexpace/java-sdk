@@ -18,26 +18,26 @@ import java.util.Collections
  *
  * Construct via [HttpPipelineBuilder]; the constructor is internal.
  */
-class HttpPipeline internal constructor(
+public class HttpPipeline internal constructor(
     /** Transport invoked once the step chain is exhausted; the terminal slot of [Stage.SEND]. */
-    val httpClient: HttpClient,
+    public val httpClient: HttpClient,
     internal val stepArray: Array<HttpStep>,
 ) {
     /** Unmodifiable list view of the ordered steps. Backed by [stepArray]; for inspection only. */
-    val steps: List<HttpStep> = Collections.unmodifiableList(stepArray.asList())
+    public val steps: List<HttpStep> = Collections.unmodifiableList(stepArray.asList())
 
     /**
      * Runs [request] through the pipeline. Empty pipelines short-circuit directly to
      * [HttpClient.execute] with no allocation.
      */
     @Throws(IOException::class)
-    fun send(request: Request): Response {
+    public fun send(request: Request): Response {
         if (stepArray.isEmpty()) return httpClient.execute(request)
         val state = PipelineCallState(this, request, httpClient)
         return PipelineNext(state).process()
     }
 
-    companion object {
+    public companion object {
         /**
          * Builds a step-less [HttpPipeline] that forwards every `send` directly to [client].
          * Equivalent to `HttpPipelineBuilder(client).build()` but spares the builder ceremony
@@ -45,6 +45,6 @@ class HttpPipeline internal constructor(
          * else." Mirrors [AsyncHttpPipeline.of].
          */
         @JvmStatic
-        fun of(client: HttpClient): HttpPipeline = HttpPipelineBuilder(client).build()
+        public fun of(client: HttpClient): HttpPipeline = HttpPipelineBuilder(client).build()
     }
 }

@@ -8,7 +8,7 @@ package org.dexpace.sdk.core.instrumentation
  * Thread-safety: implementations must be safe to invoke from multiple threads — pipelines call
  * [startSpan] once per request and pipelines are shared across concurrent sends.
  */
-interface Tracer {
+public interface Tracer {
     /**
      * Starts a new span. The returned span is `recording` if and only if the tracer has an active
      * sampler that selected this trace; consumers should call [Span.end] regardless to mark the
@@ -19,9 +19,9 @@ interface Tracer {
      * helper [Tracer.startSpan] which provides a two-argument form without requiring
      * `Collections.emptyMap()` at every call site.
      */
-    fun startSpan(name: String, attributes: Map<String, Any> = emptyMap()): Span
+    public fun startSpan(name: String, attributes: Map<String, Any> = emptyMap()): Span
 
-    companion object {
+    public companion object {
         /**
          * Java convenience helper: starts a span with no attributes by forwarding to
          * [Tracer.startSpan] with an empty map.
@@ -32,6 +32,6 @@ interface Tracer {
          * `tracer.startSpan("name")`.
          */
         @JvmStatic
-        fun startSpan(tracer: Tracer, name: String): Span = tracer.startSpan(name, emptyMap())
+        public fun startSpan(tracer: Tracer, name: String): Span = tracer.startSpan(name, emptyMap())
     }
 }

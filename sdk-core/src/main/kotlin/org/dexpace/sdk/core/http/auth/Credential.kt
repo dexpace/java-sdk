@@ -15,4 +15,4 @@ package org.dexpace.sdk.core.http.auth
  * Construction enforces non-blank fields at the credential level; HTTPS-only enforcement
  * is the responsibility of the consuming auth step.
  */
-sealed interface Credential
+public sealed interface Credential

@@ -23,7 +23,7 @@ import org.dexpace.sdk.core.io.BufferedSource
  * }
  * ```
  */
-fun BufferedSource.readServerSentEvents(): Sequence<ServerSentEvent> {
+public fun BufferedSource.readServerSentEvents(): Sequence<ServerSentEvent> {
     val reader = ServerSentEventReader(this)
     return generateSequence { reader.next() }
 }
@@ -44,5 +44,5 @@ fun BufferedSource.readServerSentEvents(): Sequence<ServerSentEvent> {
  * }
  * ```
  */
-fun BufferedSource.readServerSentEventsAsIterable(): Iterable<ServerSentEvent> =
+public fun BufferedSource.readServerSentEventsAsIterable(): Iterable<ServerSentEvent> =
     readServerSentEvents().asIterable()

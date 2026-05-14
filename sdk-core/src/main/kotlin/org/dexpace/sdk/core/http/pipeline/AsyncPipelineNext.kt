@@ -15,7 +15,7 @@ import java.util.concurrent.CompletableFuture
  * [AsyncPipelineCallState] allocation per [copy] — and the underlying steps array is shared
  * across copies.
  */
-class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCallState) {
+public class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCallState) {
 
     /**
      * Advances to the next step and invokes it. If no further step exists, dispatches the
@@ -24,7 +24,7 @@ class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCal
      * errors) are wrapped into the returned future via
      * [CompletableFuture.failedFuture] so callers receive a uniform async error model.
      */
-    fun processAsync(): CompletableFuture<Response> {
+    public fun processAsync(): CompletableFuture<Response> {
         val nextStep = state.advance()
         return try {
             if (nextStep == null) state.httpClient.executeAsync(state.request)
@@ -45,7 +45,7 @@ class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCal
      * `AsyncHttpClient.executeAsync`) sees [request] in place of the original. Mirrors the
      * synchronous [PipelineNext.process] overload.
      */
-    fun processAsync(request: Request): CompletableFuture<Response> {
+    public fun processAsync(request: Request): CompletableFuture<Response> {
         state.request = request
         return processAsync()
     }
@@ -55,5 +55,5 @@ class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCal
      * any step that re-invokes the downstream chain more than once — re-using `this` would
      * advance past steps already visited on the previous invocation.
      */
-    fun copy(): AsyncPipelineNext = AsyncPipelineNext(state.copy())
+    public fun copy(): AsyncPipelineNext = AsyncPipelineNext(state.copy())
 }

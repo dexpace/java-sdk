@@ -23,37 +23,37 @@ import java.io.OutputStream
  * to call from any thread. Individual [Buffer] / [BufferedSource] / [BufferedSink] instances
  * returned from them are not required to be thread-safe.
  */
-interface IoProvider {
+public interface IoProvider {
     /**
      * Returns a new, empty in-memory [Buffer]. Used as the canonical storage for request/response
      * body logging snapshots and as an intermediate when bridging between source and sink.
      */
-    fun buffer(): Buffer
+    public fun buffer(): Buffer
 
     /**
      * Returns a [BufferedSource] that reads from [input]. The returned source takes ownership
      * of [input] — closing the source closes the stream.
      */
-    fun source(input: InputStream): BufferedSource
+    public fun source(input: InputStream): BufferedSource
 
     /**
      * Returns a [BufferedSource] that reads from the given [bytes].
      */
-    fun source(bytes: ByteArray): BufferedSource
+    public fun source(bytes: ByteArray): BufferedSource
 
     /**
      * Returns a [BufferedSink] that writes to [output]. The returned sink takes ownership of
      * [output] — closing the sink closes the stream.
      */
-    fun sink(output: OutputStream): BufferedSink
+    public fun sink(output: OutputStream): BufferedSink
 
     /**
      * Wraps an existing primitive [Source] with the typed read surface of [BufferedSource].
      */
-    fun bufferedSource(source: Source): BufferedSource
+    public fun bufferedSource(source: Source): BufferedSource
 
     /**
      * Wraps an existing primitive [Sink] with the typed write surface of [BufferedSink].
      */
-    fun bufferedSink(sink: Sink): BufferedSink
+    public fun bufferedSink(sink: Sink): BufferedSink
 }

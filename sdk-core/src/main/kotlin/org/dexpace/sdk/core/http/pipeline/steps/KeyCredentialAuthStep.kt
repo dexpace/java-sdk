@@ -14,7 +14,7 @@ import org.dexpace.sdk.core.http.request.Request
  * Open for subclassing — users wanting to override [authorizeRequestOnChallenge] (e.g.
  * to swap to a fallback credential on 401) can extend this class.
  */
-open class KeyCredentialAuthStep(private val credential: KeyCredential) : AuthStep() {
+public open class KeyCredentialAuthStep(private val credential: KeyCredential) : AuthStep() {
     override fun authorizeRequest(request: Request): Request {
         val value = credential.prefix?.let { "$it ${credential.apiKey}" } ?: credential.apiKey
         return request.newBuilder()

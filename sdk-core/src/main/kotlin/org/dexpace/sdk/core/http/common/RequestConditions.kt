@@ -16,11 +16,11 @@ import java.time.Instant
  * Specifying both [ifModifiedSince] and [ifUnmodifiedSince] is legal per the spec
  * (although contradictory); both pass through unchanged.
  */
-class RequestConditions private constructor(
-    val ifMatch: List<ETag>,
-    val ifNoneMatch: List<ETag>,
-    val ifModifiedSince: Instant?,
-    val ifUnmodifiedSince: Instant?,
+public class RequestConditions private constructor(
+    public val ifMatch: List<ETag>,
+    public val ifNoneMatch: List<ETag>,
+    public val ifModifiedSince: Instant?,
+    public val ifUnmodifiedSince: Instant?,
 ) {
     /**
      * Applies the configured conditions to [builder] as the appropriate header values.
@@ -29,7 +29,7 @@ class RequestConditions private constructor(
      * Idempotent: re-applying the same [RequestConditions] to the same builder yields
      * the same header set (each call uses `set`, not `add`).
      */
-    fun applyTo(builder: Headers.Builder): Headers.Builder = builder.apply {
+    public fun applyTo(builder: Headers.Builder): Headers.Builder = builder.apply {
         if (ifMatch.isNotEmpty()) {
             set(HttpHeaderName.IF_MATCH, ifMatch.joinToString(", ") { it.toHeaderValue() })
         }
@@ -48,20 +48,20 @@ class RequestConditions private constructor(
      * Returns a new [Builder] pre-populated with this instance's state, so callers can
      * derive a modified copy without rebuilding from scratch.
      */
-    fun newBuilder(): Builder = Builder(this)
+    public fun newBuilder(): Builder = Builder(this)
 
     /** Builder for [RequestConditions]. */
-    class Builder {
+    public class Builder {
         private val ifMatch = mutableListOf<ETag>()
         private val ifNoneMatch = mutableListOf<ETag>()
         private var ifModifiedSince: Instant? = null
         private var ifUnmodifiedSince: Instant? = null
 
         /** Creates an empty builder. */
-        constructor()
+        public constructor()
 
         /** Creates a builder pre-populated with the entries of [source]. */
-        constructor(source: RequestConditions) : this() {
+        public constructor(source: RequestConditions) : this() {
             ifMatch.addAll(source.ifMatch)
             ifNoneMatch.addAll(source.ifNoneMatch)
             ifModifiedSince = source.ifModifiedSince
@@ -69,18 +69,18 @@ class RequestConditions private constructor(
         }
 
         /** Adds an `If-Match` validator. Multiple calls accumulate (comma-separated on the wire). */
-        fun ifMatch(tag: ETag): Builder = apply { ifMatch.add(tag) }
+        public fun ifMatch(tag: ETag): Builder = apply { ifMatch.add(tag) }
 
         /** Adds an `If-None-Match` validator. Multiple calls accumulate (comma-separated on the wire). */
-        fun ifNoneMatch(tag: ETag): Builder = apply { ifNoneMatch.add(tag) }
+        public fun ifNoneMatch(tag: ETag): Builder = apply { ifNoneMatch.add(tag) }
 
         /** Sets the `If-Modified-Since` instant; subsequent calls replace prior values. */
-        fun ifModifiedSince(instant: Instant): Builder = apply { this.ifModifiedSince = instant }
+        public fun ifModifiedSince(instant: Instant): Builder = apply { this.ifModifiedSince = instant }
 
         /** Sets the `If-Unmodified-Since` instant; subsequent calls replace prior values. */
-        fun ifUnmodifiedSince(instant: Instant): Builder = apply { this.ifUnmodifiedSince = instant }
+        public fun ifUnmodifiedSince(instant: Instant): Builder = apply { this.ifUnmodifiedSince = instant }
 
-        fun build(): RequestConditions = RequestConditions(
+        public fun build(): RequestConditions = RequestConditions(
             ifMatch = ifMatch.toList(),
             ifNoneMatch = ifNoneMatch.toList(),
             ifModifiedSince = ifModifiedSince,
@@ -88,8 +88,8 @@ class RequestConditions private constructor(
         )
     }
 
-    companion object {
+    public companion object {
         @JvmStatic
-        fun builder(): Builder = Builder()
+        public fun builder(): Builder = Builder()
     }
 }

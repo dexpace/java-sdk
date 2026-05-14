@@ -19,10 +19,10 @@ package org.dexpace.sdk.core.http.auth
  * @param oauthParams extra OAuth params to forward (e.g. `claims`); defaults to empty.
  * @throws IllegalArgumentException if [schemes] is empty.
  */
-class AuthMetadata @JvmOverloads constructor(
-    val schemes: List<AuthScheme>,
-    val oauthScopes: List<String> = emptyList(),
-    val oauthParams: Map<String, Any> = emptyMap(),
+public class AuthMetadata @JvmOverloads constructor(
+    public val schemes: List<AuthScheme>,
+    public val oauthScopes: List<String> = emptyList(),
+    public val oauthParams: Map<String, Any> = emptyMap(),
 ) {
     init { require(schemes.isNotEmpty()) { "schemes must not be empty" } }
 }

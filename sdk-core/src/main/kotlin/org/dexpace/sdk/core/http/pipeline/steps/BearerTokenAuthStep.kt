@@ -45,7 +45,7 @@ import kotlin.concurrent.withLock
  * Thread-safety: see Caching above.
  * Cancellation: token fetch may block; the [provider] is expected to respect interrupts.
  */
-open class BearerTokenAuthStep @JvmOverloads constructor(
+public open class BearerTokenAuthStep @JvmOverloads constructor(
     private val provider: BearerTokenProvider,
     private val scopes: List<String>,
     private val refreshMargin: Duration = Duration.ofSeconds(30),

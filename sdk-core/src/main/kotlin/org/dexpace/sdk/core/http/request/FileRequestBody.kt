@@ -53,15 +53,15 @@ import java.nio.file.StandardOpenOption
  * @param explicitCount Number of bytes to send starting at [position], or `-1` to send the
  *   rest of the file. Stored after resolution in [count].
  */
-class FileRequestBody @JvmOverloads constructor(
-    val file: Path,
+public class FileRequestBody @JvmOverloads constructor(
+    public val file: Path,
     private val mediaType: MediaType? = null,
-    val position: Long = 0,
+    public val position: Long = 0,
     explicitCount: Long = -1,
 ) : RequestBody() {
 
     /** The exact number of bytes this body will upload, captured at construction time. */
-    val count: Long
+    public val count: Long
 
     init {
         require(position >= 0) { "position must be non-negative (got $position)" }
@@ -138,7 +138,7 @@ class FileRequestBody @JvmOverloads constructor(
      *   was constructed so `position + count` now exceeds the on-disk size).
      */
     @Throws(IOException::class)
-    fun toByteBuffer(): ByteBuffer {
+    public fun toByteBuffer(): ByteBuffer {
         check(count <= Integer.MAX_VALUE.toLong()) {
             "FileRequestBody.toByteBuffer(): mapped region must fit in Int range " +
                 "(count=$count > ${Integer.MAX_VALUE}). Map a smaller slice manually for larger files."

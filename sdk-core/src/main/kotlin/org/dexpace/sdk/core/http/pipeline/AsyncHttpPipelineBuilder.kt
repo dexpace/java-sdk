@@ -8,7 +8,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  * [AsyncHttpStep] / [AsyncHttpClient]. The step-storage and surgical-edit policy lives in the
  * shared [StagedSteps] helper.
  */
-class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
+public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
 
     @PublishedApi
     internal val steps: StagedSteps<AsyncHttpStep> = StagedSteps(
@@ -25,19 +25,19 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     )
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
-    fun append(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.append(step) }
+    public fun append(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.append(step) }
 
     /** Prepend [step] at the head of its stage's deque (runs before steps already there). */
-    fun prepend(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.prepend(step) }
+    public fun prepend(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.prepend(step) }
 
     /** Appends every step in [batch] via [append], preserving iteration order. */
-    fun appendAll(batch: Iterable<AsyncHttpStep>): AsyncHttpPipelineBuilder = apply { batch.forEach(::append) }
+    public fun appendAll(batch: Iterable<AsyncHttpStep>): AsyncHttpPipelineBuilder = apply { batch.forEach(::append) }
 
     /** Prepends every step in [batch] via [prepend], preserving iteration order (final order is reversed). */
-    fun prependAll(batch: Iterable<AsyncHttpStep>): AsyncHttpPipelineBuilder = apply { batch.forEach(::prepend) }
+    public fun prependAll(batch: Iterable<AsyncHttpStep>): AsyncHttpPipelineBuilder = apply { batch.forEach(::prepend) }
 
     /** Insert [step] immediately after the first instance of [T] in the pipeline. */
-    inline fun <reified T : AsyncHttpStep> insertAfter(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
+    public inline fun <reified T : AsyncHttpStep> insertAfter(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
         spliceAt<T>(step) { idx, flat ->
             ArrayList<AsyncHttpStep>(flat.size + 1).apply {
                 addAll(flat.subList(0, idx + 1))
@@ -47,7 +47,7 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
         }
 
     /** Insert [step] immediately before the first instance of [T] in the pipeline. */
-    inline fun <reified T : AsyncHttpStep> insertBefore(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
+    public inline fun <reified T : AsyncHttpStep> insertBefore(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
         spliceAt<T>(step) { idx, flat ->
             ArrayList<AsyncHttpStep>(flat.size + 1).apply {
                 addAll(flat.subList(0, idx))
@@ -57,7 +57,7 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
         }
 
     /** Replace the first instance of [T] with [step]. */
-    inline fun <reified T : AsyncHttpStep> replace(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
+    public inline fun <reified T : AsyncHttpStep> replace(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
         spliceAt<T>(step) { idx, flat ->
             ArrayList<AsyncHttpStep>(flat.size).apply {
                 addAll(flat)
@@ -66,7 +66,7 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
         }
 
     /** Remove every instance of [T] from the pipeline. No-op if none exist. */
-    inline fun <reified T : AsyncHttpStep> remove(): AsyncHttpPipelineBuilder {
+    public inline fun <reified T : AsyncHttpStep> remove(): AsyncHttpPipelineBuilder {
         steps.reload(steps.flatten().filter { it !is T })
         return this
     }
@@ -84,7 +84,7 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     }
 
     /** Builds an immutable [AsyncHttpPipeline]. */
-    fun build(): AsyncHttpPipeline {
+    public fun build(): AsyncHttpPipeline {
         val ordered = steps.flatten()
         val array = arrayOfNulls<AsyncHttpStep>(ordered.size)
         for ((i, s) in ordered.withIndex()) array[i] = s
@@ -92,12 +92,12 @@ class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
         return AsyncHttpPipeline(httpClient, array as Array<AsyncHttpStep>)
     }
 
-    companion object {
+    public companion object {
         private val LOG = ClientLogger(AsyncHttpPipelineBuilder::class)
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
-        fun from(pipeline: AsyncHttpPipeline): AsyncHttpPipelineBuilder =
+        public fun from(pipeline: AsyncHttpPipeline): AsyncHttpPipelineBuilder =
             AsyncHttpPipelineBuilder(pipeline.httpClient).also { it.steps.reload(pipeline.steps) }
     }
 }

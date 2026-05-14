@@ -15,7 +15,7 @@ package org.dexpace.sdk.core.http.auth
  * @property scheme the auth scheme, normalised to lower case.
  * @property parameters auth-param map; keys are lower-cased, values are stored verbatim.
  */
-data class AuthenticateChallenge(
+public data class AuthenticateChallenge(
     val scheme: String,
     val parameters: Map<String, String>,
 )

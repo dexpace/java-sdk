@@ -11,7 +11,7 @@ import java.io.IOException
  * with [Sink] directly — they obtain a [BufferedSink] from an [IoProvider] which adds the
  * typed write surface.
  */
-interface Sink : Closeable {
+public interface Sink : Closeable {
     /**
      * Removes [byteCount] bytes from the head of [source] and appends them to this sink.
      *
@@ -20,11 +20,11 @@ interface Sink : Closeable {
      *         [byteCount] bytes).
      */
     @Throws(IOException::class)
-    fun write(source: Buffer, byteCount: Long)
+    public fun write(source: Buffer, byteCount: Long)
 
     /**
      * Pushes all buffered bytes to their final destination.
      */
     @Throws(IOException::class)
-    fun flush()
+    public fun flush()
 }

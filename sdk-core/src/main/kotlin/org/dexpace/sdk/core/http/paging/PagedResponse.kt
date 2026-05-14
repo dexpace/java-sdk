@@ -38,23 +38,23 @@ import java.io.IOException
  * @property firstLink Full URL of the first page, or `null` if unsupported.
  * @property lastLink Full URL of the last page, or `null` if unsupported.
  */
-class PagedResponse<T> @JvmOverloads constructor(
-    val response: Response,
-    val value: List<T>,
-    val continuationToken: String? = null,
-    val nextLink: String? = null,
-    val previousLink: String? = null,
-    val firstLink: String? = null,
-    val lastLink: String? = null,
+public class PagedResponse<T> @JvmOverloads constructor(
+    public val response: Response,
+    public val value: List<T>,
+    public val continuationToken: String? = null,
+    public val nextLink: String? = null,
+    public val previousLink: String? = null,
+    public val firstLink: String? = null,
+    public val lastLink: String? = null,
 ) : Closeable {
     /** Status code of the underlying [response]. */
-    val statusCode: Int get() = response.status.code
+    public val statusCode: Int get() = response.status.code
 
     /** Headers of the underlying [response]. */
-    val headers: Headers get() = response.headers
+    public val headers: Headers get() = response.headers
 
     /** Request that produced the underlying [response]. */
-    val request: Request get() = response.request
+    public val request: Request get() = response.request
 
     /**
      * Closes the underlying [response] and its body.

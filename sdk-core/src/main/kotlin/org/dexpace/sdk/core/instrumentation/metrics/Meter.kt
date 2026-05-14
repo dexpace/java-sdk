@@ -28,7 +28,7 @@ package org.dexpace.sdk.core.instrumentation.metrics
  * instance for repeated calls with identical `(name, description, unit)` triples. The
  * noop implementation does so trivially by returning shared singletons.
  */
-interface Meter {
+public interface Meter {
 
     /**
      * Returns a [LongCounter] for emitting monotonically increasing integer measurements.
@@ -39,7 +39,7 @@ interface Meter {
      * @return a counter instrument. Implementations may cache and return the same instance
      *         for repeated calls with identical arguments.
      */
-    fun counter(name: String, description: String, unit: String): LongCounter
+    public fun counter(name: String, description: String, unit: String): LongCounter
 
     /**
      * Returns a [DoubleHistogram] for recording distributions of floating-point measurements.
@@ -50,5 +50,5 @@ interface Meter {
      * @return a histogram instrument. Implementations may cache and return the same instance
      *         for repeated calls with identical arguments.
      */
-    fun histogram(name: String, description: String, unit: String): DoubleHistogram
+    public fun histogram(name: String, description: String, unit: String): DoubleHistogram
 }

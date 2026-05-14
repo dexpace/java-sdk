@@ -22,7 +22,7 @@ package org.dexpace.sdk.core.http.auth
  * non-abstract `fun` defined alongside the SAM. Java callers see only the two-argument
  * `fun fetch(...)` method.
  */
-fun interface BearerTokenProvider {
+public fun interface BearerTokenProvider {
     /**
      * Fetches a fresh access token. Implementations should cache + refresh internally.
      *
@@ -30,8 +30,8 @@ fun interface BearerTokenProvider {
      * @param params extra parameters to pass through to the token endpoint (e.g.
      *   `claims`, `resource`).
      */
-    fun fetch(scopes: List<String>, params: Map<String, Any>): BearerToken
+    public fun fetch(scopes: List<String>, params: Map<String, Any>): BearerToken
 
     /** Convenience for callers without extra params; forwards to [fetch] with an empty map. */
-    fun fetch(scopes: List<String>): BearerToken = fetch(scopes, emptyMap())
+    public fun fetch(scopes: List<String>): BearerToken = fetch(scopes, emptyMap())
 }

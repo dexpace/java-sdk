@@ -50,7 +50,7 @@ import java.io.IOException
  * Inherits the SDK-wide convention: blocking calls in the wrapped pipeline respect
  * `Thread.interrupt()`; this step does not introduce additional blocking.
  */
-class DefaultInstrumentationStep @JvmOverloads constructor(
+public class DefaultInstrumentationStep @JvmOverloads constructor(
     private val options: HttpInstrumentationOptions = HttpInstrumentationOptions(),
     private val clock: Clock = Clock.SYSTEM,
     internal val logger: ClientLogger = ClientLogger(DefaultInstrumentationStep::class),

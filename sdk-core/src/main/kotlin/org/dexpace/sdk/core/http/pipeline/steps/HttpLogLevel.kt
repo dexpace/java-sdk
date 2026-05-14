@@ -6,7 +6,7 @@ package org.dexpace.sdk.core.http.pipeline.steps
  * The chosen level applies uniformly to every request the step observes — finer control (e.g.
  * disabling body logging for one operation) is the calling code's responsibility, not the step's.
  */
-enum class HttpLogLevel {
+public enum class HttpLogLevel {
     /** No request/response events emitted. Spans still start/end if a [org.dexpace.sdk.core.instrumentation.Tracer] is wired up. */
     NONE,
 

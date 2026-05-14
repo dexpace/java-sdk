@@ -26,7 +26,7 @@ import kotlin.concurrent.withLock
  * locking. Writes ([installProvider], [swapProvider]) take a [ReentrantLock] so concurrent
  * installs cannot race past the conflict check.
  */
-object Io {
+public object Io {
     private val lock = ReentrantLock()
 
     @Volatile
@@ -35,7 +35,7 @@ object Io {
     /**
      * Returns the installed provider, or throws if none was installed.
      */
-    val provider: IoProvider
+    public val provider: IoProvider
         get() = installed ?: error(
             "No IoProvider installed. Call Io.installProvider(...) at application startup " +
                 "(e.g. Io.installProvider(OkioIoProvider))."
@@ -54,7 +54,7 @@ object Io {
      * unconditionally; subsequent installs of the same instance are no-ops; subsequent
      * installs of a different provider throw [IllegalStateException].
      */
-    fun installProvider(provider: IoProvider) {
+    public fun installProvider(provider: IoProvider) {
         lock.withLock {
             val existing = installed
             if (existing != null && existing !== provider) {

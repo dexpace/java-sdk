@@ -20,10 +20,10 @@ import java.util.Locale
  * SHA-512-256 (RFC 7616) is intentionally NOT supported in v1; servers offering
  * only that algorithm will fall through to `canHandle == false`.
  */
-enum class DigestAlgorithm(
-    val javaName: String,
-    val sessionVariant: Boolean,
-    val headerName: String,
+public enum class DigestAlgorithm(
+    public val javaName: String,
+    public val sessionVariant: Boolean,
+    public val headerName: String,
 ) {
     MD5("MD5", false, "MD5"),
     MD5_SESS("MD5", true, "MD5-sess"),
@@ -31,13 +31,13 @@ enum class DigestAlgorithm(
     SHA_256_SESS("SHA-256", true, "SHA-256-sess"),
     ;
 
-    companion object {
+    public companion object {
         /**
          * Parses the RFC 7616 `algorithm` parameter (case-insensitive). Returns
          * null for absent / unsupported algorithms (e.g. `SHA-512-256`).
          */
         @JvmStatic
-        fun fromString(raw: String): DigestAlgorithm? = when (raw.uppercase(Locale.US)) {
+        public fun fromString(raw: String): DigestAlgorithm? = when (raw.uppercase(Locale.US)) {
             "MD5" -> MD5
             "MD5-SESS" -> MD5_SESS
             "SHA-256" -> SHA_256

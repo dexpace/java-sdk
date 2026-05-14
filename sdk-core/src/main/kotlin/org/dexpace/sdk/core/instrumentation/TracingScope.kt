@@ -18,6 +18,6 @@ package org.dexpace.sdk.core.instrumentation
  * coroutine suspensions, or executor handoffs. For coroutines use
  * `kotlinx-coroutines-slf4j`'s `MDCContext` element.
  */
-fun interface TracingScope : AutoCloseable {
+public fun interface TracingScope : AutoCloseable {
     override fun close()
 }

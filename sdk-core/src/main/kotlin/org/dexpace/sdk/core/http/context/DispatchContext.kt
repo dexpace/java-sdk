@@ -15,14 +15,14 @@ import org.dexpace.sdk.core.instrumentation.NoopInstrumentationContext
  * promotion produces a new immutable instance and re-registers it with [ContextStore]
  * under the same trace id so downstream observers see the latest snapshot.
  */
-data class DispatchContext(
+public data class DispatchContext(
     override val instrumentationContext: InstrumentationContext,
 ) : CallContext {
     /**
      * Promotes this dispatch context into a [RequestContext] bound to [request] and
      * stores the new context in [ContextStore] keyed by the trace id.
      */
-    fun toRequestContext(request: Request): RequestContext =
+    public fun toRequestContext(request: Request): RequestContext =
         RequestContext(
             instrumentationContext = instrumentationContext,
             request = request,
@@ -30,8 +30,8 @@ data class DispatchContext(
             ContextStore.set(it.instrumentationContext.traceId.value, it)
         }
 
-    companion object {
+    public companion object {
         /** A dispatch context with a no-op instrumentation context; used when tracing is disabled. */
-        fun default(): DispatchContext = DispatchContext(NoopInstrumentationContext)
+        public fun default(): DispatchContext = DispatchContext(NoopInstrumentationContext)
     }
 }
