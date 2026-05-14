@@ -1,0 +1,510 @@
+package org.dexpace.sdk.transport.jdkhttp
+
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
+import mockwebserver3.junit5.StartStop
+import okio.Buffer
+import org.dexpace.sdk.core.http.common.CommonMediaTypes
+import org.dexpace.sdk.core.http.common.Protocol
+import org.dexpace.sdk.core.http.request.Method
+import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.io.Io
+import org.dexpace.sdk.io.OkioIoProvider
+import java.io.IOException
+import java.net.ServerSocket
+import java.net.URL
+import java.net.http.HttpClient
+import java.security.MessageDigest
+import java.time.Duration
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+/**
+ * MockWebServer-driven matrix exercising [JdkHttpTransport] over the sync [HttpClient] and
+ * async [org.dexpace.sdk.core.client.AsyncHttpClient] paths.
+ *
+ * `Io.installProvider(OkioIoProvider)` is invoked once in `@BeforeTest` — install is
+ * idempotent for the same provider so repeated invocations across tests are a no-op.
+ *
+ * Streaming body coverage exercises both branches of the `BodyPublishers` threshold:
+ *  - 1 KB / 32 KB → eager (`BodyPublishers.ofByteArray`)
+ *  - 100 KB / 5 MB → piped (`BodyPublishers.ofInputStream`)
+ *
+ * The 5 MB streaming case uses pre-allocated byte arrays; the assertion is MD5 round-trip
+ * to keep test memory bounded.
+ *
+ * HTTP/2 over TLS coverage is deferred — MockWebServer's HTTPS setup adds noise, and the
+ * JDK client's HTTP/2 path is well-trodden in the JDK's own test suite. The plaintext
+ * HTTP/1.1 path covers the SDK adapter logic we own.
+ */
+class JdkHttpTransportTest {
+    @StartStop
+    private val server = MockWebServer()
+
+    private lateinit var transport: JdkHttpTransport
+
+    @BeforeTest
+    fun setUp() {
+        Io.installProvider(OkioIoProvider)
+        // HTTP/1.1 default — MockWebServer's plaintext server speaks HTTP/1.1 and the JDK
+        // falls back to it when ALPN negotiation is unavailable on plaintext sockets.
+        transport =
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .build()
+    }
+
+    // -------- sync golden paths --------
+
+    @Test
+    fun `executeGetReturnsBody`() {
+        server.enqueue(MockResponse.Builder().code(200).body("hello").build())
+        val request = simpleGet("/sync")
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("hello", response.body?.source()?.readUtf8())
+        }
+    }
+
+    @Test
+    fun `executePostSendsBody`() {
+        server.enqueue(MockResponse.Builder().code(201).build())
+        val payload = "request-body-bytes"
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/echo").toUrl())
+                .body(RequestBody.create(payload, CommonMediaTypes.TEXT_PLAIN))
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(201, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals(payload, recorded.body?.utf8())
+        assertEquals("/echo", recorded.url.encodedPath)
+    }
+
+    // -------- async golden paths --------
+
+    @Test
+    fun `executeAsyncReturnsBody`() {
+        server.enqueue(MockResponse.Builder().code(200).body("async-hello").build())
+        val request = simpleGet("/async-get")
+        val future = transport.executeAsync(request)
+        val response = future.get(5, TimeUnit.SECONDS)
+        response.use {
+            assertEquals(200, it.status.code)
+            assertEquals("async-hello", it.body?.source()?.readUtf8())
+        }
+    }
+
+    @Test
+    fun `executeAsyncPostSendsBody`() {
+        server.enqueue(MockResponse.Builder().code(202).build())
+        val payload = "async-request-bytes"
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/async-echo").toUrl())
+                .body(RequestBody.create(payload, CommonMediaTypes.TEXT_PLAIN))
+                .build()
+        val response = transport.executeAsync(request).get(5, TimeUnit.SECONDS)
+        response.use {
+            assertEquals(202, it.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals(payload, recorded.body?.utf8())
+    }
+
+    // -------- headers round-trip --------
+
+    @Test
+    fun `headersRoundTrip`() {
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .addHeader("X-Single", "one")
+                .addHeader("Set-Cookie", "a=1")
+                .addHeader("Set-Cookie", "b=2")
+                .build(),
+        )
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/headers").toUrl())
+                .addHeader("Authorization", "Bearer token-123")
+                .addHeader("Accept", "application/json")
+                .addHeader("X-Custom", "alpha")
+                .addHeader("X-Custom", "beta")
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("one", response.headers.get("X-Single"))
+            val cookies = response.headers.values("Set-Cookie")
+            assertTrue(cookies.containsAll(listOf("a=1", "b=2")), "expected cookies in $cookies")
+        }
+        val recorded = server.takeRequest()
+        assertEquals("Bearer token-123", recorded.headers["Authorization"])
+        assertEquals("application/json", recorded.headers["Accept"])
+        val xCustomValues = recorded.headers.values("X-Custom")
+        assertTrue(xCustomValues.containsAll(listOf("alpha", "beta")), "expected both custom values in $xCustomValues")
+    }
+
+    // -------- restricted headers --------
+
+    @Test
+    fun `restrictedHeadersAreDropped`() {
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        // The four restricted headers — Content-Length, Host, Transfer-Encoding, Connection.
+        // The JDK client throws IllegalArgumentException at `HttpRequest.Builder.header(...)`
+        // if any of these are set; verifying that this transport's adaptation step builds
+        // a valid request (i.e. no exception leaks out) is the primary assertion. The
+        // server-side checks confirm the values were not used.
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/restricted").toUrl())
+                .body(RequestBody.create("payload", CommonMediaTypes.TEXT_PLAIN))
+                .addHeader("Content-Length", "999")
+                .addHeader("Host", "bogus.example")
+                .addHeader("Transfer-Encoding", "chunked")
+                .addHeader("Connection", "close")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        // JDK recomputes Content-Length from the actual body bytes.
+        assertEquals("7", recorded.headers["Content-Length"], "Content-Length should match payload")
+        // Host should be the MockWebServer address, not the bogus value supplied.
+        val host = recorded.headers["Host"]
+        assertNotNull(host)
+        assertTrue(!host.contains("bogus.example"), "Host should be recomputed from URL, was $host")
+        // Pass-through header still reaches the server.
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    // -------- request body streaming --------
+
+    @Test
+    fun `requestBodyStreamingEager`() {
+        // Eager path: bodies ≤ 64 KiB are buffered via Io.provider.buffer() and shipped as
+        // BodyPublishers.ofByteArray. The 1 KB / 32 KB choices straddle the threshold from
+        // below.
+        val sizes = listOf(1024, 32 * 1024)
+        for (size in sizes) {
+            val bytes = randomBytes(size, seed = size.toLong())
+            server.enqueue(MockResponse.Builder().code(200).build())
+            val request =
+                Request.builder()
+                    .method(Method.POST)
+                    .url(server.url("/stream-up-eager-$size").toUrl())
+                    .body(RequestBody.create(bytes, CommonMediaTypes.APPLICATION_OCTET_STREAM))
+                    .build()
+            transport.execute(request).use { it.body?.source()?.readByteArray() }
+            val recorded = server.takeRequest()
+            val received = recorded.body?.toByteArray() ?: ByteArray(0)
+            assertEquals(md5(bytes), md5(received), "eager-path round-trip mismatch at size=$size")
+        }
+    }
+
+    @Test
+    fun `requestBodyStreamingPiped`() {
+        // Streaming path: bodies > 64 KiB use BodyPublishers.ofInputStream with a piped pair
+        // and a daemon writer thread. The 100 KB / 5 MB choices straddle the threshold from
+        // above; 5 MB is large enough that the producer/consumer ordering matters (single
+        // chunk would not exercise the pipe buffer cycle).
+        val sizes = listOf(100 * 1024, 5 * 1024 * 1024)
+        for (size in sizes) {
+            val bytes = randomBytes(size, seed = -size.toLong())
+            server.enqueue(MockResponse.Builder().code(200).build())
+            val request =
+                Request.builder()
+                    .method(Method.POST)
+                    .url(server.url("/stream-up-piped-$size").toUrl())
+                    .body(RequestBody.create(bytes, CommonMediaTypes.APPLICATION_OCTET_STREAM))
+                    .build()
+            transport.execute(request).use { it.body?.source()?.readByteArray() }
+            val recorded = server.takeRequest()
+            val received = recorded.body?.toByteArray() ?: ByteArray(0)
+            assertEquals(md5(bytes), md5(received), "piped-path round-trip mismatch at size=$size")
+        }
+    }
+
+    // -------- response body streaming --------
+
+    @Test
+    fun `responseBodyStreamingMatrix`() {
+        val sizes = listOf(1, 1024, 100 * 1024, 5 * 1024 * 1024)
+        for (size in sizes) {
+            val bytes = randomBytes(size, seed = size.toLong() * 31L)
+            val okioBuffer = Buffer().write(bytes)
+            server.enqueue(MockResponse.Builder().code(200).body(okioBuffer).build())
+            val request = simpleGet("/stream-down-$size")
+            transport.execute(request).use { response ->
+                val read = response.body?.source()?.readByteArray()
+                assertContentEquals(bytes, read, "response round-trip mismatch at size=$size")
+            }
+        }
+    }
+
+    // -------- timeouts --------
+
+    @Test
+    fun `connectTimeoutFires`() {
+        // Acquire a free port and immediately close the socket so connects fail fast (no
+        // SYN-ACK). connectTimeout should bound the wait.
+        val deadPort = freePort()
+        val shortTimeoutTransport =
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .connectTimeout(Duration.ofMillis(500))
+                .build()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val ex =
+            assertFails {
+                shortTimeoutTransport.execute(request).close()
+            }
+        assertTrue(
+            ex is IOException,
+            "expected IOException, got ${ex::class}: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `responseTimeoutFires`() {
+        // Headers delay is longer than the response timeout so the timeout fires first,
+        // but short enough that MockWebServer's pending-response state has cleared by the
+        // time `@StartStop` shuts it down at end of test.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val shortResponseTransport =
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .responseTimeout(Duration.ofMillis(200))
+                .build()
+        val ex =
+            assertFails {
+                shortResponseTransport.execute(simpleGet("/slow")).close()
+            }
+        assertTrue(
+            ex is IOException,
+            "expected IOException, got ${ex::class}: ${ex.message}",
+        )
+        // Clear the interrupt flag if set, then drain MockWebServer's pending dispatch so
+        // shutdown doesn't observe a stale task.
+        Thread.interrupted()
+        Thread.sleep(900)
+    }
+
+    // -------- cancellation --------
+
+    @Test
+    fun `asyncCancellationPropagates`() {
+        // JDK 11+ propagates CompletableFuture.cancel(true) to the underlying exchange
+        // without any extra adapter hook. We start a slow call, cancel the future, and
+        // assert both that the future surfaces a cancellation and that MockWebServer's
+        // shutdown observes a consistent state.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("eventual")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val future = transport.executeAsync(simpleGet("/cancel-me"))
+        // give the JDK a moment to schedule the call onto its dispatcher
+        Thread.sleep(100)
+        val cancelled = future.cancel(true)
+        assertTrue(cancelled, "future.cancel should report success")
+        val ex =
+            assertFails {
+                future.get(2, TimeUnit.SECONDS)
+            }
+        // CompletableFuture.get on a cancelled future throws CancellationException;
+        // chained futures (from .thenApply) surface the cancellation as a CompletionException
+        // wrapping a CancellationException.
+        assertTrue(
+            ex is CancellationException || ex is CompletionException,
+            "expected cancellation surface, got ${ex::class}",
+        )
+        // Clear the interrupt flag and drain MockWebServer's pending dispatch.
+        Thread.interrupted()
+        Thread.sleep(900)
+    }
+
+    @Test
+    fun `syncCancellationPropagates`() {
+        // Verifies the documented contract: when `execute` surfaces an
+        // `InterruptedIOException`, the calling thread's interrupt status is preserved.
+        // Pre-interrupt the worker thread (so HttpClient.send sees the interrupt before
+        // socket I/O begins) — the adapter must translate that to InterruptedIOException
+        // and re-assert the interrupt flag for the caller.
+        val errorRef = AtomicReference<Throwable?>()
+        val interruptedAfter = AtomicBoolean(false)
+        val worker =
+            Thread {
+                // Pre-interrupt so the JDK's send-side sees the interrupt before completing
+                // any socket I/O; the adapter's catch(InterruptedException) clause is what
+                // we're exercising.
+                Thread.currentThread().interrupt()
+                try {
+                    transport.execute(simpleGet("/never-served"))
+                } catch (t: Throwable) {
+                    errorRef.set(t)
+                    interruptedAfter.set(Thread.currentThread().isInterrupted)
+                }
+            }
+        worker.start()
+        worker.join(3000)
+        assertTrue(!worker.isAlive, "worker should exit on interrupt")
+        val captured = errorRef.get()
+        assertNotNull(captured, "expected InterruptedIOException to surface")
+        assertTrue(
+            captured is java.io.InterruptedIOException,
+            "expected InterruptedIOException, got ${captured::class}: ${captured.message}",
+        )
+        assertTrue(interruptedAfter.get(), "Thread.currentThread().interrupt() should have been re-asserted")
+    }
+
+    // -------- redirect behaviour --------
+
+    @Test
+    fun `followRedirectsDefaultFalse`() {
+        server.enqueue(
+            MockResponse.Builder()
+                .code(302)
+                .addHeader("Location", "/after-redirect")
+                .build(),
+        )
+        transport.execute(simpleGet("/before-redirect")).use { response ->
+            assertEquals(302, response.status.code, "transport must surface the 302, not follow it")
+            assertEquals("/after-redirect", response.headers.get("Location"))
+        }
+    }
+
+    // -------- BYO factory --------
+
+    @Test
+    fun `byoFactoryRespectsClient`() {
+        // The custom JDK client is configured with a specific HTTP/1.1 version, NEVER redirects,
+        // and a named single-thread executor. The BYO factory must use that client verbatim
+        // (no clone / no override) — we verify that:
+        //   1. The request succeeds (sanity).
+        //   2. The 302 surfaces unmolested (i.e. the BYO client's NEVER redirect policy applies,
+        //      proving the SDK didn't override the underlying client).
+        //   3. The BYO executor actually serviced the request — `thenApplyAsync(_, executor())`
+        //      on the BYO transport's returned future runs on the BYO executor because the
+        //      transport's own `.thenApply` already chained off it.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(302)
+                .addHeader("Location", "/elsewhere")
+                .build(),
+        )
+        val customThreadNameRef = AtomicReference<String?>()
+        val customExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                Thread(r, "jdkhttp-test-byo").apply { isDaemon = true }
+            }
+        try {
+            val customClient =
+                HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .followRedirects(HttpClient.Redirect.NEVER)
+                    .executor(customExecutor)
+                    .build()
+            val byoTransport = JdkHttpTransport.create(customClient)
+            val future = byoTransport.executeAsync(simpleGet("/byo-redirect"))
+            // Chain via thenApplyAsync with the SAME executor to confirm the BYO executor is
+            // hot-driving completion stages (rather than the JDK's default common pool).
+            val response =
+                future
+                    .thenApplyAsync(
+                        { sdkResponse ->
+                            customThreadNameRef.set(Thread.currentThread().name)
+                            sdkResponse
+                        },
+                        customExecutor,
+                    )
+                    .get(5, TimeUnit.SECONDS)
+            response.use {
+                // (2) The BYO client's redirect policy is honoured — we get the 302 back.
+                assertEquals(302, it.status.code, "BYO client's NEVER redirect policy must apply")
+                assertEquals("/elsewhere", it.headers.get("Location"))
+            }
+            val captured = customThreadNameRef.get()
+            assertNotNull(captured)
+            assertTrue(
+                captured.startsWith("jdkhttp-test-byo"),
+                "BYO executor should service explicit thenApplyAsync; saw thread name $captured",
+            )
+        } finally {
+            customExecutor.shutdownNow()
+        }
+    }
+
+    // -------- protocol mapping --------
+
+    @Test
+    fun `httpVersionHttp1_1Plaintext`() {
+        // Build a transport explicitly pinned to HTTP/1.1; over plaintext MockWebServer this
+        // should surface as HTTP_1_1 in the SDK response metadata.
+        server.enqueue(MockResponse.Builder().code(200).body("h1").build())
+        val h1Transport =
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .build()
+        h1Transport.execute(simpleGet("/proto")).use { response ->
+            assertEquals(Protocol.HTTP_1_1, response.protocol)
+        }
+    }
+
+    // -------- helpers --------
+
+    private fun simpleGet(path: String): Request =
+        Request.builder()
+            .method(Method.GET)
+            .url(server.url(path).toUrl())
+            .build()
+
+    private fun randomBytes(
+        size: Int,
+        seed: Long,
+    ): ByteArray {
+        val rand = java.util.Random(seed)
+        val bytes = ByteArray(size)
+        rand.nextBytes(bytes)
+        return bytes
+    }
+
+    private fun md5(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("MD5").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun freePort(): Int {
+        ServerSocket(0).use { socket -> return socket.localPort }
+    }
+}

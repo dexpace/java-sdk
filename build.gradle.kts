@@ -39,6 +39,7 @@ dependencies {
     kover(project(":sdk-async-netty"))
     kover(project(":sdk-async-virtualthreads"))
     kover(project(":sdk-transport-okhttp"))
+    kover(project(":sdk-transport-jdkhttp"))
 }
 
 kover {

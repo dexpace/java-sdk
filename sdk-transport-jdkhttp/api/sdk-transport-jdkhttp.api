@@ -1,0 +1,34 @@
+public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport : org/dexpace/sdk/core/client/AsyncHttpClient, org/dexpace/sdk/core/client/HttpClient {
+	public static final field Companion Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Companion;
+	public synthetic fun <init> (Ljava/net/http/HttpClient;Ljava/time/Duration;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public static final fun create (Ljava/net/http/HttpClient;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
+	public static final fun create (Ljava/net/http/HttpClient;Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder : org/dexpace/sdk/core/generics/Builder {
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
+	public final fun connectTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public final fun followRedirects (Z)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public final fun httpVersion (Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public final fun proxy (Lorg/dexpace/sdk/core/util/ProxyOptions;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public final fun responseTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+}
+
+public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public final fun create (Ljava/net/http/HttpClient;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
+	public final fun create (Ljava/net/http/HttpClient;Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
+}
+
+public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion : java/lang/Enum {
+	public static final field HTTP_1_1 Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion;
+	public static final field HTTP_2 Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion;
+	public static fun values ()[Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion;
+}
+
