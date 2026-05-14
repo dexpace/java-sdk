@@ -5,7 +5,6 @@ import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.io.Sink
 import java.io.ByteArrayOutputStream
-import java.nio.charset.Charset
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -20,7 +19,6 @@ import kotlin.test.assertTrue
  * idempotency, write through both Okio-backed and foreign Buffer sources.
  */
 class ForeignSinkAdapterTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -35,7 +33,10 @@ class ForeignSinkAdapterTest {
         var flushCount = 0
         var closeCount = 0
 
-        override fun write(source: Buffer, byteCount: Long) {
+        override fun write(
+            source: Buffer,
+            byteCount: Long,
+        ) {
             buffer.write(source.readByteArray(byteCount))
         }
 

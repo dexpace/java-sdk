@@ -10,16 +10,12 @@ import java.net.URL
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 class AsyncHttpClientTest {
-
     private val executor = Executors.newSingleThreadExecutor()
 
     @AfterTest
@@ -50,9 +46,10 @@ class AsyncHttpClientTest {
 
     @Test
     fun `asBlocking returns a sync client that unwraps the CompletionException`() {
-        val asyncClient = AsyncHttpClient { request ->
-            CompletableFuture.completedFuture(mockResponse(request, 204))
-        }
+        val asyncClient =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(mockResponse(request, 204))
+            }
         val syncClient = asyncClient.asBlocking()
         val response = syncClient.execute(getRequest())
         assertEquals(204, response.status.code)
@@ -61,7 +58,11 @@ class AsyncHttpClientTest {
     @Test
     fun `asBlocking surfaces the original exception, not the CompletionException wrapper`() {
         val sentinel = IOException("network")
-        val asyncClient = AsyncHttpClient { _ -> CompletableFuture<Response>().apply { completeExceptionally(sentinel) } }
+        val asyncClient =
+            AsyncHttpClient {
+                    _ ->
+                CompletableFuture<Response>().apply { completeExceptionally(sentinel) }
+            }
         val syncClient = asyncClient.asBlocking()
         val thrown = assertFails { syncClient.execute(getRequest()) }
         assertEquals(sentinel.message, thrown.message)
@@ -75,14 +76,19 @@ class AsyncHttpClientTest {
         assertEquals(201, response.status.code)
     }
 
-    private fun getRequest(): Request = Request.builder()
-        .method(Method.GET)
-        .url(URL("https://api.example.com/"))
-        .build()
+    private fun getRequest(): Request =
+        Request.builder()
+            .method(Method.GET)
+            .url(URL("https://api.example.com/"))
+            .build()
 
-    private fun mockResponse(request: Request, code: Int): Response = Response.builder()
-        .request(request)
-        .protocol(Protocol.HTTP_1_1)
-        .status(Status.fromCode(code))
-        .build()
+    private fun mockResponse(
+        request: Request,
+        code: Int,
+    ): Response =
+        Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.fromCode(code))
+            .build()
 }

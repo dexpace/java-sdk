@@ -6,16 +6,16 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AuthSchemeTest {
-
     @Test
     fun `enum exposes all expected entries`() {
-        val expected = setOf(
-            AuthScheme.OAUTH2,
-            AuthScheme.API_KEY,
-            AuthScheme.BASIC,
-            AuthScheme.DIGEST,
-            AuthScheme.NO_AUTH,
-        )
+        val expected =
+            setOf(
+                AuthScheme.OAUTH2,
+                AuthScheme.API_KEY,
+                AuthScheme.BASIC,
+                AuthScheme.DIGEST,
+                AuthScheme.NO_AUTH,
+            )
         assertEquals(expected, AuthScheme.entries.toSet())
         assertEquals(5, AuthScheme.entries.size)
     }

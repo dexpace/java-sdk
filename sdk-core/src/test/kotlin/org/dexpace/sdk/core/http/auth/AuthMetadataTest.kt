@@ -6,7 +6,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class AuthMetadataTest {
-
     @Test
     fun `single-scheme constructor populates schemes and uses empty defaults for oauth fields`() {
         val metadata = AuthMetadata(listOf(AuthScheme.BASIC))

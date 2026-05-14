@@ -34,15 +34,17 @@ public fun interface HttpRedirectPredicate {
  * default predicate inspects status, allowed method, presence of [locationHeader], and
  * loop detection.
  */
-public class HttpRedirectOptions @JvmOverloads constructor(
-    /**
-     * Maximum number of redirect hops followed after the initial request; 0 disables
-     * redirect following entirely.
-     */
-    public val maxHops: Int = 3,
-    public val allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
-    public val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
-    public val follow303: Boolean = false,
-    public val allowSchemeDowngrade: Boolean = false,
-    public val shouldRedirect: HttpRedirectPredicate? = null,
-)
+public class HttpRedirectOptions
+    @JvmOverloads
+    constructor(
+        /**
+         * Maximum number of redirect hops followed after the initial request; 0 disables
+         * redirect following entirely.
+         */
+        public val maxHops: Int = 3,
+        public val allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
+        public val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
+        public val follow303: Boolean = false,
+        public val allowSchemeDowngrade: Boolean = false,
+        public val shouldRedirect: HttpRedirectPredicate? = null,
+    )

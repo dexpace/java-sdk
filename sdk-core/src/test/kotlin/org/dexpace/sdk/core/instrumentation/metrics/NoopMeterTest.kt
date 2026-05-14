@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertSame
 
 class NoopMeterTest {
-
     @Test
     fun `counter returns the same singleton instance on every call`() {
         val a = NoopMeter.counter("http.client.request", "request count", "{request}")

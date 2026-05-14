@@ -2,8 +2,6 @@
 
 package org.dexpace.sdk.core.http.pipeline
 
-import org.dexpace.sdk.core.client.AsyncHttpClient
-import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException

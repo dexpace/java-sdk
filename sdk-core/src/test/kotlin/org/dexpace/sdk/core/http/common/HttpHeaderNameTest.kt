@@ -11,7 +11,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class HttpHeaderNameTest {
-
     @Test
     fun `fromString returns the same interned instance regardless of casing`() {
         val a = HttpHeaderName.fromString("Set-Cookie")

@@ -137,13 +137,14 @@ public class ClientLogger private constructor(
 
     internal fun slf4jLevel(level: LogLevel): Level = toSlf4j(level)
 
-    private fun toSlf4j(level: LogLevel): Level = when (level) {
-        LogLevel.ERROR -> Level.ERROR
-        LogLevel.WARNING -> Level.WARN
-        LogLevel.INFO -> Level.INFO
-        // SLF4J has no VERBOSE; map to DEBUG (the closest convention).
-        LogLevel.VERBOSE -> Level.DEBUG
-    }
+    private fun toSlf4j(level: LogLevel): Level =
+        when (level) {
+            LogLevel.ERROR -> Level.ERROR
+            LogLevel.WARNING -> Level.WARN
+            LogLevel.INFO -> Level.INFO
+            // SLF4J has no VERBOSE; map to DEBUG (the closest convention).
+            LogLevel.VERBOSE -> Level.DEBUG
+        }
 }
 
 /**

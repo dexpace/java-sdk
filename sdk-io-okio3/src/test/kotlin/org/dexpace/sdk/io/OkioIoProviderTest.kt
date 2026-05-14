@@ -1,11 +1,11 @@
 package org.dexpace.sdk.io
 
+import org.dexpace.sdk.core.http.common.MediaType
+import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.http.request.LoggableRequestBody
 import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.http.response.LoggableResponseBody
 import org.dexpace.sdk.core.http.response.ResponseBody
-import org.dexpace.sdk.core.http.common.MediaType
-import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.io.Buffer
 import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.BufferedSource
@@ -31,7 +31,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class OkioIoProviderTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -209,16 +208,21 @@ class OkioIoProviderTest {
         // Build a primitive Source that yields a known sequence of bytes.
         val provided = "primitive".toByteArray()
         var offset = 0
-        val primitive = object : org.dexpace.sdk.core.io.Source {
-            override fun read(sink: org.dexpace.sdk.core.io.Buffer, byteCount: Long): Long {
-                if (offset >= provided.size) return -1
-                val n = minOf(byteCount.toInt(), provided.size - offset)
-                sink.write(provided, offset, n)
-                offset += n
-                return n.toLong()
+        val primitive =
+            object : org.dexpace.sdk.core.io.Source {
+                override fun read(
+                    sink: org.dexpace.sdk.core.io.Buffer,
+                    byteCount: Long,
+                ): Long {
+                    if (offset >= provided.size) return -1
+                    val n = minOf(byteCount.toInt(), provided.size - offset)
+                    sink.write(provided, offset, n)
+                    offset += n
+                    return n.toLong()
+                }
+
+                override fun close() {}
             }
-            override fun close() {}
-        }
         val buffered = OkioIoProvider.bufferedSource(primitive)
         assertEquals("primitive", buffered.readUtf8())
     }
@@ -244,15 +248,17 @@ class OkioIoProviderTest {
 
     @Test
     fun `LoggableRequestBody tee encodes once and primary receives identical bytes`() {
-        val payload = "x".repeat(20_000)  // larger than one Okio segment
-        val original = object : RequestBody() {
-            override fun mediaType() = null
-            override fun writeTo(sink: BufferedSink) {
-                sink.writeUtf8(payload)
-                sink.write(payload.toByteArray())
-                sink.flush()
+        val payload = "x".repeat(20_000) // larger than one Okio segment
+        val original =
+            object : RequestBody() {
+                override fun mediaType() = null
+
+                override fun writeTo(sink: BufferedSink) {
+                    sink.writeUtf8(payload)
+                    sink.write(payload.toByteArray())
+                    sink.flush()
+                }
             }
-        }
         val loggable = LoggableRequestBody(original)
 
         val out = ByteArrayOutputStream()
@@ -267,7 +273,7 @@ class OkioIoProviderTest {
 
     @Test
     fun `LoggableRequestBody bounded snapshot returns at most maxBytes`() {
-        val payload = "abcdefghij".repeat(100)  // 1000 bytes
+        val payload = "abcdefghij".repeat(100) // 1000 bytes
         val original = RequestBody.create(OkioIoProvider.source(payload.toByteArray()))
         val loggable = LoggableRequestBody(original)
 
@@ -283,7 +289,7 @@ class OkioIoProviderTest {
 
     @Test
     fun `LoggableResponseBody bounded snapshot returns at most maxBytes`() {
-        val payload = "0123456789".repeat(500)  // 5000 bytes
+        val payload = "0123456789".repeat(500) // 5000 bytes
         val raw = ResponseBody.create(OkioIoProvider.source(payload.toByteArray()))
         val loggable = LoggableResponseBody(raw)
 
@@ -328,22 +334,29 @@ class OkioIoProviderTest {
     @Test
     fun `LoggableResponseBody surfaces drain failures and keeps partial bytes`() {
         // InputStream that yields 10 bytes then throws.
-        val throwing = object : InputStream() {
-            private var sent = 0
-            override fun read(): Int {
-                if (sent >= 10) throw IOException("simulated network failure")
-                return 'A'.code + (sent++)
-            }
-            override fun read(b: ByteArray, off: Int, len: Int): Int {
-                if (sent >= 10) throw IOException("simulated network failure")
-                var n = 0
-                while (n < len && sent < 10) {
-                    b[off + n] = read().toByte()
-                    n++
+        val throwing =
+            object : InputStream() {
+                private var sent = 0
+
+                override fun read(): Int {
+                    if (sent >= 10) throw IOException("simulated network failure")
+                    return 'A'.code + (sent++)
                 }
-                return if (n == 0) -1 else n
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int {
+                    if (sent >= 10) throw IOException("simulated network failure")
+                    var n = 0
+                    while (n < len && sent < 10) {
+                        b[off + n] = read().toByte()
+                        n++
+                    }
+                    return if (n == 0) -1 else n
+                }
             }
-        }
         val raw = ResponseBody.create(OkioIoProvider.source(throwing))
         val loggable = LoggableResponseBody(raw)
 
@@ -366,19 +379,24 @@ class OkioIoProviderTest {
     @Test
     fun `LoggableResponseBody drains the delegate exactly once even on failure`() {
         var sourceAccessCount = 0
-        val raw = object : ResponseBody() {
-            override fun mediaType(): MediaType? = null
-            override fun contentLength() = -1L
-            override fun source(): BufferedSource {
-                sourceAccessCount++
-                // Always returns the same okio-backed source over a failing InputStream.
-                val input = object : InputStream() {
-                    override fun read(): Int = throw IOException("boom")
+        val raw =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength() = -1L
+
+                override fun source(): BufferedSource {
+                    sourceAccessCount++
+                    // Always returns the same okio-backed source over a failing InputStream.
+                    val input =
+                        object : InputStream() {
+                            override fun read(): Int = throw IOException("boom")
+                        }
+                    return OkioIoProvider.source(input)
                 }
-                return OkioIoProvider.source(input)
+
+                override fun close() = Unit
             }
-            override fun close() = Unit
-        }
         val loggable = LoggableResponseBody(raw)
 
         // Call source() three times — the wrapper must drain at most once.
@@ -402,9 +420,9 @@ class OkioIoProviderTest {
         val raw = ResponseBody.create(OkioIoProvider.source("payload".toByteArray()))
         val loggable = LoggableResponseBody(raw)
 
-        val first = loggable.snapshot()                        // drains
-        loggable.close()                                       // closes delegate; captured survives
-        val afterClose = loggable.snapshot()                   // post-mortem read OK
+        val first = loggable.snapshot() // drains
+        loggable.close() // closes delegate; captured survives
+        val afterClose = loggable.snapshot() // post-mortem read OK
 
         assertContentEquals("payload".toByteArray(), first)
         assertContentEquals(first, afterClose)
@@ -416,18 +434,20 @@ class OkioIoProviderTest {
         val loggable = LoggableResponseBody(raw)
         loggable.snapshot()
         loggable.close()
-        loggable.close()  // must not throw
+        loggable.close() // must not throw
     }
 
     @Test
     fun `LoggableRequestBody snapshot reflects bytes written up to a writeTo failure`() {
-        val body = object : RequestBody() {
-            override fun mediaType(): MediaType? = null
-            override fun writeTo(sink: BufferedSink) {
-                sink.writeUtf8("CAPTURED-BEFORE-FAIL")
-                throw IOException("simulated body error")
+        val body =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun writeTo(sink: BufferedSink) {
+                    sink.writeUtf8("CAPTURED-BEFORE-FAIL")
+                    throw IOException("simulated body error")
+                }
             }
-        }
         val loggable = LoggableRequestBody(body)
         val out = ByteArrayOutputStream()
         val sink = OkioIoProvider.sink(out)
@@ -535,7 +555,7 @@ class OkioIoProviderTest {
     @Test
     fun `InputStream RequestBody with markSupported is replayable via reset`() {
         val bytes = "stream-replay".toByteArray()
-        val stream = ByteArrayInputStream(bytes)  // markSupported() = true
+        val stream = ByteArrayInputStream(bytes) // markSupported() = true
         val body = RequestBody.create(stream, bytes.size.toLong())
 
         assertTrue(body.isReplayable())
@@ -547,12 +567,20 @@ class OkioIoProviderTest {
     @Test
     fun `InputStream RequestBody without markSupport is single-use`() {
         val bytes = "stream-once".toByteArray()
-        val nonMarkable = object : InputStream() {
-            private val inner = ByteArrayInputStream(bytes)
-            override fun read(): Int = inner.read()
-            override fun read(b: ByteArray, off: Int, len: Int): Int = inner.read(b, off, len)
-            override fun markSupported(): Boolean = false
-        }
+        val nonMarkable =
+            object : InputStream() {
+                private val inner = ByteArrayInputStream(bytes)
+
+                override fun read(): Int = inner.read()
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = inner.read(b, off, len)
+
+                override fun markSupported(): Boolean = false
+            }
         val body = RequestBody.create(nonMarkable, bytes.size.toLong())
         assertFalse(body.isReplayable())
 
@@ -664,7 +692,7 @@ class OkioIoProviderTest {
             Files.write(tmp, ByteArray(100))
             val body = FileRequestBody(tmp)
             assertEquals(100L, body.contentLength())
-            Files.write(tmp, ByteArray(200))   // grow the file
+            Files.write(tmp, ByteArray(200)) // grow the file
             assertEquals(100L, body.contentLength()) // still the original captured count
         } finally {
             Files.deleteIfExists(tmp)
@@ -675,11 +703,18 @@ class OkioIoProviderTest {
 
     @Test
     fun `OneShot InputStream body throws on a stream that returns zero bytes`() {
-        val pathological = object : InputStream() {
-            override fun read(): Int = 0  // never advances
-            override fun read(b: ByteArray, off: Int, len: Int): Int = 0
-            override fun markSupported(): Boolean = false
-        }
+        val pathological =
+            object : InputStream() {
+                override fun read(): Int = 0 // never advances
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = 0
+
+                override fun markSupported(): Boolean = false
+            }
         val body = RequestBody.create(pathological, 16)
         // Must NOT infinite-loop. The body should raise EOFException.
         assertFailsWith<java.io.EOFException> {
@@ -691,11 +726,18 @@ class OkioIoProviderTest {
     fun `OneShot InputStream body throws on truncated input`() {
         val truncated = ByteArrayInputStream("short".toByteArray())
         // Wrap in a non-markable stream so we go down the one-shot path.
-        val wrapper = object : InputStream() {
-            override fun read(): Int = truncated.read()
-            override fun read(b: ByteArray, off: Int, len: Int): Int = truncated.read(b, off, len)
-            override fun markSupported(): Boolean = false
-        }
+        val wrapper =
+            object : InputStream() {
+                override fun read(): Int = truncated.read()
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = truncated.read(b, off, len)
+
+                override fun markSupported(): Boolean = false
+            }
         val body = RequestBody.create(wrapper, 100)
         assertFailsWith<java.io.EOFException> {
             body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
@@ -749,25 +791,35 @@ class OkioIoProviderTest {
     fun `BufferedSource-backed RequestBody fails loudly on second writeTo`() {
         val body = RequestBody.create(OkioIoProvider.source("once".toByteArray()))
         body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-        val second = assertFailsWith<IllegalStateException> {
-            body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-        }
+        val second =
+            assertFailsWith<IllegalStateException> {
+                body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
+            }
         assertTrue(second.message!!.contains("toReplayable"))
     }
 
     @Test
     fun `OneShot InputStream-backed RequestBody fails loudly on second writeTo`() {
-        val nonMarkable = object : InputStream() {
-            private val inner = ByteArrayInputStream("once".toByteArray())
-            override fun read(): Int = inner.read()
-            override fun read(b: ByteArray, off: Int, len: Int): Int = inner.read(b, off, len)
-            override fun markSupported(): Boolean = false
-        }
+        val nonMarkable =
+            object : InputStream() {
+                private val inner = ByteArrayInputStream("once".toByteArray())
+
+                override fun read(): Int = inner.read()
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = inner.read(b, off, len)
+
+                override fun markSupported(): Boolean = false
+            }
         val body = RequestBody.create(nonMarkable, 4)
         body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-        val second = assertFailsWith<IllegalStateException> {
-            body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-        }
+        val second =
+            assertFailsWith<IllegalStateException> {
+                body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
+            }
         assertTrue(second.message!!.contains("toReplayable"))
     }
 
@@ -786,16 +838,17 @@ class OkioIoProviderTest {
     fun `installProvider is idempotent for the same instance`() {
         Io.installProvider(OkioIoProvider)
         Io.installProvider(OkioIoProvider)
-        Io.installProvider(OkioIoProvider)  // must not throw
+        Io.installProvider(OkioIoProvider) // must not throw
         assertSame(OkioIoProvider, Io.provider)
     }
 
     @Test
     fun `installProvider rejects a conflicting installation`() {
         val different = object : IoProvider by OkioIoProvider {}
-        val thrown = assertFailsWith<IllegalStateException> {
-            Io.installProvider(different)
-        }
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                Io.installProvider(different)
+            }
         assertTrue(thrown.message!!.contains("already installed"))
         assertTrue(thrown.message!!.contains("withProvider"))
         // The original is still installed.
@@ -809,27 +862,36 @@ class OkioIoProviderTest {
         // Two threads racing into the same writeTo — exactly one must succeed; the other
         // must throw IllegalStateException, NOT read from the (now-shared) stream.
         val bytes = ByteArray(512) { it.toByte() }
-        val stream = object : InputStream() {
-            private val inner = ByteArrayInputStream(bytes)
-            override fun read(): Int = inner.read()
-            override fun read(b: ByteArray, off: Int, len: Int): Int = inner.read(b, off, len)
-            override fun markSupported(): Boolean = false
-        }
+        val stream =
+            object : InputStream() {
+                private val inner = ByteArrayInputStream(bytes)
+
+                override fun read(): Int = inner.read()
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = inner.read(b, off, len)
+
+                override fun markSupported(): Boolean = false
+            }
         val body = RequestBody.create(stream, bytes.size.toLong())
 
         val gate = java.util.concurrent.CountDownLatch(1)
         val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
-        val tasks = (1..2).map {
-            executor.submit<Throwable?> {
-                gate.await()
-                try {
-                    body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-                    null
-                } catch (t: Throwable) {
-                    t
+        val tasks =
+            (1..2).map {
+                executor.submit<Throwable?> {
+                    gate.await()
+                    try {
+                        body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
+                        null
+                    } catch (t: Throwable) {
+                        t
+                    }
                 }
             }
-        }
         gate.countDown()
         val results = tasks.map { it.get() }
         executor.shutdown()
@@ -847,17 +909,18 @@ class OkioIoProviderTest {
 
         val gate = java.util.concurrent.CountDownLatch(1)
         val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
-        val tasks = (1..2).map {
-            executor.submit<Throwable?> {
-                gate.await()
-                try {
-                    body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-                    null
-                } catch (t: Throwable) {
-                    t
+        val tasks =
+            (1..2).map {
+                executor.submit<Throwable?> {
+                    gate.await()
+                    try {
+                        body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
+                        null
+                    } catch (t: Throwable) {
+                        t
+                    }
                 }
             }
-        }
         gate.countDown()
         val results = tasks.map { it.get() }
         executor.shutdown()
@@ -903,11 +966,18 @@ class OkioIoProviderTest {
 
     @Test
     fun `OneShot InputStream body with length zero produces no bytes`() {
-        val empty = object : InputStream() {
-            override fun read(): Int = -1
-            override fun read(b: ByteArray, off: Int, len: Int): Int = -1
-            override fun markSupported(): Boolean = false
-        }
+        val empty =
+            object : InputStream() {
+                override fun read(): Int = -1
+
+                override fun read(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ): Int = -1
+
+                override fun markSupported(): Boolean = false
+            }
         val body = RequestBody.create(empty, 0)
         val out = ByteArrayOutputStream()
         body.writeTo(OkioIoProvider.sink(out).also { it.flush() })
@@ -923,7 +993,7 @@ class OkioIoProviderTest {
         val bytes = ByteArray(0)
         val body = RequestBody.create(ByteArrayInputStream(bytes), 0)
         body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))
-        body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream()))  // replay must not throw
+        body.writeTo(OkioIoProvider.sink(ByteArrayOutputStream())) // replay must not throw
     }
 
     @Test
@@ -951,16 +1021,21 @@ class OkioIoProviderTest {
         // Functional check; the no-extra-alloc guarantee is structural (cached wrapper).
         val backing = ByteArray(50_000) { (it % 256).toByte() }
         var offset = 0
-        val primitive = object : org.dexpace.sdk.core.io.Source {
-            override fun read(sink: org.dexpace.sdk.core.io.Buffer, byteCount: Long): Long {
-                if (offset >= backing.size) return -1
-                val n = minOf(byteCount.toInt(), backing.size - offset)
-                sink.write(backing, offset, n)
-                offset += n
-                return n.toLong()
+        val primitive =
+            object : org.dexpace.sdk.core.io.Source {
+                override fun read(
+                    sink: org.dexpace.sdk.core.io.Buffer,
+                    byteCount: Long,
+                ): Long {
+                    if (offset >= backing.size) return -1
+                    val n = minOf(byteCount.toInt(), backing.size - offset)
+                    sink.write(backing, offset, n)
+                    offset += n
+                    return n.toLong()
+                }
+
+                override fun close() {}
             }
-            override fun close() {}
-        }
         val buffered = OkioIoProvider.bufferedSource(primitive)
         assertContentEquals(backing, buffered.readByteArray())
     }

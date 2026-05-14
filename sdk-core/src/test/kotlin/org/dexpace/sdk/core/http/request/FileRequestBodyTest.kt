@@ -21,12 +21,10 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class FileRequestBodyTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
     }
-
 
     private val tempFiles = mutableListOf<Path>()
 
@@ -44,7 +42,10 @@ class FileRequestBodyTest {
         tempFiles.clear()
     }
 
-    private fun tempFile(prefix: String = "frb-test", suffix: String = ".bin"): Path {
+    private fun tempFile(
+        prefix: String = "frb-test",
+        suffix: String = ".bin",
+    ): Path {
         val p = Files.createTempFile(prefix, suffix)
         tempFiles.add(p)
         return p

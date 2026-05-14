@@ -98,16 +98,18 @@ public fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> {
  * Note: the underlying [BufferedSource] is single-threaded. Repeated subscribers MUST NOT
  * share a [BufferedSource]; create a fresh reader (and a fresh source) per subscription.
  */
-public fun ServerSentEventReader.toFlux(): Flux<ServerSentEvent> = Flux.generate { sink ->
-    val event = try {
-        next()
-    } catch (e: Exception) {
-        // Per style guide §8.3: don't swallow Error; only handle Exception subclasses.
-        sink.error(e)
-        return@generate
+public fun ServerSentEventReader.toFlux(): Flux<ServerSentEvent> =
+    Flux.generate { sink ->
+        val event =
+            try {
+                next()
+            } catch (e: Exception) {
+                // Per style guide §8.3: don't swallow Error; only handle Exception subclasses.
+                sink.error(e)
+                return@generate
+            }
+        if (event == null) sink.complete() else sink.next(event)
     }
-    if (event == null) sink.complete() else sink.next(event)
-}
 
 /**
  * Builds a one-shot [Flux] that reads SSE events from [source] until the source is exhausted.

@@ -26,7 +26,6 @@ public class Configuration internal constructor(
     private val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
     private val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
 ) {
-
     /**
      * Look up a configuration value by [name].
      *
@@ -34,7 +33,10 @@ public class Configuration internal constructor(
      * system property (using the normalized name) -> [default].
      */
     @JvmOverloads
-    public fun get(name: String, default: String? = null): String? {
+    public fun get(
+        name: String,
+        default: String? = null,
+    ): String? {
         overrides[name]?.let { return it }
         val env = envSource.apply(name)
         if (!env.isNullOrEmpty()) return env
@@ -54,13 +56,19 @@ public class Configuration internal constructor(
     /**
      * Integer accessor. Returns [default] if the value is missing or not a valid integer.
      */
-    public fun getInt(name: String, default: Int): Int = get(name)?.toIntOrNull() ?: default
+    public fun getInt(
+        name: String,
+        default: Int,
+    ): Int = get(name)?.toIntOrNull() ?: default
 
     /**
      * Strict boolean accessor. Only `"true"` and `"false"` (case-insensitive) are recognized;
      * other values (including `"1"`, `"yes"`, `"on"`) fall through to [default].
      */
-    public fun getBoolean(name: String, default: Boolean): Boolean {
+    public fun getBoolean(
+        name: String,
+        default: Boolean,
+    ): Boolean {
         val raw = get(name) ?: return default
         return when (raw.lowercase(Locale.US)) {
             "true" -> true
@@ -74,8 +82,10 @@ public class Configuration internal constructor(
      * A bare number is interpreted as milliseconds (`1000` -> 1 second).
      * Returns [default] on parse failure.
      */
-    public fun getDuration(name: String, default: Duration): Duration =
-        get(name)?.let { parseDuration(it) } ?: default
+    public fun getDuration(
+        name: String,
+        default: Duration,
+    ): Duration = get(name)?.let { parseDuration(it) } ?: default
 
     public companion object {
         // Well-known keys. `const val` so callers reference them as `Configuration.MAX_RETRY_ATTEMPTS`
@@ -115,10 +125,16 @@ public class Configuration internal constructor(
         }
 
         /** Convert `MAX_RETRY_ATTEMPTS` -> `max.retry.attempts` for the system-property lookup. */
-        internal fun envToProp(name: String): String =
-            name.lowercase(Locale.US).replace('_', '.')
+        internal fun envToProp(name: String): String = name.lowercase(Locale.US).replace('_', '.')
 
-        /** Parse a duration string; returns `null` on failure. Supports ISO-8601 and shorthand. */
+        /**
+         * Parse a duration string; returns `null` on failure. Supports ISO-8601 and shorthand.
+         *
+         * Guard-clause parser with one return per failure mode (empty input, ISO-8601 path,
+         * numeric-parse failure, negative-value reject, terminal when). Collapsing would
+         * require a mutable accumulator and obscure the flow.
+         */
+        @Suppress("ReturnCount")
         internal fun parseDuration(raw: String): Duration? {
             if (raw.isEmpty()) return null
             // ISO-8601 path: `PT5S`, `P1D`, etc.

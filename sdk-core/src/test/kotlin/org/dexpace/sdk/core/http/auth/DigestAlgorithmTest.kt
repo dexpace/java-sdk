@@ -8,7 +8,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class DigestAlgorithmTest {
-
     @Test
     fun `enum exposes all four supported algorithms`() {
         val all = DigestAlgorithm.entries.toSet()

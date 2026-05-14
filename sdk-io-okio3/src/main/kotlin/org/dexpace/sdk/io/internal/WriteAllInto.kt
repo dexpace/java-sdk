@@ -13,7 +13,10 @@ import org.dexpace.sdk.core.io.Source
  * an [OkioBufferedSource] (the common case), Okio moves segments by ownership transfer
  * rather than copying bytes.
  */
-internal fun writeAllInto(sink: okio.BufferedSink, source: Source): Long {
+internal fun writeAllInto(
+    sink: okio.BufferedSink,
+    source: Source,
+): Long {
     return when (source) {
         is OkioBufferedSource -> sink.writeAll(source.delegate)
         is OkioBuffer -> sink.writeAll(source.delegate)

@@ -31,7 +31,6 @@ public data class AuthorizationHeader(
  * thread-safe primitives.
  */
 public interface ChallengeHandler {
-
     /**
      * Returns the header to set on the retry request, or `null` if this handler
      * cannot satisfy any offered challenge. The `method` and `uri` are required

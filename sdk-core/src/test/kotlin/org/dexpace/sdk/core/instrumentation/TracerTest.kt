@@ -13,7 +13,6 @@ import kotlin.test.assertTrue
  * to confirm the default is plumbed through correctly.
  */
 class TracerTest {
-
     @Test
     fun `NoopTracer startSpan default attributes returns Span NOOP`() {
         // Single-arg form: covers the default-parameter `attributes = emptyMap()` path.
@@ -32,12 +31,16 @@ class TracerTest {
         // Hand-rolled implementation records what it saw so the test can assert the
         // default parameter actually resolved to an empty map.
         val captured = mutableListOf<Pair<String, Map<String, Any>>>()
-        val tracer = object : Tracer {
-            override fun startSpan(name: String, attributes: Map<String, Any>): Span {
-                captured.add(name to attributes)
-                return Span.NOOP
+        val tracer =
+            object : Tracer {
+                override fun startSpan(
+                    name: String,
+                    attributes: Map<String, Any>,
+                ): Span {
+                    captured.add(name to attributes)
+                    return Span.NOOP
+                }
             }
-        }
 
         // Kotlin-side single-arg invocation goes through the default parameter.
         tracer.startSpan("op-default")
@@ -56,20 +59,34 @@ class TracerTest {
         // Confirms the Tracer SPI returns Span via the abstract interface — not a
         // hidden cast to NoopSpan or similar.
         val recorded = mutableListOf<String>()
-        val customSpan: Span = object : Span {
-            override val isRecording: Boolean = true
-            override val context: InstrumentationContext = NoopInstrumentationContext
-            override fun setAttribute(key: String, value: Any): Span {
-                recorded.add("$key=$value"); return this
+        val customSpan: Span =
+            object : Span {
+                override val isRecording: Boolean = true
+                override val context: InstrumentationContext = NoopInstrumentationContext
+
+                override fun setAttribute(
+                    key: String,
+                    value: Any,
+                ): Span {
+                    recorded.add("$key=$value")
+                    return this
+                }
+
+                override fun setError(errorType: String): Span = this
+
+                override fun makeCurrent(): TracingScope = TracingScope { }
+
+                override fun end() = Unit
+
+                override fun end(throwable: Throwable) = Unit
             }
-            override fun setError(errorType: String): Span = this
-            override fun makeCurrent(): TracingScope = TracingScope { }
-            override fun end() = Unit
-            override fun end(throwable: Throwable) = Unit
-        }
-        val tracer: Tracer = object : Tracer {
-            override fun startSpan(name: String, attributes: Map<String, Any>): Span = customSpan
-        }
+        val tracer: Tracer =
+            object : Tracer {
+                override fun startSpan(
+                    name: String,
+                    attributes: Map<String, Any>,
+                ): Span = customSpan
+            }
 
         val span = tracer.startSpan("op")
         assertSame(customSpan, span)
@@ -84,13 +101,17 @@ class TracerTest {
         // default (emptyMap) plumbed through.
         var lastName: String? = null
         var lastAttrs: Map<String, Any>? = null
-        val tracer: Tracer = object : Tracer {
-            override fun startSpan(name: String, attributes: Map<String, Any>): Span {
-                lastName = name
-                lastAttrs = attributes
-                return Span.NOOP
+        val tracer: Tracer =
+            object : Tracer {
+                override fun startSpan(
+                    name: String,
+                    attributes: Map<String, Any>,
+                ): Span {
+                    lastName = name
+                    lastAttrs = attributes
+                    return Span.NOOP
+                }
             }
-        }
         tracer.startSpan("hello")
         assertEquals("hello", lastName)
         assertEquals(emptyMap(), lastAttrs)

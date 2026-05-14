@@ -38,7 +38,6 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class RetryStepTest {
-
     @BeforeTest
     fun setUp() {
         Io.installProvider(OkioIoProvider)
@@ -57,9 +56,13 @@ class RetryStepTest {
         val step = DefaultRetryStep()
         assertEquals(Stage.RETRY, step.stage)
 
-        val custom = object : RetryStep() {
-            override fun process(request: Request, next: PipelineNext): Response = next.process()
-        }
+        val custom =
+            object : RetryStep() {
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response = next.process()
+            }
         assertEquals(Stage.RETRY, custom.stage)
     }
 
@@ -68,9 +71,10 @@ class RetryStepTest {
     @Test
     fun `maxRetries = 0 performs exactly one attempt and no retries`() {
         val fake = FakeHttpClient().enqueue { status(503) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 0), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 0), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(503, response.status.code)
@@ -80,9 +84,10 @@ class RetryStepTest {
     @Test
     fun `first attempt succeeds returns immediately`() {
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
@@ -91,13 +96,15 @@ class RetryStepTest {
 
     @Test
     fun `503 then 200 retries exactly once`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
@@ -106,15 +113,17 @@ class RetryStepTest {
 
     @Test
     fun `three consecutive 503s with maxRetries=3 returns last 503 with 4 calls`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(503, response.status.code)
@@ -125,9 +134,10 @@ class RetryStepTest {
 
     @Test
     fun `408 is retryable`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(408) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(408) }
+                .enqueue { status(200) }
 
         val pipeline = retryPipeline(fake)
         val response = pipeline.send(getRequest())
@@ -137,9 +147,10 @@ class RetryStepTest {
 
     @Test
     fun `429 is retryable`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(429) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(429) }
+                .enqueue { status(200) }
 
         val pipeline = retryPipeline(fake)
         val response = pipeline.send(getRequest())
@@ -180,13 +191,15 @@ class RetryStepTest {
     fun `Retry-After seconds drives exact delay`() {
         val clock = FixedClock()
         val before = clock.now()
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "5") }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "5") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         pipeline.send(getRequest())
         assertEquals(Duration.ofSeconds(5), Duration.between(before, clock.now()))
@@ -199,13 +212,15 @@ class RetryStepTest {
         val target = clock.now().plusSeconds(10)
         val rfc1123 = DateTimeRfc1123.format(target)
 
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", rfc1123) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", rfc1123) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -215,13 +230,15 @@ class RetryStepTest {
     @Test
     fun `retry-after-ms parses millisecond delay`() {
         val clock = FixedClock()
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("retry-after-ms", "1500") }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("retry-after-ms", "1500") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -231,13 +248,15 @@ class RetryStepTest {
     @Test
     fun `x-ms-retry-after-ms parses millisecond delay`() {
         val clock = FixedClock()
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("x-ms-retry-after-ms", "2000") }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("x-ms-retry-after-ms", "2000") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -247,13 +266,15 @@ class RetryStepTest {
     @Test
     fun `Retry-After 0 yields immediate retry`() {
         val clock = FixedClock()
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "0") }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "0") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -266,17 +287,20 @@ class RetryStepTest {
         val clock = FixedClock()
         // Configure a deterministic backoff: 100ms base with 100ms cap removes the
         // exponential growth window and the jitter range is at most 5ms.
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(100),
-            maxDelay = Duration.ofMillis(100),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "-1") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(100),
+                maxDelay = Duration.ofMillis(100),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "-1") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -289,17 +313,20 @@ class RetryStepTest {
     @Test
     fun `Retry-After non-numeric falls back to default backoff`() {
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(100),
-            maxDelay = Duration.ofMillis(100),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "not-a-number") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(100),
+                maxDelay = Duration.ofMillis(100),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "not-a-number") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -313,18 +340,21 @@ class RetryStepTest {
         val clock = FixedClock()
         // Only listen to the standard `Retry-After`; the `retry-after-ms` header is
         // therefore invisible and we fall back to backoff (100ms ± 5ms).
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(100),
-            maxDelay = Duration.ofMillis(100),
-            retryAfterHeaders = listOf(HttpHeaderName.RETRY_AFTER),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("retry-after-ms", "1500") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(100),
+                maxDelay = Duration.ofMillis(100),
+                retryAfterHeaders = listOf(HttpHeaderName.RETRY_AFTER),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("retry-after-ms", "1500") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -338,17 +368,19 @@ class RetryStepTest {
     @Test
     fun `IOException is retried via exception classifier`() {
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                if (n < 2) throw IOException("transient")
-                return okResponse(request)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 2) throw IOException("transient")
+                    return okResponse(request)
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
@@ -358,17 +390,19 @@ class RetryStepTest {
     @Test
     fun `TimeoutException is retried`() {
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                if (n < 2) throw TimeoutException("slow")
-                return okResponse(request)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 2) throw TimeoutException("slow")
+                    return okResponse(request)
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
@@ -378,17 +412,19 @@ class RetryStepTest {
     @Test
     fun `nested cause chain RuntimeException-of-IOException is retried`() {
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                if (n < 2) throw RuntimeException("wrapper", IOException("transient"))
-                return okResponse(request)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 2) throw RuntimeException("wrapper", IOException("transient"))
+                    return okResponse(request)
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
@@ -398,16 +434,18 @@ class RetryStepTest {
     @Test
     fun `RuntimeException with no relevant cause is NOT retried`() {
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                attempts.incrementAndGet()
-                throw RuntimeException("unrelated")
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    attempts.incrementAndGet()
+                    throw RuntimeException("unrelated")
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         // `process()` is declared `@Throws(IOException::class)`. A non-IO terminal failure
         // is wrapped so Java callers' `catch (IOException)` is honored; the original is
@@ -423,23 +461,28 @@ class RetryStepTest {
     @Test
     fun `InterruptedException during sleep throws InterruptedIOException without retrying`() {
         val attempts = AtomicInteger(0)
-        val interruptingClock = object : Clock {
-            override fun now(): Instant = Instant.EPOCH
-            override fun monotonic(): Long = 0L
-            override fun sleep(duration: Duration) {
-                throw InterruptedException("simulated interrupt")
-            }
-        }
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                attempts.incrementAndGet()
-                throw IOException("transient")
-            }
-        }
+        val interruptingClock =
+            object : Clock {
+                override fun now(): Instant = Instant.EPOCH
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), interruptingClock))
-            .build()
+                override fun monotonic(): Long = 0L
+
+                override fun sleep(duration: Duration) {
+                    throw InterruptedException("simulated interrupt")
+                }
+            }
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    attempts.incrementAndGet()
+                    throw IOException("transient")
+                }
+            }
+
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), interruptingClock))
+                .build()
 
         val ex = assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
         assertTrue(ex.cause is InterruptedException, "expected InterruptedException as cause")
@@ -456,23 +499,28 @@ class RetryStepTest {
         // interrupt during sleep doesn't silently drop it. The InterruptedIOException must
         // carry every accumulated failure, including the one whose backoff was interrupted.
         val attempts = AtomicInteger(0)
-        val interruptingClock = object : Clock {
-            override fun now(): Instant = Instant.EPOCH
-            override fun monotonic(): Long = 0L
-            override fun sleep(duration: Duration) {
-                throw InterruptedException("simulated interrupt")
-            }
-        }
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                throw IOException("attempt $n")
-            }
-        }
+        val interruptingClock =
+            object : Clock {
+                override fun now(): Instant = Instant.EPOCH
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), interruptingClock))
-            .build()
+                override fun monotonic(): Long = 0L
+
+                override fun sleep(duration: Duration) {
+                    throw InterruptedException("simulated interrupt")
+                }
+            }
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    throw IOException("attempt $n")
+                }
+            }
+
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), interruptingClock))
+                .build()
 
         val ex = assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
         // The current attempt's exception is in `suppressed` — without the fix it would be
@@ -490,15 +538,17 @@ class RetryStepTest {
         // retryable — the loop re-interrupts the thread and rethrows. Without the check the
         // exception classifier would see "IOException" and retry, masking cancellation.
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                attempts.incrementAndGet()
-                throw InterruptedIOException("transport interrupted")
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    attempts.incrementAndGet()
+                    throw InterruptedIOException("transport interrupted")
+                }
             }
-        }
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
 
         assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
         assertEquals(1, attempts.get(), "InterruptedIOException must NOT be retried")
@@ -511,18 +561,20 @@ class RetryStepTest {
     @Test
     fun `accumulated prior exceptions are addSuppressed on final failure`() {
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                throw IOException("attempt $n")
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    throw IOException("attempt $n")
+                }
             }
-        }
 
         // maxRetries = 2 → initial + 2 retries = 3 attempts. The third (final) exception
         // is rethrown with the prior two attached as suppressed.
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 2), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 2), zeroDelayClock()))
+                .build()
 
         val ex = assertFailsWith<IOException> { pipeline.send(getRequest()) }
         assertEquals("attempt 3", ex.message)
@@ -537,15 +589,17 @@ class RetryStepTest {
     @Test
     fun `fixedDelay uses a flat duration with no exponential growth`() {
         val clock = FixedClock()
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
         val opts = HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofMillis(100))
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -556,20 +610,23 @@ class RetryStepTest {
     @Test
     fun `exponential backoff grows roughly 100 200 400 with 5pct jitter`() {
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            maxRetries = 3,
-            baseDelay = Duration.ofMillis(100),
-            maxDelay = Duration.ofSeconds(1),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                baseDelay = Duration.ofMillis(100),
+                maxDelay = Duration.ofSeconds(1),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -586,20 +643,23 @@ class RetryStepTest {
         // backoff path indirectly by sending many one-retry sequences and reading the
         // FixedClock delta.
         val baseMs = 1000L
-        val opts = HttpRetryOptions(
-            maxRetries = 1,
-            baseDelay = Duration.ofMillis(baseMs),
-            maxDelay = Duration.ofMillis(baseMs),
-        )
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 1,
+                baseDelay = Duration.ofMillis(baseMs),
+                maxDelay = Duration.ofMillis(baseMs),
+            )
         val samples = ArrayList<Long>(1000)
         repeat(1000) {
             val clock = FixedClock()
-            val fake = FakeHttpClient()
-                .enqueue { status(503) }
-                .enqueue { status(200) }
-            val pipeline = HttpPipelineBuilder(fake)
-                .append(DefaultRetryStep(opts, clock))
-                .build()
+            val fake =
+                FakeHttpClient()
+                    .enqueue { status(503) }
+                    .enqueue { status(200) }
+            val pipeline =
+                HttpPipelineBuilder(fake)
+                    .append(DefaultRetryStep(opts, clock))
+                    .build()
             val before = clock.now()
             pipeline.send(getRequest())
             samples.add(Duration.between(before, clock.now()).toMillis())
@@ -622,17 +682,20 @@ class RetryStepTest {
     @Test
     fun `delayFromCondition override returns exact delay verbatim`() {
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            maxRetries = 1,
-            delayFromCondition = { Duration.ofSeconds(7) },
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 1,
+                delayFromCondition = { Duration.ofSeconds(7) },
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -642,22 +705,25 @@ class RetryStepTest {
     @Test
     fun `custom shouldRetryCondition is consulted and overrides default`() {
         val invocations = AtomicInteger(0)
-        val opts = HttpRetryOptions(
-            maxRetries = 3,
-            shouldRetryCondition = { c ->
-                invocations.incrementAndGet()
-                // Only retry while we have a response and we haven't retried yet.
-                c.response != null && c.tryCount == 0
-            },
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) }
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = { c ->
+                    invocations.incrementAndGet()
+                    // Only retry while we have a response and we haven't retried yet.
+                    c.response != null && c.tryCount == 0
+                },
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         // Original + one retry → 2 calls. Predicate called twice (tryCount 0, then 1).
@@ -668,13 +734,15 @@ class RetryStepTest {
 
     @Test
     fun `shouldRetryCondition that throws is wrapped in IllegalStateException`() {
-        val opts = HttpRetryOptions(
-            shouldRetryCondition = { throw RuntimeException("predicate boom") },
-        )
+        val opts =
+            HttpRetryOptions(
+                shouldRetryCondition = { throw RuntimeException("predicate boom") },
+            )
         val fake = FakeHttpClient().enqueue { status(503) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         val ex = assertFailsWith<IllegalStateException> { pipeline.send(getRequest()) }
         assertTrue(ex.message?.contains("shouldRetry predicate threw") == true)
@@ -686,15 +754,17 @@ class RetryStepTest {
     @Test
     fun `OutOfMemoryError propagates immediately with no retry`() {
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                attempts.incrementAndGet()
-                throw OutOfMemoryError("simulated")
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    attempts.incrementAndGet()
+                    throw OutOfMemoryError("simulated")
+                }
             }
-        }
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
 
         assertFailsWith<OutOfMemoryError> { pipeline.send(getRequest()) }
         assertEquals(1, attempts.get())
@@ -705,23 +775,30 @@ class RetryStepTest {
     @Test
     fun `next-dot-copy is invoked exactly once per attempt`() {
         val nextSeen = ArrayList<PipelineNext>()
-        val recorder = object : HttpStep {
-            override val stage: Stage = Stage.POST_RETRY
-            override fun process(request: Request, next: PipelineNext): Response {
-                nextSeen.add(next)
-                return next.process()
+        val recorder =
+            object : HttpStep {
+                override val stage: Stage = Stage.POST_RETRY
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response {
+                    nextSeen.add(next)
+                    return next.process()
+                }
             }
-        }
 
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
-            .append(recorder)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .append(recorder)
+                .build()
 
         pipeline.send(getRequest())
 
@@ -738,23 +815,25 @@ class RetryStepTest {
     fun `prior response is closed before sleeping`() {
         val closes = AtomicInteger(0)
         val callCount = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = callCount.incrementAndGet()
-                val statusCode = if (n == 1) 503 else 200
-                return Response.builder()
-                    .request(request)
-                    .protocol(Protocol.HTTP_1_1)
-                    .status(Status.fromCode(statusCode))
-                    .headers(Headers.Builder().build())
-                    .body(CountingClosableBody(closes))
-                    .build()
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = callCount.incrementAndGet()
+                    val statusCode = if (n == 1) 503 else 200
+                    return Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(statusCode))
+                        .headers(Headers.Builder().build())
+                        .body(CountingClosableBody(closes))
+                        .build()
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         pipeline.send(getRequest())
         // The 503 response's body should have been closed before we slept and retried.
@@ -771,13 +850,15 @@ class RetryStepTest {
         val clock = FixedClock(Instant.parse("2024-06-01T12:00:00Z"))
         val past = clock.now().minusSeconds(60)
         val rfc1123 = DateTimeRfc1123.format(past)
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", rfc1123) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", rfc1123) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -788,17 +869,20 @@ class RetryStepTest {
     fun `Retry-After malformed date falls back to default backoff`() {
         // Not parseable as either integer seconds or RFC 1123 — drops to backoff.
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(100),
-            maxDelay = Duration.ofMillis(100),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "not a date, not a number") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(100),
+                maxDelay = Duration.ofMillis(100),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "not a date, not a number") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -811,17 +895,20 @@ class RetryStepTest {
     @Test
     fun `Retry-After negative milliseconds is rejected and falls back to backoff`() {
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(50),
-            maxDelay = Duration.ofMillis(50),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("retry-after-ms", "-1000") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(50),
+                maxDelay = Duration.ofMillis(50),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("retry-after-ms", "-1000") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -836,13 +923,15 @@ class RetryStepTest {
         // not clamp. LARGE_RETRY_AFTER_SECONDS = 3600; passing 3601 forces
         // seconds > threshold, exercising the warning branch in warnIfLargeRetryAfter.
         val clock = FixedClock()
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "3601") }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "3601") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -852,17 +941,20 @@ class RetryStepTest {
     @Test
     fun `Retry-After empty value falls back to default backoff`() {
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(80),
-            maxDelay = Duration.ofMillis(80),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("Retry-After", "   ") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(80),
+                maxDelay = Duration.ofMillis(80),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("Retry-After", "   ") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -879,21 +971,24 @@ class RetryStepTest {
         // Cover the exception-path branch through `computeExceptionDelay` which skips the
         // Retry-After parsing step.
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                if (n < 2) throw IOException("transient")
-                return okResponse(request)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 2) throw IOException("transient")
+                    return okResponse(request)
+                }
             }
-        }
-        val opts = HttpRetryOptions(
-            maxRetries = 3,
-            delayFromCondition = { Duration.ofSeconds(2) },
-        )
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                delayFromCondition = { Duration.ofSeconds(2) },
+            )
         val clock = FixedClock()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -905,19 +1000,22 @@ class RetryStepTest {
         // The step swallows a buggy override and logs at warning. Verifies the fallback
         // continues to retry with the backoff path rather than aborting the loop.
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            maxRetries = 2,
-            baseDelay = Duration.ofMillis(50),
-            maxDelay = Duration.ofMillis(50),
-            delayFromCondition = { throw RuntimeException("buggy override") },
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 2,
+                baseDelay = Duration.ofMillis(50),
+                maxDelay = Duration.ofMillis(50),
+                delayFromCondition = { throw RuntimeException("buggy override") },
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         val response = pipeline.send(getRequest())
@@ -929,22 +1027,24 @@ class RetryStepTest {
 
     @Test
     fun `custom shouldRetryException is consulted and overrides default`() {
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response =
-                throw RuntimeException("no retry classifier match")
-        }
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response = throw RuntimeException("no retry classifier match")
+            }
         val invocations = AtomicInteger(0)
-        val opts = HttpRetryOptions(
-            maxRetries = 2,
-            shouldRetryException = {
-                invocations.incrementAndGet()
-                // Force retry on any exception even though the default would not.
-                true
-            },
-        )
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 2,
+                shouldRetryException = {
+                    invocations.incrementAndGet()
+                    // Force retry on any exception even though the default would not.
+                    true
+                },
+            )
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         // Non-IO terminal failure is wrapped as `IOException` (see `RuntimeException with no
         // relevant cause is NOT retried`); the original is attached as cause.
@@ -956,15 +1056,18 @@ class RetryStepTest {
 
     @Test
     fun `shouldRetryException that throws is wrapped in IllegalStateException`() {
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response = throw IOException("transient")
-        }
-        val opts = HttpRetryOptions(
-            shouldRetryException = { throw RuntimeException("predicate boom") },
-        )
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response = throw IOException("transient")
+            }
+        val opts =
+            HttpRetryOptions(
+                shouldRetryException = { throw RuntimeException("predicate boom") },
+            )
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         val ex = assertFailsWith<IllegalStateException> { pipeline.send(getRequest()) }
         assertTrue(ex.message?.contains("shouldRetry predicate threw") == true)
@@ -976,16 +1079,19 @@ class RetryStepTest {
     fun `custom shouldRetryCondition gating on status 503 only`() {
         // Retry only when the status is exactly 503. A 429 (normally retryable) must NOT
         // be retried — the custom predicate fully replaces the default classifier.
-        val fake = FakeHttpClient()
-            .enqueue { status(429) } // default would retry; predicate refuses
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(429) } // default would retry; predicate refuses
 
-        val opts = HttpRetryOptions(
-            maxRetries = 3,
-            shouldRetryCondition = { c -> c.response?.status?.code == 503 },
-        )
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = { c -> c.response?.status?.code == 503 },
+            )
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(429, response.status.code)
@@ -999,12 +1105,14 @@ class RetryStepTest {
         // The invokeShouldRetry helper specifically rethrows Error subclasses without
         // wrapping. An OOM in the predicate must surface unchanged for the JVM crash signal.
         val fake = FakeHttpClient().enqueue { status(503) }
-        val opts = HttpRetryOptions(
-            shouldRetryCondition = { throw OutOfMemoryError("simulated in predicate") },
-        )
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val opts =
+            HttpRetryOptions(
+                shouldRetryCondition = { throw OutOfMemoryError("simulated in predicate") },
+            )
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         assertFailsWith<OutOfMemoryError> { pipeline.send(getRequest()) }
     }
@@ -1014,12 +1122,14 @@ class RetryStepTest {
         // Same contract as above but for the delay hook — Error subclasses bypass the
         // generic catch-and-fallback path.
         val fake = FakeHttpClient().enqueue { status(503) }
-        val opts = HttpRetryOptions(
-            delayFromCondition = { throw OutOfMemoryError("OOM in delay hook") },
-        )
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, zeroDelayClock()))
-            .build()
+        val opts =
+            HttpRetryOptions(
+                delayFromCondition = { throw OutOfMemoryError("OOM in delay hook") },
+            )
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
 
         assertFailsWith<OutOfMemoryError> { pipeline.send(getRequest()) }
     }
@@ -1031,15 +1141,17 @@ class RetryStepTest {
         // 3 failures total = initial + 2 retries; final exception has 2 suppressed prior
         // exceptions (the third one is the rethrown one itself).
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                throw IOException("attempt $n")
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    throw IOException("attempt $n")
+                }
             }
-        }
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 2), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 2), zeroDelayClock()))
+                .build()
 
         val ex = assertFailsWith<IOException> { pipeline.send(getRequest()) }
         assertEquals("attempt 3", ex.message)
@@ -1056,18 +1168,21 @@ class RetryStepTest {
         // tests already drive baseDelay=Duration.ZERO, but this one explicitly exercises the
         // exponential path with a zero base — the branch must short-circuit before any shift.
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            maxRetries = 1,
-            baseDelay = Duration.ZERO,
-            maxDelay = Duration.ofMillis(100),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 1,
+                baseDelay = Duration.ZERO,
+                maxDelay = Duration.ofMillis(100),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -1082,16 +1197,18 @@ class RetryStepTest {
         val clock = FixedClock()
         // 9_223_372_036 seconds is well over Long.MAX_VALUE / 2^30 in nanos, forcing the
         // overflow branch.
-        val opts = HttpRetryOptions(
-            maxRetries = 35,
-            baseDelay = Duration.ofSeconds(9_223_372_036L),
-            maxDelay = Duration.ofMillis(2),
-        )
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 35,
+                baseDelay = Duration.ofSeconds(9_223_372_036L),
+                maxDelay = Duration.ofMillis(2),
+            )
         val fake = FakeHttpClient()
         repeat(36) { fake.enqueue { status(503) } }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         val response = pipeline.send(getRequest())
@@ -1109,18 +1226,20 @@ class RetryStepTest {
         // huge delay even though tryCount eventually exceeds 30. The maxDelay clamps the
         // result; we verify the loop completes in bounded total time.
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            maxRetries = 35,
-            baseDelay = Duration.ofNanos(1),
-            maxDelay = Duration.ofMillis(1),
-        )
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 35,
+                baseDelay = Duration.ofNanos(1),
+                maxDelay = Duration.ofMillis(1),
+            )
         // 35 retries × ~1ms each = ~35ms upper bound; pre-fill 36 enqueued responses.
         val fake = FakeHttpClient()
         repeat(36) { fake.enqueue { status(503) } }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         val response = pipeline.send(getRequest())
@@ -1139,18 +1258,21 @@ class RetryStepTest {
         // both ms variants — confirms the list-walk order matters and unsupported names are
         // ignored, not parsed.
         val clock = FixedClock()
-        val opts = HttpRetryOptions(
-            baseDelay = Duration.ofMillis(50),
-            maxDelay = Duration.ofMillis(50),
-            retryAfterHeaders = listOf(HttpHeaderName.RETRY_AFTER),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("x-ms-retry-after-ms", "3000") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                baseDelay = Duration.ofMillis(50),
+                maxDelay = Duration.ofMillis(50),
+                retryAfterHeaders = listOf(HttpHeaderName.RETRY_AFTER),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("x-ms-retry-after-ms", "3000") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -1166,16 +1288,19 @@ class RetryStepTest {
         // built-in HttpHeaderName forces the fall-through.
         val clock = FixedClock()
         val unknown = HttpHeaderName.fromString("X-Custom-Retry-After-Ms")
-        val opts = HttpRetryOptions(
-            retryAfterHeaders = listOf(unknown),
-        )
-        val fake = FakeHttpClient()
-            .enqueue { status(503).header("X-Custom-Retry-After-Ms", "1234") }
-            .enqueue { status(200) }
+        val opts =
+            HttpRetryOptions(
+                retryAfterHeaders = listOf(unknown),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("X-Custom-Retry-After-Ms", "1234") }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(opts, clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, clock))
+                .build()
 
         val before = clock.now()
         pipeline.send(getRequest())
@@ -1191,23 +1316,25 @@ class RetryStepTest {
         // IOException the loop must continue rather than aborting — surfacing a close error
         // on a soon-to-be-replaced response is not actionable.
         val callCount = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = callCount.incrementAndGet()
-                val statusCode = if (n == 1) 503 else 200
-                return Response.builder()
-                    .request(request)
-                    .protocol(Protocol.HTTP_1_1)
-                    .status(Status.fromCode(statusCode))
-                    .headers(Headers.Builder().build())
-                    .body(ThrowingCloseBody(n == 1))
-                    .build()
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = callCount.incrementAndGet()
+                    val statusCode = if (n == 1) 503 else 200
+                    return Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(statusCode))
+                        .headers(Headers.Builder().build())
+                        .body(ThrowingCloseBody(n == 1))
+                        .build()
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
@@ -1218,16 +1345,18 @@ class RetryStepTest {
 
     @Test
     fun `negative maxRetries is clamped to default 3`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) }
-            .enqueue { status(503) } // extra in case clamp went wrong
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) } // extra in case clamp went wrong
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultRetryStep(HttpRetryOptions(maxRetries = -5), zeroDelayClock()))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = -5), zeroDelayClock()))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(503, response.status.code)
@@ -1243,24 +1372,27 @@ class RetryStepTest {
         val clientLogger = ClientLogger.forTesting(fakeSlf4j)
 
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                if (n < 2) throw IOException("net")
-                return okResponse(request)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 2) throw IOException("net")
+                    return okResponse(request)
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock(), clientLogger))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock(), clientLogger))
+                .build()
 
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
 
-        val retryRecord = fakeSlf4j.records.first { rec ->
-            rec.keyValues.any { it.key == "event" && it.value == "http.retry" }
-        }
+        val retryRecord =
+            fakeSlf4j.records.first { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.retry" }
+            }
         val kv = retryRecord.keyValues.associate { it.key to it.value }
         assertEquals("IOException", kv["retry.cause_class"])
     }
@@ -1272,23 +1404,26 @@ class RetryStepTest {
 
         val clock = FixedClock()
         val attempts = AtomicInteger(0)
-        val client = object : HttpClient {
-            override fun execute(request: Request): Response {
-                val n = attempts.incrementAndGet()
-                if (n < 2) throw IOException("net")
-                return okResponse(request)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 2) throw IOException("net")
+                    return okResponse(request)
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultRetryStep(HttpRetryOptions(), clock, clientLogger))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(), clock, clientLogger))
+                .build()
 
         pipeline.send(getRequest())
 
-        val retryRecord = fakeSlf4j.records.first { rec ->
-            rec.keyValues.any { it.key == "event" && it.value == "http.retry" }
-        }
+        val retryRecord =
+            fakeSlf4j.records.first { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.retry" }
+            }
         val kv = retryRecord.keyValues.associate { it.key to it.value }
         val elapsedMs = kv["retry.total_elapsed_ms"] as Long
         assertTrue(elapsedMs >= 0L, "retry.total_elapsed_ms must be non-negative; got $elapsedMs")
@@ -1319,17 +1454,23 @@ class RetryStepTest {
      * Clock whose [Clock.sleep] is a no-op (does not advance any clock face). Used for
      * tests that don't care about timing — keeps the assertions focused on call counts.
      */
-    private fun zeroDelayClock(): Clock = object : Clock {
-        override fun now(): Instant = Instant.EPOCH
-        override fun monotonic(): Long = 0L
-        override fun sleep(duration: Duration) { /* no-op */ }
-    }
+    private fun zeroDelayClock(): Clock =
+        object : Clock {
+            override fun now(): Instant = Instant.EPOCH
+
+            override fun monotonic(): Long = 0L
+
+            override fun sleep(duration: Duration) { /* no-op */ }
+        }
 
     /** Counts close() calls; throws if anyone tries to read source(). */
     private class CountingClosableBody(private val closes: AtomicInteger) : ResponseBody() {
         override fun mediaType(): MediaType? = null
+
         override fun contentLength(): Long = 0
+
         override fun source(): BufferedSource = fail("body should not be read in close-tracking test")
+
         override fun close() {
             closes.incrementAndGet()
         }
@@ -1338,8 +1479,11 @@ class RetryStepTest {
     /** Body whose close() throws IOException — used to verify the step swallows the error. */
     private class ThrowingCloseBody(private val shouldThrow: Boolean) : ResponseBody() {
         override fun mediaType(): MediaType? = null
+
         override fun contentLength(): Long = 0
+
         override fun source(): BufferedSource = fail("body should not be read in close-tracking test")
+
         override fun close() {
             if (shouldThrow) throw IOException("simulated close failure")
         }

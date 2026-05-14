@@ -8,7 +8,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class StatusTest {
-
     @Test
     fun `fromCode returns the matching status for a known code`() {
         assertEquals(Status.OK, Status.fromCode(200))

@@ -35,7 +35,10 @@ public interface AsyncHttpStep {
      * (`IllegalArgumentException`, `NullPointerException`) MAY be thrown synchronously
      * because they indicate caller bugs, not async failures.
      */
-    public fun processAsync(request: Request, next: AsyncPipelineNext): CompletableFuture<Response>
+    public fun processAsync(
+        request: Request,
+        next: AsyncPipelineNext,
+    ): CompletableFuture<Response>
 
     /** The pipeline stage this step occupies. */
     public val stage: Stage

@@ -29,7 +29,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  * spawned via [slice]; it does NOT guard the read/write methods of this instance.
  */
 internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : Buffer {
-
     /**
      * Shared by every [slice] spawned from this buffer so that closing the buffer invalidates
      * outstanding slices. [okio.Buffer.close] is a no-op for in-memory buffers, but the slice
@@ -52,7 +51,11 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
         delegate.clear()
     }
 
-    override fun copyTo(out: Buffer, offset: Long, byteCount: Long): Buffer {
+    override fun copyTo(
+        out: Buffer,
+        offset: Long,
+        byteCount: Long,
+    ): Buffer {
         when (out) {
             is OkioBuffer -> delegate.copyTo(out.delegate, offset, byteCount)
             else -> {
@@ -64,7 +67,10 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
         return this
     }
 
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun read(
+        sink: Buffer,
+        byteCount: Long,
+    ): Long {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
         if (byteCount == 0L) return 0L
@@ -74,7 +80,10 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
         return available
     }
 
-    override fun write(source: Buffer, byteCount: Long) {
+    override fun write(
+        source: Buffer,
+        byteCount: Long,
+    ) {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         when (source) {
             is OkioBuffer -> delegate.write(source.delegate, byteCount)
@@ -92,20 +101,33 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
     }
 
     override fun exhausted(): Boolean = delegate.exhausted()
+
     override fun readByte(): Byte = delegate.readByte()
+
     override fun readByteArray(): ByteArray = delegate.readByteArray()
+
     override fun readByteArray(byteCount: Long): ByteArray = delegate.readByteArray(byteCount)
+
     override fun readUtf8(): String = delegate.readUtf8()
+
     override fun readUtf8(byteCount: Long): String = delegate.readUtf8(byteCount)
+
     override fun readUtf8Line(): String? = delegate.readUtf8Line()
+
     override fun readString(charset: Charset): String = delegate.readString(charset)
+
     override fun peek(): BufferedSource = OkioBufferedSource(delegate.peek())
+
     override fun inputStream(): InputStream = delegate.inputStream()
+
     override fun skip(byteCount: Long) {
         delegate.skip(byteCount)
     }
 
-    override fun slice(offset: Long, byteCount: Long): BufferedSource {
+    override fun slice(
+        offset: Long,
+        byteCount: Long,
+    ): BufferedSource {
         require(offset >= 0) { "offset must be non-negative (got $offset)" }
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         return SlicedOkioBufferedSource(
@@ -121,7 +143,11 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
         return this
     }
 
-    override fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink {
+    override fun write(
+        source: ByteArray,
+        offset: Int,
+        byteCount: Int,
+    ): BufferedSink {
         delegate.write(source, offset, byteCount)
         return this
     }
@@ -133,12 +159,19 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
         return this
     }
 
-    override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink {
+    override fun writeUtf8(
+        string: String,
+        beginIndex: Int,
+        endIndex: Int,
+    ): BufferedSink {
         delegate.writeUtf8(string, beginIndex, endIndex)
         return this
     }
 
-    override fun writeString(string: String, charset: Charset): BufferedSink {
+    override fun writeString(
+        string: String,
+        charset: Charset,
+    ): BufferedSink {
         delegate.writeString(string, charset)
         return this
     }

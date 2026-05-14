@@ -10,7 +10,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ChallengeHandlerTest {
-
     /**
      * A handler that overrides ONLY the four-argument `handleChallenges` so the
      * three-argument default-method overload exercises the interface's delegating

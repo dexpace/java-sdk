@@ -1,6 +1,5 @@
 package org.dexpace.sdk.core.serde
 
-import java.io.InputStream
 import java.io.OutputStream
 
 /**
@@ -20,8 +19,14 @@ public interface Serializer {
     public fun serializeToByteArray(input: Any): ByteArray
 
     /** Stream [input]'s encoding into [outputStream]. The caller owns closing the stream. */
-    public fun serialize(input: Any, outputStream: OutputStream)
+    public fun serialize(
+        input: Any,
+        outputStream: OutputStream,
+    )
 
     /** Encode [input] into the caller-supplied [buffer]. Behavior on overflow is implementation-defined. */
-    public fun serialize(input: Any, buffer: ByteArray)
+    public fun serialize(
+        input: Any,
+        buffer: ByteArray,
+    )
 }

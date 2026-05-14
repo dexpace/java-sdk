@@ -16,7 +16,6 @@ import java.util.concurrent.CompletableFuture
  * across copies.
  */
 public class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCallState) {
-
     /**
      * Advances to the next step and invokes it. If no further step exists, dispatches the
      * request to the pipeline's [org.dexpace.sdk.core.client.AsyncHttpClient]. Synchronous
@@ -27,8 +26,11 @@ public class AsyncPipelineNext internal constructor(private val state: AsyncPipe
     public fun processAsync(): CompletableFuture<Response> {
         val nextStep = state.advance()
         return try {
-            if (nextStep == null) state.httpClient.executeAsync(state.request)
-            else nextStep.processAsync(state.request, this)
+            if (nextStep == null) {
+                state.httpClient.executeAsync(state.request)
+            } else {
+                nextStep.processAsync(state.request, this)
+            }
         } catch (e: Exception) {
             // The interface contract permits sync exceptions only for caller-bug cases
             // (IllegalArgument/NullPointer). Defensively normalise any sync `Exception`

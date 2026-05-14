@@ -10,11 +10,14 @@ import kotlin.test.assertSame
  * the contracts are usable, not just satisfiable by the noop singletons.
  */
 class CustomMeterImplTest {
-
     private class RecordingCounter : LongCounter {
         val total = AtomicLong(0)
         val calls = mutableListOf<Pair<Long, Map<String, Any>>>()
-        override fun add(value: Long, attributes: Map<String, Any>) {
+
+        override fun add(
+            value: Long,
+            attributes: Map<String, Any>,
+        ) {
             total.addAndGet(value)
             calls += value to attributes
         }
@@ -22,7 +25,11 @@ class CustomMeterImplTest {
 
     private class RecordingHistogram : DoubleHistogram {
         val samples = mutableListOf<Pair<Double, Map<String, Any>>>()
-        override fun record(value: Double, attributes: Map<String, Any>) {
+
+        override fun record(
+            value: Double,
+            attributes: Map<String, Any>,
+        ) {
             samples += value to attributes
         }
     }
@@ -30,8 +37,18 @@ class CustomMeterImplTest {
     private class RecordingMeter : Meter {
         val counter = RecordingCounter()
         val histogram = RecordingHistogram()
-        override fun counter(name: String, description: String, unit: String): LongCounter = counter
-        override fun histogram(name: String, description: String, unit: String): DoubleHistogram = histogram
+
+        override fun counter(
+            name: String,
+            description: String,
+            unit: String,
+        ): LongCounter = counter
+
+        override fun histogram(
+            name: String,
+            description: String,
+            unit: String,
+        ): DoubleHistogram = histogram
     }
 
     @Test
@@ -90,11 +107,15 @@ class CustomMeterImplTest {
         // Kotlin's `emptyMap()` returns the same instance every time; confirm the
         // default-argument call path doesn't allocate a fresh map per call.
         val seen = mutableListOf<Map<String, Any>>()
-        val c = object : LongCounter {
-            override fun add(value: Long, attributes: Map<String, Any>) {
-                seen += attributes
+        val c =
+            object : LongCounter {
+                override fun add(
+                    value: Long,
+                    attributes: Map<String, Any>,
+                ) {
+                    seen += attributes
+                }
             }
-        }
         c.add(1L)
         c.add(2L)
         assertSame(seen[0], seen[1], "Default attributes must be the shared emptyMap singleton")

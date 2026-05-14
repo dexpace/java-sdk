@@ -35,15 +35,21 @@ internal class StagedSteps<S : Any>(
     /** Append to the tail of [step]'s stage deque (or install the pillar). */
     fun append(step: S) {
         val stage = stageOf(step)
-        if (stage.isPillar) installPillar(step, stage)
-        else perStage.getOrPut(stage) { ArrayDeque() }.addLast(step)
+        if (stage.isPillar) {
+            installPillar(step, stage)
+        } else {
+            perStage.getOrPut(stage) { ArrayDeque() }.addLast(step)
+        }
     }
 
     /** Prepend to the head of [step]'s stage deque (or install the pillar). */
     fun prepend(step: S) {
         val stage = stageOf(step)
-        if (stage.isPillar) installPillar(step, stage)
-        else perStage.getOrPut(stage) { ArrayDeque() }.addFirst(step)
+        if (stage.isPillar) {
+            installPillar(step, stage)
+        } else {
+            perStage.getOrPut(stage) { ArrayDeque() }.addFirst(step)
+        }
     }
 
     /**
@@ -54,8 +60,11 @@ internal class StagedSteps<S : Any>(
         val out = ArrayList<S>()
         for (stage in Stage.entries) {
             if (stage == Stage.SEND) continue
-            if (stage.isPillar) pillars[stage]?.let(out::add)
-            else perStage[stage]?.let(out::addAll)
+            if (stage.isPillar) {
+                pillars[stage]?.let(out::add)
+            } else {
+                perStage[stage]?.let(out::addAll)
+            }
         }
         return out
     }
@@ -66,12 +75,18 @@ internal class StagedSteps<S : Any>(
         pillars.clear()
         for (s in steps) {
             val stage = stageOf(s)
-            if (stage.isPillar) installPillar(s, stage)
-            else perStage.getOrPut(stage) { ArrayDeque() }.addLast(s)
+            if (stage.isPillar) {
+                installPillar(s, stage)
+            } else {
+                perStage.getOrPut(stage) { ArrayDeque() }.addLast(s)
+            }
         }
     }
 
-    private fun installPillar(step: S, stage: Stage) {
+    private fun installPillar(
+        step: S,
+        stage: Stage,
+    ) {
         check(stage != Stage.SEND) { "SEND is the terminal client — not a step slot" }
         val existing = pillars[stage]
         if (existing != null && existing !== step) onPillarReplaced(stage, existing, step)

@@ -3,7 +3,6 @@ package org.dexpace.sdk.core.instrumentation.metrics
 import kotlin.test.Test
 
 class NoopHistogramTest {
-
     @Test
     fun `record accepts zero without throwing`() {
         NoopHistogram.record(0.0)

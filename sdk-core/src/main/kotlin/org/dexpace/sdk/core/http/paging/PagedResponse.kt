@@ -38,31 +38,33 @@ import java.io.IOException
  * @property firstLink Full URL of the first page, or `null` if unsupported.
  * @property lastLink Full URL of the last page, or `null` if unsupported.
  */
-public class PagedResponse<T> @JvmOverloads constructor(
-    public val response: Response,
-    public val value: List<T>,
-    public val continuationToken: String? = null,
-    public val nextLink: String? = null,
-    public val previousLink: String? = null,
-    public val firstLink: String? = null,
-    public val lastLink: String? = null,
-) : Closeable {
-    /** Status code of the underlying [response]. */
-    public val statusCode: Int get() = response.status.code
+public class PagedResponse<T>
+    @JvmOverloads
+    constructor(
+        public val response: Response,
+        public val value: List<T>,
+        public val continuationToken: String? = null,
+        public val nextLink: String? = null,
+        public val previousLink: String? = null,
+        public val firstLink: String? = null,
+        public val lastLink: String? = null,
+    ) : Closeable {
+        /** Status code of the underlying [response]. */
+        public val statusCode: Int get() = response.status.code
 
-    /** Headers of the underlying [response]. */
-    public val headers: Headers get() = response.headers
+        /** Headers of the underlying [response]. */
+        public val headers: Headers get() = response.headers
 
-    /** Request that produced the underlying [response]. */
-    public val request: Request get() = response.request
+        /** Request that produced the underlying [response]. */
+        public val request: Request get() = response.request
 
-    /**
-     * Closes the underlying [response] and its body.
-     *
-     * @throws IOException If the underlying response close fails.
-     */
-    @Throws(IOException::class)
-    override fun close() {
-        response.close()
+        /**
+         * Closes the underlying [response] and its body.
+         *
+         * @throws IOException If the underlying response close fails.
+         */
+        @Throws(IOException::class)
+        override fun close() {
+            response.close()
+        }
     }
-}

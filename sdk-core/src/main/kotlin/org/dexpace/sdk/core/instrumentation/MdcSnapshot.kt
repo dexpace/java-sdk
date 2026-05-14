@@ -18,8 +18,9 @@ import org.slf4j.MDC
  * `CompletableFuture` continuation, an executor task, a Reactor signal, a Netty event-loop
  * callback) loses the entries. Adapter modules use [MdcSnapshot] to bridge that gap.
  */
-public class MdcSnapshot private constructor(@PublishedApi internal val snapshot: Map<String, String>?) {
-
+public class MdcSnapshot private constructor(
+    @PublishedApi internal val snapshot: Map<String, String>?,
+) {
     /**
      * Replaces the current thread's MDC with the captured snapshot. Calling this on a thread
      * that already has MDC entries discards them — use [withMdc] instead when you want to

@@ -30,9 +30,11 @@ package org.dexpace.sdk.core.http.paging
  * @property continuationToken Opaque server-issued cursor to fetch the next page. Mutually
  *   exclusive with [offset] / [pageIndex] on most servers.
  */
-public class PagingOptions @JvmOverloads constructor(
-    public var offset: Long? = null,
-    public var pageSize: Long? = null,
-    public var pageIndex: Long? = null,
-    public var continuationToken: String? = null,
-)
+public class PagingOptions
+    @JvmOverloads
+    constructor(
+        public var offset: Long? = null,
+        public var pageSize: Long? = null,
+        public var pageIndex: Long? = null,
+        public var continuationToken: String? = null,
+    )

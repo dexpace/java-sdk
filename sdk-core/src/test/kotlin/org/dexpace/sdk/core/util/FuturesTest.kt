@@ -4,8 +4,8 @@ import java.io.IOException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
-import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -15,7 +15,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class FuturesTest {
-
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
 
     @AfterTest

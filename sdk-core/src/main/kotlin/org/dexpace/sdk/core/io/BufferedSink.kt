@@ -35,7 +35,11 @@ public interface BufferedSink : Sink {
      *         `offset + byteCount` exceeds `source.size`.
      */
     @Throws(IOException::class)
-    public fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink
+    public fun write(
+        source: ByteArray,
+        offset: Int,
+        byteCount: Int,
+    ): BufferedSink
 
     /** Drains every remaining byte of [source] into this sink. Returns the number transferred. */
     @Throws(IOException::class)
@@ -50,11 +54,18 @@ public interface BufferedSink : Sink {
      * (exclusive) and writes it.
      */
     @Throws(IOException::class)
-    public fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink
+    public fun writeUtf8(
+        string: String,
+        beginIndex: Int,
+        endIndex: Int,
+    ): BufferedSink
 
     /** Encodes [string] using [charset] and writes the resulting bytes. */
     @Throws(IOException::class)
-    public fun writeString(string: String, charset: Charset): BufferedSink
+    public fun writeString(
+        string: String,
+        charset: Charset,
+    ): BufferedSink
 
     /** Returns an [OutputStream] that writes to this sink. Closing the stream closes this. */
     @Throws(IOException::class)

@@ -40,7 +40,11 @@ public interface Buffer : BufferedSource, BufferedSink {
      *         `offset + byteCount` exceeds [size].
      */
     @Throws(IOException::class)
-    public fun copyTo(out: Buffer, offset: Long = 0, byteCount: Long = size - offset): Buffer
+    public fun copyTo(
+        out: Buffer,
+        offset: Long = 0,
+        byteCount: Long = size - offset,
+    ): Buffer
 
     override val buffer: Buffer get() = this
 

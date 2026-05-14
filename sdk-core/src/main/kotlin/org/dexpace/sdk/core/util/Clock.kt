@@ -60,7 +60,7 @@ private class SystemClock : Clock {
         // `toMillis` truncates sub-millisecond precision; forward the leftover nanos so
         // callers asking for, e.g., 1_500_000 ns (1.5ms) don't lose half a millisecond.
         val millis = duration.toMillis()
-        val nanos = duration.nano % 1_000_000
+        val nanos = duration.nano % NANOS_PER_MILLI
         try {
             Thread.sleep(millis, nanos)
         } catch (e: InterruptedException) {
@@ -69,5 +69,9 @@ private class SystemClock : Clock {
             Thread.currentThread().interrupt()
             throw e
         }
+    }
+
+    private companion object {
+        private const val NANOS_PER_MILLI = 1_000_000
     }
 }

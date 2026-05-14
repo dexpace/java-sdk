@@ -22,5 +22,8 @@ public interface Source : Closeable {
      * @throws IOException on underlying I/O failure.
      */
     @Throws(IOException::class)
-    public fun read(sink: Buffer, byteCount: Long): Long
+    public fun read(
+        sink: Buffer,
+        byteCount: Long,
+    ): Long
 }

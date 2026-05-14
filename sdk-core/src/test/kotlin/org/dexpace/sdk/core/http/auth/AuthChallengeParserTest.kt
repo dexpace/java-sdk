@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AuthChallengeParserTest {
-
     @Test
     fun `parses single Basic challenge`() {
         val challenges = AuthChallengeParser.parse("""Basic realm="api"""")

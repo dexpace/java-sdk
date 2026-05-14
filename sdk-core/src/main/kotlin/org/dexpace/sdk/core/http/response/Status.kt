@@ -8,7 +8,7 @@ package org.dexpace.sdk.core.http.response
  */
 @Suppress("unused")
 public enum class Status(
-    public val code: Int
+    public val code: Int,
 ) {
     // Informational responses (100–199)
     CONTINUE(100),
@@ -83,7 +83,7 @@ public enum class Status(
     NETWORK_AUTHENTICATION_REQUIRED(511),
 
     // Non-standard status codes (e.g., Apache)
-    THIS_IS_FINE(218) // Non-standard code, used by some Apache modules
+    THIS_IS_FINE(218), // Non-standard code, used by some Apache modules
     ;
 
     /** True when the code is in the 2xx success range. */

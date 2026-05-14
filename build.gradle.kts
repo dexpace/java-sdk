@@ -136,22 +136,21 @@ allprojects {
     }
 }
 
-// Apply ktlint and detekt to every subproject via the root build.
+// Apply ktlint and detekt to every subproject via the root build. Both run with
+// `ignoreFailures = false` — style violations and static-analysis findings break the
+// build. Tune `config/detekt.yml` (or add narrow `@Suppress` annotations) when a rule
+// needs adjustment rather than re-enabling the legacy report-only mode.
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
     apply(plugin = "io.gitlab.arturbosch.detekt")
 
-    // ktlint: report-only during initial adoption. The existing codebase has style violations
-    // that groups A/B/C will address in the same style-compliance pass. Set ignoreFailures=false
-    // once those groups have landed their changes.
     configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
-        ignoreFailures.set(true)
+        ignoreFailures.set(false)
     }
 
     detekt {
         config.setFrom("$rootDir/config/detekt.yml")
         buildUponDefaultConfig = true
-        // TODO: set ignoreFailures = false once detekt baseline is established
-        ignoreFailures = true
+        ignoreFailures = false
     }
 }

@@ -30,7 +30,10 @@ public fun interface BearerTokenProvider {
      * @param params extra parameters to pass through to the token endpoint (e.g.
      *   `claims`, `resource`).
      */
-    public fun fetch(scopes: List<String>, params: Map<String, Any>): BearerToken
+    public fun fetch(
+        scopes: List<String>,
+        params: Map<String, Any>,
+    ): BearerToken
 
     /** Convenience for callers without extra params; forwards to [fetch] with an empty map. */
     public fun fetch(scopes: List<String>): BearerToken = fetch(scopes, emptyMap())

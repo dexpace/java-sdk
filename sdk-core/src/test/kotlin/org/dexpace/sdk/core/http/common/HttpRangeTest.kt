@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class HttpRangeTest {
-
     @Test
     fun `bytes(0, 1024) emits closed range from zero`() {
         assertEquals("bytes=0-1023", HttpRange.bytes(0, 1024).toHeaderValue())

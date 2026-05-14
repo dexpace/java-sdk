@@ -16,7 +16,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ProxyOptionsTest {
-
     // ----- Direct construction -----
 
     @Test
@@ -43,22 +42,24 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassesProxy matches subdomain wildcard`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("*.example.com"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("*.example.com"),
+            )
         assertTrue(po.bypassesProxy("internal.example.com"))
         assertTrue(po.bypassesProxy("api.example.com"))
     }
 
     @Test
     fun `bypassesProxy does not match unrelated hosts`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("*.example.com"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("*.example.com"),
+            )
         assertFalse(po.bypassesProxy("external.com"))
         // `*.example.com` requires at least one prefix character before the dot — bare
         // `example.com` does not match. Matches Java's StreamHandler / OkHttp behavior.
@@ -67,11 +68,12 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassesProxy matches prefix wildcard like 127 dot star`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("127.*"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("127.*"),
+            )
         assertTrue(po.bypassesProxy("127.0.0.1"))
         assertTrue(po.bypassesProxy("127.5.5.5"))
         assertFalse(po.bypassesProxy("10.0.0.1"))
@@ -79,22 +81,24 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassesProxy matches exact literal host`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("localhost"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("localhost"),
+            )
         assertTrue(po.bypassesProxy("localhost"))
         assertFalse(po.bypassesProxy("localhost.example.com"))
     }
 
     @Test
     fun `bypassesProxy handles multiple wildcards`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("*.internal.*"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("*.internal.*"),
+            )
         assertTrue(po.bypassesProxy("api.internal.com"))
         assertTrue(po.bypassesProxy("svc.internal.net"))
         assertFalse(po.bypassesProxy("api.external.com"))
@@ -102,11 +106,12 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassesProxy is case-insensitive`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("*.example.com"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("*.example.com"),
+            )
         assertTrue(po.bypassesProxy("API.EXAMPLE.COM"))
         assertTrue(po.bypassesProxy("Internal.Example.Com"))
     }
@@ -120,23 +125,25 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassesProxy escapes regex metacharacters in glob literal`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            // Literal `.` should not match `a` or `?` — without escaping it would.
-            nonProxyHosts = listOf("api.example.com"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                // Literal `.` should not match `a` or `?` — without escaping it would.
+                nonProxyHosts = listOf("api.example.com"),
+            )
         assertTrue(po.bypassesProxy("api.example.com"))
         assertFalse(po.bypassesProxy("apixexample-com"))
     }
 
     @Test
     fun `bypassesProxy multiple patterns linear scan`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("*.example.com", "localhost", "127.*"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("*.example.com", "localhost", "127.*"),
+            )
         assertTrue(po.bypassesProxy("a.example.com"))
         assertTrue(po.bypassesProxy("localhost"))
         assertTrue(po.bypassesProxy("127.0.0.1"))
@@ -147,16 +154,17 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration reads https proxyHost and proxyPort sysprops`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy.example.com"
-                    "https.proxyPort" -> "8443"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy.example.com"
+                        "https.proxyPort" -> "8443"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(ProxyOptions.Type.HTTP, po.type)
@@ -166,18 +174,19 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration reads https proxyUser and proxyPassword sysprops`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "8443"
-                    "https.proxyUser" -> "alice"
-                    "https.proxyPassword" -> "wonderland"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "8443"
+                        "https.proxyUser" -> "alice"
+                        "https.proxyPassword" -> "wonderland"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("alice", po.username)
@@ -186,16 +195,17 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration falls back from https to http proxyHost`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "http.proxyHost" -> "fallback.example.com"
-                    "http.proxyPort" -> "3128"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "http.proxyHost" -> "fallback.example.com"
+                        "http.proxyPort" -> "3128"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("fallback.example.com", po.address.hostString)
@@ -204,18 +214,19 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration https proxyHost wins over http proxyHost`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "secure.proxy"
-                    "https.proxyPort" -> "8443"
-                    "http.proxyHost" -> "plain.proxy"
-                    "http.proxyPort" -> "3128"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "secure.proxy"
+                        "https.proxyPort" -> "8443"
+                        "http.proxyHost" -> "plain.proxy"
+                        "http.proxyPort" -> "3128"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("secure.proxy", po.address.hostString)
@@ -224,18 +235,19 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration system property wins over env var`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTPS_PROXY") "http://env.proxy:9000" else null
-            }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "sys.proxy"
-                    "https.proxyPort" -> "8443"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTPS_PROXY") "http://env.proxy:9000" else null
                 }
-            }
-            .build()
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "sys.proxy"
+                        "https.proxyPort" -> "8443"
+                        else -> null
+                    }
+                }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("sys.proxy", po.address.hostString)
@@ -246,12 +258,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration parses HTTPS_PROXY with embedded credentials`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTPS_PROXY") "http://user:pass@proxy.example.com:8080" else null
-            }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTPS_PROXY") "http://user:pass@proxy.example.com:8080" else null
+                }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("proxy.example.com", po.address.hostString)
@@ -262,12 +275,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration parses HTTPS_PROXY without credentials`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTPS_PROXY") "http://proxy.example.com:8080" else null
-            }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTPS_PROXY") "http://proxy.example.com:8080" else null
+                }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("proxy.example.com", po.address.hostString)
@@ -278,12 +292,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration parses env-var URL with username only (no colon, no password)`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTPS_PROXY") "http://justuser@proxy.example.com:8080" else null
-            }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTPS_PROXY") "http://justuser@proxy.example.com:8080" else null
+                }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("justuser", po.username)
@@ -292,12 +307,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration falls back from HTTPS_PROXY to HTTP_PROXY env var`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTP_PROXY") "http://only.http.proxy:3128" else null
-            }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTP_PROXY") "http://only.http.proxy:3128" else null
+                }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("only.http.proxy", po.address.hostString)
@@ -306,19 +322,21 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration returns null when no proxy is configured`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null on empty env var URL`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "HTTPS_PROXY") "" else null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "HTTPS_PROXY") "" else null }
+                .propsSource { null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
@@ -326,83 +344,90 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration returns null on non-numeric port sysprop`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "not-a-number"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "not-a-number"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null on negative port sysprop`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "-1"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "-1"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null on out-of-range port sysprop`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "70000"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "70000"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null when sysprop has host but no port`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name -> if (name == "https.proxyHost") "proxy" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name -> if (name == "https.proxyHost") "proxy" else null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null on malformed env var URL`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "HTTPS_PROXY") "::::::not-a-url" else null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "HTTPS_PROXY") "::::::not-a-url" else null }
+                .propsSource { null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null when env var URL is missing host`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "HTTPS_PROXY") "http://:8080" else null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "HTTPS_PROXY") "http://:8080" else null }
+                .propsSource { null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration returns null when env var URL has no port`() {
         // URI.getPort() returns -1 when absent → rejected.
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "HTTPS_PROXY") "http://proxy.example.com" else null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "HTTPS_PROXY") "http://proxy.example.com" else null }
+                .propsSource { null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
@@ -410,17 +435,18 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration reads http nonProxyHosts sysprop with pipe separator`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "8443"
-                    "http.nonProxyHosts" -> "*.internal.com|localhost|127.*"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "8443"
+                        "http.nonProxyHosts" -> "*.internal.com|localhost|127.*"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("*.internal.com", "localhost", "127.*"), po.nonProxyHosts)
@@ -431,16 +457,17 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration reads NO_PROXY env var with comma separator`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "*.example.com,localhost,127.*"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "*.example.com,localhost,127.*"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("*.example.com", "localhost", "127.*"), po.nonProxyHosts)
@@ -448,18 +475,19 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration sysprop nonProxyHosts wins over env var NO_PROXY`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "from-env.com"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "from-env.com"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { name ->
-                if (name == "http.nonProxyHosts") "from-sysprop.com" else null
-            }
-            .build()
+                .propsSource { name ->
+                    if (name == "http.nonProxyHosts") "from-sysprop.com" else null
+                }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("from-sysprop.com"), po.nonProxyHosts)
@@ -467,48 +495,51 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration NO_PROXY equals star returns null bypass everything`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "*"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "*"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration sysprop nonProxyHosts equals star returns null bypass everything`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "8443"
-                    "http.nonProxyHosts" -> "*"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "8443"
+                        "http.nonProxyHosts" -> "*"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration NO_PROXY honors backslash escape on comma`() {
         // `a\,b,c` → ["a,b", "c"] — first element contains a literal comma.
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "a\\,b,c"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "a\\,b,c"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("a,b", "c"), po.nonProxyHosts)
@@ -517,17 +548,18 @@ class ProxyOptionsTest {
     @Test
     fun `fromConfiguration http nonProxyHosts honors backslash escape on pipe`() {
         // `a\|b|c` → ["a|b", "c"]
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "8443"
-                    "http.nonProxyHosts" -> "a\\|b|c"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "8443"
+                        "http.nonProxyHosts" -> "a\\|b|c"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("a|b", "c"), po.nonProxyHosts)
@@ -537,10 +569,11 @@ class ProxyOptionsTest {
 
     @Test
     fun `direct constructor accepts IPv6 address`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("::1", 8080),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("::1", 8080),
+            )
         assertEquals(8080, po.address.port)
         // InetSocketAddress canonicalises to the resolved (or unresolved) form. We assert
         // that the address is non-null and the port stuck — that's all that matters.
@@ -549,10 +582,11 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration parses IPv6 bracketed proxy URL`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "HTTPS_PROXY") "http://[::1]:8080" else null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "HTTPS_PROXY") "http://[::1]:8080" else null }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(8080, po.address.port)
@@ -568,12 +602,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `username and password without challengeHandler implies Basic auth`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            username = "u",
-            password = "p",
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                username = "u",
+                password = "p",
+            )
         assertEquals("u", po.username)
         assertEquals("p", po.password)
         assertNull(po.challengeHandler)
@@ -582,11 +617,12 @@ class ProxyOptionsTest {
     @Test
     fun `challengeHandler can be supplied directly`() {
         val handler = StubChallengeHandler()
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            challengeHandler = handler,
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                challengeHandler = handler,
+            )
         assertSame(handler, po.challengeHandler)
     }
 
@@ -596,13 +632,14 @@ class ProxyOptionsTest {
         // challengeHandler. ProxyOptions itself does not enforce one over the other; that
         // is documented as the caller's responsibility (per to-implement.md §16).
         val handler = StubChallengeHandler()
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            username = "u",
-            password = "p",
-            challengeHandler = handler,
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                username = "u",
+                password = "p",
+                challengeHandler = handler,
+            )
         assertEquals("u", po.username)
         assertEquals("p", po.password)
         assertSame(handler, po.challengeHandler)
@@ -658,12 +695,13 @@ class ProxyOptionsTest {
     fun `fromConfiguration env URL with username-only userinfo no colon`() {
         // Userinfo `user@host:port` (no `:password`) — exercises the `colon < 0` branch
         // of the userinfo split in parseProxyUrl.
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTPS_PROXY") "http://alice@proxy.example.com:8080" else null
-            }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTPS_PROXY") "http://alice@proxy.example.com:8080" else null
+                }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("alice", po.username)
@@ -673,12 +711,13 @@ class ProxyOptionsTest {
     @Test
     fun `fromConfiguration env URL with password containing colon retains colons in pass`() {
         // Password may itself contain colons. The split-at-first-colon behaviour preserves them.
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                if (name == "HTTPS_PROXY") "http://user:p:a:s:s@proxy:8080" else null
-            }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    if (name == "HTTPS_PROXY") "http://user:p:a:s:s@proxy:8080" else null
+                }
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals("user", po.username)
@@ -689,16 +728,17 @@ class ProxyOptionsTest {
     fun `fromConfiguration drops empty fragments in NO_PROXY env var`() {
         // `"foo,,bar"` → ["foo", "bar"] — exercises the `filter { it.isNotEmpty() }`
         // branch in splitAndUnescape where some splits ARE empty.
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "foo,,bar"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "foo,,bar"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("foo", "bar"), po.nonProxyHosts)
@@ -709,17 +749,18 @@ class ProxyOptionsTest {
         // sysProp size==1 but parts[0] != "*" → returns the list, not BYPASS_ALL.
         // Verifies the AND-branch where the first conjunct (size==1) is true but the
         // second (parts[0]=="*") is false.
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "8443"
-                    "http.nonProxyHosts" -> "single.host"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "8443"
+                        "http.nonProxyHosts" -> "single.host"
+                        else -> null
+                    }
                 }
-            }
-            .build()
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("single.host"), po.nonProxyHosts)
@@ -729,16 +770,17 @@ class ProxyOptionsTest {
     fun `fromConfiguration single-non-star nonProxyHost via env var NO_PROXY`() {
         // env-var path mirror of the previous test: size==1 but != "*" — exercises the
         // env-var branch's size==1 && != "*" predicate.
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "single.host"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "single.host"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertEquals(listOf("single.host"), po.nonProxyHosts)
@@ -748,12 +790,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `toString masks both username and password when present`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            username = "alice",
-            password = "wonderland",
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                username = "alice",
+                password = "wonderland",
+            )
         val s = po.toString()
         // The literal credentials must never appear in the rendered form.
         assertFalse(s.contains("alice"), "username leaked into toString: $s")
@@ -773,11 +816,12 @@ class ProxyOptionsTest {
 
     @Test
     fun `toString includes type, address, and nonProxyHosts`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.SOCKS5,
-            InetSocketAddress("p.example", 1080),
-            nonProxyHosts = listOf("*.internal"),
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.SOCKS5,
+                InetSocketAddress("p.example", 1080),
+                nonProxyHosts = listOf("*.internal"),
+            )
         val s = po.toString()
         assertTrue(s.contains("type=SOCKS5"), s)
         assertTrue(s.contains("nonProxyHosts=[*.internal]"), s)
@@ -785,11 +829,12 @@ class ProxyOptionsTest {
 
     @Test
     fun `toString masks username when only username present`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            username = "u",
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                username = "u",
+            )
         val s = po.toString()
         assertFalse(s.contains("=u,"), s)
         assertTrue(s.contains("username=***"), s)
@@ -800,11 +845,12 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassAllHosts=true makes bypassesProxy return true for any host`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            bypassAllHosts = true,
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                bypassAllHosts = true,
+            )
         assertTrue(po.bypassesProxy("api.example.com"))
         assertTrue(po.bypassesProxy("localhost"))
         assertTrue(po.bypassesProxy("127.0.0.1"))
@@ -813,12 +859,13 @@ class ProxyOptionsTest {
 
     @Test
     fun `bypassAllHosts=false defers to nonProxyHosts list`() {
-        val po = ProxyOptions(
-            ProxyOptions.Type.HTTP,
-            InetSocketAddress("proxy", 8080),
-            nonProxyHosts = listOf("*.internal.com"),
-            bypassAllHosts = false,
-        )
+        val po =
+            ProxyOptions(
+                ProxyOptions.Type.HTTP,
+                InetSocketAddress("proxy", 8080),
+                nonProxyHosts = listOf("*.internal.com"),
+                bypassAllHosts = false,
+            )
         assertTrue(po.bypassesProxy("api.internal.com"))
         assertFalse(po.bypassesProxy("external.com"))
     }
@@ -832,32 +879,34 @@ class ProxyOptionsTest {
 
     @Test
     fun `fromConfiguration NO_PROXY=star sets bypassAllHosts and returns null`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "*"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "*"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         // The bypass-all case causes fromConfiguration to return null (no proxy).
         assertNull(ProxyOptions.fromConfiguration(cfg))
     }
 
     @Test
     fun `fromConfiguration normal nonProxyHosts does not set bypassAllHosts`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name ->
-                when (name) {
-                    "HTTPS_PROXY" -> "http://proxy:8080"
-                    "NO_PROXY" -> "*.internal.com,localhost"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name ->
+                    when (name) {
+                        "HTTPS_PROXY" -> "http://proxy:8080"
+                        "NO_PROXY" -> "*.internal.com,localhost"
+                        else -> null
+                    }
                 }
-            }
-            .propsSource { null }
-            .build()
+                .propsSource { null }
+                .build()
         val po = ProxyOptions.fromConfiguration(cfg)
         assertNotNull(po)
         assertFalse(po.bypassAllHosts)
@@ -883,20 +932,22 @@ class ProxyOptionsTest {
         // implementation) is invoked when Java callers write `ProxyOptions.fromConfiguration(cfg)`.
         // Kotlin call sites go to the Companion; only reflective or Java-side calls exercise
         // the static-bridge body line, so cover it explicitly here.
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name ->
-                when (name) {
-                    "https.proxyHost" -> "proxy"
-                    "https.proxyPort" -> "8443"
-                    else -> null
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name ->
+                    when (name) {
+                        "https.proxyHost" -> "proxy"
+                        "https.proxyPort" -> "8443"
+                        else -> null
+                    }
                 }
-            }
-            .build()
-        val method = ProxyOptions::class.java.getMethod(
-            "fromConfiguration",
-            org.dexpace.sdk.core.config.Configuration::class.java,
-        )
+                .build()
+        val method =
+            ProxyOptions::class.java.getMethod(
+                "fromConfiguration",
+                org.dexpace.sdk.core.config.Configuration::class.java,
+            )
         val result = method.invoke(null, cfg)
         assertNotNull(result)
         assertTrue(result is ProxyOptions)

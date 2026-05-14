@@ -13,7 +13,6 @@ import kotlin.test.assertSame
  * tracing is disabled.
  */
 class NoopSpanTest {
-
     @Test
     fun `isRecording is always false`() {
         assertFalse(NoopSpan.isRecording)

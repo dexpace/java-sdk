@@ -9,7 +9,7 @@ package org.dexpace.sdk.core.http.request
  */
 @Suppress("unused")
 public enum class Method(
-    public val method: String
+    public val method: String,
 ) {
     GET("GET"),
     POST("POST"),
@@ -19,7 +19,7 @@ public enum class Method(
     HEAD("HEAD"),
     OPTIONS("OPTIONS"),
     TRACE("TRACE"),
-    CONNECT("CONNECT")
+    CONNECT("CONNECT"),
     ;
 
     override fun toString(): String = method

@@ -17,6 +17,15 @@ import java.util.concurrent.TimeoutException
  * fulfill the request regardless of retry; see the Azure SDK comparison report §2.3.
  */
 public object RetryUtils {
+    // HTTP status codes participating in the retry classification. Spelled out as named
+    // constants per the project's MagicNumber discipline; the values themselves are RFC
+    // 7231 / 6585 / 7540 fixed wire constants and cannot vary.
+    private const val SC_REQUEST_TIMEOUT = 408
+    private const val SC_TOO_MANY_REQUESTS = 429
+    private const val SC_SERVER_ERROR_MIN = 500
+    private const val SC_NOT_IMPLEMENTED = 501
+    private const val SC_HTTP_VERSION_NOT_SUPPORTED = 505
+    private const val SC_SERVER_ERROR_MAX = 599
 
     /**
      * Returns `true` if the given HTTP [statusCode] is retryable.
@@ -25,8 +34,12 @@ public object RetryUtils {
      */
     @JvmStatic
     public fun isRetryable(statusCode: Int): Boolean =
-        statusCode == 408 || statusCode == 429 ||
-            (statusCode in 500..599 && statusCode != 501 && statusCode != 505)
+        statusCode == SC_REQUEST_TIMEOUT || statusCode == SC_TOO_MANY_REQUESTS ||
+            (
+                statusCode in SC_SERVER_ERROR_MIN..SC_SERVER_ERROR_MAX &&
+                    statusCode != SC_NOT_IMPLEMENTED &&
+                    statusCode != SC_HTTP_VERSION_NOT_SUPPORTED
+            )
 
     /**
      * Returns `true` if [t] or any throwable in its cause chain is an [IOException] or

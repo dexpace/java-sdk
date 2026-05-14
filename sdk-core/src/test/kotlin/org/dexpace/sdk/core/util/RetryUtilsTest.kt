@@ -9,7 +9,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RetryUtilsTest {
-
     // ---- Status-code classification ----------------------------------------------------
 
     @Test
@@ -137,9 +136,11 @@ class RetryUtilsTest {
      */
     private class SelfReferential(message: String) : RuntimeException(message) {
         private var selfCause: Boolean = false
+
         fun setSelfCause() {
             selfCause = true
         }
+
         override val cause: Throwable?
             get() = if (selfCause) this else null
     }
@@ -150,9 +151,11 @@ class RetryUtilsTest {
      */
     private class LinkableThrowable(message: String) : RuntimeException(message) {
         private var linked: Throwable? = null
+
         fun linkCause(target: Throwable) {
             linked = target
         }
+
         override val cause: Throwable?
             get() = linked
     }

@@ -28,7 +28,10 @@ public fun interface NextPageFetcher<T> {
      * Returns the next [PagedResponse] for [options] and [continuationToken], or `null`
      * to signal end of stream.
      */
-    public fun fetch(options: PagingOptions, continuationToken: String): PagedResponse<T>?
+    public fun fetch(
+        options: PagingOptions,
+        continuationToken: String,
+    ): PagedResponse<T>?
 }
 
 /**
@@ -76,99 +79,103 @@ public fun interface NextPageFetcher<T> {
  * @property nextPage Fetches a subsequent page given the link from the previous page.
  * @property maxPages Defensive cap on the total number of pages yielded.
  */
-public class PagedIterable<T> @JvmOverloads constructor(
-    private val firstPage: FirstPageFetcher<T>,
-    private val nextPage: NextPageFetcher<T> = NextPageFetcher { _, _ -> null },
-    private val maxPages: Long = Long.MAX_VALUE,
-) : Iterable<T> {
-
-    /**
-     * Returns a lazy sequence of pages, starting from the first page produced by
-     * [firstPage]. Each subsequent page is fetched only when the consumer pulls.
-     *
-     * **Page ownership.** Each yielded [PagedResponse] is owned by the consumer; this method
-     * does not close them. Consumers MUST `close()` each page after use (or wrap iteration
-     * in `use {}` / try-with-resources) to release the underlying response body. The
-     * flattening [iterator] path closes pages automatically — only direct callers of
-     * [byPage] need to manage page lifecycle.
-     *
-     * [maxPages] defaults to `Long.MAX_VALUE`. **Production callers should set a finite
-     * cap** to defend against servers that return the same `nextLink` repeatedly. The
-     * default is unbounded to match `Iterable` semantics; an explicit cap is the caller's
-     * responsibility.
-     *
-     * @param options Caller-supplied paging options forwarded to [firstPage] and
-     *   [nextPage]. Default is a fresh, empty [PagingOptions].
-     */
+public class PagedIterable<T>
     @JvmOverloads
-    public fun byPage(options: PagingOptions = PagingOptions()): Sequence<PagedResponse<T>> = sequence {
-        var page: PagedResponse<T>? = firstPage.fetch(options)
-        var pageCount = 0L
-        while (page != null && pageCount < maxPages) {
-            yield(page)
-            pageCount++
-            if (pageCount >= maxPages) break // Cap reached: do not fetch a page we will not yield.
-            // Prefer the explicit `nextLink`; fall back to the continuation token.
-            // Treat an empty string as "no more pages" — servers sometimes serialize a
-            // missing cursor as `""` instead of omitting the field.
-            val link = page.nextLink ?: page.continuationToken
-            page = if (link.isNullOrEmpty()) null else nextPage.fetch(options, link)
-        }
-    }
-
-    /**
-     * Flattens all pages into an iterator of items. Each call starts a fresh iteration
-     * (re-invokes [firstPage]).
-     *
-     * The iterator owns the pages it pulls through [byPage] and closes each one once its
-     * items are exhausted — callers don't need to manage page lifecycle when iterating by
-     * item.
-     *
-     * **Error propagation.** If `pages.next()` throws, the exception propagates immediately
-     * to the caller. Because Kotlin's `AbstractIterator` transitions to FAILED state after
-     * an exception escapes `computeNext`, subsequent calls to `hasNext()` throw
-     * `IllegalArgumentException` from the AbstractIterator machinery. Callers that need
-     * to detect the cause of the failure should catch the original exception on first throw.
-     */
-    override fun iterator(): Iterator<T> = object : AbstractIterator<T>() {
-        private val pages = byPage().iterator()
-        private var currentItems: Iterator<T>? = null
-        private var currentPage: PagedResponse<T>? = null
-
-        override fun computeNext() {
-            // Advance through pages until we find one with items left, or pages are exhausted.
-            while (true) {
-                val items = currentItems
-                if (items != null && items.hasNext()) {
-                    setNext(items.next())
-                    return
+    constructor(
+        private val firstPage: FirstPageFetcher<T>,
+        private val nextPage: NextPageFetcher<T> = NextPageFetcher { _, _ -> null },
+        private val maxPages: Long = Long.MAX_VALUE,
+    ) : Iterable<T> {
+        /**
+         * Returns a lazy sequence of pages, starting from the first page produced by
+         * [firstPage]. Each subsequent page is fetched only when the consumer pulls.
+         *
+         * **Page ownership.** Each yielded [PagedResponse] is owned by the consumer; this method
+         * does not close them. Consumers MUST `close()` each page after use (or wrap iteration
+         * in `use {}` / try-with-resources) to release the underlying response body. The
+         * flattening [iterator] path closes pages automatically — only direct callers of
+         * [byPage] need to manage page lifecycle.
+         *
+         * [maxPages] defaults to `Long.MAX_VALUE`. **Production callers should set a finite
+         * cap** to defend against servers that return the same `nextLink` repeatedly. The
+         * default is unbounded to match `Iterable` semantics; an explicit cap is the caller's
+         * responsibility.
+         *
+         * @param options Caller-supplied paging options forwarded to [firstPage] and
+         *   [nextPage]. Default is a fresh, empty [PagingOptions].
+         */
+        @JvmOverloads
+        public fun byPage(options: PagingOptions = PagingOptions()): Sequence<PagedResponse<T>> =
+            sequence {
+                var page: PagedResponse<T>? = firstPage.fetch(options)
+                var pageCount = 0L
+                while (page != null && pageCount < maxPages) {
+                    yield(page)
+                    pageCount++
+                    if (pageCount >= maxPages) break // Cap reached: do not fetch a page we will not yield.
+                    // Prefer the explicit `nextLink`; fall back to the continuation token.
+                    // Treat an empty string as "no more pages" — servers sometimes serialize a
+                    // missing cursor as `""` instead of omitting the field.
+                    val link = page.nextLink ?: page.continuationToken
+                    page = if (link.isNullOrEmpty()) null else nextPage.fetch(options, link)
                 }
-                currentPage?.close()
-                currentPage = null
-                currentItems = null
-                if (!pages.hasNext()) {
-                    done()
-                    return
-                }
-                // Any exception from pages.next() propagates directly to the caller.
-                // AbstractIterator transitions to FAILED state, so further hasNext() calls
-                // raise IllegalArgumentException — this is the correct fail-fast behavior.
-                val next = pages.next()
-                currentPage = next
-                currentItems = next.value.iterator()
             }
+
+        /**
+         * Flattens all pages into an iterator of items. Each call starts a fresh iteration
+         * (re-invokes [firstPage]).
+         *
+         * The iterator owns the pages it pulls through [byPage] and closes each one once its
+         * items are exhausted — callers don't need to manage page lifecycle when iterating by
+         * item.
+         *
+         * **Error propagation.** If `pages.next()` throws, the exception propagates immediately
+         * to the caller. Because Kotlin's `AbstractIterator` transitions to FAILED state after
+         * an exception escapes `computeNext`, subsequent calls to `hasNext()` throw
+         * `IllegalArgumentException` from the AbstractIterator machinery. Callers that need
+         * to detect the cause of the failure should catch the original exception on first throw.
+         */
+        override fun iterator(): Iterator<T> =
+            object : AbstractIterator<T>() {
+                private val pages = byPage().iterator()
+                private var currentItems: Iterator<T>? = null
+                private var currentPage: PagedResponse<T>? = null
+
+                override fun computeNext() {
+                    // Advance through pages until we find one with items left, or pages are exhausted.
+                    while (true) {
+                        val items = currentItems
+                        if (items != null && items.hasNext()) {
+                            setNext(items.next())
+                            return
+                        }
+                        currentPage?.close()
+                        currentPage = null
+                        currentItems = null
+                        if (!pages.hasNext()) {
+                            done()
+                            return
+                        }
+                        // Any exception from pages.next() propagates directly to the caller.
+                        // AbstractIterator transitions to FAILED state, so further hasNext() calls
+                        // raise IllegalArgumentException — this is the correct fail-fast behavior.
+                        val next = pages.next()
+                        currentPage = next
+                        currentItems = next.value.iterator()
+                    }
+                }
+            }
+
+        /**
+         * Java 8 `Stream<T>` view over the same iteration as [iterator]. Sequential,
+         * `ORDERED`, unknown-size.
+         */
+        public fun stream(): Stream<T> {
+            val spliterator =
+                Spliterators.spliteratorUnknownSize(
+                    iterator(),
+                    Spliterator.ORDERED,
+                )
+            return StreamSupport.stream(spliterator, false)
         }
     }
-
-    /**
-     * Java 8 `Stream<T>` view over the same iteration as [iterator]. Sequential,
-     * `ORDERED`, unknown-size.
-     */
-    public fun stream(): Stream<T> {
-        val spliterator = Spliterators.spliteratorUnknownSize(
-            iterator(),
-            Spliterator.ORDERED,
-        )
-        return StreamSupport.stream(spliterator, false)
-    }
-}

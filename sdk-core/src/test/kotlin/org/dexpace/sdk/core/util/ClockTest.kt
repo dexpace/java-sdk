@@ -12,7 +12,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ClockTest {
-
     @Test
     fun `now is within one second of Instant now`() {
         val before = Instant.now()
@@ -66,23 +65,24 @@ class ClockTest {
         val interruptedAtCatch = AtomicBoolean(false)
         val end = AtomicReference<Long>(0L)
 
-        val sleeper = Thread {
-            ready.countDown()
-            try {
-                Clock.SYSTEM.sleep(Duration.ofSeconds(5))
-            } catch (e: InterruptedException) {
-                // `Thread.sleep` clears the interrupt status when it throws, so checking
-                // the flag here would always be false on a standard JVM. What matters per
-                // Rank 22 is that the thread was in the interrupted state at the moment
-                // sleep aborted — verified by the fact that we caught the exception at
-                // all. Re-set the flag so downstream cleanup observes it.
-                interruptedAtCatch.set(true)
-                Thread.currentThread().interrupt()
-                thrown.set(e)
-            } finally {
-                end.set(System.nanoTime())
+        val sleeper =
+            Thread {
+                ready.countDown()
+                try {
+                    Clock.SYSTEM.sleep(Duration.ofSeconds(5))
+                } catch (e: InterruptedException) {
+                    // `Thread.sleep` clears the interrupt status when it throws, so checking
+                    // the flag here would always be false on a standard JVM. What matters per
+                    // Rank 22 is that the thread was in the interrupted state at the moment
+                    // sleep aborted — verified by the fact that we caught the exception at
+                    // all. Re-set the flag so downstream cleanup observes it.
+                    interruptedAtCatch.set(true)
+                    Thread.currentThread().interrupt()
+                    thrown.set(e)
+                } finally {
+                    end.set(System.nanoTime())
+                }
             }
-        }
 
         sleeper.start()
         ready.await()

@@ -36,17 +36,18 @@ private class TaggingStep(
     private val tag: String,
     private val recorder: MutableList<String>,
 ) : HttpStep {
-    override fun process(request: Request, next: PipelineNext): Response {
+    override fun process(
+        request: Request,
+        next: PipelineNext,
+    ): Response {
         recorder.add(tag)
         return next.process()
     }
 }
 
-private fun request(): Request =
-    Request.builder().url("https://api.example.com/").method(Method.GET).build()
+private fun request(): Request = Request.builder().url("https://api.example.com/").method(Method.GET).build()
 
 class HttpPipelineTest {
-
     @Test
     fun `empty pipeline goes straight to HttpClient`() {
         val client = RecordingHttpClient()
@@ -63,9 +64,10 @@ class HttpPipelineTest {
     fun `single step runs then HttpClient`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(TaggingStep(Stage.PRE_AUTH, "pre-auth", order))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(TaggingStep(Stage.PRE_AUTH, "pre-auth", order))
+                .build()
 
         pipeline.send(request())
 
@@ -77,12 +79,13 @@ class HttpPipelineTest {
     fun `multiple stages run in Stage order`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            // Add in reverse-of-stage order to prove the builder sorts by Stage.order.
-            .append(TaggingStep(Stage.PRE_SEND, "pre-send", order))
-            .append(TaggingStep(Stage.POST_AUTH, "post-auth", order))
-            .append(TaggingStep(Stage.PRE_AUTH, "pre-auth", order))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                // Add in reverse-of-stage order to prove the builder sorts by Stage.order.
+                .append(TaggingStep(Stage.PRE_SEND, "pre-send", order))
+                .append(TaggingStep(Stage.POST_AUTH, "post-auth", order))
+                .append(TaggingStep(Stage.PRE_AUTH, "pre-auth", order))
+                .build()
 
         pipeline.send(request())
 
@@ -93,10 +96,11 @@ class HttpPipelineTest {
     fun `append within same stage preserves insertion order`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(TaggingStep(Stage.PRE_AUTH, "first", order))
-            .append(TaggingStep(Stage.PRE_AUTH, "second", order))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(TaggingStep(Stage.PRE_AUTH, "first", order))
+                .append(TaggingStep(Stage.PRE_AUTH, "second", order))
+                .build()
 
         pipeline.send(request())
 
@@ -107,10 +111,11 @@ class HttpPipelineTest {
     fun `prepend within same stage places step at head`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(TaggingStep(Stage.PRE_AUTH, "appended", order))
-            .prepend(TaggingStep(Stage.PRE_AUTH, "prepended", order))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(TaggingStep(Stage.PRE_AUTH, "appended", order))
+                .prepend(TaggingStep(Stage.PRE_AUTH, "prepended", order))
+                .build()
 
         pipeline.send(request())
 
@@ -124,10 +129,11 @@ class HttpPipelineTest {
         val firstRetry = TaggingStep(Stage.RETRY, "retry-A", order)
         val secondRetry = TaggingStep(Stage.RETRY, "retry-B", order)
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(firstRetry)
-            .append(secondRetry)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(firstRetry)
+                .append(secondRetry)
+                .build()
 
         pipeline.send(request())
 
@@ -142,10 +148,11 @@ class HttpPipelineTest {
         val order = mutableListOf<String>()
         val retry = TaggingStep(Stage.RETRY, "retry", order)
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(retry)
-            .append(retry)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(retry)
+                .append(retry)
+                .build()
 
         pipeline.send(request())
 
@@ -158,19 +165,25 @@ class HttpPipelineTest {
     fun `next copy process invoked twice produces independent runs`() {
         val client = RecordingHttpClient()
         val invocations = AtomicInteger(0)
-        val twiceStep = object : HttpStep {
-            override val stage: Stage = Stage.POST_RETRY
-            override fun process(request: Request, next: PipelineNext): Response {
-                val first = next.copy().process()
-                first.close()
-                val second = next.copy().process()
-                invocations.incrementAndGet()
-                return second
+        val twiceStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.POST_RETRY
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response {
+                    val first = next.copy().process()
+                    first.close()
+                    val second = next.copy().process()
+                    invocations.incrementAndGet()
+                    return second
+                }
             }
-        }
-        val pipeline = HttpPipelineBuilder(client)
-            .append(twiceStep)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(twiceStep)
+                .build()
 
         pipeline.send(request())
 
@@ -185,14 +198,16 @@ class HttpPipelineTest {
         val anchor = TaggingStep(Stage.PRE_AUTH, "anchor", order)
         val inserted = TaggingStep(Stage.PRE_AUTH, "inserted", order)
 
-        val base = HttpPipelineBuilder(client)
-            .append(anchor)
-            .append(TaggingStep(Stage.POST_AUTH, "trailer", order))
-            .build()
+        val base =
+            HttpPipelineBuilder(client)
+                .append(anchor)
+                .append(TaggingStep(Stage.POST_AUTH, "trailer", order))
+                .build()
 
-        val updated = HttpPipelineBuilder.from(base)
-            .insertAfter<TaggingStep>(inserted)
-            .build()
+        val updated =
+            HttpPipelineBuilder.from(base)
+                .insertAfter<TaggingStep>(inserted)
+                .build()
 
         updated.send(request())
 
@@ -209,18 +224,26 @@ class HttpPipelineTest {
 
         class MarkerStep : HttpStep {
             override val stage: Stage = Stage.PRE_AUTH
-            override fun process(request: Request, next: PipelineNext): Response = next.process()
+
+            override fun process(
+                request: Request,
+                next: PipelineNext,
+            ): Response = next.process()
         }
 
-        val ex = assertFailsWith<IllegalArgumentException> {
-            builder.insertAfter<MarkerStep>(
-                object : HttpStep {
-                    override val stage: Stage = Stage.PRE_AUTH
-                    override fun process(request: Request, next: PipelineNext): Response =
-                        next.process()
-                }
-            )
-        }
+        val ex =
+            assertFailsWith<IllegalArgumentException> {
+                builder.insertAfter<MarkerStep>(
+                    object : HttpStep {
+                        override val stage: Stage = Stage.PRE_AUTH
+
+                        override fun process(
+                            request: Request,
+                            next: PipelineNext,
+                        ): Response = next.process()
+                    },
+                )
+            }
         assertTrue(ex.message!!.contains("No"), "Expected 'No' in message but was: ${ex.message}")
         assertTrue(
             ex.message!!.contains("MarkerStep"),
@@ -235,10 +258,11 @@ class HttpPipelineTest {
         val original = TaggingStep(Stage.PRE_AUTH, "original", order)
         val replacement = TaggingStep(Stage.PRE_AUTH, "replacement", order)
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(original)
-            .replace<TaggingStep>(replacement)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(original)
+                .replace<TaggingStep>(replacement)
+                .build()
 
         pipeline.send(request())
 
@@ -250,11 +274,12 @@ class HttpPipelineTest {
     fun `remove drops all instances of type`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(TaggingStep(Stage.PRE_AUTH, "a", order))
-            .append(TaggingStep(Stage.PRE_AUTH, "b", order))
-            .remove<TaggingStep>()
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(TaggingStep(Stage.PRE_AUTH, "a", order))
+                .append(TaggingStep(Stage.PRE_AUTH, "b", order))
+                .remove<TaggingStep>()
+                .build()
 
         pipeline.send(request())
 
@@ -268,7 +293,11 @@ class HttpPipelineTest {
 
         class GhostStep : HttpStep {
             override val stage: Stage = Stage.PRE_AUTH
-            override fun process(request: Request, next: PipelineNext): Response = next.process()
+
+            override fun process(
+                request: Request,
+                next: PipelineNext,
+            ): Response = next.process()
         }
 
         val pipeline = HttpPipelineBuilder(client).remove<GhostStep>().build()
@@ -280,10 +309,15 @@ class HttpPipelineTest {
     @Test
     fun `pillar install at SEND throws IllegalStateException`() {
         val client = RecordingHttpClient()
-        val sendStep = object : HttpStep {
-            override val stage: Stage = Stage.SEND
-            override fun process(request: Request, next: PipelineNext): Response = next.process()
-        }
+        val sendStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response = next.process()
+            }
 
         assertFailsWith<IllegalStateException> {
             HttpPipelineBuilder(client).append(sendStep)
@@ -294,11 +328,12 @@ class HttpPipelineTest {
     fun `appendAll installs every step in iteration order`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val steps: List<HttpStep> = listOf(
-            TaggingStep(Stage.PRE_AUTH, "a", order),
-            TaggingStep(Stage.PRE_AUTH, "b", order),
-            TaggingStep(Stage.PRE_AUTH, "c", order),
-        )
+        val steps: List<HttpStep> =
+            listOf(
+                TaggingStep(Stage.PRE_AUTH, "a", order),
+                TaggingStep(Stage.PRE_AUTH, "b", order),
+                TaggingStep(Stage.PRE_AUTH, "c", order),
+            )
 
         val pipeline = HttpPipelineBuilder(client).appendAll(steps).build()
         pipeline.send(request())
@@ -312,11 +347,12 @@ class HttpPipelineTest {
         val order = mutableListOf<String>()
         // Each prepend pushes the step to the head; iterating "a","b","c" therefore yields
         // final order "c","b","a" because the last prepend wins the head slot.
-        val steps: List<HttpStep> = listOf(
-            TaggingStep(Stage.PRE_AUTH, "a", order),
-            TaggingStep(Stage.PRE_AUTH, "b", order),
-            TaggingStep(Stage.PRE_AUTH, "c", order),
-        )
+        val steps: List<HttpStep> =
+            listOf(
+                TaggingStep(Stage.PRE_AUTH, "a", order),
+                TaggingStep(Stage.PRE_AUTH, "b", order),
+                TaggingStep(Stage.PRE_AUTH, "c", order),
+            )
 
         val pipeline = HttpPipelineBuilder(client).prependAll(steps).build()
         pipeline.send(request())
@@ -331,13 +367,15 @@ class HttpPipelineTest {
         val anchor = TaggingStep(Stage.PRE_AUTH, "anchor", order)
         val inserted = TaggingStep(Stage.PRE_AUTH, "inserted", order)
 
-        val base = HttpPipelineBuilder(client)
-            .append(anchor)
-            .build()
+        val base =
+            HttpPipelineBuilder(client)
+                .append(anchor)
+                .build()
 
-        val updated = HttpPipelineBuilder.from(base)
-            .insertBefore<TaggingStep>(inserted)
-            .build()
+        val updated =
+            HttpPipelineBuilder.from(base)
+                .insertBefore<TaggingStep>(inserted)
+                .build()
 
         updated.send(request())
 
@@ -353,18 +391,26 @@ class HttpPipelineTest {
 
         class MarkerStep : HttpStep {
             override val stage: Stage = Stage.PRE_AUTH
-            override fun process(request: Request, next: PipelineNext): Response = next.process()
+
+            override fun process(
+                request: Request,
+                next: PipelineNext,
+            ): Response = next.process()
         }
 
-        val ex = assertFailsWith<IllegalArgumentException> {
-            builder.insertBefore<MarkerStep>(
-                object : HttpStep {
-                    override val stage: Stage = Stage.PRE_AUTH
-                    override fun process(request: Request, next: PipelineNext): Response =
-                        next.process()
-                }
-            )
-        }
+        val ex =
+            assertFailsWith<IllegalArgumentException> {
+                builder.insertBefore<MarkerStep>(
+                    object : HttpStep {
+                        override val stage: Stage = Stage.PRE_AUTH
+
+                        override fun process(
+                            request: Request,
+                            next: PipelineNext,
+                        ): Response = next.process()
+                    },
+                )
+            }
         assertTrue(ex.message!!.contains("No"), "Expected 'No' in message but was: ${ex.message}")
         assertTrue(ex.message!!.contains("MarkerStep"))
     }
@@ -377,14 +423,16 @@ class HttpPipelineTest {
         val b = TaggingStep(Stage.PRE_AUTH, "b", order)
         val inserted = TaggingStep(Stage.PRE_AUTH, "inserted", order)
 
-        val base = HttpPipelineBuilder(client)
-            .append(a)
-            .append(b)
-            .build()
+        val base =
+            HttpPipelineBuilder(client)
+                .append(a)
+                .append(b)
+                .build()
 
-        val updated = HttpPipelineBuilder.from(base)
-            .insertBefore<TaggingStep>(inserted)
-            .build()
+        val updated =
+            HttpPipelineBuilder.from(base)
+                .insertBefore<TaggingStep>(inserted)
+                .build()
 
         updated.send(request())
 
@@ -400,14 +448,16 @@ class HttpPipelineTest {
         val b = TaggingStep(Stage.PRE_AUTH, "b", order)
         val inserted = TaggingStep(Stage.PRE_AUTH, "inserted", order)
 
-        val base = HttpPipelineBuilder(client)
-            .append(a)
-            .append(b)
-            .build()
+        val base =
+            HttpPipelineBuilder(client)
+                .append(a)
+                .append(b)
+                .build()
 
-        val updated = HttpPipelineBuilder.from(base)
-            .insertAfter<TaggingStep>(inserted)
-            .build()
+        val updated =
+            HttpPipelineBuilder.from(base)
+                .insertAfter<TaggingStep>(inserted)
+                .build()
 
         updated.send(request())
 
@@ -423,13 +473,18 @@ class HttpPipelineTest {
 
         class GhostStep : HttpStep {
             override val stage: Stage = Stage.PRE_AUTH
-            override fun process(request: Request, next: PipelineNext): Response = next.process()
+
+            override fun process(
+                request: Request,
+                next: PipelineNext,
+            ): Response = next.process()
         }
 
         val builder = HttpPipelineBuilder(client)
-        val ex = assertFailsWith<IllegalArgumentException> {
-            builder.replace<GhostStep>(replacement)
-        }
+        val ex =
+            assertFailsWith<IllegalArgumentException> {
+                builder.replace<GhostStep>(replacement)
+            }
         assertTrue(ex.message!!.contains("No"))
         assertTrue(ex.message!!.contains("GhostStep"))
     }
@@ -441,12 +496,13 @@ class HttpPipelineTest {
         // not single-shot.
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(TaggingStep(Stage.PRE_AUTH, "a", order))
-            .append(TaggingStep(Stage.PRE_AUTH, "b", order))
-            .append(TaggingStep(Stage.PRE_AUTH, "c", order))
-            .remove<TaggingStep>()
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(TaggingStep(Stage.PRE_AUTH, "a", order))
+                .append(TaggingStep(Stage.PRE_AUTH, "b", order))
+                .append(TaggingStep(Stage.PRE_AUTH, "c", order))
+                .remove<TaggingStep>()
+                .build()
 
         pipeline.send(request())
 
@@ -475,10 +531,11 @@ class HttpPipelineTest {
         val retryStep = TaggingStep(Stage.RETRY, "retry", order)
         val preAuthStep = TaggingStep(Stage.PRE_AUTH, "pre-auth", order)
 
-        val base = HttpPipelineBuilder(client)
-            .append(retryStep)
-            .append(preAuthStep)
-            .build()
+        val base =
+            HttpPipelineBuilder(client)
+                .append(retryStep)
+                .append(preAuthStep)
+                .build()
 
         val copy = HttpPipelineBuilder.from(base).build()
         copy.send(request())
@@ -491,9 +548,10 @@ class HttpPipelineTest {
     @Test
     fun `appendAll with an empty list is a no-op`() {
         val client = RecordingHttpClient()
-        val pipeline = HttpPipelineBuilder(client)
-            .appendAll(emptyList())
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .appendAll(emptyList())
+                .build()
 
         pipeline.send(request())
         assertTrue(pipeline.steps.isEmpty())
@@ -503,9 +561,10 @@ class HttpPipelineTest {
     @Test
     fun `prependAll with an empty list is a no-op`() {
         val client = RecordingHttpClient()
-        val pipeline = HttpPipelineBuilder(client)
-            .prependAll(emptyList())
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .prependAll(emptyList())
+                .build()
 
         pipeline.send(request())
         assertTrue(pipeline.steps.isEmpty())
@@ -521,10 +580,11 @@ class HttpPipelineTest {
         val first = TaggingStep(Stage.RETRY, "retry-1", order)
         val second = TaggingStep(Stage.RETRY, "retry-2", order)
 
-        val pipeline = HttpPipelineBuilder(client)
-            .prepend(first)
-            .prepend(second)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .prepend(first)
+                .prepend(second)
+                .build()
 
         pipeline.send(request())
 
@@ -539,10 +599,11 @@ class HttpPipelineTest {
         val order = mutableListOf<String>()
         val retry = TaggingStep(Stage.RETRY, "retry", order)
 
-        val pipeline = HttpPipelineBuilder(client)
-            .prepend(retry)
-            .prepend(retry)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .prepend(retry)
+                .prepend(retry)
+                .build()
 
         pipeline.send(request())
 
@@ -555,11 +616,14 @@ class HttpPipelineTest {
     fun `appendAll preserves chaining with append`() {
         val client = RecordingHttpClient()
         val order = mutableListOf<String>()
-        val pipeline = HttpPipelineBuilder(client)
-            .append(TaggingStep(Stage.PRE_AUTH, "first", order))
-            .appendAll(listOf(TaggingStep(Stage.PRE_AUTH, "bulk-1", order), TaggingStep(Stage.PRE_AUTH, "bulk-2", order)))
-            .append(TaggingStep(Stage.PRE_AUTH, "last", order))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(TaggingStep(Stage.PRE_AUTH, "first", order))
+                .appendAll(
+                    listOf(TaggingStep(Stage.PRE_AUTH, "bulk-1", order), TaggingStep(Stage.PRE_AUTH, "bulk-2", order)),
+                )
+                .append(TaggingStep(Stage.PRE_AUTH, "last", order))
+                .build()
         pipeline.send(request())
 
         assertEquals(listOf("first", "bulk-1", "bulk-2", "last"), order)

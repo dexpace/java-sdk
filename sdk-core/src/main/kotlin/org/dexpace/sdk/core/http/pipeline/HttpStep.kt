@@ -28,7 +28,10 @@ public interface HttpStep {
      * times via [PipelineNext.copy] (required for retry / redirect).
      */
     @Throws(IOException::class)
-    public fun process(request: Request, next: PipelineNext): Response
+    public fun process(
+        request: Request,
+        next: PipelineNext,
+    ): Response
 
     /** The pipeline stage this step occupies. */
     public val stage: Stage

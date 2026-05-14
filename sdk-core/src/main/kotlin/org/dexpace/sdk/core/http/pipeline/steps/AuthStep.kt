@@ -37,7 +37,10 @@ public abstract class AuthStep : HttpStep {
     final override val stage: Stage = Stage.AUTH
 
     @Throws(IOException::class)
-    final override fun process(request: Request, next: PipelineNext): Response {
+    final override fun process(
+        request: Request,
+        next: PipelineNext,
+    ): Response {
         val scheme = request.url.protocol
         check("https".equals(scheme, ignoreCase = true)) {
             "${this::class.simpleName} requires HTTPS to prevent credential leak " +
@@ -47,19 +50,20 @@ public abstract class AuthStep : HttpStep {
         val authorized = authorizeRequest(request)
         val response = next.copy().process(authorized)
 
-        if (response.status.code != 401) return response
+        if (response.status.code != SC_UNAUTHORIZED) return response
         response.headers.get(HttpHeaderName.WWW_AUTHENTICATE) ?: return response
 
         // Per HttpStep contract, re-driving the chain requires next.copy() — using `next`
         // directly would resume past steps already visited on the first attempt. The 401
         // body is closed before the retry; if authorizeRequestOnChallenge itself throws,
         // close the body before propagating so the caller never leaks the open response.
-        val retryRequest = try {
-            authorizeRequestOnChallenge(authorized, response)
-        } catch (t: Throwable) {
-            response.close()
-            throw t
-        } ?: return response
+        val retryRequest =
+            try {
+                authorizeRequestOnChallenge(authorized, response)
+            } catch (t: Throwable) {
+                response.close()
+                throw t
+            } ?: return response
         response.close()
         return next.copy().process(retryRequest)
     }
@@ -86,5 +90,14 @@ public abstract class AuthStep : HttpStep {
      * @param response the 401 response; its body is still open at this point.
      */
     @Throws(IOException::class)
-    protected open fun authorizeRequestOnChallenge(request: Request, response: Response): Request? = null
+    protected open fun authorizeRequestOnChallenge(
+        request: Request,
+        response: Response,
+    ): Request? = null
+
+    private companion object {
+        // HTTP 401 — only status code AuthStep responds to; on any other status the response
+        // is returned unchanged so downstream steps can react.
+        private const val SC_UNAUTHORIZED = 401
+    }
 }

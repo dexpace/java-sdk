@@ -6,7 +6,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 
 class ProtocolTest {
-
     @Test
     fun `every enum entry produces its canonical wire form via toString`() {
         assertEquals("http/1.0", Protocol.HTTP_1_0.toString())
@@ -53,13 +52,14 @@ class ProtocolTest {
 
     @Test
     fun `entries enumerates every Protocol`() {
-        val expected = setOf(
-            Protocol.HTTP_1_0,
-            Protocol.HTTP_1_1,
-            Protocol.HTTP_2,
-            Protocol.H2_PRIOR_KNOWLEDGE,
-            Protocol.QUIC,
-        )
+        val expected =
+            setOf(
+                Protocol.HTTP_1_0,
+                Protocol.HTTP_1_1,
+                Protocol.HTTP_2,
+                Protocol.H2_PRIOR_KNOWLEDGE,
+                Protocol.QUIC,
+            )
         assertEquals(expected, Protocol.entries.toSet())
         assertEquals(5, Protocol.values().size)
     }

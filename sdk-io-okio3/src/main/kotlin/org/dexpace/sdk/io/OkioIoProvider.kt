@@ -36,11 +36,9 @@ import java.io.OutputStream
  * [BufferedSink] instances are single-threaded.
  */
 public object OkioIoProvider : IoProvider {
-
     override fun buffer(): Buffer = OkioBuffer()
 
-    override fun source(input: InputStream): BufferedSource =
-        OkioBufferedSource(input.source().buffer())
+    override fun source(input: InputStream): BufferedSource = OkioBufferedSource(input.source().buffer())
 
     override fun source(bytes: ByteArray): BufferedSource =
         // Return an OkioBuffer rather than OkioBufferedSource so callers retain the richer
@@ -49,12 +47,10 @@ public object OkioIoProvider : IoProvider {
         // type while preserving every byte of the input.
         OkioBuffer(okio.Buffer().apply { write(bytes) })
 
-    override fun sink(output: OutputStream): BufferedSink =
-        OkioBufferedSink(output.sink().buffer())
+    override fun sink(output: OutputStream): BufferedSink = OkioBufferedSink(output.sink().buffer())
 
     override fun bufferedSource(source: Source): BufferedSource =
         OkioBufferedSource(ForeignSourceAdapter(source).buffer())
 
-    override fun bufferedSink(sink: Sink): BufferedSink =
-        OkioBufferedSink(ForeignSinkAdapter(sink).buffer())
+    override fun bufferedSink(sink: Sink): BufferedSink = OkioBufferedSink(ForeignSinkAdapter(sink).buffer())
 }

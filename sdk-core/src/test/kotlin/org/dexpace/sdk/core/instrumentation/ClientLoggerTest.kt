@@ -10,7 +10,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ClientLoggerTest {
-
     @Test
     fun `atError returns enabled event when ERROR is enabled and NOOP otherwise`() {
         val fake = FakeSlf4jLogger(threshold = Level.ERROR)
@@ -100,10 +99,11 @@ class ClientLoggerTest {
     @Test
     fun `globalContext flows into every event`() {
         val fake = FakeSlf4jLogger(threshold = Level.DEBUG)
-        val logger = ClientLogger.forTesting(
-            fake,
-            globalContext = mapOf("service" to "auth", "version" to "1.2.3"),
-        )
+        val logger =
+            ClientLogger.forTesting(
+                fake,
+                globalContext = mapOf("service" to "auth", "version" to "1.2.3"),
+            )
 
         logger.atInfo().log("hello")
         logger.atVerbose().log("world")

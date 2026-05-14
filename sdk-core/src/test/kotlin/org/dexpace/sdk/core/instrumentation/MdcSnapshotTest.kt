@@ -10,7 +10,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class MdcSnapshotTest {
-
     private var originalAdapter: MDCAdapter? = null
 
     @BeforeTest

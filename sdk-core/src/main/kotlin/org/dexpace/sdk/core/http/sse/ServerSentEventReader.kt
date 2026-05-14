@@ -18,7 +18,6 @@ import java.time.Duration
  * **Threading**: not thread-safe. Drive it from one thread.
  */
 public class ServerSentEventReader(private val source: BufferedSource) {
-
     private var bomConsumed: Boolean = false
 
     /**
@@ -30,7 +29,14 @@ public class ServerSentEventReader(private val source: BufferedSource) {
      * is interpreted permissively here: an event is emitted if **any** of the five
      * fields was set, so `id`-only or `retry`-only events are visible. Pure blank
      * lines (no fields seen) are skipped.
+     *
+     * SSE is a stateful line-by-line dispatch with one branch per spec-defined field.
+     * Detekt counts each `when` arm and conditional dispatch (EOF, blank line, comment,
+     * id, event, data, retry) into the cyclomatic threshold; splitting would require
+     * hoisting per-field handlers into separate methods at the cost of obscuring the
+     * WHATWG SSE §9.2.6 flow. Loop similarly fans out into multiple early-exit paths.
      */
+    @Suppress("CyclomaticComplexMethod", "LoopWithTooManyJumpStatements")
     @Throws(IOException::class)
     public fun next(): ServerSentEvent? {
         consumeBomIfNeeded()
@@ -42,13 +48,14 @@ public class ServerSentEventReader(private val source: BufferedSource) {
         var data: MutableList<String>? = null
         var hasField = false
 
-        fun dispatch() = ServerSentEvent(
-            id = id,
-            event = event,
-            data = data ?: emptyList(),
-            comment = comment,
-            retry = retry,
-        )
+        fun dispatch() =
+            ServerSentEvent(
+                id = id,
+                event = event,
+                data = data ?: emptyList(),
+                comment = comment,
+                retry = retry,
+            )
 
         while (true) {
             // EOF: emit whatever accumulated state remains (if any), else terminate.
@@ -79,11 +86,12 @@ public class ServerSentEventReader(private val source: BufferedSource) {
                 field = line.substring(0, colon)
                 // Per spec: if the value starts with U+0020 SPACE, drop one.
                 val afterColon = colon + 1
-                rawValue = if (afterColon < line.length && line[afterColon] == ' ') {
-                    line.substring(afterColon + 1)
-                } else {
-                    line.substring(afterColon)
-                }
+                rawValue =
+                    if (afterColon < line.length && line[afterColon] == ' ') {
+                        line.substring(afterColon + 1)
+                    } else {
+                        line.substring(afterColon)
+                    }
             }
 
             when (field) {
@@ -92,8 +100,12 @@ public class ServerSentEventReader(private val source: BufferedSource) {
                     // the Unicode replacement character keeps the field visible to the
                     // caller (so they can detect / log the bad data) without producing
                     // a string that downstream JSON or logging code might mishandle.
-                    id = if (NULL_CHAR in rawValue) rawValue.replace(NULL_CHAR, REPLACEMENT_CHAR)
-                    else rawValue
+                    id =
+                        if (NULL_CHAR in rawValue) {
+                            rawValue.replace(NULL_CHAR, REPLACEMENT_CHAR)
+                        } else {
+                            rawValue
+                        }
                     hasField = true
                 }
                 "event" -> {
@@ -101,7 +113,7 @@ public class ServerSentEventReader(private val source: BufferedSource) {
                     hasField = true
                 }
                 "data" -> {
-                    val accumulator = data ?: ArrayList<String>(4).also { data = it }
+                    val accumulator = data ?: ArrayList<String>(DATA_ACCUMULATOR_INITIAL_CAP).also { data = it }
                     accumulator.add(rawValue)
                     hasField = true
                 }
@@ -189,8 +201,8 @@ public class ServerSentEventReader(private val source: BufferedSource) {
             if (c !in '0'..'9') return null
             val digit = (c - '0').toLong()
             // Detect overflow before it happens so we don't wrap around.
-            if (result > (Long.MAX_VALUE - digit) / 10L) return null
-            result = result * 10L + digit
+            if (result > (Long.MAX_VALUE - digit) / DECIMAL_BASE) return null
+            result = result * DECIMAL_BASE + digit
         }
         return result
     }
@@ -201,6 +213,13 @@ public class ServerSentEventReader(private val source: BufferedSource) {
         private const val NULL_CHAR: Char = '\u0000'
         private const val REPLACEMENT_CHAR: Char = '\uFFFD'
         private val BOM_BYTES: ByteArray = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+
+        // Initial capacity for the per-event `data` line accumulator. SSE servers tend to
+        // emit small numbers of data lines per event (one is typical); 4 covers the long tail.
+        private const val DATA_ACCUMULATOR_INITIAL_CAP = 4
+
+        // Numeric base for `retry:` digit parsing — SSE retry values are unsigned decimals.
+        private const val DECIMAL_BASE = 10L
     }
 
     /**
@@ -218,21 +237,25 @@ public class ServerSentEventReader(private val source: BufferedSource) {
             bytes[count++] = b
         }
 
-        fun toUtf8(): String =
-            if (count == 0) "" else String(bytes, 0, count, Charsets.UTF_8)
+        fun toUtf8(): String = if (count == 0) "" else String(bytes, 0, count, Charsets.UTF_8)
 
         private fun grow(minCapacity: Int) {
             val oldCap = bytes.size
-            val newCap = when {
-                oldCap == 0 -> 64
-                oldCap < minCapacity -> maxOf(oldCap * 2, minCapacity)
-                else -> oldCap
-            }
+            val newCap =
+                when {
+                    oldCap == 0 -> INITIAL_CAP
+                    oldCap < minCapacity -> maxOf(oldCap * 2, minCapacity)
+                    else -> oldCap
+                }
             bytes = bytes.copyOf(newCap)
         }
 
         companion object {
             private val EMPTY = ByteArray(0)
+
+            // Initial capacity (in bytes) for the first allocation; line accumulators typically
+            // hold one short SSE field value. Grows by doubling thereafter.
+            private const val INITIAL_CAP = 64
         }
     }
 }

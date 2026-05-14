@@ -19,7 +19,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  * sink itself is single-threaded.
  */
 internal class OkioBufferedSink(internal val delegate: okio.BufferedSink) : BufferedSink {
-
     /**
      * Tracks whether [close] has been called. Every mutating operation checks this and throws
      * [IOException] if it has, mirroring the `OkioBufferedSource` closed-flag pattern.
@@ -33,7 +32,10 @@ internal class OkioBufferedSink(internal val delegate: okio.BufferedSink) : Buff
         if (closedFlag.get()) throw IOException("sink closed")
     }
 
-    override fun write(source: Buffer, byteCount: Long) {
+    override fun write(
+        source: Buffer,
+        byteCount: Long,
+    ) {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         checkOpen()
         when (source) {
@@ -59,7 +61,11 @@ internal class OkioBufferedSink(internal val delegate: okio.BufferedSink) : Buff
         return this
     }
 
-    override fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink {
+    override fun write(
+        source: ByteArray,
+        offset: Int,
+        byteCount: Int,
+    ): BufferedSink {
         checkOpen()
         delegate.write(source, offset, byteCount)
         return this
@@ -76,13 +82,20 @@ internal class OkioBufferedSink(internal val delegate: okio.BufferedSink) : Buff
         return this
     }
 
-    override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink {
+    override fun writeUtf8(
+        string: String,
+        beginIndex: Int,
+        endIndex: Int,
+    ): BufferedSink {
         checkOpen()
         delegate.writeUtf8(string, beginIndex, endIndex)
         return this
     }
 
-    override fun writeString(string: String, charset: Charset): BufferedSink {
+    override fun writeString(
+        string: String,
+        charset: Charset,
+    ): BufferedSink {
         checkOpen()
         delegate.writeString(string, charset)
         return this

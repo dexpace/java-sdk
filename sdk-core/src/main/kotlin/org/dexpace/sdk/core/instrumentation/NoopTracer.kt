@@ -7,5 +7,8 @@ package org.dexpace.sdk.core.instrumentation
  * is installed.
  */
 public object NoopTracer : Tracer {
-    override fun startSpan(name: String, attributes: Map<String, Any>): Span = Span.NOOP
+    override fun startSpan(
+        name: String,
+        attributes: Map<String, Any>,
+    ): Span = Span.NOOP
 }

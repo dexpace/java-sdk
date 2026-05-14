@@ -9,7 +9,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class ExchangeContextTest {
-
     private val ownedIds: MutableList<String> = mutableListOf()
 
     @AfterTest
@@ -17,8 +16,7 @@ class ExchangeContextTest {
         for (id in ownedIds) ContextStore.remove(id)
     }
 
-    private fun owned(name: String): String =
-        "exchange-$name-${System.nanoTime()}".also { ownedIds.add(it) }
+    private fun owned(name: String): String = "exchange-$name-${System.nanoTime()}".also { ownedIds.add(it) }
 
     @Test
     fun `constructor wires every field`() {

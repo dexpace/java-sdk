@@ -29,20 +29,21 @@ public class RequestConditions private constructor(
      * Idempotent: re-applying the same [RequestConditions] to the same builder yields
      * the same header set (each call uses `set`, not `add`).
      */
-    public fun applyTo(builder: Headers.Builder): Headers.Builder = builder.apply {
-        if (ifMatch.isNotEmpty()) {
-            set(HttpHeaderName.IF_MATCH, ifMatch.joinToString(", ") { it.toHeaderValue() })
+    public fun applyTo(builder: Headers.Builder): Headers.Builder =
+        builder.apply {
+            if (ifMatch.isNotEmpty()) {
+                set(HttpHeaderName.IF_MATCH, ifMatch.joinToString(", ") { it.toHeaderValue() })
+            }
+            if (ifNoneMatch.isNotEmpty()) {
+                set(HttpHeaderName.IF_NONE_MATCH, ifNoneMatch.joinToString(", ") { it.toHeaderValue() })
+            }
+            ifModifiedSince?.let {
+                set(HttpHeaderName.IF_MODIFIED_SINCE, DateTimeRfc1123.format(it))
+            }
+            ifUnmodifiedSince?.let {
+                set(HttpHeaderName.IF_UNMODIFIED_SINCE, DateTimeRfc1123.format(it))
+            }
         }
-        if (ifNoneMatch.isNotEmpty()) {
-            set(HttpHeaderName.IF_NONE_MATCH, ifNoneMatch.joinToString(", ") { it.toHeaderValue() })
-        }
-        ifModifiedSince?.let {
-            set(HttpHeaderName.IF_MODIFIED_SINCE, DateTimeRfc1123.format(it))
-        }
-        ifUnmodifiedSince?.let {
-            set(HttpHeaderName.IF_UNMODIFIED_SINCE, DateTimeRfc1123.format(it))
-        }
-    }
 
     /**
      * Returns a new [Builder] pre-populated with this instance's state, so callers can
@@ -80,12 +81,13 @@ public class RequestConditions private constructor(
         /** Sets the `If-Unmodified-Since` instant; subsequent calls replace prior values. */
         public fun ifUnmodifiedSince(instant: Instant): Builder = apply { this.ifUnmodifiedSince = instant }
 
-        public fun build(): RequestConditions = RequestConditions(
-            ifMatch = ifMatch.toList(),
-            ifNoneMatch = ifNoneMatch.toList(),
-            ifModifiedSince = ifModifiedSince,
-            ifUnmodifiedSince = ifUnmodifiedSince,
-        )
+        public fun build(): RequestConditions =
+            RequestConditions(
+                ifMatch = ifMatch.toList(),
+                ifNoneMatch = ifNoneMatch.toList(),
+                ifModifiedSince = ifModifiedSince,
+                ifUnmodifiedSince = ifUnmodifiedSince,
+            )
     }
 
     public companion object {

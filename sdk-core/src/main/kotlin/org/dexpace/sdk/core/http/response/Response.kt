@@ -37,7 +37,7 @@ public data class Response private constructor(
     val status: Status,
     val message: String?,
     val headers: Headers,
-    val body: ResponseBody?
+    val body: ResponseBody?,
 ) : Closeable {
     /**
      * Returns a new [ResponseBuilder] initialized with this response's data.
@@ -95,9 +95,10 @@ public data class Response private constructor(
          * @param request The originating request.
          * @return This builder.
          */
-        public fun request(request: Request): ResponseBuilder = apply {
-            this.request = request
-        }
+        public fun request(request: Request): ResponseBuilder =
+            apply {
+                this.request = request
+            }
 
         /**
          * Sets the protocol used for the response.
@@ -105,9 +106,10 @@ public data class Response private constructor(
          * @param protocol The protocol (e.g., HTTP/1.1).
          * @return This builder.
          */
-        public fun protocol(protocol: Protocol): ResponseBuilder = apply {
-            this.protocol = protocol
-        }
+        public fun protocol(protocol: Protocol): ResponseBuilder =
+            apply {
+                this.protocol = protocol
+            }
 
         /**
          * Sets the HTTP status code.
@@ -115,9 +117,10 @@ public data class Response private constructor(
          * @param status The HTTP status code.
          * @return This builder.
          */
-        public fun status(status: Status): ResponseBuilder = apply {
-            this.status = status
-        }
+        public fun status(status: Status): ResponseBuilder =
+            apply {
+                this.status = status
+            }
 
         /**
          * Sets the HTTP reason phrase.
@@ -125,9 +128,10 @@ public data class Response private constructor(
          * @param message The reason phrase.
          * @return This builder.
          */
-        public fun message(message: String): ResponseBuilder = apply {
-            this.message = message
-        }
+        public fun message(message: String): ResponseBuilder =
+            apply {
+                this.message = message
+            }
 
         /**
          * Adds a header with the specified name and value.
@@ -136,9 +140,13 @@ public data class Response private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        public fun addHeader(name: String, value: String): ResponseBuilder = apply {
-            headersBuilder.add(name, value)
-        }
+        public fun addHeader(
+            name: String,
+            value: String,
+        ): ResponseBuilder =
+            apply {
+                headersBuilder.add(name, value)
+            }
 
         /**
          * Adds a header with the specified name and values list.
@@ -147,9 +155,13 @@ public data class Response private constructor(
          * @param values The header values.
          * @return This builder.
          */
-        public fun addHeader(name: String, values: List<String>): ResponseBuilder = apply {
-            headersBuilder.add(name, values)
-        }
+        public fun addHeader(
+            name: String,
+            values: List<String>,
+        ): ResponseBuilder =
+            apply {
+                headersBuilder.add(name, values)
+            }
 
         /**
          * Sets a header with the specified name and value, replacing any existing values.
@@ -158,9 +170,13 @@ public data class Response private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        public fun setHeader(name: String, value: String): ResponseBuilder = apply {
-            headersBuilder.set(name, value)
-        }
+        public fun setHeader(
+            name: String,
+            value: String,
+        ): ResponseBuilder =
+            apply {
+                headersBuilder.set(name, value)
+            }
 
         /**
          * Sets a header with the specified name and values list, replacing any existing values.
@@ -169,9 +185,13 @@ public data class Response private constructor(
          * @param values The header values list.
          * @return This builder.
          */
-        public fun setHeader(name: String, values: List<String>): ResponseBuilder = apply {
-            headersBuilder.set(name, values)
-        }
+        public fun setHeader(
+            name: String,
+            values: List<String>,
+        ): ResponseBuilder =
+            apply {
+                headersBuilder.set(name, values)
+            }
 
         /**
          * Removes all headers with the specified name.
@@ -179,9 +199,10 @@ public data class Response private constructor(
          * @param name The header name.
          * @return This builder.
          */
-        public fun removeHeader(name: String): ResponseBuilder = apply {
-            headersBuilder.remove(name)
-        }
+        public fun removeHeader(name: String): ResponseBuilder =
+            apply {
+                headersBuilder.remove(name)
+            }
 
         /**
          * Removes all headers with the specified typed name.
@@ -189,9 +210,10 @@ public data class Response private constructor(
          * @param name The typed header name.
          * @return This builder.
          */
-        public fun removeHeader(name: HttpHeaderName): ResponseBuilder = apply {
-            headersBuilder.remove(name)
-        }
+        public fun removeHeader(name: HttpHeaderName): ResponseBuilder =
+            apply {
+                headersBuilder.remove(name)
+            }
 
         /**
          * Sets the response headers.
@@ -199,9 +221,10 @@ public data class Response private constructor(
          * @param headers The response headers.
          * @return This builder.
          */
-        public fun headers(headers: Headers): ResponseBuilder = apply {
-            headersBuilder = headers.newBuilder()
-        }
+        public fun headers(headers: Headers): ResponseBuilder =
+            apply {
+                headersBuilder = headers.newBuilder()
+            }
 
         /**
          * Sets the response body.
@@ -209,9 +232,10 @@ public data class Response private constructor(
          * @param body The response body, or null if none.
          * @return This builder.
          */
-        public fun body(body: ResponseBody?): ResponseBuilder = apply {
-            this.body = body
-        }
+        public fun body(body: ResponseBody?): ResponseBuilder =
+            apply {
+                this.body = body
+            }
 
         /**
          * Builds the [Response].
@@ -219,14 +243,15 @@ public data class Response private constructor(
          * @return The built response.
          * @throws IllegalStateException in case required fields are missing.
          */
-        override fun build(): Response = Response(
-            request = checkNotNull(request) { "request is required" },
-            protocol = checkNotNull(protocol) { "protocol is required" },
-            status = checkNotNull(status) { "status is required" },
-            message = message,
-            headers = headersBuilder.build(),
-            body = body,
-        )
+        override fun build(): Response =
+            Response(
+                request = checkNotNull(request) { "request is required" },
+                protocol = checkNotNull(protocol) { "protocol is required" },
+                status = checkNotNull(status) { "status is required" },
+                message = message,
+                headers = headersBuilder.build(),
+                body = body,
+            )
     }
 
     public companion object {

@@ -3,12 +3,9 @@ package org.dexpace.sdk.core.http.pipeline.steps
 import org.dexpace.sdk.core.http.auth.BearerToken
 import org.dexpace.sdk.core.http.auth.BearerTokenProvider
 import org.dexpace.sdk.core.http.common.HttpHeaderName
-import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.pipeline.HttpPipelineBuilder
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
-import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.testing.FakeHttpClient
 import org.dexpace.sdk.core.testing.FixedClock
 import java.time.Duration
@@ -20,7 +17,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class BearerTokenAuthStepTest {
-
     private val futureExpiry: Instant = Instant.parse("2099-01-01T00:00:00Z")
     private val nowInstant: Instant = Instant.parse("2026-01-01T12:00:00Z")
     private val clock = FixedClock(nowInstant)
@@ -43,12 +39,13 @@ class BearerTokenAuthStepTest {
         val expiredToken = BearerToken("expired-token", nowInstant.minusSeconds(1))
         val provider = BearerTokenProvider { _, _ -> expiredToken }
 
-        val step = BearerTokenAuthStep(
-            provider = provider,
-            scopes = listOf("scope1"),
-            refreshMargin = Duration.ofSeconds(30),
-            clock = clock,
-        )
+        val step =
+            BearerTokenAuthStep(
+                provider = provider,
+                scopes = listOf("scope1"),
+                refreshMargin = Duration.ofSeconds(30),
+                clock = clock,
+            )
 
         val fake = FakeHttpClient().enqueue { status(200) }
         val pipeline = HttpPipelineBuilder(fake).append(step).build()
@@ -65,12 +62,13 @@ class BearerTokenAuthStepTest {
         val expiredToken = BearerToken("border-token", nowInstant.minusNanos(1))
         val provider = BearerTokenProvider { _, _ -> expiredToken }
 
-        val step = BearerTokenAuthStep(
-            provider = provider,
-            scopes = listOf("scope1"),
-            refreshMargin = Duration.ofSeconds(30),
-            clock = clock,
-        )
+        val step =
+            BearerTokenAuthStep(
+                provider = provider,
+                scopes = listOf("scope1"),
+                refreshMargin = Duration.ofSeconds(30),
+                clock = clock,
+            )
 
         val fake = FakeHttpClient().enqueue { status(200) }
         val pipeline = HttpPipelineBuilder(fake).append(step).build()
@@ -92,12 +90,13 @@ class BearerTokenAuthStepTest {
         val tokenCloseToExpiry = BearerToken("short-lived", tenSecondsOut)
         val provider = BearerTokenProvider { _, _ -> tokenCloseToExpiry }
 
-        val step = BearerTokenAuthStep(
-            provider = provider,
-            scopes = listOf("scope1"),
-            refreshMargin = Duration.ofSeconds(30),
-            clock = clock,
-        )
+        val step =
+            BearerTokenAuthStep(
+                provider = provider,
+                scopes = listOf("scope1"),
+                refreshMargin = Duration.ofSeconds(30),
+                clock = clock,
+            )
 
         val fake = FakeHttpClient().enqueue { status(200) }
         val pipeline = HttpPipelineBuilder(fake).append(step).build()
@@ -136,17 +135,22 @@ class BearerTokenAuthStepTest {
         // request (the exception is not cached). This exercises the exception-propagation path
         // through fetchFresh and currentToken.
         var calls = 0
-        val providerThrowingOnFirstCall: BearerTokenProvider = object : BearerTokenProvider {
-            override fun fetch(scopes: List<String>, params: Map<String, Any>): BearerToken {
-                calls++
-                if (calls == 1) throw IllegalStateException("provider temporarily unavailable")
-                return BearerToken("recovered-token", futureExpiry)
+        val providerThrowingOnFirstCall: BearerTokenProvider =
+            object : BearerTokenProvider {
+                override fun fetch(
+                    scopes: List<String>,
+                    params: Map<String, Any>,
+                ): BearerToken {
+                    calls++
+                    if (calls == 1) error("provider temporarily unavailable")
+                    return BearerToken("recovered-token", futureExpiry)
+                }
             }
-        }
         val step = BearerTokenAuthStep(providerThrowingOnFirstCall, listOf("scope"), clock = clock)
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
         val pipeline = HttpPipelineBuilder(fake).append(step).build()
 
         // First request: provider throws, pipeline propagates.

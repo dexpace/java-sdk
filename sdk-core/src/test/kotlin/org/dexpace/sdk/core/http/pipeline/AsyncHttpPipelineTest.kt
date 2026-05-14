@@ -2,7 +2,6 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
-import org.dexpace.sdk.core.client.asAsync
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
@@ -23,7 +22,6 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class AsyncHttpPipelineTest {
-
     private val executor = Executors.newFixedThreadPool(2)
 
     @AfterTest
@@ -42,9 +40,10 @@ class AsyncHttpPipelineTest {
     fun `sync transport throw inside an empty pipeline becomes a failed future`() {
         // A sync `Exception` thrown by a misbehaving AsyncHttpClient must surface as a
         // failed future, not propagate synchronously to `sendAsync` callers.
-        val pipeline = AsyncHttpPipelineBuilder(
-            AsyncHttpClient { _ -> throw IllegalStateException("boom") },
-        ).build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(
+                AsyncHttpClient { _ -> throw IllegalStateException("boom") },
+            ).build()
 
         val future = pipeline.sendAsync(getRequest())
         assertTrue(future.isCompletedExceptionally)
@@ -55,10 +54,11 @@ class AsyncHttpPipelineTest {
     @Test
     fun `single step sees the request and forwards to next async`() {
         val seen = AtomicReference<String>()
-        val step = TestStep(Stage.PRE_AUTH) { req, next ->
-            seen.set(req.url.host)
-            next.processAsync()
-        }
+        val step =
+            TestStep(Stage.PRE_AUTH) { req, next ->
+                seen.set(req.url.host)
+                next.processAsync()
+            }
         val pipeline = AsyncHttpPipelineBuilder(constantClient(200)).append(step).build()
         pipeline.sendAsync(getRequest()).join()
         assertEquals("api.example.com", seen.get())
@@ -67,12 +67,16 @@ class AsyncHttpPipelineTest {
     @Test
     fun `multiple steps run in stage order`() {
         val callOrder = mutableListOf<String>()
-        val pre = TestStep(Stage.PRE_AUTH) { _, next ->
-            callOrder.add("pre"); next.processAsync()
-        }
-        val post = TestStep(Stage.POST_AUTH) { _, next ->
-            callOrder.add("post"); next.processAsync()
-        }
+        val pre =
+            TestStep(Stage.PRE_AUTH) { _, next ->
+                callOrder.add("pre")
+                next.processAsync()
+            }
+        val post =
+            TestStep(Stage.POST_AUTH) { _, next ->
+                callOrder.add("post")
+                next.processAsync()
+            }
         // Append in reverse order to confirm stage ordering — not insertion order — wins.
         AsyncHttpPipelineBuilder(constantClient(200))
             .append(post)
@@ -86,14 +90,16 @@ class AsyncHttpPipelineTest {
     @Test
     fun `processAsync(request) substitutes the downstream request`() {
         val seenByClient = AtomicReference<String>()
-        val client = AsyncHttpClient { request ->
-            seenByClient.set(request.headers.get("X-Augmented") ?: "")
-            CompletableFuture.completedFuture(mockResponse(request, 200))
-        }
-        val step = TestStep(Stage.PRE_AUTH) { req, next ->
-            val augmented = req.newBuilder().addHeader("X-Augmented", "yes").build()
-            next.processAsync(augmented)
-        }
+        val client =
+            AsyncHttpClient { request ->
+                seenByClient.set(request.headers.get("X-Augmented") ?: "")
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+        val step =
+            TestStep(Stage.PRE_AUTH) { req, next ->
+                val augmented = req.newBuilder().addHeader("X-Augmented", "yes").build()
+                next.processAsync(augmented)
+            }
         AsyncHttpPipelineBuilder(client).append(step).build().sendAsync(getRequest()).join()
         assertEquals("yes", seenByClient.get())
     }
@@ -102,19 +108,28 @@ class AsyncHttpPipelineTest {
     fun `next copy lets a step drive the downstream chain twice independently`() {
         // Mirrors the retry/redirect pattern — call next.copy().processAsync() repeatedly.
         val attempts = AtomicInteger(0)
-        val client = AsyncHttpClient { request ->
-            val code = if (attempts.incrementAndGet() < 2) 503 else 200
-            CompletableFuture.completedFuture(mockResponse(request, code))
-        }
-        val retry = TestStep(Stage.RETRY) { _, next ->
-            // First call.
-            next.copy().processAsync().thenCompose { first ->
-                if (first.status.code == 503) next.copy().processAsync() else CompletableFuture.completedFuture(first)
+        val client =
+            AsyncHttpClient { request ->
+                val code = if (attempts.incrementAndGet() < 2) 503 else 200
+                CompletableFuture.completedFuture(mockResponse(request, code))
             }
-        }
-        val response = AsyncHttpPipelineBuilder(client).append(retry).build()
-            .sendAsync(getRequest())
-            .join()
+        val retry =
+            TestStep(Stage.RETRY) { _, next ->
+                // First call.
+                next.copy().processAsync().thenCompose { first ->
+                    if (first.status.code == 503) {
+                        next.copy().processAsync()
+                    } else {
+                        CompletableFuture.completedFuture(
+                            first,
+                        )
+                    }
+                }
+            }
+        val response =
+            AsyncHttpPipelineBuilder(client).append(retry).build()
+                .sendAsync(getRequest())
+                .join()
         assertEquals(200, response.status.code)
         assertEquals(2, attempts.get())
     }
@@ -140,9 +155,13 @@ class AsyncHttpPipelineTest {
 
     @Test
     fun `AsyncHttpPipeline_toBlocking unwraps CompletionException to the original cause`() {
-        val async = AsyncHttpPipelineBuilder(
-            AsyncHttpClient { _ -> CompletableFuture<Response>().apply { completeExceptionally(IOException("oops")) } },
-        ).build()
+        val async =
+            AsyncHttpPipelineBuilder(
+                AsyncHttpClient {
+                        _ ->
+                    CompletableFuture<Response>().apply { completeExceptionally(IOException("oops")) }
+                },
+            ).build()
         val sync = async.toBlocking()
         val thrown = assertFails { sync.send(getRequest()) }
         assertEquals("oops", thrown.message)
@@ -159,20 +178,22 @@ class AsyncHttpPipelineTest {
     @Test
     fun `builder insertAfter splices a step after the first matching type`() {
         val pre = TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() }
-        val pipeline = AsyncHttpPipelineBuilder(constantClient(200))
-            .append(pre)
-            .insertAfter<TestStep>(TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() })
-            .build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(pre)
+                .insertAfter<TestStep>(TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() })
+                .build()
         assertEquals(2, pipeline.steps.size)
     }
 
     @Test
     fun `builder remove drops every matching instance`() {
-        val pipeline = AsyncHttpPipelineBuilder(constantClient(200))
-            .append(TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() })
-            .append(TestStep(Stage.POST_AUTH) { _, next -> next.processAsync() })
-            .remove<TestStep>()
-            .build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() })
+                .append(TestStep(Stage.POST_AUTH) { _, next -> next.processAsync() })
+                .remove<TestStep>()
+                .build()
         assertEquals(0, pipeline.steps.size)
     }
 
@@ -189,10 +210,11 @@ class AsyncHttpPipelineTest {
     fun `installing two pillars at the same stage emits a replacement warning and keeps the latest`() {
         val firstAuth = TestPillarStep(Stage.AUTH)
         val secondAuth = TestPillarStep(Stage.AUTH)
-        val pipeline = AsyncHttpPipelineBuilder(constantClient(200))
-            .append(firstAuth)
-            .append(secondAuth)
-            .build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(firstAuth)
+                .append(secondAuth)
+                .build()
         assertSame(secondAuth, pipeline.steps.single())
     }
 
@@ -207,12 +229,16 @@ class AsyncHttpPipelineTest {
     @Test
     fun `prepend places a non-pillar step at the head of its stage`() {
         val tag = AtomicReference<String>()
-        val a = TestStep(Stage.PRE_AUTH) { _, next ->
-            tag.set((tag.get() ?: "") + "a"); next.processAsync()
-        }
-        val b = TestStep(Stage.PRE_AUTH) { _, next ->
-            tag.set((tag.get() ?: "") + "b"); next.processAsync()
-        }
+        val a =
+            TestStep(Stage.PRE_AUTH) { _, next ->
+                tag.set((tag.get() ?: "") + "a")
+                next.processAsync()
+            }
+        val b =
+            TestStep(Stage.PRE_AUTH) { _, next ->
+                tag.set((tag.get() ?: "") + "b")
+                next.processAsync()
+            }
         // `append(a)` then `prepend(b)` should yield order [b, a].
         AsyncHttpPipelineBuilder(constantClient(200))
             .append(a)
@@ -227,9 +253,10 @@ class AsyncHttpPipelineTest {
     fun `prependAll preserves iteration semantics of single prepend calls`() {
         val a = TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() }
         val b = TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() }
-        val pipeline = AsyncHttpPipelineBuilder(constantClient(200))
-            .prependAll(listOf(a, b))
-            .build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .prependAll(listOf(a, b))
+                .build()
         // prepend(a) then prepend(b) → order [b, a].
         assertEquals(listOf(b, a), pipeline.steps)
     }
@@ -240,27 +267,36 @@ class AsyncHttpPipelineTest {
         override val stage: Stage,
         private val body: (Request, AsyncPipelineNext) -> CompletableFuture<Response>,
     ) : AsyncHttpStep {
-        override fun processAsync(request: Request, next: AsyncPipelineNext): CompletableFuture<Response> =
-            body(request, next)
+        override fun processAsync(
+            request: Request,
+            next: AsyncPipelineNext,
+        ): CompletableFuture<Response> = body(request, next)
     }
 
     /** Pillar test step — `stage` is mutable for the SEND-rejection test only. */
     private class TestPillarStep(override val stage: Stage) : AsyncHttpStep {
-        override fun processAsync(request: Request, next: AsyncPipelineNext): CompletableFuture<Response> =
-            fail("pillar should never run in these tests")
+        override fun processAsync(
+            request: Request,
+            next: AsyncPipelineNext,
+        ): CompletableFuture<Response> = fail("pillar should never run in these tests")
     }
 
     private fun constantClient(code: Int): AsyncHttpClient =
         AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, code)) }
 
-    private fun getRequest(): Request = Request.builder()
-        .method(Method.GET)
-        .url(URL("https://api.example.com/"))
-        .build()
+    private fun getRequest(): Request =
+        Request.builder()
+            .method(Method.GET)
+            .url(URL("https://api.example.com/"))
+            .build()
 
-    private fun mockResponse(request: Request, code: Int): Response = Response.builder()
-        .request(request)
-        .protocol(Protocol.HTTP_1_1)
-        .status(Status.fromCode(code))
-        .build()
+    private fun mockResponse(
+        request: Request,
+        code: Int,
+    ): Response =
+        Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.fromCode(code))
+            .build()
 }

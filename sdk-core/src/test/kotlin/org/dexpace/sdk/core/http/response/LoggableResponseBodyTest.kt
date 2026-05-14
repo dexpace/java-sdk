@@ -19,7 +19,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LoggableResponseBodyTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -27,23 +26,20 @@ class LoggableResponseBodyTest {
 
     // ----- helpers -----
 
-    private fun bodyFromBytes(bytes: ByteArray, closeCount: AtomicInteger? = null): ResponseBody {
-        return object : ResponseBody() {
-            override fun mediaType(): MediaType? = MediaType.parse("application/octet-stream")
-            override fun contentLength(): Long = bytes.size.toLong()
-            override fun source(): BufferedSource =
-                Io.provider.buffer().also { it.write(bytes) }
-            override fun close() { closeCount?.incrementAndGet() }
-        }
-    }
-
-    private fun bodyFromText(text: String, closeCount: AtomicInteger? = null): ResponseBody {
+    private fun bodyFromText(
+        text: String,
+        closeCount: AtomicInteger? = null,
+    ): ResponseBody {
         return object : ResponseBody() {
             override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
             override fun contentLength(): Long = text.toByteArray(Charsets.UTF_8).size.toLong()
-            override fun source(): BufferedSource =
-                Io.provider.buffer().also { it.writeUtf8(text) }
-            override fun close() { closeCount?.incrementAndGet() }
+
+            override fun source(): BufferedSource = Io.provider.buffer().also { it.writeUtf8(text) }
+
+            override fun close() {
+                closeCount?.incrementAndGet()
+            }
         }
     }
 
@@ -54,12 +50,18 @@ class LoggableResponseBodyTest {
         // If delegate.source() throws, the source was never opened, so the delegate
         // is NOT marked closed. A subsequent wrapper.close() must still close the delegate.
         val delegateCloseCount = AtomicInteger(0)
-        val delegate = object : ResponseBody() {
-            override fun mediaType(): MediaType? = null
-            override fun contentLength(): Long = -1
-            override fun source(): BufferedSource = throw IOException("connection refused")
-            override fun close() { delegateCloseCount.incrementAndGet() }
-        }
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength(): Long = -1
+
+                override fun source(): BufferedSource = throw IOException("connection refused")
+
+                override fun close() {
+                    delegateCloseCount.incrementAndGet()
+                }
+            }
 
         val wrapper = LoggableResponseBody(delegate)
         assertFailsWith<IOException> { wrapper.source() }
@@ -67,7 +69,8 @@ class LoggableResponseBodyTest {
         wrapper.close()
 
         assertEquals(
-            1, delegateCloseCount.get(),
+            1,
+            delegateCloseCount.get(),
             "delegate.close() must be called exactly once when source() threw before drain started",
         )
     }
@@ -83,24 +86,31 @@ class LoggableResponseBodyTest {
         // subsequent close() happened on the same response.
         val seed = Io.provider.buffer().also { it.writeUtf8("ignored") }
         val sourceCloseCount = AtomicInteger(0)
-        val throwingSource = object : BufferedSource by seed.peek() {
-            override fun read(sink: Buffer, byteCount: Long): Long =
-                throw IOException("drain failed")
+        val throwingSource =
+            object : BufferedSource by seed.peek() {
+                override fun read(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long = throw IOException("drain failed")
 
-            override fun close() {
-                sourceCloseCount.incrementAndGet()
+                override fun close() {
+                    sourceCloseCount.incrementAndGet()
+                }
             }
-        }
 
         val delegateCloseCount = AtomicInteger(0)
-        val delegate = object : ResponseBody() {
-            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
-            override fun contentLength(): Long = -1
-            override fun source(): BufferedSource = throwingSource
-            override fun close() {
-                delegateCloseCount.incrementAndGet()
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+                override fun contentLength(): Long = -1
+
+                override fun source(): BufferedSource = throwingSource
+
+                override fun close() {
+                    delegateCloseCount.incrementAndGet()
+                }
             }
-        }
 
         val wrapper = LoggableResponseBody(delegate)
         assertFailsWith<IOException> { wrapper.source() }
@@ -108,11 +118,13 @@ class LoggableResponseBodyTest {
         wrapper.close()
 
         assertEquals(
-            1, sourceCloseCount.get(),
+            1,
+            sourceCloseCount.get(),
             "the source's .use{} should close the source exactly once on the failure path",
         )
         assertEquals(
-            0, delegateCloseCount.get(),
+            0,
+            delegateCloseCount.get(),
             "wrapper.close() must not call delegate.close() after a drain failure — " +
                 "the source's close (via .use{}) already owns the delegate-close responsibility",
         )
@@ -121,23 +133,26 @@ class LoggableResponseBodyTest {
     @Test
     fun `close after successful drain does not call delegate close`() {
         val delegateCloseCount = AtomicInteger(0)
-        val delegate = object : ResponseBody() {
-            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
-            override fun contentLength(): Long = 5
-            override fun source(): BufferedSource =
-                Io.provider.buffer().also { it.writeUtf8("hello") }
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
 
-            override fun close() {
-                delegateCloseCount.incrementAndGet()
+                override fun contentLength(): Long = 5
+
+                override fun source(): BufferedSource = Io.provider.buffer().also { it.writeUtf8("hello") }
+
+                override fun close() {
+                    delegateCloseCount.incrementAndGet()
+                }
             }
-        }
 
         val wrapper = LoggableResponseBody(delegate)
         assertEquals("hello", wrapper.source().readUtf8())
         wrapper.close()
 
         assertEquals(
-            0, delegateCloseCount.get(),
+            0,
+            delegateCloseCount.get(),
             "wrapper.close() must not call delegate.close() after a successful drain",
         )
     }
@@ -147,17 +162,25 @@ class LoggableResponseBodyTest {
     @Test
     fun `source() after drainError is set re-throws the cached exception`() {
         val seed = Io.provider.buffer().also { it.writeUtf8("x") }
-        val throwingSource = object : BufferedSource by seed.peek() {
-            override fun read(sink: Buffer, byteCount: Long): Long =
-                throw IOException("network blip")
-            override fun close() {}
-        }
-        val delegate = object : ResponseBody() {
-            override fun mediaType(): MediaType? = null
-            override fun contentLength(): Long = -1
-            override fun source(): BufferedSource = throwingSource
-            override fun close() {}
-        }
+        val throwingSource =
+            object : BufferedSource by seed.peek() {
+                override fun read(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long = throw IOException("network blip")
+
+                override fun close() {}
+            }
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength(): Long = -1
+
+                override fun source(): BufferedSource = throwingSource
+
+                override fun close() {}
+            }
         val wrapper = LoggableResponseBody(delegate)
 
         // First call triggers the drain, which fails.
@@ -173,16 +196,25 @@ class LoggableResponseBodyTest {
     fun `captureException returns cached drainError after failed drain`() {
         val seed = Io.provider.buffer().also { it.writeUtf8("x") }
         val cause = IOException("forced failure")
-        val throwingSource = object : BufferedSource by seed.peek() {
-            override fun read(sink: Buffer, byteCount: Long): Long = throw cause
-            override fun close() {}
-        }
-        val delegate = object : ResponseBody() {
-            override fun mediaType(): MediaType? = null
-            override fun contentLength(): Long = -1
-            override fun source(): BufferedSource = throwingSource
-            override fun close() {}
-        }
+        val throwingSource =
+            object : BufferedSource by seed.peek() {
+                override fun read(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long = throw cause
+
+                override fun close() {}
+            }
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength(): Long = -1
+
+                override fun source(): BufferedSource = throwingSource
+
+                override fun close() {}
+            }
         val wrapper = LoggableResponseBody(delegate)
 
         // Before drain: captureException is null.
@@ -205,7 +237,7 @@ class LoggableResponseBodyTest {
 
     @Test
     fun `snapshot(maxBytes) returns a bounded prefix and does not exceed the cap`() {
-        val payload = "abcdefghijklmnopqrstuvwxyz"  // 26 bytes
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes
         val wrapper = LoggableResponseBody(bodyFromText(payload))
 
         val prefix = wrapper.snapshot(10)

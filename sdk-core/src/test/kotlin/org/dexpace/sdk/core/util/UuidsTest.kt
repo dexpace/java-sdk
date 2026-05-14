@@ -1,7 +1,7 @@
 package org.dexpace.sdk.core.util
 
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
@@ -10,7 +10,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class UuidsTest {
-
     @Test
     fun `version is 4`() {
         repeat(20) {

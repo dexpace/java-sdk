@@ -14,7 +14,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class FakeHttpClientTest {
-
     @BeforeTest
     fun installProvider() {
         // `MockResponse.body(String)` needs an IoProvider to materialize its body source.
@@ -51,10 +50,11 @@ class FakeHttpClientTest {
 
     @Test
     fun `multiple enqueues consumed in FIFO order`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(404) }
-            .enqueue { status(500) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(404) }
+                .enqueue { status(500) }
 
         val r1 = fake.execute(get("a"))
         val r2 = fake.execute(get("b"))
@@ -67,9 +67,10 @@ class FakeHttpClientTest {
 
     @Test
     fun `requests captures every executed request`() {
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
 
         val a = get("a")
         val b = get("b")
@@ -83,9 +84,10 @@ class FakeHttpClientTest {
     @Test
     fun `MockResponse Builder body String produces a readable body`() {
         val payload = "hello, world"
-        val fake = FakeHttpClient().enqueue {
-            status(200).body(payload, MediaType.of("text", "plain"))
-        }
+        val fake =
+            FakeHttpClient().enqueue {
+                status(200).body(payload, MediaType.of("text", "plain"))
+            }
         val response = fake.execute(get("hello"))
         val body = response.body
         assertNotNull(body, "Expected non-null body")

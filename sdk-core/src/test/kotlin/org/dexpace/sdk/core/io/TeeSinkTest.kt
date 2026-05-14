@@ -20,7 +20,6 @@ import kotlin.test.assertTrue
  * including its close() forwarding both streams.
  */
 class TeeSinkTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -108,10 +107,15 @@ class TeeSinkTest {
         // contract violation by the source. TeeSink must throw rather than spinning
         // forever or silently truncating the payload.
         val f = Fixture()
-        val zeroSource = object : Source {
-            override fun read(sink: Buffer, byteCount: Long): Long = 0L
-            override fun close() {}
-        }
+        val zeroSource =
+            object : Source {
+                override fun read(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long = 0L
+
+                override fun close() {}
+            }
         val ex = assertFailsWith<IOException> { f.tee.writeAll(zeroSource) }
         assertTrue(
             ex.message?.contains("Source returned 0") == true,
@@ -124,16 +128,21 @@ class TeeSinkTest {
         val payload = ByteArray(20_000) { (it % 251).toByte() }
         val f = Fixture()
         var offset = 0
-        val primitive = object : Source {
-            override fun read(sink: Buffer, byteCount: Long): Long {
-                if (offset >= payload.size) return -1L
-                val n = minOf(byteCount.toInt(), payload.size - offset)
-                sink.write(payload, offset, n)
-                offset += n
-                return n.toLong()
+        val primitive =
+            object : Source {
+                override fun read(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long {
+                    if (offset >= payload.size) return -1L
+                    val n = minOf(byteCount.toInt(), payload.size - offset)
+                    sink.write(payload, offset, n)
+                    offset += n
+                    return n.toLong()
+                }
+
+                override fun close() {}
             }
-            override fun close() {}
-        }
         val total = f.tee.writeAll(primitive)
         f.tee.flush()
         assertEquals(payload.size.toLong(), total)
@@ -254,26 +263,67 @@ class TeeSinkTest {
     private class FailingPrimary(private val real: BufferedSink) : BufferedSink {
         var shouldFail = true
         override val buffer: Buffer get() = real.buffer
-        override fun write(source: Buffer, byteCount: Long) {
+
+        override fun write(
+            source: Buffer,
+            byteCount: Long,
+        ) {
             if (shouldFail) throw IOException("simulated primary failure")
             real.write(source, byteCount)
         }
-        override fun flush() { real.flush() }
-        override fun close() { real.close() }
-        override fun write(source: ByteArray): BufferedSink { real.write(source); return this }
-        override fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink {
-            real.write(source, offset, byteCount); return this
+
+        override fun flush() {
+            real.flush()
         }
+
+        override fun close() {
+            real.close()
+        }
+
+        override fun write(source: ByteArray): BufferedSink {
+            real.write(source)
+            return this
+        }
+
+        override fun write(
+            source: ByteArray,
+            offset: Int,
+            byteCount: Int,
+        ): BufferedSink {
+            real.write(source, offset, byteCount)
+            return this
+        }
+
         override fun writeAll(source: Source): Long = real.writeAll(source)
-        override fun writeUtf8(string: String): BufferedSink { real.writeUtf8(string); return this }
-        override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink {
-            real.writeUtf8(string, beginIndex, endIndex); return this
+
+        override fun writeUtf8(string: String): BufferedSink {
+            real.writeUtf8(string)
+            return this
         }
-        override fun writeString(string: String, charset: Charset): BufferedSink {
-            real.writeString(string, charset); return this
+
+        override fun writeUtf8(
+            string: String,
+            beginIndex: Int,
+            endIndex: Int,
+        ): BufferedSink {
+            real.writeUtf8(string, beginIndex, endIndex)
+            return this
         }
+
+        override fun writeString(
+            string: String,
+            charset: Charset,
+        ): BufferedSink {
+            real.writeString(string, charset)
+            return this
+        }
+
         override fun outputStream(): java.io.OutputStream = real.outputStream()
-        override fun emit(): BufferedSink { real.emit(); return this }
+
+        override fun emit(): BufferedSink {
+            real.emit()
+            return this
+        }
     }
 
     @Test

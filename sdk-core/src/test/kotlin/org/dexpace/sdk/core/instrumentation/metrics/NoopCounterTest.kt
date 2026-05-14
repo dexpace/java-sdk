@@ -3,7 +3,6 @@ package org.dexpace.sdk.core.instrumentation.metrics
 import kotlin.test.Test
 
 class NoopCounterTest {
-
     @Test
     fun `add accepts zero without throwing`() {
         NoopCounter.add(0L)
@@ -34,12 +33,13 @@ class NoopCounterTest {
     @Test
     fun `add tolerates a non-empty attributes map with mixed value types`() {
         // The attributes map is `Map<String, Any>` — values of any type must be accepted.
-        val attrs = mapOf(
-            "string" to "value",
-            "long" to 1L,
-            "double" to 3.14,
-            "boolean" to true,
-        )
+        val attrs =
+            mapOf(
+                "string" to "value",
+                "long" to 1L,
+                "double" to 3.14,
+                "boolean" to true,
+            )
         NoopCounter.add(1L, attrs)
     }
 }

@@ -7,7 +7,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class CredentialTest {
-
     // ----------------- KeyCredential -----------------
 
     @Test

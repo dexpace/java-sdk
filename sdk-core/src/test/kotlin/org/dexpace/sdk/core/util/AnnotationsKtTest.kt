@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
  * and a bare class without it (the "absent" case).
  */
 class AnnotationsKtTest {
-
     @Retention(AnnotationRetention.RUNTIME)
     @Target(AnnotationTarget.CLASS)
     annotation class SampleMarker(val tag: String = "default")

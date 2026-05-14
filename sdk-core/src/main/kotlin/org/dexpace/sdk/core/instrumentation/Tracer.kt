@@ -19,7 +19,10 @@ public interface Tracer {
      * helper [Tracer.startSpan] which provides a two-argument form without requiring
      * `Collections.emptyMap()` at every call site.
      */
-    public fun startSpan(name: String, attributes: Map<String, Any> = emptyMap()): Span
+    public fun startSpan(
+        name: String,
+        attributes: Map<String, Any> = emptyMap(),
+    ): Span
 
     public companion object {
         /**
@@ -32,6 +35,9 @@ public interface Tracer {
          * `tracer.startSpan("name")`.
          */
         @JvmStatic
-        public fun startSpan(tracer: Tracer, name: String): Span = tracer.startSpan(name, emptyMap())
+        public fun startSpan(
+            tracer: Tracer,
+            name: String,
+        ): Span = tracer.startSpan(name, emptyMap())
     }
 }

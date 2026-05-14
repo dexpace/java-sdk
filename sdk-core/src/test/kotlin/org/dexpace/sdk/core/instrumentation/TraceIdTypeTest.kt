@@ -13,7 +13,6 @@ import kotlin.test.assertTrue
  * negligible; the coercion path is asserted via shape/non-zero invariants).
  */
 class TraceIdTypeTest {
-
     // -- generateW3CTraceId -----------------------------------------------------------
 
     @Test

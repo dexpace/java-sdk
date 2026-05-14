@@ -8,7 +8,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ETagTest {
-
     @Test
     fun `strong emits quote-wrapped opaque`() {
         assertEquals("\"xyz\"", ETag.strong("xyz").toHeaderValue())

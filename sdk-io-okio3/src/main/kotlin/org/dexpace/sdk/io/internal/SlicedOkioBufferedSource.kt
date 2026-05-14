@@ -35,7 +35,6 @@ internal class SlicedOkioBufferedSource(
     pendingSkip: Long = 0L,
     private val parentClosed: AtomicBoolean,
 ) : BufferedSource {
-
     private var remaining: Long = maxBytes
     private var pendingSkip: Long = pendingSkip
     private var closed: Boolean = false
@@ -78,27 +77,35 @@ internal class SlicedOkioBufferedSource(
     @Throws(IOException::class)
     private fun atEnd(): Boolean = remaining == 0L || peeked.exhausted()
 
+    // Guard-clause read: each early `return` covers a distinct EOF/short-read condition
+    // (zero requested, offset unresolved, slice exhausted, non-Okio sink empty). Collapsing
+    // would obscure the contract these guards encode.
+    @Suppress("ReturnCount")
     @Throws(IOException::class)
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun read(
+        sink: Buffer,
+        byteCount: Long,
+    ): Long {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         checkOpen()
         if (byteCount == 0L) return 0L
         if (!realizeOffset()) return -1L
         if (atEnd()) return -1L
         val cap = minOf(byteCount, remaining)
-        val transferred = if (sink is OkioBuffer) {
-            peeked.read(sink.delegate, cap)
-        } else {
-            // Pull a chunk from the upstream source into the peek view's buffer before
-            // consulting its size; without this the buffer can be empty and each call would
-            // read only a single byte (the old coerceAtLeast(1L) approach).
-            peeked.request(minOf(cap, SEGMENT_SIZE))
-            val available = minOf(cap, peeked.buffer.size)
-            if (available == 0L) return -1L
-            val bytes = peeked.readByteArray(available)
-            sink.write(bytes)
-            bytes.size.toLong()
-        }
+        val transferred =
+            if (sink is OkioBuffer) {
+                peeked.read(sink.delegate, cap)
+            } else {
+                // Pull a chunk from the upstream source into the peek view's buffer before
+                // consulting its size; without this the buffer can be empty and each call would
+                // read only a single byte (the old coerceAtLeast(1L) approach).
+                peeked.request(minOf(cap, SEGMENT_SIZE))
+                val available = minOf(cap, peeked.buffer.size)
+                if (available == 0L) return -1L
+                val bytes = peeked.readByteArray(available)
+                sink.write(bytes)
+                bytes.size.toLong()
+            }
         if (transferred > 0L) remaining -= transferred
         return transferred
     }
@@ -235,7 +242,10 @@ internal class SlicedOkioBufferedSource(
     }
 
     @Throws(IOException::class)
-    override fun slice(offset: Long, byteCount: Long): BufferedSource {
+    override fun slice(
+        offset: Long,
+        byteCount: Long,
+    ): BufferedSource {
         require(offset >= 0) { "offset must be non-negative (got $offset)" }
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         checkOpen()
@@ -283,12 +293,16 @@ internal class SlicedOkioBufferedSource(
         override fun read(): Int {
             checkOpen()
             if (!slice.realizeOffset() || slice.atEnd()) return -1
-            val byte = slice.peeked.readByte().toInt() and 0xFF
+            val byte = slice.peeked.readByte().toInt() and UNSIGNED_BYTE_MASK
             slice.remaining -= 1
             return byte
         }
 
-        override fun read(b: ByteArray, off: Int, len: Int): Int {
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int {
             checkOpen()
             if (len == 0) return 0
             if (!slice.realizeOffset() || slice.atEnd()) return -1
@@ -309,5 +323,9 @@ internal class SlicedOkioBufferedSource(
     private companion object {
         private val EMPTY_BYTES = ByteArray(0)
         private const val SEGMENT_SIZE: Long = 8192L
+
+        // Mask for converting a signed byte to an unsigned int (0..255), per the
+        // `java.io.InputStream.read()` contract.
+        private const val UNSIGNED_BYTE_MASK = 0xFF
     }
 }

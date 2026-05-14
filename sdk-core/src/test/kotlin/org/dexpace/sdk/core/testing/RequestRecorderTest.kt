@@ -10,7 +10,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class RequestRecorderTest {
-
     private fun req(path: String): Request =
         Request.builder().url("https://example.test/$path").method(Method.GET).build()
 

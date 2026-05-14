@@ -89,8 +89,11 @@ public abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        public fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1): RequestBody =
-            BufferedSourceRequestBody(source, mediaType, contentLength)
+        public fun create(
+            source: BufferedSource,
+            mediaType: MediaType? = null,
+            contentLength: Long = -1,
+        ): RequestBody = BufferedSourceRequestBody(source, mediaType, contentLength)
 
         /**
          * Creates a replayable request body backed by an in-memory [Buffer]. The buffer's
@@ -99,8 +102,11 @@ public abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        public fun create(buffer: Buffer, mediaType: MediaType? = null, contentLength: Long = buffer.size): RequestBody =
-            BufferRequestBody(buffer, mediaType, contentLength)
+        public fun create(
+            buffer: Buffer,
+            mediaType: MediaType? = null,
+            contentLength: Long = buffer.size,
+        ): RequestBody = BufferRequestBody(buffer, mediaType, contentLength)
 
         /**
          * Creates a replayable request body backed by the given byte array. Every [writeTo]
@@ -108,8 +114,10 @@ public abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        public fun create(bytes: ByteArray, mediaType: MediaType? = null): RequestBody =
-            ByteArrayRequestBody(bytes, mediaType)
+        public fun create(
+            bytes: ByteArray,
+            mediaType: MediaType? = null,
+        ): RequestBody = ByteArrayRequestBody(bytes, mediaType)
 
         /**
          * Creates a replayable request body backed by [content] encoded with [charset].
@@ -185,10 +193,14 @@ public abstract class RequestBody {
          */
         @JvmStatic
         @JvmOverloads
-        public fun create(formData: Map<String, String>, charset: Charset = Charsets.UTF_8): RequestBody {
-            val encoded = formData.entries.joinToString("&") { (key, value) ->
-                "${URLEncoder.encode(key, charset.name())}=${URLEncoder.encode(value, charset.name())}"
-            }
+        public fun create(
+            formData: Map<String, String>,
+            charset: Charset = Charsets.UTF_8,
+        ): RequestBody {
+            val encoded =
+                formData.entries.joinToString("&") { (key, value) ->
+                    "${URLEncoder.encode(key, charset.name())}=${URLEncoder.encode(value, charset.name())}"
+                }
             return ByteArrayRequestBody(encoded.toByteArray(charset), CommonMediaTypes.APPLICATION_FORM_URLENCODED)
         }
     }
@@ -201,8 +213,11 @@ private class BufferRequestBody(
     private val length: Long,
 ) : RequestBody() {
     override fun mediaType(): MediaType? = mediaType
+
     override fun contentLength(): Long = length
+
     override fun isReplayable(): Boolean = true
+
     override fun toReplayable(provider: IoProvider): RequestBody = this
 
     @Throws(IOException::class)
@@ -217,8 +232,11 @@ private class ByteArrayRequestBody(
     private val mediaType: MediaType?,
 ) : RequestBody() {
     override fun mediaType(): MediaType? = mediaType
+
     override fun contentLength(): Long = bytes.size.toLong()
+
     override fun isReplayable(): Boolean = true
+
     override fun toReplayable(provider: IoProvider): RequestBody = this
 
     @Throws(IOException::class)
@@ -241,12 +259,14 @@ private class ResettableInputStreamRequestBody(
     private val length: Long,
     private val mediaType: MediaType?,
 ) : RequestBody() {
-
     private val hasWritten = AtomicBoolean(false)
 
     override fun mediaType(): MediaType? = mediaType
+
     override fun contentLength(): Long = length
+
     override fun isReplayable(): Boolean = true
+
     override fun toReplayable(provider: IoProvider): RequestBody = this
 
     @Throws(IOException::class)
@@ -268,10 +288,10 @@ private class OneShotInputStreamRequestBody(
     private val length: Long,
     private val mediaType: MediaType?,
 ) : RequestBody() {
-
     private val consumed = AtomicBoolean(false)
 
     override fun mediaType(): MediaType? = mediaType
+
     override fun contentLength(): Long = length
     // isReplayable defaults to false; toReplayable defaults to draining into a buffer.
 
@@ -297,10 +317,10 @@ private class BufferedSourceRequestBody(
     private val mediaType: MediaType?,
     private val length: Long,
 ) : RequestBody() {
-
     private val consumed = AtomicBoolean(false)
 
     override fun mediaType(): MediaType? = mediaType
+
     override fun contentLength(): Long = length
 
     @Throws(IOException::class)
@@ -313,6 +333,10 @@ private class BufferedSourceRequestBody(
     }
 }
 
+// Scratch buffer size for InputStream → BufferedSink copies; 8 KiB matches the historical
+// Okio segment size and keeps per-call allocation predictable on hot paths.
+private const val COPY_CHUNK_BYTES = 8 * 1024
+
 /**
  * Reads exactly [length] bytes from [input] and writes them to [sink]. Uses an 8 KiB scratch
  * array — small enough to stay in L1 cache, large enough to avoid per-byte syscall cost.
@@ -322,9 +346,13 @@ private class BufferedSourceRequestBody(
  * so a zero-return means the stream is broken.
  */
 @Throws(IOException::class)
-private fun copyExactly(input: InputStream, sink: BufferedSink, length: Long) {
-    if (length == 0L) return  // legitimate empty body — avoid the scratch allocation
-    val chunk = ByteArray(8 * 1024)
+private fun copyExactly(
+    input: InputStream,
+    sink: BufferedSink,
+    length: Long,
+) {
+    if (length == 0L) return // legitimate empty body — avoid the scratch allocation
+    val chunk = ByteArray(COPY_CHUNK_BYTES)
     var remaining = length
     while (remaining > 0) {
         val toRead = minOf(chunk.size.toLong(), remaining).toInt()

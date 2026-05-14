@@ -23,7 +23,7 @@ import java.util.Locale
 @Suppress("unused")
 @ConsistentCopyVisibility
 public data class Headers private constructor(
-    private val headersMap: Map<String, List<String>>
+    private val headersMap: Map<String, List<String>>,
 ) {
     /**
      * Returns the first header value for the given name, or null if none.
@@ -118,7 +118,10 @@ public data class Headers private constructor(
          * @param value the header value
          * @return this builder
          */
-        public fun add(name: String, value: String): Builder = apply { add(name, listOf(value)) }
+        public fun add(
+            name: String,
+            value: String,
+        ): Builder = apply { add(name, listOf(value)) }
 
         /**
          * Adds all header values for the specified name.
@@ -127,21 +130,32 @@ public data class Headers private constructor(
          * @param values the list of header values
          * @return this builder
          */
-        public fun add(name: String, values: List<String>): Builder = apply {
-            headersMap.computeIfAbsent(sanitizeName(name)) { mutableListOf() }.addAll(values)
-        }
+        public fun add(
+            name: String,
+            values: List<String>,
+        ): Builder =
+            apply {
+                headersMap.computeIfAbsent(sanitizeName(name)) { mutableListOf() }.addAll(values)
+            }
 
         /**
          * Adds a header with the specified typed name and value.
          */
-        public fun add(name: HttpHeaderName, value: String): Builder = apply { add(name, listOf(value)) }
+        public fun add(
+            name: HttpHeaderName,
+            value: String,
+        ): Builder = apply { add(name, listOf(value)) }
 
         /**
          * Adds all header values for the specified typed name.
          */
-        public fun add(name: HttpHeaderName, values: List<String>): Builder = apply {
-            headersMap.computeIfAbsent(name.caseInsensitiveName) { mutableListOf() }.addAll(values)
-        }
+        public fun add(
+            name: HttpHeaderName,
+            values: List<String>,
+        ): Builder =
+            apply {
+                headersMap.computeIfAbsent(name.caseInsensitiveName) { mutableListOf() }.addAll(values)
+            }
 
         /**
          * Sets the header with the specified name to the single value provided.
@@ -152,13 +166,17 @@ public data class Headers private constructor(
          * @param value the header value, or `null` to remove
          * @return this builder
          */
-        public fun set(name: String, value: String?): Builder = apply {
-            if (value == null) {
-                remove(name)
-            } else {
-                set(name, listOf(value))
+        public fun set(
+            name: String,
+            value: String?,
+        ): Builder =
+            apply {
+                if (value == null) {
+                    remove(name)
+                } else {
+                    set(name, listOf(value))
+                }
             }
-        }
 
         /**
          * Sets the header with the specified name to the values list provided.
@@ -168,28 +186,40 @@ public data class Headers private constructor(
          * @param values the header values
          * @return this builder
          */
-        public fun set(name: String, values: List<String>): Builder = apply {
-            headersMap[sanitizeName(name)] = values.toMutableList()
-        }
+        public fun set(
+            name: String,
+            values: List<String>,
+        ): Builder =
+            apply {
+                headersMap[sanitizeName(name)] = values.toMutableList()
+            }
 
         /**
          * Sets the header with the specified typed name to the single value provided.
          * Passing `null` removes the header.
          */
-        public fun set(name: HttpHeaderName, value: String?): Builder = apply {
-            if (value == null) {
-                remove(name)
-            } else {
-                set(name, listOf(value))
+        public fun set(
+            name: HttpHeaderName,
+            value: String?,
+        ): Builder =
+            apply {
+                if (value == null) {
+                    remove(name)
+                } else {
+                    set(name, listOf(value))
+                }
             }
-        }
 
         /**
          * Sets the header with the specified typed name to the values list provided.
          */
-        public fun set(name: HttpHeaderName, values: List<String>): Builder = apply {
-            headersMap[name.caseInsensitiveName] = values.toMutableList()
-        }
+        public fun set(
+            name: HttpHeaderName,
+            values: List<String>,
+        ): Builder =
+            apply {
+                headersMap[name.caseInsensitiveName] = values.toMutableList()
+            }
 
         /**
          * Removes any header with the specified name.
@@ -197,26 +227,29 @@ public data class Headers private constructor(
          * @param name the header name
          * @return this builder
          */
-        public fun remove(name: String): Builder = apply {
-            headersMap.remove(sanitizeName(name))
-        }
+        public fun remove(name: String): Builder =
+            apply {
+                headersMap.remove(sanitizeName(name))
+            }
 
         /**
          * Removes any header with the specified typed name.
          */
-        public fun remove(name: HttpHeaderName): Builder = apply {
-            headersMap.remove(name.caseInsensitiveName)
-        }
+        public fun remove(name: HttpHeaderName): Builder =
+            apply {
+                headersMap.remove(name.caseInsensitiveName)
+            }
 
         /**
          * Merges all entries from [headers] into this builder, appending values for any
          * names that already exist.
          */
-        public fun addAll(headers: Headers): Builder = apply {
-            headers.entries().forEach { (key, values) ->
-                headersMap.computeIfAbsent(key) { mutableListOf() }.addAll(values)
+        public fun addAll(headers: Headers): Builder =
+            apply {
+                headers.entries().forEach { (key, values) ->
+                    headersMap.computeIfAbsent(key) { mutableListOf() }.addAll(values)
+                }
             }
-        }
 
         /**
          * Builds an immutable [Headers] instance.

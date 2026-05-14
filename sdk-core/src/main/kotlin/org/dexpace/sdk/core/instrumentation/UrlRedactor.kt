@@ -24,7 +24,6 @@ import java.net.URLDecoder
  * Thread-safe: stateless singleton.
  */
 public object UrlRedactor {
-
     /**
      * Default allow-list: just `api-version`, the canonical safe-to-log REST query param.
      * This allow-list also governs fragment redaction — `key=value` tokens in the fragment
@@ -45,6 +44,10 @@ public object UrlRedactor {
     private const val USERINFO_REDACTED = "***:***"
     private const val MALFORMED = "[malformed url]"
 
+    // StringBuilder slack reserved for the userinfo + scheme insertion on rebuild. Tuned,
+    // not load-bearing.
+    private const val REBUILD_BUILDER_SLACK = 16
+
     /**
      * Returns a loggable URL string with userinfo and disallowed query values redacted.
      *
@@ -54,7 +57,10 @@ public object UrlRedactor {
      */
     @JvmStatic
     @JvmOverloads
-    public fun redact(url: URL, allowedQueryParams: Set<String> = DEFAULT_ALLOWED): String =
+    public fun redact(
+        url: URL,
+        allowedQueryParams: Set<String> = DEFAULT_ALLOWED,
+    ): String =
         try {
             val raw = url.toString()
             val hasUserInfo = url.userInfo != null
@@ -77,8 +83,12 @@ public object UrlRedactor {
         return lower
     }
 
-    private fun rebuild(url: URL, raw: String, allowedLower: Set<String>): String {
-        val out = StringBuilder(raw.length + 16)
+    private fun rebuild(
+        url: URL,
+        raw: String,
+        allowedLower: Set<String>,
+    ): String {
+        val out = StringBuilder(raw.length + REBUILD_BUILDER_SLACK)
         out.append(url.protocol).append("://")
 
         if (url.userInfo != null) {
@@ -113,7 +123,11 @@ public object UrlRedactor {
         return out.toString()
     }
 
-    private fun appendRedactedQuery(out: StringBuilder, rawQuery: String, allowedLower: Set<String>) {
+    private fun appendRedactedQuery(
+        out: StringBuilder,
+        rawQuery: String,
+        allowedLower: Set<String>,
+    ) {
         var first = true
         var cursor = 0
         val length = rawQuery.length
@@ -136,7 +150,11 @@ public object UrlRedactor {
         // redaction (the '#' prefix is appended by the caller before this function is invoked).
     }
 
-    private fun appendRedactedPair(out: StringBuilder, pair: String, allowedLower: Set<String>) {
+    private fun appendRedactedPair(
+        out: StringBuilder,
+        pair: String,
+        allowedLower: Set<String>,
+    ) {
         if (pair.isEmpty()) return
         val eq = pair.indexOf('=')
         val encodedName: String

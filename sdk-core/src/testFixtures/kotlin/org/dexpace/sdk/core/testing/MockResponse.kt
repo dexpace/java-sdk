@@ -35,11 +35,12 @@ class MockResponse internal constructor(
      * `Protocol.HTTP_1_1` since the fake client does not negotiate.
      */
     fun toResponse(request: Request): Response {
-        val builder = Response.builder()
-            .request(request)
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.fromCode(statusCode))
-            .headers(headers)
+        val builder =
+            Response.builder()
+                .request(request)
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.fromCode(statusCode))
+                .headers(headers)
         if (body != null) {
             builder.body(body)
         }
@@ -59,7 +60,10 @@ class MockResponse internal constructor(
         fun status(code: Int): Builder = apply { this.statusCode = code }
 
         /** Adds a header. Multiple calls with the same name accumulate values. */
-        fun header(name: String, value: String): Builder = apply { headersBuilder.add(name, value) }
+        fun header(
+            name: String,
+            value: String,
+        ): Builder = apply { headersBuilder.add(name, value) }
 
         /** Sets the response body explicitly (may be null). */
         fun body(body: ResponseBody?): Builder = apply { this.body = body }
@@ -75,29 +79,38 @@ class MockResponse internal constructor(
          * status and never read the body may omit provider installation.
          */
         @JvmOverloads
-        fun body(content: String, mediaType: MediaType? = null): Builder = apply {
-            val bytes = content.toByteArray(StandardCharsets.UTF_8)
-            this.body = stringBackedResponseBody(bytes, mediaType)
-            if (mediaType != null) {
-                headersBuilder.set("Content-Type", mediaType.toString())
+        fun body(
+            content: String,
+            mediaType: MediaType? = null,
+        ): Builder =
+            apply {
+                val bytes = content.toByteArray(StandardCharsets.UTF_8)
+                this.body = stringBackedResponseBody(bytes, mediaType)
+                if (mediaType != null) {
+                    headersBuilder.set("Content-Type", mediaType.toString())
+                }
             }
-        }
 
         /** Sets the simulated network latency. Must be non-negative. */
-        fun delay(delay: Duration): Builder = apply {
-            require(!delay.isNegative) { "delay must be non-negative (got $delay)" }
-            this.delay = delay
-        }
+        fun delay(delay: Duration): Builder =
+            apply {
+                require(!delay.isNegative) { "delay must be non-negative (got $delay)" }
+                this.delay = delay
+            }
 
         /** Builds the [MockResponse]. */
-        fun build(): MockResponse = MockResponse(
-            statusCode = statusCode,
-            headers = headersBuilder.build(),
-            body = body,
-            delay = delay,
-        )
+        fun build(): MockResponse =
+            MockResponse(
+                statusCode = statusCode,
+                headers = headersBuilder.build(),
+                body = body,
+                delay = delay,
+            )
 
-        private fun stringBackedResponseBody(bytes: ByteArray, mediaType: MediaType?): ResponseBody {
+        private fun stringBackedResponseBody(
+            bytes: ByteArray,
+            mediaType: MediaType?,
+        ): ResponseBody {
             // Resolve `Io.provider` lazily — at first source() call — so a Builder can be
             // constructed before the provider is installed. Tests that read the body must
             // install one beforehand; tests that only check headers / status do not.
@@ -105,10 +118,14 @@ class MockResponse internal constructor(
                 // Cache the source so source() is idempotent and close() can release it
                 // without forcing a fresh provider call after the body has been read.
                 private var cachedSource: org.dexpace.sdk.core.io.BufferedSource? = null
+
                 override fun mediaType(): MediaType? = mediaType
+
                 override fun contentLength(): Long = bytes.size.toLong()
+
                 override fun source(): org.dexpace.sdk.core.io.BufferedSource =
                     cachedSource ?: Io.provider.source(bytes).also { cachedSource = it }
+
                 override fun close() {
                     cachedSource?.close()
                 }

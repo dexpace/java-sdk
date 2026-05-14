@@ -34,9 +34,10 @@ public enum class Protocol(private val protocolString: String) {
     public companion object {
         // `Locale.US` is used deliberately — protocol identifiers are ASCII-only, so
         // locale-sensitive folding (e.g. Turkish `i`) would be incorrect here.
-        private val LOOKUP: Map<String, Protocol> = entries.associateBy {
-            it.protocolString.uppercase(Locale.US)
-        }
+        private val LOOKUP: Map<String, Protocol> =
+            entries.associateBy {
+                it.protocolString.uppercase(Locale.US)
+            }
 
         /**
          * Parses a protocol identifier (case-insensitively) and returns the matching

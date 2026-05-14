@@ -53,10 +53,11 @@ class FakeHttpClient : HttpClient {
      */
     override fun execute(request: Request): Response {
         recorder.record(request)
-        val mock = responses.removeFirstOrNull()
-            ?: throw IllegalStateException(
-                "FakeHttpClient: no response enqueued for request to ${request.url}"
-            )
+        val mock =
+            responses.removeFirstOrNull()
+                ?: throw IllegalStateException(
+                    "FakeHttpClient: no response enqueued for request to ${request.url}",
+                )
         if (mock.delay > Duration.ZERO) {
             Thread.sleep(mock.delay.toMillis())
         }

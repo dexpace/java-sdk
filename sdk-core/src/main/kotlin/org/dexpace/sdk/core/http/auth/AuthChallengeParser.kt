@@ -21,6 +21,9 @@ import java.util.Locale
  * matches the [edge-case guardrails][to-implement.md] for Rank 12.
  */
 public object AuthChallengeParser {
+    // Initial capacity for the per-challenge auth-param map. Auth challenges typically
+    // carry 1-3 params (realm, qop, nonce); 4 covers the common case without resize.
+    private const val PARAM_MAP_INITIAL_CAP = 4
 
     /**
      * Parses [header] and returns the list of challenges it contains. Returns an
@@ -34,6 +37,10 @@ public object AuthChallengeParser {
         if (header.isBlank()) return emptyList()
         val cursor = Cursor(header)
         val out = ArrayList<AuthenticateChallenge>(2)
+        // Top-level parse loop: distinct break/continue for `EOF after OWS+comma skip`,
+        // `unparseable challenge — recover and continue`. Flattening these would obscure
+        // the malformed-input recovery contract.
+        @Suppress("LoopWithTooManyJumpStatements")
         while (cursor.hasMore()) {
             cursor.skipOwsAndCommas()
             if (!cursor.hasMore()) break
@@ -47,12 +54,18 @@ public object AuthChallengeParser {
      * Parses one challenge starting at the cursor. Advances the cursor past the
      * challenge (and any trailing whitespace/commas). Returns null and recovers to
      * the next top-level comma on malformed input.
+     *
+     * Per-challenge parser: each guard branch (no scheme, bare-scheme challenge,
+     * malformed first param, malformed continuation param) is a distinct recovery
+     * path. Combining would force a sentinel result and obscure the per-mode logging.
      */
+    @Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
     private fun parseChallenge(cursor: Cursor): AuthenticateChallenge? {
-        val rawScheme = cursor.readToken() ?: run {
-            cursor.recoverToNextChallenge()
-            return null
-        }
+        val rawScheme =
+            cursor.readToken() ?: run {
+                cursor.recoverToNextChallenge()
+                return null
+            }
         // Normalise the scheme to lower case so callers can compare with a simple
         // `==` (matches the same treatment we give to parameter names below).
         val scheme = rawScheme.lowercase(Locale.US)
@@ -65,11 +78,12 @@ public object AuthChallengeParser {
             return AuthenticateChallenge(scheme, emptyMap())
         }
 
-        val params = LinkedHashMap<String, String>(4)
-        val first = parseAuthParamOrToken68(cursor) ?: run {
-            cursor.recoverToNextChallenge()
-            return null
-        }
+        val params = LinkedHashMap<String, String>(PARAM_MAP_INITIAL_CAP)
+        val first =
+            parseAuthParamOrToken68(cursor) ?: run {
+                cursor.recoverToNextChallenge()
+                return null
+            }
         params[first.first] = first.second
 
         // Subsequent params; stop when we hit something that doesn't look like a
@@ -95,8 +109,9 @@ public object AuthChallengeParser {
             if (cursor.hasMore() && cursor.peek() == '=') {
                 cursor.advance()
                 cursor.skipOws()
-                val value = cursor.readTokenOrQuotedString()
-                    ?: return AuthenticateChallenge(scheme, params) // malformed — bail
+                val value =
+                    cursor.readTokenOrQuotedString()
+                        ?: return AuthenticateChallenge(scheme, params) // malformed — bail
                 params[nextToken.lowercase(Locale.US)] = value
             } else {
                 // The token we just consumed is actually the next challenge's
@@ -112,7 +127,12 @@ public object AuthChallengeParser {
      * Parses either an `auth-param` (token "=" token-or-quoted-string) or, failing
      * that, treats the input as a `token68` value and stores it under the synthetic
      * key `"token68"`. Returns null on unrecoverable malformation.
+     *
+     * Five distinct token68/auth-param disambiguation branches each have their own
+     * rewind and `return "token68" to …` shape; folding to a single return would
+     * mean threading a sentinel value through deeply-nested if's at the cost of clarity.
      */
+    @Suppress("ReturnCount")
     private fun parseAuthParamOrToken68(cursor: Cursor): Pair<String, String>? {
         val saved = cursor.position
         val name = cursor.readToken() ?: return null
@@ -161,8 +181,12 @@ public object AuthChallengeParser {
         private val len: Int = src.length
 
         fun hasMore(): Boolean = position < len
+
         fun peek(): Char = src[position]
-        fun advance() { position++ }
+
+        fun advance() {
+            position++
+        }
 
         fun skipOws() {
             while (position < len) {

@@ -10,7 +10,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CompositeChallengeHandlerTest {
-
     private val uri = URI.create("https://api.example.com/r")
 
     /** A fake handler that always claims to handle and emits a constant value. */
@@ -83,13 +82,14 @@ class CompositeChallengeHandlerTest {
 
     @Test
     fun `Digest-before-Basic ordering picks Digest when both offered`() {
-        val challenges = listOf(
-            AuthenticateChallenge("Basic", mapOf("realm" to "r")),
-            AuthenticateChallenge(
-                "Digest",
-                mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5"),
-            ),
-        )
+        val challenges =
+            listOf(
+                AuthenticateChallenge("Basic", mapOf("realm" to "r")),
+                AuthenticateChallenge(
+                    "Digest",
+                    mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5"),
+                ),
+            )
         val basic = BasicChallengeHandler("u", "p")
         val digest = DigestChallengeHandler("u", "p")
         val composite = ChallengeHandler.of(digest, basic)
@@ -101,13 +101,14 @@ class CompositeChallengeHandlerTest {
     @Test
     fun `Basic-before-Digest ordering picks Basic when both offered`() {
         // Confirms order matters — this is the anti-test for the canonical recipe.
-        val challenges = listOf(
-            AuthenticateChallenge("Basic", mapOf("realm" to "r")),
-            AuthenticateChallenge(
-                "Digest",
-                mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5"),
-            ),
-        )
+        val challenges =
+            listOf(
+                AuthenticateChallenge("Basic", mapOf("realm" to "r")),
+                AuthenticateChallenge(
+                    "Digest",
+                    mapOf("realm" to "r", "nonce" to "n", "qop" to "auth", "algorithm" to "MD5"),
+                ),
+            )
         val basic = BasicChallengeHandler("u", "p")
         val digest = DigestChallengeHandler("u", "p")
         val composite = ChallengeHandler.of(basic, digest)

@@ -12,7 +12,6 @@ import kotlin.test.assertSame
  * propagators rely on to detect "no trace here".
  */
 class NoopInstrumentationContextTest {
-
     @Test
     fun `traceIdType is NOOP`() {
         // TraceIdType is a regular enum, so identity holds across reads.

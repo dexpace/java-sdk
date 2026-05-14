@@ -37,12 +37,13 @@ public enum class DigestAlgorithm(
          * null for absent / unsupported algorithms (e.g. `SHA-512-256`).
          */
         @JvmStatic
-        public fun fromString(raw: String): DigestAlgorithm? = when (raw.uppercase(Locale.US)) {
-            "MD5" -> MD5
-            "MD5-SESS" -> MD5_SESS
-            "SHA-256" -> SHA_256
-            "SHA-256-SESS" -> SHA_256_SESS
-            else -> null
-        }
+        public fun fromString(raw: String): DigestAlgorithm? =
+            when (raw.uppercase(Locale.US)) {
+                "MD5" -> MD5
+                "MD5-SESS" -> MD5_SESS
+                "SHA-256" -> SHA_256
+                "SHA-256-SESS" -> SHA_256_SESS
+                else -> null
+            }
     }
 }

@@ -15,16 +15,13 @@ import java.io.IOException
 import java.net.URL
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class NettyTest {
-
     private val executor = DefaultEventExecutor()
 
     @AfterTest
@@ -34,9 +31,10 @@ class NettyTest {
 
     @Test
     fun `executeNetty bridges a completed future into a Netty Promise`() {
-        val client = AsyncHttpClient { request ->
-            CompletableFuture.completedFuture(mockResponse(request, 200))
-        }
+        val client =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
         val future = client.executeNetty(getRequest(), executor)
         assertTrue(future.await(2, TimeUnit.SECONDS))
         assertTrue(future.isSuccess)
@@ -46,9 +44,10 @@ class NettyTest {
     @Test
     fun `executeNetty unwraps CompletionException into the original failure`() {
         val sentinel = IOException("net")
-        val client = AsyncHttpClient { _ ->
-            CompletableFuture<Response>().apply { completeExceptionally(sentinel) }
-        }
+        val client =
+            AsyncHttpClient { _ ->
+                CompletableFuture<Response>().apply { completeExceptionally(sentinel) }
+            }
         val future = client.executeNetty(getRequest(), executor)
         assertTrue(future.await(2, TimeUnit.SECONDS))
         assertEquals(false, future.isSuccess)
@@ -59,9 +58,10 @@ class NettyTest {
 
     @Test
     fun `sendNetty mirrors the pipeline's future onto a Netty promise`() {
-        val pipeline = AsyncHttpPipelineBuilder(
-            AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, 201)) },
-        ).build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(
+                AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, 201)) },
+            ).build()
         val future = pipeline.sendNetty(getRequest(), executor)
         assertTrue(future.await(2, TimeUnit.SECONDS))
         assertEquals(201, future.now.status.code)
@@ -70,9 +70,10 @@ class NettyTest {
     @Test
     fun `cancelling the Netty promise cancels the underlying CompletableFuture`() {
         val cancelLatch = CompletableFuture<Unit>()
-        val sourceFuture = CompletableFuture<Response>().also { f ->
-            f.whenComplete { _, _ -> if (f.isCancelled) cancelLatch.complete(Unit) }
-        }
+        val sourceFuture =
+            CompletableFuture<Response>().also { f ->
+                f.whenComplete { _, _ -> if (f.isCancelled) cancelLatch.complete(Unit) }
+            }
         val client = AsyncHttpClient { _ -> sourceFuture }
         val nettyFuture = client.executeNetty(getRequest(), executor)
         // Cancel via Netty's API.
@@ -104,7 +105,10 @@ class NettyTest {
             } finally {
                 completionLatch.complete(Unit)
             }
-        }.also { it.isDaemon = true; it.start() }
+        }.also {
+            it.isDaemon = true
+            it.start()
+        }
 
         completionLatch.get(2, TimeUnit.SECONDS)
         val err = completionErrorRef.get()
@@ -120,10 +124,11 @@ class NettyTest {
         MDC.put("trace.id", "netty-transport-test")
         try {
             val seenTraceId = AtomicReference<String?>()
-            val async = AsyncHttpClient { request ->
-                seenTraceId.set(MDC.get("trace.id"))
-                CompletableFuture.completedFuture(mockResponse(request, 200))
-            }
+            val async =
+                AsyncHttpClient { request ->
+                    seenTraceId.set(MDC.get("trace.id"))
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
             val nettyFuture = async.executeNetty(getRequest(), executor)
             nettyFuture.get(2, TimeUnit.SECONDS)
             assertEquals("netty-transport-test", seenTraceId.get())
@@ -141,19 +146,26 @@ class NettyTest {
         try {
             val seenTraceId = AtomicReference<String?>()
             val gate = CompletableFuture<Unit>()
-            val async = AsyncHttpClient { request ->
-                val f = CompletableFuture<Response>()
-                // Complete on a separate thread to ensure whenComplete fires off-caller-thread.
-                Thread {
-                    gate.get(2, TimeUnit.SECONDS)
-                    f.complete(mockResponse(request, 200))
-                }.also { it.isDaemon = true; it.start() }
-                f
-            }
+            val async =
+                AsyncHttpClient { request ->
+                    val f = CompletableFuture<Response>()
+                    // Complete on a separate thread to ensure whenComplete fires off-caller-thread.
+                    Thread {
+                        gate.get(2, TimeUnit.SECONDS)
+                        f.complete(mockResponse(request, 200))
+                    }.also {
+                        it.isDaemon = true
+                        it.start()
+                    }
+                    f
+                }
             val nettyFuture = async.executeNetty(getRequest(), executor)
             // Attach a listener that captures what MDC looks like on the whenComplete thread.
             val mdcLatch = CompletableFuture<Unit>()
-            nettyFuture.addListener { seenTraceId.set(MDC.get("trace.id")); mdcLatch.complete(Unit) }
+            nettyFuture.addListener {
+                seenTraceId.set(MDC.get("trace.id"))
+                mdcLatch.complete(Unit)
+            }
             gate.complete(Unit)
             mdcLatch.get(2, TimeUnit.SECONDS)
             assertEquals("netty-whencomplete-mdc", seenTraceId.get())
@@ -169,9 +181,10 @@ class NettyTest {
         installBasicMdcAdapter()
         MDC.put("trace.id", "netty-caller-preserve")
         try {
-            val async = AsyncHttpClient { request ->
-                CompletableFuture.completedFuture(mockResponse(request, 200))
-            }
+            val async =
+                AsyncHttpClient { request ->
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
             async.executeNetty(getRequest(), executor)
                 .get(2, TimeUnit.SECONDS)
             assertEquals("netty-caller-preserve", MDC.get("trace.id"))
@@ -181,16 +194,21 @@ class NettyTest {
         }
     }
 
-    private fun getRequest(): Request = Request.builder()
-        .method(Method.GET)
-        .url(URL("https://api.example.com/"))
-        .build()
+    private fun getRequest(): Request =
+        Request.builder()
+            .method(Method.GET)
+            .url(URL("https://api.example.com/"))
+            .build()
 
-    private fun mockResponse(request: Request, code: Int): Response = Response.builder()
-        .request(request)
-        .protocol(Protocol.HTTP_1_1)
-        .status(Status.fromCode(code))
-        .build()
+    private fun mockResponse(
+        request: Request,
+        code: Int,
+    ): Response =
+        Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.fromCode(code))
+            .build()
 }
 
 private fun installBasicMdcAdapter() {

@@ -13,17 +13,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServerSentEventReaderTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
     }
 
-    private fun source(text: String): BufferedSource =
-        Io.provider.source(text.toByteArray(Charsets.UTF_8))
+    private fun source(text: String): BufferedSource = Io.provider.source(text.toByteArray(Charsets.UTF_8))
 
-    private fun source(bytes: ByteArray): BufferedSource =
-        Io.provider.source(bytes)
+    private fun source(bytes: ByteArray): BufferedSource = Io.provider.source(bytes)
 
     @Test
     fun `single simple event with data field`() {
@@ -334,14 +331,16 @@ class ServerSentEventReaderTest {
         val src = source("data: a\n\ndata: b\n\ndata: c\n\n")
         val received = mutableListOf<ServerSentEvent>()
         var closed = false
-        val listener = object : ServerSentEventListener {
-            override fun onEvent(event: ServerSentEvent) {
-                received.add(event)
+        val listener =
+            object : ServerSentEventListener {
+                override fun onEvent(event: ServerSentEvent) {
+                    received.add(event)
+                }
+
+                override fun onClose() {
+                    closed = true
+                }
             }
-            override fun onClose() {
-                closed = true
-            }
-        }
 
         val reader = ServerSentEventReader(src)
         try {
@@ -363,9 +362,10 @@ class ServerSentEventReaderTest {
     @Test
     fun `listener default error and close methods are no-op`() {
         // Verify the default implementations don't throw — fundamental sanity check.
-        val listener = object : ServerSentEventListener {
-            override fun onEvent(event: ServerSentEvent) {}
-        }
+        val listener =
+            object : ServerSentEventListener {
+                override fun onEvent(event: ServerSentEvent) {}
+            }
         listener.onError(RuntimeException("boom"))
         listener.onClose()
     }
@@ -373,9 +373,10 @@ class ServerSentEventReaderTest {
     @Test
     fun `very long data line over 64KB succeeds`() {
         // 100 KB of digits — well above the 64 KB threshold we want to cover.
-        val payload = buildString(100_000) {
-            for (i in 0 until 100_000) append((i % 10).toString())
-        }
+        val payload =
+            buildString(100_000) {
+                for (i in 0 until 100_000) append((i % 10).toString())
+            }
         val src = source("data: $payload\n\n")
         val event = ServerSentEventReader(src).next()
         assertNotNull(event)
@@ -400,18 +401,19 @@ class ServerSentEventReaderTest {
 
     @Test
     fun `multi-event stream with mixed terminators and fields`() {
-        val sse = buildString {
-            append(":welcome\r\n")
-            append("retry: 1500\r\n")
-            append("\r\n")
-            append("id: m1\n")
-            append("event: message\n")
-            append("data: hello\n")
-            append("data: world\n")
-            append("\n")
-            append("event: close\r")
-            append("\r")
-        }
+        val sse =
+            buildString {
+                append(":welcome\r\n")
+                append("retry: 1500\r\n")
+                append("\r\n")
+                append("id: m1\n")
+                append("event: message\n")
+                append("data: hello\n")
+                append("data: world\n")
+                append("\n")
+                append("event: close\r")
+                append("\r")
+            }
         val src = source(sse)
         val reader = ServerSentEventReader(src)
 
@@ -503,26 +505,29 @@ class ServerSentEventReaderTest {
 
     @Test
     fun `listener default onClose method is invokable`() {
-        val listener = object : ServerSentEventListener {
-            override fun onEvent(event: ServerSentEvent) {}
-        }
+        val listener =
+            object : ServerSentEventListener {
+                override fun onEvent(event: ServerSentEvent) {}
+            }
         // Just invoke — default impl is a no-op.
         listener.onClose()
     }
 
     @Test
     fun `listener default onError method is invokable`() {
-        val listener = object : ServerSentEventListener {
-            override fun onEvent(event: ServerSentEvent) {}
-        }
+        val listener =
+            object : ServerSentEventListener {
+                override fun onEvent(event: ServerSentEvent) {}
+            }
         listener.onError(IllegalStateException("test"))
     }
 
     @Test
     fun `listener default onRetry method is invokable`() {
-        val listener = object : ServerSentEventListener {
-            override fun onEvent(event: ServerSentEvent) {}
-        }
+        val listener =
+            object : ServerSentEventListener {
+                override fun onEvent(event: ServerSentEvent) {}
+            }
         listener.onRetry(Duration.ofMillis(5_000))
     }
 
@@ -531,12 +536,22 @@ class ServerSentEventReaderTest {
         var error: Throwable? = null
         var closeCalls = 0
         var retryDelay: Duration? = null
-        val listener = object : ServerSentEventListener {
-            override fun onEvent(event: ServerSentEvent) {}
-            override fun onError(t: Throwable) { error = t }
-            override fun onClose() { closeCalls++ }
-            override fun onRetry(delay: Duration) { retryDelay = delay }
-        }
+        val listener =
+            object : ServerSentEventListener {
+                override fun onEvent(event: ServerSentEvent) {}
+
+                override fun onError(t: Throwable) {
+                    error = t
+                }
+
+                override fun onClose() {
+                    closeCalls++
+                }
+
+                override fun onRetry(delay: Duration) {
+                    retryDelay = delay
+                }
+            }
         listener.onError(IllegalStateException("nope"))
         listener.onClose()
         listener.onRetry(Duration.ofMillis(10))

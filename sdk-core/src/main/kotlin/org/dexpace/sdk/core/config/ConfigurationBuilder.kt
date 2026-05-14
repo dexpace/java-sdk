@@ -21,9 +21,13 @@ public class ConfigurationBuilder {
      * compiler-generated non-null parameter check raises `NullPointerException` when a Java
      * caller passes `null` for [name] or [value], so no explicit guard is needed here.
      */
-    public fun put(name: String, value: String): ConfigurationBuilder = apply {
-        overrides[name] = value
-    }
+    public fun put(
+        name: String,
+        value: String,
+    ): ConfigurationBuilder =
+        apply {
+            overrides[name] = value
+        }
 
     /** Test seam: override the environment-variable source. */
     public fun envSource(source: Function<String, String?>): ConfigurationBuilder = apply { envSource = source }

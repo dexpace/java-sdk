@@ -23,7 +23,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.fail
 
 class SetDateStepTest {
-
     @BeforeTest
     fun setUp() {
         Io.installProvider(OkioIoProvider)
@@ -45,9 +44,10 @@ class SetDateStepTest {
         val instant = Instant.parse("2024-01-01T00:00:00Z")
         val clock = FixedClock(instant)
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep(clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep(clock))
+                .build()
 
         pipeline.send(getRequest("https://api.example.com/x"))
 
@@ -60,15 +60,17 @@ class SetDateStepTest {
         val instant = Instant.parse("2024-01-01T00:00:00Z")
         val clock = FixedClock(instant)
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep(clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep(clock))
+                .build()
 
-        val stale = Request.builder()
-            .method(Method.GET)
-            .url("https://api.example.com/x")
-            .addHeader("Date", "Wed, 01 Jan 1990 00:00:00 GMT")
-            .build()
+        val stale =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/x")
+                .addHeader("Date", "Wed, 01 Jan 1990 00:00:00 GMT")
+                .build()
 
         pipeline.send(stale)
 
@@ -83,9 +85,10 @@ class SetDateStepTest {
         val instant = Instant.parse("2024-01-01T00:00:00Z")
         val clock = FixedClock(instant)
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep(clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep(clock))
+                .build()
 
         pipeline.send(getRequest("https://api.example.com/x"))
 
@@ -126,9 +129,10 @@ class SetDateStepTest {
         val instant = Instant.parse("2024-03-10T08:15:30Z")
         val clock = FixedClock(instant)
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep(clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep(clock))
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/resource"))
         assertEquals(200, response.status.code)
@@ -147,9 +151,10 @@ class SetDateStepTest {
         // a valid header. We can't lock down the exact value without a clock, but we can
         // assert it parses and lives near "now".
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep())
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep())
+                .build()
 
         val before = Instant.now()
         pipeline.send(getRequest("https://api.example.com/x"))
@@ -172,14 +177,18 @@ class SetDateStepTest {
         // for coverage. The test verifies the call ultimately throws (fallback couldn't format)
         // rather than masquerading the value as success.
         val fake = FakeHttpClient().enqueue { status(200) }
-        val fringeClock = object : Clock {
-            override fun now(): Instant = Instant.MIN
-            override fun monotonic(): Long = 0L
-            override fun sleep(duration: Duration) { /* no-op */ }
-        }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep(fringeClock))
-            .build()
+        val fringeClock =
+            object : Clock {
+                override fun now(): Instant = Instant.MIN
+
+                override fun monotonic(): Long = 0L
+
+                override fun sleep(duration: Duration) { /* no-op */ }
+            }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep(fringeClock))
+                .build()
 
         // Both EMITTER (via atOffset) and FALLBACK reject Instant.MIN — the step throws after
         // entering the catch block. Coverage records the line as visited.
@@ -198,10 +207,11 @@ class SetDateStepTest {
         val clock = FixedClock(instant)
         val fake = FakeHttpClient().enqueue { status(200) }
         val capture = CapturingStep(Stage.PRE_SEND)
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(SetDateStep(clock))
-            .append(capture)
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(SetDateStep(clock))
+                .append(capture)
+                .build()
 
         val original = getRequest("https://api.example.com/x")
         pipeline.send(original)

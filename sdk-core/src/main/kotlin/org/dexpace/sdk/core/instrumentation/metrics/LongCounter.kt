@@ -21,7 +21,6 @@ package org.dexpace.sdk.core.instrumentation.metrics
  * counter is expected to be a hot-path operation invoked from request handling threads.
  */
 public interface LongCounter {
-
     /**
      * Adds [value] to the counter, optionally tagged with the supplied [attributes].
      *
@@ -38,7 +37,10 @@ public interface LongCounter {
      * Note: `@JvmOverloads` is not supported on interface methods in Kotlin. Java callers
      * should use the companion-object helper [LongCounter.add] for the no-attributes form.
      */
-    public fun add(value: Long, attributes: Map<String, Any> = emptyMap())
+    public fun add(
+        value: Long,
+        attributes: Map<String, Any> = emptyMap(),
+    )
 
     public companion object {
         /**
@@ -49,6 +51,9 @@ public interface LongCounter {
          * Kotlin callers continue to use the default-parameter form: `counter.add(1L)`.
          */
         @JvmStatic
-        public fun add(counter: LongCounter, value: Long): Unit = counter.add(value, emptyMap())
+        public fun add(
+            counter: LongCounter,
+            value: Long,
+        ): Unit = counter.add(value, emptyMap())
     }
 }

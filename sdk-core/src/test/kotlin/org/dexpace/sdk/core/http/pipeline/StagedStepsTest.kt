@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
  * by [HttpPipelineTest] (which exercises StagedSteps indirectly through the builder).
  */
 class StagedStepsTest {
-
     /**
      * A minimal step-like type for StagedSteps unit testing; not wired to the real
      * pipeline machinery — we only need `stageOf` to compile.
@@ -25,9 +24,10 @@ class StagedStepsTest {
     @Test
     fun `reload with two pillar steps for the same stage fires onPillarReplaced`() {
         val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged = stagedSteps { stage, old, new ->
-            replacements.add(Triple(stage, old, new))
-        }
+        val staged =
+            stagedSteps { stage, old, new ->
+                replacements.add(Triple(stage, old, new))
+            }
 
         val firstRetry = FakeStep(Stage.RETRY, "retry-A")
         val secondRetry = FakeStep(Stage.RETRY, "retry-B")
@@ -47,9 +47,10 @@ class StagedStepsTest {
     @Test
     fun `reload with single pillar step does not fire onPillarReplaced`() {
         val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged = stagedSteps { stage, old, new ->
-            replacements.add(Triple(stage, old, new))
-        }
+        val staged =
+            stagedSteps { stage, old, new ->
+                replacements.add(Triple(stage, old, new))
+            }
 
         staged.reload(listOf(FakeStep(Stage.RETRY, "retry-A")))
 
@@ -59,9 +60,10 @@ class StagedStepsTest {
     @Test
     fun `reload same pillar instance twice does not fire onPillarReplaced`() {
         val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged = stagedSteps { stage, old, new ->
-            replacements.add(Triple(stage, old, new))
-        }
+        val staged =
+            stagedSteps { stage, old, new ->
+                replacements.add(Triple(stage, old, new))
+            }
 
         val retry = FakeStep(Stage.RETRY, "retry")
         staged.reload(listOf(retry, retry))
@@ -98,9 +100,10 @@ class StagedStepsTest {
     @Test
     fun `append two distinct pillar steps fires onPillarReplaced`() {
         val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged = stagedSteps { stage, old, new ->
-            replacements.add(Triple(stage, old, new))
-        }
+        val staged =
+            stagedSteps { stage, old, new ->
+                replacements.add(Triple(stage, old, new))
+            }
 
         val a = FakeStep(Stage.AUTH, "auth-A")
         val b = FakeStep(Stage.AUTH, "auth-B")

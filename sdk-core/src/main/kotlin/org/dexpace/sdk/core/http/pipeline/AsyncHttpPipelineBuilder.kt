@@ -9,20 +9,20 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  * shared [StagedSteps] helper.
  */
 public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
-
     @PublishedApi
-    internal val steps: StagedSteps<AsyncHttpStep> = StagedSteps(
-        stageOf = AsyncHttpStep::stage,
-        onPillarReplaced = { stage, prev, next ->
-            LOG.atWarning()
-                .event("pipeline.pillar.replaced")
-                .field("pipeline.kind", "async")
-                .field("stage", stage.name)
-                .field("previous", prev::class.simpleName ?: "<anonymous>")
-                .field("replacement", next::class.simpleName ?: "<anonymous>")
-                .log()
-        },
-    )
+    internal val steps: StagedSteps<AsyncHttpStep> =
+        StagedSteps(
+            stageOf = AsyncHttpStep::stage,
+            onPillarReplaced = { stage, prev, next ->
+                LOG.atWarning()
+                    .event("pipeline.pillar.replaced")
+                    .field("pipeline.kind", "async")
+                    .field("stage", stage.name)
+                    .field("previous", prev::class.simpleName ?: "<anonymous>")
+                    .field("replacement", next::class.simpleName ?: "<anonymous>")
+                    .log()
+            },
+        )
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
     public fun append(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.append(step) }

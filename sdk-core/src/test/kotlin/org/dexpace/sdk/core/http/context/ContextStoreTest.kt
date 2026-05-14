@@ -38,19 +38,20 @@ internal data class FakeInstrumentationContext(
     override val span: Span = Span.NOOP,
 ) : InstrumentationContext
 
-internal fun request(): Request = Request.builder()
-    .url("https://api.example.test/x")
-    .method(Method.GET)
-    .build()
+internal fun request(): Request =
+    Request.builder()
+        .url("https://api.example.test/x")
+        .method(Method.GET)
+        .build()
 
-internal fun response(): Response = Response.builder()
-    .request(request())
-    .protocol(Protocol.HTTP_1_1)
-    .status(Status.OK)
-    .build()
+internal fun response(): Response =
+    Response.builder()
+        .request(request())
+        .protocol(Protocol.HTTP_1_1)
+        .status(Status.OK)
+        .build()
 
 class ContextStoreTest {
-
     // Each test uses a unique trace id so cross-test mutation of the global store can't
     // produce flakes. The @AfterTest cleanup belt-and-braces evicts whatever the test put in.
     private val ownedIds: MutableList<String> = mutableListOf()
@@ -139,17 +140,18 @@ class ContextStoreTest {
         val failures = AtomicInteger(0)
         val successes = AtomicInteger(0)
 
-        val ts = (1..threads).map {
-            Thread {
-                barrier.await()
-                try {
-                    ContextStore.put(id, DispatchContext(FakeInstrumentationContext(TraceId(id))))
-                    successes.incrementAndGet()
-                } catch (_: IllegalArgumentException) {
-                    failures.incrementAndGet()
-                }
-            }.also { it.start() }
-        }
+        val ts =
+            (1..threads).map {
+                Thread {
+                    barrier.await()
+                    try {
+                        ContextStore.put(id, DispatchContext(FakeInstrumentationContext(TraceId(id))))
+                        successes.incrementAndGet()
+                    } catch (_: IllegalArgumentException) {
+                        failures.incrementAndGet()
+                    }
+                }.also { it.start() }
+            }
         barrier.countDown()
         for (t in ts) t.join()
 

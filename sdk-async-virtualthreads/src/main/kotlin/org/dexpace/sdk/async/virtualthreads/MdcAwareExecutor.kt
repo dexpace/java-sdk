@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit
  * [VirtualThreadAsyncHttpClient] for the `close()` path so shutdown semantics are unchanged.
  */
 internal class MdcAwareExecutor(private val delegate: ExecutorService) : ExecutorService by delegate {
-
     override fun execute(command: Runnable) {
         val snapshot = MdcSnapshot.capture()
         delegate.execute { snapshot.withMdc { command.run() } }
@@ -53,7 +52,10 @@ internal class MdcAwareExecutor(private val delegate: ExecutorService) : Executo
         return delegate.submit { snapshot.withMdc { task.run() } }
     }
 
-    override fun <T : Any?> submit(task: Runnable, result: T): Future<T> {
+    override fun <T : Any?> submit(
+        task: Runnable,
+        result: T,
+    ): Future<T> {
         val snapshot = MdcSnapshot.capture()
         return delegate.submit({ snapshot.withMdc { task.run() } }, result)
     }

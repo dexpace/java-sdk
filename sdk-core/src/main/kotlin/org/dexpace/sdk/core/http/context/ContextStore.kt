@@ -29,7 +29,10 @@ public object ContextStore {
      * (e.g. context promotion).
      */
     @Throws(IllegalArgumentException::class)
-    public fun put(runId: String, context: CallContext) {
+    public fun put(
+        runId: String,
+        context: CallContext,
+    ) {
         val previous = contexts.putIfAbsent(runId, context)
         require(previous == null) { "Pipeline run id duplicated: $runId" }
     }
@@ -39,7 +42,10 @@ public object ContextStore {
      * if no entry exists yet — used by the context promotion chain, where the first
      * promotion installs the entry and later promotions overwrite it.
      */
-    public fun set(runId: String, context: CallContext) {
+    public fun set(
+        runId: String,
+        context: CallContext,
+    ) {
         contexts[runId] = context
     }
 

@@ -74,7 +74,6 @@ public abstract class ResponseBody : Closeable {
      * Factory entry point for adapter / test code that already holds a [BufferedSource].
      */
     public companion object {
-
         /**
          * Creates a new response body wrapping [source]. The returned body is single-use
          * (single underlying [BufferedSource]); wrap with `LoggableResponseBody` for
@@ -87,7 +86,11 @@ public abstract class ResponseBody : Closeable {
          */
         @JvmStatic
         @JvmOverloads
-        public fun create(source: BufferedSource, mediaType: MediaType? = null, contentLength: Long = -1L): ResponseBody =
+        public fun create(
+            source: BufferedSource,
+            mediaType: MediaType? = null,
+            contentLength: Long = -1L,
+        ): ResponseBody =
             object : ResponseBody() {
                 override fun mediaType(): MediaType? = mediaType
 

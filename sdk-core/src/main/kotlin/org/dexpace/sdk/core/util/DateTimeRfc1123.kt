@@ -16,29 +16,29 @@ import java.util.Locale
  * `+00:00`), with case-insensitive month and weekday names.
  */
 public object DateTimeRfc1123 {
-
     /**
      * RFC 7231 §7.1.1.1 mandates a two-digit day-of-month (`06`, not `6`), whereas the
      * JDK's [DateTimeFormatter.RFC_1123_DATE_TIME] omits the leading zero on output. This
      * pattern matches the spec exactly.
      */
-    private val EMITTER: DateTimeFormatter = DateTimeFormatter
-        .ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US)
+    private val EMITTER: DateTimeFormatter =
+        DateTimeFormatter
+            .ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US)
 
     /**
      * Case-insensitive wrapper around the JDK's RFC 1123 formatter. Even though the JDK's
      * own formatter tolerates lowercase month / weekday names in practice, this builder
      * makes the contract explicit and survives future JDK tightening.
      */
-    private val TOLERANT_PARSER: DateTimeFormatter = DateTimeFormatterBuilder()
-        .parseCaseInsensitive()
-        .append(DateTimeFormatter.RFC_1123_DATE_TIME)
-        .toFormatter(Locale.US)
+    private val TOLERANT_PARSER: DateTimeFormatter =
+        DateTimeFormatterBuilder()
+            .parseCaseInsensitive()
+            .append(DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toFormatter(Locale.US)
 
     /** Formats [instant] as an RFC 1123 string in UTC (`Thu, 01 Jan 2024 00:00:00 GMT`). */
     @JvmStatic
-    public fun format(instant: Instant): String =
-        EMITTER.format(instant.atOffset(ZoneOffset.UTC))
+    public fun format(instant: Instant): String = EMITTER.format(instant.atOffset(ZoneOffset.UTC))
 
     /**
      * Parses an RFC 1123 string into an [Instant]. Tolerates obsolete RFC 850 / asctime
@@ -67,10 +67,16 @@ public object DateTimeRfc1123 {
         // representations of the zero offset that the JDK RFC 1123 parser does not accept
         // verbatim.
         return when {
-            s.endsWith(" UTC", ignoreCase = true) -> s.substring(0, s.length - 4) + " GMT"
-            s.endsWith(" +0000") -> s.substring(0, s.length - 6) + " GMT"
-            s.endsWith(" +00:00") -> s.substring(0, s.length - 7) + " GMT"
+            s.endsWith(" UTC", ignoreCase = true) -> s.substring(0, s.length - ZONE_UTC_LEN) + " GMT"
+            s.endsWith(" +0000") -> s.substring(0, s.length - ZONE_NUMERIC_LEN) + " GMT"
+            s.endsWith(" +00:00") -> s.substring(0, s.length - ZONE_NUMERIC_COLON_LEN) + " GMT"
             else -> s
         }
     }
+
+    // String-length offsets corresponding to the literal zone-suffix tokens recognised by
+    // [normalizeZone]: " UTC" (4 chars), " +0000" (6 chars), " +00:00" (7 chars).
+    private const val ZONE_UTC_LEN = 4
+    private const val ZONE_NUMERIC_LEN = 6
+    private const val ZONE_NUMERIC_COLON_LEN = 7
 }

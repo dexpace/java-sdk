@@ -32,44 +32,47 @@ import org.dexpace.sdk.core.instrumentation.metrics.NoopMeter
  * of time. [HttpLogLevel.BODY_AND_HEADERS] is intended for diagnostic builds against
  * small JSON/text payloads.
  */
-public class HttpInstrumentationOptions @JvmOverloads constructor(
-    public val logLevel: HttpLogLevel = HttpLogLevel.NONE,
-    public val allowedHeaderNames: Set<HttpHeaderName> = DEFAULT_ALLOWED_HEADERS,
-    public val allowedQueryParamNames: Set<String> = UrlRedactor.DEFAULT_ALLOWED,
-    public val isRedactedHeaderNamesLoggingEnabled: Boolean = true,
-    public val tracer: Tracer = NoopTracer,
-    public val meter: Meter = NoopMeter,
-    public val bodyPreviewMaxBytes: Int = DEFAULT_BODY_PREVIEW_MAX_BYTES,
-) {
-    public companion object {
-        // ~20 headers that are safe to surface by default — diagnostic, not credential.
-        @JvmField
-        public val DEFAULT_ALLOWED_HEADERS: Set<HttpHeaderName> = setOf(
-            HttpHeaderName.ACCEPT,
-            HttpHeaderName.ACCEPT_ENCODING,
-            HttpHeaderName.ACCEPT_LANGUAGE,
-            HttpHeaderName.CACHE_CONTROL,
-            HttpHeaderName.CONNECTION,
-            HttpHeaderName.CONTENT_DISPOSITION,
-            HttpHeaderName.CONTENT_ENCODING,
-            HttpHeaderName.CONTENT_LENGTH,
-            HttpHeaderName.CONTENT_RANGE,
-            HttpHeaderName.CONTENT_TYPE,
-            HttpHeaderName.DATE,
-            HttpHeaderName.ETAG,
-            HttpHeaderName.EXPIRES,
-            HttpHeaderName.HOST,
-            HttpHeaderName.LAST_MODIFIED,
-            HttpHeaderName.LOCATION,
-            HttpHeaderName.RANGE,
-            HttpHeaderName.RETRY_AFTER,
-            HttpHeaderName.TRANSFER_ENCODING,
-            HttpHeaderName.USER_AGENT,
-            HttpHeaderName.VIA,
-            HttpHeaderName.X_FORWARDED_FOR,
-            HttpHeaderName.X_REQUEST_ID,
-        )
+public class HttpInstrumentationOptions
+    @JvmOverloads
+    constructor(
+        public val logLevel: HttpLogLevel = HttpLogLevel.NONE,
+        public val allowedHeaderNames: Set<HttpHeaderName> = DEFAULT_ALLOWED_HEADERS,
+        public val allowedQueryParamNames: Set<String> = UrlRedactor.DEFAULT_ALLOWED,
+        public val isRedactedHeaderNamesLoggingEnabled: Boolean = true,
+        public val tracer: Tracer = NoopTracer,
+        public val meter: Meter = NoopMeter,
+        public val bodyPreviewMaxBytes: Int = DEFAULT_BODY_PREVIEW_MAX_BYTES,
+    ) {
+        public companion object {
+            // ~20 headers that are safe to surface by default — diagnostic, not credential.
+            @JvmField
+            public val DEFAULT_ALLOWED_HEADERS: Set<HttpHeaderName> =
+                setOf(
+                    HttpHeaderName.ACCEPT,
+                    HttpHeaderName.ACCEPT_ENCODING,
+                    HttpHeaderName.ACCEPT_LANGUAGE,
+                    HttpHeaderName.CACHE_CONTROL,
+                    HttpHeaderName.CONNECTION,
+                    HttpHeaderName.CONTENT_DISPOSITION,
+                    HttpHeaderName.CONTENT_ENCODING,
+                    HttpHeaderName.CONTENT_LENGTH,
+                    HttpHeaderName.CONTENT_RANGE,
+                    HttpHeaderName.CONTENT_TYPE,
+                    HttpHeaderName.DATE,
+                    HttpHeaderName.ETAG,
+                    HttpHeaderName.EXPIRES,
+                    HttpHeaderName.HOST,
+                    HttpHeaderName.LAST_MODIFIED,
+                    HttpHeaderName.LOCATION,
+                    HttpHeaderName.RANGE,
+                    HttpHeaderName.RETRY_AFTER,
+                    HttpHeaderName.TRANSFER_ENCODING,
+                    HttpHeaderName.USER_AGENT,
+                    HttpHeaderName.VIA,
+                    HttpHeaderName.X_FORWARDED_FOR,
+                    HttpHeaderName.X_REQUEST_ID,
+                )
 
-        public const val DEFAULT_BODY_PREVIEW_MAX_BYTES: Int = 8 * 1024
+            public const val DEFAULT_BODY_PREVIEW_MAX_BYTES: Int = 8 * 1024
+        }
     }
-}

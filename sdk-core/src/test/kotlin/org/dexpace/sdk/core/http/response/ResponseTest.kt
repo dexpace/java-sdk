@@ -21,16 +21,16 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ResponseTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
     }
 
-    private fun request(): Request = Request.builder()
-        .url("https://api.example.test/p")
-        .method(Method.GET)
-        .build()
+    private fun request(): Request =
+        Request.builder()
+            .url("https://api.example.test/p")
+            .method(Method.GET)
+            .build()
 
     private fun simpleBody(payload: String = "abc"): ResponseBody {
         val source = Io.provider.source(payload.toByteArray())
@@ -39,13 +39,14 @@ class ResponseTest {
 
     @Test
     fun `newBuilder round trip preserves all fields`() {
-        val original = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .message("OK")
-            .addHeader("X-A", "1")
-            .build()
+        val original =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .message("OK")
+                .addHeader("X-A", "1")
+                .build()
 
         val copy = original.newBuilder().build()
 
@@ -60,15 +61,17 @@ class ResponseTest {
 
     @Test
     fun `newBuilder allows changes without disturbing source`() {
-        val original = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .build()
+        val original =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .build()
 
-        val mutated = original.newBuilder()
-            .status(Status.CREATED)
-            .build()
+        val mutated =
+            original.newBuilder()
+                .status(Status.CREATED)
+                .build()
 
         assertEquals(Status.OK, original.status)
         assertEquals(Status.CREATED, mutated.status)
@@ -85,14 +88,15 @@ class ResponseTest {
     @Test
     fun `ResponseBuilder copy constructor copies all fields`() {
         val body = simpleBody()
-        val source = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_2)
-            .status(Status.CREATED)
-            .message("Created")
-            .addHeader("X-A", "1")
-            .body(body)
-            .build()
+        val source =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_2)
+                .status(Status.CREATED)
+                .message("Created")
+                .addHeader("X-A", "1")
+                .body(body)
+                .build()
 
         val rebuilt = Response.ResponseBuilder(source).build()
 
@@ -107,126 +111,137 @@ class ResponseTest {
     @Test
     fun `request setter wires the originating request`() {
         val r = request()
-        val resp = Response.builder()
-            .request(r)
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .build()
+        val resp =
+            Response.builder()
+                .request(r)
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .build()
         assertSame(r, resp.request)
     }
 
     @Test
     fun `protocol setter wires the negotiated protocol`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.QUIC)
-            .status(Status.OK)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.QUIC)
+                .status(Status.OK)
+                .build()
         assertEquals(Protocol.QUIC, resp.protocol)
     }
 
     @Test
     fun `status setter wires the status`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.NOT_FOUND)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.NOT_FOUND)
+                .build()
         assertEquals(Status.NOT_FOUND, resp.status)
     }
 
     @Test
     fun `message setter wires the reason phrase`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .message("All good")
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .message("All good")
+                .build()
         assertEquals("All good", resp.message)
     }
 
     @Test
     fun `addHeader name+value adds the header`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("X-A", "v1")
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("X-A", "v1")
+                .build()
         assertEquals(listOf("v1"), resp.headers.values("X-A"))
     }
 
     @Test
     fun `addHeader with list adds multiple values`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("X-Multi", listOf("a", "b", "c"))
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("X-Multi", listOf("a", "b", "c"))
+                .build()
         assertEquals(listOf("a", "b", "c"), resp.headers.values("X-Multi"))
     }
 
     @Test
     fun `setHeader single replaces all values`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("X-A", "old")
-            .setHeader("X-A", "new")
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("X-A", "old")
+                .setHeader("X-A", "new")
+                .build()
         assertEquals(listOf("new"), resp.headers.values("X-A"))
     }
 
     @Test
     fun `setHeader with list replaces all values`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("X-A", "old")
-            .setHeader("X-A", listOf("x", "y"))
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("X-A", "old")
+                .setHeader("X-A", listOf("x", "y"))
+                .build()
         assertEquals(listOf("x", "y"), resp.headers.values("X-A"))
     }
 
     @Test
     fun `removeHeader by name drops all values`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("X-A", "1")
-            .addHeader("X-A", "2")
-            .removeHeader("X-A")
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("X-A", "1")
+                .addHeader("X-A", "2")
+                .removeHeader("X-A")
+                .build()
         assertEquals(emptyList(), resp.headers.values("X-A"))
     }
 
     @Test
     fun `removeHeader by HttpHeaderName drops all values`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("ETag", "abc")
-            .removeHeader(HttpHeaderName.ETAG)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("ETag", "abc")
+                .removeHeader(HttpHeaderName.ETAG)
+                .build()
         assertEquals(emptyList(), resp.headers.values("ETag"))
     }
 
     @Test
     fun `headers replaces the entire header set`() {
         val headers = Headers.builder().add("X-A", "1").add("X-B", "2").build()
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .addHeader("X-Stale", "x")
-            .headers(headers)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .addHeader("X-Stale", "x")
+                .headers(headers)
+                .build()
         assertEquals(listOf("1"), resp.headers.values("X-A"))
         assertEquals(listOf("2"), resp.headers.values("X-B"))
         assertEquals(emptyList(), resp.headers.values("X-Stale"))
@@ -235,67 +250,77 @@ class ResponseTest {
     @Test
     fun `body setter wires the body`() {
         val b = simpleBody()
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .body(b)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .body(b)
+                .build()
         assertSame(b, resp.body)
     }
 
     @Test
     fun `body setter accepts null`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .body(null)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .body(null)
+                .build()
         assertNull(resp.body)
     }
 
     @Test
     fun `build throws when request missing`() {
-        val ex = assertFailsWith<IllegalStateException> {
-            Response.builder().protocol(Protocol.HTTP_1_1).status(Status.OK).build()
-        }
+        val ex =
+            assertFailsWith<IllegalStateException> {
+                Response.builder().protocol(Protocol.HTTP_1_1).status(Status.OK).build()
+            }
         assertEquals("request is required", ex.message)
     }
 
     @Test
     fun `build throws when protocol missing`() {
-        val ex = assertFailsWith<IllegalStateException> {
-            Response.builder().request(request()).status(Status.OK).build()
-        }
+        val ex =
+            assertFailsWith<IllegalStateException> {
+                Response.builder().request(request()).status(Status.OK).build()
+            }
         assertEquals("protocol is required", ex.message)
     }
 
     @Test
     fun `build throws when status missing`() {
-        val ex = assertFailsWith<IllegalStateException> {
-            Response.builder().request(request()).protocol(Protocol.HTTP_1_1).build()
-        }
+        val ex =
+            assertFailsWith<IllegalStateException> {
+                Response.builder().request(request()).protocol(Protocol.HTTP_1_1).build()
+            }
         assertEquals("status is required", ex.message)
     }
 
     @Test
     fun `close delegates to the body`() {
         val closed = AtomicInteger(0)
-        val body = object : ResponseBody() {
-            override fun mediaType(): MediaType? = null
-            override fun contentLength(): Long = -1L
-            override fun source(): BufferedSource = throw UnsupportedOperationException()
-            override fun close() {
-                closed.incrementAndGet()
+        val body =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength(): Long = -1L
+
+                override fun source(): BufferedSource = throw UnsupportedOperationException()
+
+                override fun close() {
+                    closed.incrementAndGet()
+                }
             }
-        }
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .body(body)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .body(body)
+                .build()
 
         resp.close()
         assertEquals(1, closed.get())
@@ -303,11 +328,12 @@ class ResponseTest {
 
     @Test
     fun `close is a no-op when body is null`() {
-        val resp = Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .build()
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .build()
         // Should not throw.
         resp.close()
         assertNull(resp.body)
@@ -315,7 +341,6 @@ class ResponseTest {
 }
 
 class ResponseBodyTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -365,14 +390,18 @@ class ResponseBodyTest {
     @Test
     fun `abstract close contract is honored by subclass`() {
         val closed = AtomicInteger(0)
-        val body = object : ResponseBody() {
-            override fun mediaType(): MediaType? = null
-            override fun contentLength(): Long = -1L
-            override fun source(): BufferedSource = throw UnsupportedOperationException()
-            override fun close() {
-                closed.incrementAndGet()
+        val body =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength(): Long = -1L
+
+                override fun source(): BufferedSource = throw UnsupportedOperationException()
+
+                override fun close() {
+                    closed.incrementAndGet()
+                }
             }
-        }
         body.close()
         body.close()
         assertEquals(2, closed.get())

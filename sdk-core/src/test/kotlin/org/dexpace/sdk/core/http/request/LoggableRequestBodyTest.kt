@@ -17,7 +17,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class LoggableRequestBodyTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -139,13 +138,15 @@ class LoggableRequestBodyTest {
 
     @Test
     fun `snapshot captures bytes written before a delegate failure`() {
-        val delegate = object : RequestBody() {
-            override fun mediaType(): MediaType? = null
-            override fun writeTo(sink: BufferedSink) {
-                sink.write("partial".toByteArray())
-                throw IOException("boom")
+        val delegate =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun writeTo(sink: BufferedSink) {
+                    sink.write("partial".toByteArray())
+                    throw IOException("boom")
+                }
             }
-        }
         val wrapper = LoggableRequestBody(delegate)
         val sink = Io.provider.buffer()
         assertFailsWith<IOException> { wrapper.writeTo(sink) }

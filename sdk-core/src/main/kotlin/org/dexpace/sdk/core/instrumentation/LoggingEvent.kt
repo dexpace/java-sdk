@@ -1,7 +1,7 @@
 package org.dexpace.sdk.core.instrumentation
 
-import java.util.concurrent.atomic.AtomicBoolean
 import org.slf4j.MDC
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Fluent log-event builder returned by [ClientLogger.atError] / [atWarning] / [atInfo] / [atVerbose].
@@ -46,7 +46,10 @@ public class LoggingEvent internal constructor(
      * @param value the field value, or `null` to record the explicit absence.
      * @throws IllegalArgumentException if [key] is empty.
      */
-    public fun field(key: String, value: String?): LoggingEvent {
+    public fun field(
+        key: String,
+        value: String?,
+    ): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value ?: NULL_PLACEHOLDER)
@@ -59,7 +62,10 @@ public class LoggingEvent internal constructor(
     // that's unavoidable without a custom SLF4J SPI.
 
     /** Attaches a `Long`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    public fun field(key: String, value: Long): LoggingEvent {
+    public fun field(
+        key: String,
+        value: Long,
+    ): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -67,7 +73,10 @@ public class LoggingEvent internal constructor(
     }
 
     /** Attaches an `Int`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    public fun field(key: String, value: Int): LoggingEvent {
+    public fun field(
+        key: String,
+        value: Int,
+    ): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -75,7 +84,10 @@ public class LoggingEvent internal constructor(
     }
 
     /** Attaches a `Boolean`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    public fun field(key: String, value: Boolean): LoggingEvent {
+    public fun field(
+        key: String,
+        value: Boolean,
+    ): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -83,7 +95,10 @@ public class LoggingEvent internal constructor(
     }
 
     /** Attaches a `Double`-valued field. Primitive overload — avoids Kotlin call-site boxing. */
-    public fun field(key: String, value: Double): LoggingEvent {
+    public fun field(
+        key: String,
+        value: Double,
+    ): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -98,7 +113,10 @@ public class LoggingEvent internal constructor(
      * @param key the field key; must be non-empty.
      * @throws IllegalArgumentException if [key] is empty.
      */
-    public fun field(key: String, value: Any?): LoggingEvent {
+    public fun field(
+        key: String,
+        value: Any?,
+    ): LoggingEvent {
         if (!enabled) return this
         require(key.isNotEmpty()) { "field key must not be empty" }
         putField(key, value)
@@ -186,7 +204,10 @@ public class LoggingEvent internal constructor(
 
     // -- Internals -------------------------------------------------------------------------------
 
-    private fun putField(key: String, value: Any?) {
+    private fun putField(
+        key: String,
+        value: Any?,
+    ) {
         val map = fields ?: LinkedHashMap<String, Any?>().also { fields = it }
         map[key] = value
     }
@@ -212,7 +233,10 @@ public class LoggingEvent internal constructor(
                 is DoubleArray -> truncate(value.contentToString())
                 is Array<*> -> truncate(value.contentToString())
                 is Collection<*> -> truncate(value.joinToString(prefix = "[", postfix = "]"))
-                is Map<*, *> -> truncate(value.entries.joinToString(prefix = "{", postfix = "}") { "${it.key}=${it.value}" })
+                is Map<*, *> ->
+                    truncate(
+                        value.entries.joinToString(prefix = "{", postfix = "}") { "${it.key}=${it.value}" },
+                    )
                 else -> truncate(value.toString())
             }
         } catch (t: Throwable) {
@@ -226,8 +250,11 @@ public class LoggingEvent internal constructor(
     }
 
     private fun truncate(s: String): String =
-        if (s.length <= MAX_FIELD_LEN) s
-        else s.substring(0, MAX_FIELD_LEN) + TRUNCATED_SUFFIX
+        if (s.length <= MAX_FIELD_LEN) {
+            s
+        } else {
+            s.substring(0, MAX_FIELD_LEN) + TRUNCATED_SUFFIX
+        }
 
     public companion object {
         /** Standard structured key for the categorisation tag set by [LoggingEvent.event]. */
@@ -261,7 +288,9 @@ public class LoggingEvent internal constructor(
          * Centralising the check here is what makes every `at*()` call site allocation-free
          * on the disabled path.
          */
-        internal fun create(logger: ClientLogger, level: LogLevel): LoggingEvent =
-            if (logger.canLog(level)) LoggingEvent(logger, level, enabled = true) else NOOP
+        internal fun create(
+            logger: ClientLogger,
+            level: LogLevel,
+        ): LoggingEvent = if (logger.canLog(level)) LoggingEvent(logger, level, enabled = true) else NOOP
     }
 }

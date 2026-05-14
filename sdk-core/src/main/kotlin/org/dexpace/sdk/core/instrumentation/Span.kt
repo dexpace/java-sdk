@@ -27,7 +27,10 @@ public interface Span {
      * @param value attribute value of any type; rendering is decided by the backend.
      * @return `this`, for fluent chaining.
      */
-    public fun setAttribute(key: String, value: Any): Span
+    public fun setAttribute(
+        key: String,
+        value: Any,
+    ): Span
 
     /**
      * Marks the span as having encountered an error, tagging it with [errorType] (typically

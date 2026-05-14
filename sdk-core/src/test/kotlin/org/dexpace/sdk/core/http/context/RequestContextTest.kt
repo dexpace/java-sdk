@@ -7,7 +7,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
 class RequestContextTest {
-
     private val ownedIds: MutableList<String> = mutableListOf()
 
     @AfterTest
@@ -15,8 +14,7 @@ class RequestContextTest {
         for (id in ownedIds) ContextStore.remove(id)
     }
 
-    private fun owned(name: String): String =
-        "request-$name-${System.nanoTime()}".also { ownedIds.add(it) }
+    private fun owned(name: String): String = "request-$name-${System.nanoTime()}".also { ownedIds.add(it) }
 
     @Test
     fun `constructor wires instrumentation context and request`() {

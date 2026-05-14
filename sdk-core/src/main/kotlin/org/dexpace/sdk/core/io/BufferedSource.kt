@@ -94,5 +94,8 @@ public interface BufferedSource : Source {
      * [byteCount] throw [IllegalArgumentException] at construction.
      */
     @Throws(IOException::class)
-    public fun slice(offset: Long, byteCount: Long): BufferedSource
+    public fun slice(
+        offset: Long,
+        byteCount: Long,
+    ): BufferedSource
 }

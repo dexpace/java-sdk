@@ -26,7 +26,10 @@ public value class HttpRange private constructor(private val raw: String) {
          * @throws ArithmeticException if `offset + length - 1` overflows `Long`.
          */
         @JvmStatic
-        public fun bytes(offset: Long, length: Long): HttpRange {
+        public fun bytes(
+            offset: Long,
+            length: Long,
+        ): HttpRange {
             require(offset >= 0) { "offset must be non-negative (got $offset)" }
             require(length > 0) { "length must be positive (got $length)" }
             // Math.addExact throws ArithmeticException on overflow; matches the spec

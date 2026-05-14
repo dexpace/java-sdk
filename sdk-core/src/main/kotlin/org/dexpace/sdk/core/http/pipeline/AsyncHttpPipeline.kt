@@ -62,7 +62,6 @@ public class AsyncHttpPipeline internal constructor(
          * to wrap a sync pipeline as async.
          */
         @JvmStatic
-        public fun of(client: AsyncHttpClient): AsyncHttpPipeline =
-            AsyncHttpPipelineBuilder(client).build()
+        public fun of(client: AsyncHttpClient): AsyncHttpPipeline = AsyncHttpPipelineBuilder(client).build()
     }
 }

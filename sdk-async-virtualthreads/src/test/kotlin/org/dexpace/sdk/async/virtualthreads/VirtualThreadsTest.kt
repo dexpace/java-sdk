@@ -6,34 +6,37 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.slf4j.MDC
+import org.slf4j.helpers.BasicMDCAdapter
+import org.slf4j.spi.MDCAdapter
 import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import org.slf4j.MDC
-import org.slf4j.helpers.BasicMDCAdapter
-import org.slf4j.spi.MDCAdapter
 
 class VirtualThreadsTest {
-
     @Test
     fun `asAsyncVirtualThreads runs the call on a virtual thread`() {
         val carrierName = AtomicReference<String>()
         val isVirtual = AtomicReference<Boolean>()
-        val syncClient = HttpClient { request ->
-            val thread = Thread.currentThread()
-            carrierName.set(thread.name)
-            isVirtual.set(thread.isVirtual)
-            mockResponse(request, 200)
-        }
+        val syncClient =
+            HttpClient { request ->
+                val thread = Thread.currentThread()
+                carrierName.set(thread.name)
+                isVirtual.set(thread.isVirtual)
+                mockResponse(request, 200)
+            }
 
         syncClient.asAsyncVirtualThreads().use { vtClient ->
             val response = vtClient.executeAsync(getRequest()).get(2, TimeUnit.SECONDS)
             assertEquals(200, response.status.code)
         }
-        assertTrue(isVirtual.get() == true, "expected the blocking call to run on a virtual thread, ran on ${carrierName.get()}")
+        assertTrue(
+            isVirtual.get() == true,
+            "expected the blocking call to run on a virtual thread, ran on ${carrierName.get()}",
+        )
     }
 
     @Test
@@ -50,12 +53,13 @@ class VirtualThreadsTest {
     @Test
     fun `many concurrent requests fan out cheaply on virtual threads`() {
         val executions = java.util.concurrent.atomic.AtomicInteger(0)
-        val syncClient = HttpClient { request ->
-            // Simulate a tiny blocking delay so concurrency is observable.
-            Thread.sleep(5)
-            executions.incrementAndGet()
-            mockResponse(request, 200)
-        }
+        val syncClient =
+            HttpClient { request ->
+                // Simulate a tiny blocking delay so concurrency is observable.
+                Thread.sleep(5)
+                executions.incrementAndGet()
+                mockResponse(request, 200)
+            }
         syncClient.asAsyncVirtualThreads().use { vt ->
             val futures = (1..100).map { vt.executeAsync(getRequest()) }
             futures.forEach { it.get(5, TimeUnit.SECONDS) }
@@ -81,10 +85,11 @@ class VirtualThreadsTest {
         MDC.put("trace.id", "vt-transport-test")
         try {
             val seenTraceId = java.util.concurrent.atomic.AtomicReference<String?>()
-            val sync = HttpClient { request ->
-                seenTraceId.set(MDC.get("trace.id"))
-                mockResponse(request, 200)
-            }
+            val sync =
+                HttpClient { request ->
+                    seenTraceId.set(MDC.get("trace.id"))
+                    mockResponse(request, 200)
+                }
             sync.asAsyncVirtualThreads().use { async ->
                 async.executeAsync(getRequest()).get(2, java.util.concurrent.TimeUnit.SECONDS)
             }
@@ -95,16 +100,21 @@ class VirtualThreadsTest {
         }
     }
 
-    private fun getRequest(): Request = Request.builder()
-        .method(Method.GET)
-        .url(URI.create("https://api.example.com/").toURL())
-        .build()
+    private fun getRequest(): Request =
+        Request.builder()
+            .method(Method.GET)
+            .url(URI.create("https://api.example.com/").toURL())
+            .build()
 
-    private fun mockResponse(request: Request, code: Int): Response = Response.builder()
-        .request(request)
-        .protocol(Protocol.HTTP_1_1)
-        .status(Status.fromCode(code))
-        .build()
+    private fun mockResponse(
+        request: Request,
+        code: Int,
+    ): Response =
+        Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.fromCode(code))
+            .build()
 }
 
 private fun installBasicMdcAdapter() {

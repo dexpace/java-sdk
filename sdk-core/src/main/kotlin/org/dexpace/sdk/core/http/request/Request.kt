@@ -29,7 +29,7 @@ public data class Request private constructor(
     val method: Method,
     val url: URL,
     val headers: Headers,
-    val body: RequestBody?
+    val body: RequestBody?,
 ) {
     /**
      * Returns a new [RequestBuilder] initialized with this request's data.
@@ -71,9 +71,10 @@ public data class Request private constructor(
          * @param method HTTP method, e.g., GET, POST.
          * @return This builder.
          */
-        public fun method(method: Method): RequestBuilder = apply {
-            this.method = method
-        }
+        public fun method(method: Method): RequestBuilder =
+            apply {
+                this.method = method
+            }
 
         /**
          * Sets the request body.
@@ -81,9 +82,10 @@ public data class Request private constructor(
          * @param body The request body.
          * @return This builder.
          */
-        public fun body(body: RequestBody): RequestBuilder = apply {
-            this.body = body
-        }
+        public fun body(body: RequestBody): RequestBuilder =
+            apply {
+                this.body = body
+            }
 
         /**
          * Sets the URL.
@@ -93,9 +95,10 @@ public data class Request private constructor(
          * @throws MalformedURLException If [url] is invalid.
          */
         @Throws(MalformedURLException::class)
-        public fun url(url: String): RequestBuilder = apply {
-            this.url = URL(url)
-        }
+        public fun url(url: String): RequestBuilder =
+            apply {
+                this.url = URL(url)
+            }
 
         /**
          * Sets the URL.
@@ -103,9 +106,10 @@ public data class Request private constructor(
          * @param url The URL as an [URL] object.
          * @return This builder.
          */
-        public fun url(url: URL): RequestBuilder = apply {
-            this.url = url
-        }
+        public fun url(url: URL): RequestBuilder =
+            apply {
+                this.url = url
+            }
 
         /**
          * Adds a header with the specified name and value.
@@ -114,9 +118,13 @@ public data class Request private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        public fun addHeader(name: String, value: String): RequestBuilder = apply {
-            headersBuilder.add(name, value)
-        }
+        public fun addHeader(
+            name: String,
+            value: String,
+        ): RequestBuilder =
+            apply {
+                headersBuilder.add(name, value)
+            }
 
         /**
          * Adds a header with the specified name and values.
@@ -125,9 +133,13 @@ public data class Request private constructor(
          * @param values The header values list.
          * @return This builder.
          */
-        public fun addHeader(name: String, values: List<String>): RequestBuilder = apply {
-            headersBuilder.add(name, values)
-        }
+        public fun addHeader(
+            name: String,
+            values: List<String>,
+        ): RequestBuilder =
+            apply {
+                headersBuilder.add(name, values)
+            }
 
         /**
          * Sets a header with the specified name and value, replacing any existing values.
@@ -136,9 +148,13 @@ public data class Request private constructor(
          * @param value The header value.
          * @return This builder.
          */
-        public fun setHeader(name: String, value: String): RequestBuilder = apply {
-            headersBuilder.set(name, value)
-        }
+        public fun setHeader(
+            name: String,
+            value: String,
+        ): RequestBuilder =
+            apply {
+                headersBuilder.set(name, value)
+            }
 
         /**
          * Sets a header with the specified name and values list, replacing any existing values.
@@ -147,9 +163,13 @@ public data class Request private constructor(
          * @param values The header values list.
          * @return This builder.
          */
-        public fun setHeader(name: String, values: List<String>): RequestBuilder = apply {
-            headersBuilder.set(name, values)
-        }
+        public fun setHeader(
+            name: String,
+            values: List<String>,
+        ): RequestBuilder =
+            apply {
+                headersBuilder.set(name, values)
+            }
 
         /**
          * Sets a complete Headers instance, replacing all other headers
@@ -157,9 +177,10 @@ public data class Request private constructor(
          * @param headers The [Headers] instance
          * @return This builder.
          */
-        public fun headers(headers: Headers): RequestBuilder = apply {
-            this.headersBuilder = headers.newBuilder()
-        }
+        public fun headers(headers: Headers): RequestBuilder =
+            apply {
+                this.headersBuilder = headers.newBuilder()
+            }
 
         /**
          * Removes all headers with the specified name.
@@ -167,9 +188,10 @@ public data class Request private constructor(
          * @param name The header name.
          * @return This builder.
          */
-        public fun removeHeader(name: String): RequestBuilder = apply {
-            headersBuilder.remove(name)
-        }
+        public fun removeHeader(name: String): RequestBuilder =
+            apply {
+                headersBuilder.remove(name)
+            }
 
         /**
          * Removes all headers with the specified typed name.
@@ -177,9 +199,10 @@ public data class Request private constructor(
          * @param name The typed header name.
          * @return This builder.
          */
-        public fun removeHeader(name: HttpHeaderName): RequestBuilder = apply {
-            headersBuilder.remove(name)
-        }
+        public fun removeHeader(name: HttpHeaderName): RequestBuilder =
+            apply {
+                headersBuilder.remove(name)
+            }
 
         /**
          * Builds the [Request].
@@ -187,12 +210,13 @@ public data class Request private constructor(
          * @return The built request.
          * @throws IllegalStateException If a required field is missing.
          */
-        override fun build(): Request = Request(
-            method = checkNotNull(method) { "Method is required." },
-            url = checkNotNull(url) { "URL is required." },
-            headers = headersBuilder.build(),
-            body = body,
-        )
+        override fun build(): Request =
+            Request(
+                method = checkNotNull(method) { "Method is required." },
+                url = checkNotNull(url) { "URL is required." },
+                headers = headersBuilder.build(),
+                body = body,
+            )
     }
 
     public companion object {

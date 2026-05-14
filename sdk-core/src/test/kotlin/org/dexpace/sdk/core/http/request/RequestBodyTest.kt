@@ -19,7 +19,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class RequestBodyTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -37,31 +36,39 @@ class RequestBodyTest {
 
     @Test
     fun `default isReplayable returns false`() {
-        val body = object : RequestBody() {
-            override fun mediaType(): MediaType? = null
-            override fun writeTo(sink: BufferedSink) { sink.write(byteArrayOf(1, 2)) }
-        }
+        val body =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun writeTo(sink: BufferedSink) {
+                    sink.write(byteArrayOf(1, 2))
+                }
+            }
         assertFalse(body.isReplayable())
     }
 
     @Test
     fun `default contentLength returns minus one`() {
-        val body = object : RequestBody() {
-            override fun mediaType(): MediaType? = null
-            override fun writeTo(sink: BufferedSink) {}
-        }
+        val body =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun writeTo(sink: BufferedSink) {}
+            }
         assertEquals(-1L, body.contentLength())
     }
 
     @Test
     fun `default toReplayable drains writeTo into a buffer-backed body`() {
         val payload = "abc".toByteArray()
-        val source = object : RequestBody() {
-            override fun mediaType(): MediaType? = null
-            override fun writeTo(sink: BufferedSink) {
-                sink.write(payload)
+        val source =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun writeTo(sink: BufferedSink) {
+                    sink.write(payload)
+                }
             }
-        }
 
         val replayable = source.toReplayable(Io.provider)
 
@@ -193,7 +200,13 @@ class RequestBodyTest {
 
     private class NoMarkInputStream(private val delegate: InputStream) : InputStream() {
         override fun read(): Int = delegate.read()
-        override fun read(b: ByteArray, off: Int, len: Int): Int = delegate.read(b, off, len)
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int = delegate.read(b, off, len)
+
         override fun markSupported(): Boolean = false
     }
 

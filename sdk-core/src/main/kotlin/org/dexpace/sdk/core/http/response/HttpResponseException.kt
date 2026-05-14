@@ -27,25 +27,27 @@ import java.io.IOException
  * @param cause Underlying cause to chain into the [IOException], or `null`.
  */
 public open class HttpResponseException
-@JvmOverloads
-constructor(
-    message: String,
-    public val response: Response?,
-    public val value: Any? = null,
-    cause: Throwable? = null,
-) : IOException(message, cause) {
+    @JvmOverloads
+    constructor(
+        message: String,
+        public val response: Response?,
+        public val value: Any? = null,
+        cause: Throwable? = null,
+    ) : IOException(message, cause) {
+        /**
+         * Whether this exception represents a retryable condition. Computed once at
+         * construction; querying is free.
+         */
+        public val isRetryable: Boolean = computeIsRetryable(response, cause)
 
-    /**
-     * Whether this exception represents a retryable condition. Computed once at
-     * construction; querying is free.
-     */
-    public val isRetryable: Boolean = computeIsRetryable(response, cause)
-
-    private companion object {
-        private fun computeIsRetryable(response: Response?, cause: Throwable?): Boolean {
-            response?.let { return RetryUtils.isRetryable(it.status.code) }
-            cause?.let { return RetryUtils.isRetryable(it) }
-            return false
+        private companion object {
+            private fun computeIsRetryable(
+                response: Response?,
+                cause: Throwable?,
+            ): Boolean {
+                response?.let { return RetryUtils.isRetryable(it.status.code) }
+                cause?.let { return RetryUtils.isRetryable(it) }
+                return false
+            }
         }
     }
-}

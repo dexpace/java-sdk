@@ -1,6 +1,5 @@
 package org.dexpace.sdk.core.http.sse
 
-import org.dexpace.sdk.core.io.Buffer
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
@@ -12,14 +11,12 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ServerSentEventExtensionsTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
     }
 
-    private fun source(text: String): BufferedSource =
-        Io.provider.source(text.toByteArray(Charsets.UTF_8))
+    private fun source(text: String): BufferedSource = Io.provider.source(text.toByteArray(Charsets.UTF_8))
 
     // ----- A13 cases -----
 
@@ -62,23 +59,24 @@ class ServerSentEventExtensionsTest {
         val goodPart = "data: good\n\n".toByteArray(Charsets.UTF_8)
         val backing = Io.provider.buffer().also { it.write(goodPart) }
         // Wrap in a source that injects an IOException when exhausted before the read.
-        val failingSource = object : BufferedSource by backing {
-            override fun exhausted(): Boolean {
-                // After the good bytes are consumed the buffer is empty — report not-exhausted
-                // so the reader attempts another readByte, then throw from readByte.
-                return false
-            }
+        val failingSource =
+            object : BufferedSource by backing {
+                override fun exhausted(): Boolean {
+                    // After the good bytes are consumed the buffer is empty — report not-exhausted
+                    // so the reader attempts another readByte, then throw from readByte.
+                    return false
+                }
 
-            override fun readByte(): Byte {
-                if (backing.size == 0L) throw IOException("simulated connection drop")
-                return backing.readByte()
-            }
+                override fun readByte(): Byte {
+                    if (backing.size == 0L) throw IOException("simulated connection drop")
+                    return backing.readByte()
+                }
 
-            override fun peek(): BufferedSource {
-                // Return a peek over the original backing for BOM detection.
-                return backing.peek()
+                override fun peek(): BufferedSource {
+                    // Return a peek over the original backing for BOM detection.
+                    return backing.peek()
+                }
             }
-        }
 
         val iter = failingSource.readServerSentEvents().iterator()
 

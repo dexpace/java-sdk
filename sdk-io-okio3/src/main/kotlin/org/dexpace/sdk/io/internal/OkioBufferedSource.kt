@@ -39,7 +39,6 @@ internal class OkioBufferedSource private constructor(
     /** Whether THIS specific instance owns the [parentClosed] flag (i.e. it is the root). */
     private val isRoot: Boolean,
 ) : BufferedSource {
-
     /** Guards [delegate.close] for THIS instance — never shared. */
     private val selfClosedFlag = AtomicBoolean(false)
 
@@ -63,7 +62,10 @@ internal class OkioBufferedSource private constructor(
     }
 
     @Throws(IOException::class)
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun read(
+        sink: Buffer,
+        byteCount: Long,
+    ): Long {
         checkOpen()
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
@@ -96,54 +98,67 @@ internal class OkioBufferedSource private constructor(
         checkOpen()
         return delegate.exhausted()
     }
+
     @Throws(IOException::class)
     override fun readByte(): Byte {
         checkOpen()
         return delegate.readByte()
     }
+
     @Throws(IOException::class)
     override fun readByteArray(): ByteArray {
         checkOpen()
         return delegate.readByteArray()
     }
+
     @Throws(IOException::class)
     override fun readByteArray(byteCount: Long): ByteArray {
         checkOpen()
         return delegate.readByteArray(byteCount)
     }
+
     @Throws(IOException::class)
     override fun readUtf8(): String {
         checkOpen()
         return delegate.readUtf8()
     }
+
     @Throws(IOException::class)
     override fun readUtf8(byteCount: Long): String {
         checkOpen()
         return delegate.readUtf8(byteCount)
     }
+
     @Throws(IOException::class)
     override fun readUtf8Line(): String? {
         checkOpen()
         return delegate.readUtf8Line()
     }
+
     @Throws(IOException::class)
     override fun readString(charset: Charset): String {
         checkOpen()
         return delegate.readString(charset)
     }
+
     // Share `parentClosed` with the peek view so closing the ROOT invalidates outstanding
     // peeks. The peek view is not the root — it will not flip parentClosed on its own close.
     // Reading from the peek itself does not advance the parent (Okio's `peek()` contract);
     // close-state propagation is the only thing this wrapper adds.
     override fun peek(): BufferedSource = OkioBufferedSource(delegate.peek(), parentClosed)
+
     override fun inputStream(): InputStream = delegate.inputStream()
+
     @Throws(IOException::class)
     override fun skip(byteCount: Long) {
         checkOpen()
         delegate.skip(byteCount)
     }
 
-    override fun slice(offset: Long, byteCount: Long): BufferedSource {
+    override fun slice(
+        offset: Long,
+        byteCount: Long,
+    ): BufferedSource {
         require(offset >= 0) { "offset must be non-negative (got $offset)" }
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
         // peek() shares segments with the parent — no copy. The offset skip is deferred

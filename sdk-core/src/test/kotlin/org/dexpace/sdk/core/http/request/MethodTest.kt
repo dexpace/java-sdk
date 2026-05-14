@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class MethodTest {
-
     @Test
     fun `all methods carry the canonical uppercase token`() {
         assertEquals("GET", Method.GET.method)

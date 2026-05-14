@@ -9,7 +9,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 
 class DispatchContextTest {
-
     private val ownedIds: MutableList<String> = mutableListOf()
 
     @AfterTest
@@ -17,8 +16,7 @@ class DispatchContextTest {
         for (id in ownedIds) ContextStore.remove(id)
     }
 
-    private fun owned(name: String): String =
-        "dispatch-$name-${System.nanoTime()}".also { ownedIds.add(it) }
+    private fun owned(name: String): String = "dispatch-$name-${System.nanoTime()}".also { ownedIds.add(it) }
 
     @Test
     fun `constructor wires the instrumentation context`() {

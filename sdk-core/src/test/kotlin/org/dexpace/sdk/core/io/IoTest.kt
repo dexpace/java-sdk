@@ -17,7 +17,6 @@ import kotlin.test.assertTrue
  * the test-fixtures artifact) so the overall installed provider state is restored on exit.
  */
 class IoTest {
-
     @BeforeTest
     fun installProvider() {
         // Ensure a provider is installed before each test; idempotent for OkioIoProvider.
@@ -46,9 +45,10 @@ class IoTest {
     @Test
     fun `installProvider rejects a different provider when one is installed`() {
         val different = object : IoProvider by OkioIoProvider {}
-        val thrown = assertFailsWith<IllegalStateException> {
-            Io.installProvider(different)
-        }
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                Io.installProvider(different)
+            }
         // Message names both providers and points to withProvider() for scoped overrides.
         assertTrue(thrown.message!!.contains("already installed"))
         assertTrue(thrown.message!!.contains("withProvider"))

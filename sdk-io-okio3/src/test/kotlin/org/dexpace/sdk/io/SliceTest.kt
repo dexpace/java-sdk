@@ -13,12 +13,10 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SliceTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -274,7 +272,7 @@ class SliceTest {
     fun `slice of slice composes offsets and bounds correctly`() {
         val parent = source("0123456789ABCDEF")
         val outer = parent.slice(offset = 2, byteCount = 10) // "23456789AB"
-        val inner = outer.slice(offset = 3, byteCount = 4)   // "5678"
+        val inner = outer.slice(offset = 3, byteCount = 4) // "5678"
         assertEquals("5678", inner.readUtf8())
         // Outer untouched.
         assertEquals("23456789AB", outer.readUtf8())
@@ -791,21 +789,41 @@ class SliceTest {
         }
 
         override val size: Long get() = (materialize().size - read).toLong()
+
         override fun snapshot(): ByteArray {
             val arr = materialize()
             val rem = ByteArray(arr.size - read)
             System.arraycopy(arr, read, rem, 0, rem.size)
             return rem
         }
-        override fun clear() { store.reset(); contents = null; read = 0 }
-        override fun copyTo(out: Buffer, offset: Long, byteCount: Long): Buffer {
+
+        override fun clear() {
+            store.reset()
+            contents = null
+            read = 0
+        }
+
+        override fun copyTo(
+            out: Buffer,
+            offset: Long,
+            byteCount: Long,
+        ): Buffer {
             out.write(materialize(), read + offset.toInt(), byteCount.toInt())
             return this
         }
+
         override val buffer: Buffer get() = this
+
         override fun exhausted(): Boolean = size == 0L
+
         override fun readByte(): Byte = materialize()[read++]
-        override fun readByteArray(): ByteArray { val r = snapshot(); read = materialize().size; return r }
+
+        override fun readByteArray(): ByteArray {
+            val r = snapshot()
+            read = materialize().size
+            return r
+        }
+
         override fun readByteArray(byteCount: Long): ByteArray {
             val arr = materialize()
             val out = ByteArray(byteCount.toInt())
@@ -813,42 +831,91 @@ class SliceTest {
             read += out.size
             return out
         }
+
         override fun readUtf8(): String = String(readByteArray(), Charsets.UTF_8)
+
         override fun readUtf8(byteCount: Long): String = String(readByteArray(byteCount), Charsets.UTF_8)
+
         override fun readUtf8Line(): String? = null
+
         override fun readString(charset: Charset): String = String(readByteArray(), charset)
+
         override fun peek(): BufferedSource = throw UnsupportedOperationException()
+
         override fun inputStream(): java.io.InputStream = throw UnsupportedOperationException()
-        override fun skip(byteCount: Long) { read += byteCount.toInt() }
-        override fun slice(offset: Long, byteCount: Long): BufferedSource = throw UnsupportedOperationException()
-        override fun read(sink: Buffer, byteCount: Long): Long {
+
+        override fun skip(byteCount: Long) {
+            read += byteCount.toInt()
+        }
+
+        override fun slice(
+            offset: Long,
+            byteCount: Long,
+        ): BufferedSource = throw UnsupportedOperationException()
+
+        override fun read(
+            sink: Buffer,
+            byteCount: Long,
+        ): Long {
             if (exhausted()) return -1L
             val avail = minOf(byteCount, size)
             sink.write(readByteArray(avail))
             return avail
         }
+
         override fun write(source: ByteArray): org.dexpace.sdk.core.io.BufferedSink {
-            store.write(source); contents = null; return this
+            store.write(source)
+            contents = null
+            return this
         }
-        override fun write(source: ByteArray, offset: Int, byteCount: Int): org.dexpace.sdk.core.io.BufferedSink {
-            store.write(source, offset, byteCount); contents = null; return this
+
+        override fun write(
+            source: ByteArray,
+            offset: Int,
+            byteCount: Int,
+        ): org.dexpace.sdk.core.io.BufferedSink {
+            store.write(source, offset, byteCount)
+            contents = null
+            return this
         }
+
         override fun writeAll(source: org.dexpace.sdk.core.io.Source): Long = 0L
+
         override fun writeUtf8(string: String): org.dexpace.sdk.core.io.BufferedSink {
-            write(string.toByteArray(Charsets.UTF_8)); return this
+            write(string.toByteArray(Charsets.UTF_8))
+            return this
         }
-        override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): org.dexpace.sdk.core.io.BufferedSink {
-            write(string.substring(beginIndex, endIndex).toByteArray(Charsets.UTF_8)); return this
+
+        override fun writeUtf8(
+            string: String,
+            beginIndex: Int,
+            endIndex: Int,
+        ): org.dexpace.sdk.core.io.BufferedSink {
+            write(string.substring(beginIndex, endIndex).toByteArray(Charsets.UTF_8))
+            return this
         }
-        override fun writeString(string: String, charset: Charset): org.dexpace.sdk.core.io.BufferedSink {
-            write(string.toByteArray(charset)); return this
+
+        override fun writeString(
+            string: String,
+            charset: Charset,
+        ): org.dexpace.sdk.core.io.BufferedSink {
+            write(string.toByteArray(charset))
+            return this
         }
+
         override fun outputStream(): java.io.OutputStream = throw UnsupportedOperationException()
+
         override fun emit(): org.dexpace.sdk.core.io.BufferedSink = this
-        override fun write(source: Buffer, byteCount: Long) {
+
+        override fun write(
+            source: Buffer,
+            byteCount: Long,
+        ) {
             write(source.readByteArray(byteCount))
         }
+
         override fun flush() {}
+
         override fun close() {}
     }
 }

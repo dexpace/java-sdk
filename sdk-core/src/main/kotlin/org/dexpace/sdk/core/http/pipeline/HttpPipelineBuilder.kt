@@ -18,19 +18,19 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  * Logging: pillar replacement emits a `pipeline.pillar.replaced` warning via SLF4J.
  */
 public class HttpPipelineBuilder(private val httpClient: HttpClient) {
-
     @PublishedApi
-    internal val steps: StagedSteps<HttpStep> = StagedSteps(
-        stageOf = HttpStep::stage,
-        onPillarReplaced = { stage, prev, next ->
-            LOG.atWarning()
-                .event("pipeline.pillar.replaced")
-                .field("stage", stage.name)
-                .field("previous", prev::class.simpleName ?: "<anonymous>")
-                .field("replacement", next::class.simpleName ?: "<anonymous>")
-                .log()
-        },
-    )
+    internal val steps: StagedSteps<HttpStep> =
+        StagedSteps(
+            stageOf = HttpStep::stage,
+            onPillarReplaced = { stage, prev, next ->
+                LOG.atWarning()
+                    .event("pipeline.pillar.replaced")
+                    .field("stage", stage.name)
+                    .field("previous", prev::class.simpleName ?: "<anonymous>")
+                    .field("replacement", next::class.simpleName ?: "<anonymous>")
+                    .log()
+            },
+        )
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
     public fun append(step: HttpStep): HttpPipelineBuilder = apply { steps.append(step) }
@@ -120,7 +120,8 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
 
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
-        public fun from(pipeline: HttpPipeline): HttpPipelineBuilder = HttpPipelineBuilder(pipeline.httpClient)
-            .also { it.steps.reload(pipeline.steps) }
+        public fun from(pipeline: HttpPipeline): HttpPipelineBuilder =
+            HttpPipelineBuilder(pipeline.httpClient)
+                .also { it.steps.reload(pipeline.steps) }
     }
 }

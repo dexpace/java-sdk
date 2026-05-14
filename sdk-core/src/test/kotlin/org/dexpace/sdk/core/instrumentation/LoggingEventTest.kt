@@ -15,7 +15,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class LoggingEventTest {
-
     // Saved before every test and restored after so that MDC tests installing
     // BasicMDCAdapter do not bleed the non-nop adapter into the rest of the suite.
     private var savedMdcAdapter: MDCAdapter? = null
@@ -41,8 +40,7 @@ class LoggingEventTest {
         return ClientLogger.forTesting(fake, globalContext) to fake
     }
 
-    private fun List<org.slf4j.event.KeyValuePair>.toMap(): Map<String, Any?> =
-        associate { it.key to it.value }
+    private fun List<org.slf4j.event.KeyValuePair>.toMap(): Map<String, Any?> = associate { it.key to it.value }
 
     // -- Fluent chain ---------------------------------------------------------------------------
 
@@ -152,16 +150,20 @@ class LoggingEventTest {
         val ev = logger.atInfo().field("k", "v").event("e")
 
         val barrier = java.util.concurrent.CyclicBarrier(2)
-        val t1 = Thread {
-            barrier.await()
-            ev.log("from-t1")
-        }
-        val t2 = Thread {
-            barrier.await()
-            ev.log("from-t2")
-        }
-        t1.start(); t2.start()
-        t1.join(); t2.join()
+        val t1 =
+            Thread {
+                barrier.await()
+                ev.log("from-t1")
+            }
+        val t2 =
+            Thread {
+                barrier.await()
+                ev.log("from-t2")
+            }
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         assertEquals(1, fake.records.size)
     }
@@ -235,9 +237,10 @@ class LoggingEventTest {
     @Test
     fun `serializer throwing is caught and reported as placeholder`() {
         val (logger, fake) = enabledLogger()
-        val bad = object {
-            override fun toString(): String = throw IllegalStateException("nope")
-        }
+        val bad =
+            object {
+                override fun toString(): String = error("nope")
+            }
         logger.atInfo().field("k", bad as Any?).log()
         val rendered = fake.records.single().keyValues.toMap()["k"] as String
         assertContains(rendered, "<error: serializer threw")
@@ -441,9 +444,10 @@ class LoggingEventTest {
     fun `serializer exception path renders the catch block placeholder`() {
         // A custom object whose toString() throws is caught by the outer try/catch in
         // renderForLog and emitted as `<error: serializer threw: <message>>`.
-        val bad = object {
-            override fun toString(): String = throw IllegalStateException("explode")
-        }
+        val bad =
+            object {
+                override fun toString(): String = error("explode")
+            }
         val (logger, fake) = enabledLogger()
         logger.atInfo().field("v", bad as Any?).log()
         val rendered = fake.records.single().keyValues.toMap()["v"] as String
@@ -454,9 +458,10 @@ class LoggingEventTest {
     @Test
     fun `arbitrary non-primitive object falls through to toString`() {
         val (logger, fake) = enabledLogger()
-        val obj: Any = object {
-            override fun toString(): String = "custom-rendered"
-        }
+        val obj: Any =
+            object {
+                override fun toString(): String = "custom-rendered"
+            }
         logger.atInfo().field("v", obj).log()
         assertEquals("custom-rendered", fake.records.single().keyValues.toMap()["v"])
     }

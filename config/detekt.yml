@@ -31,6 +31,8 @@ complexity:
   LargeClass:
     active: true
     threshold: 600
+    # Test classes legitimately accrete many @Test fns; only police production source.
+    excludes: ['**/test/**', '**/Test*.kt', '**/*Test.kt']
   LongMethod:
     active: true
     threshold: 80
@@ -140,6 +142,18 @@ style:
   active: true
   EqualsNullCall:
     active: true
+  MagicNumber:
+    active: true
+    # HTTP status codes, RFC-defined bit masks, pipeline-stage priorities etc. all live as
+    # named property declarations (Status.kt companion-object constants, Stage.kt object
+    # priorities). Allow them; flag only inline-expression numbers.
+    ignorePropertyDeclaration: true
+    ignoreEnums: true
+    ignoreAnnotation: true
+    ignoreNamedArgument: true
+    ignoreHashCodeFunction: true
+    ignoreConstantDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
   MaxLineLength:
     active: true
     maxLineLength: 160
@@ -156,6 +170,10 @@ style:
     active: true
   ProtectedMemberInFinalClass:
     active: true
+  ReturnCount:
+    active: true
+    # Idiomatic Kotlin uses guard-clause early returns; raise the default-2 threshold.
+    max: 4
   SafeCast:
     active: true
   UnnecessaryBackticks:

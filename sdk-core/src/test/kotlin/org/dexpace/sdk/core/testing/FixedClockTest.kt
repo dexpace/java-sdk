@@ -8,7 +8,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class FixedClockTest {
-
     @Test
     fun `now returns the constructor-supplied instant`() {
         val origin = Instant.parse("2024-01-01T00:00:00Z")

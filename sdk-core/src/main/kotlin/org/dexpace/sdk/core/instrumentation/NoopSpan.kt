@@ -18,7 +18,10 @@ public object NoopSpan : Span {
     override val isRecording: Boolean = false
 
     /** No-op; returns `this` for fluent chaining. */
-    override fun setAttribute(key: String, value: Any): Span = this
+    override fun setAttribute(
+        key: String,
+        value: Any,
+    ): Span = this
 
     /** No-op; returns `this` for fluent chaining. */
     override fun setError(errorType: String): Span = this

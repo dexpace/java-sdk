@@ -12,7 +12,6 @@ import java.time.Duration as JDuration
  * on them without duplicating.
  */
 public object Futures {
-
     /**
      * Returns a future already completed exceptionally with [t]. Equivalent to JDK 9's
      * `CompletableFuture.failedFuture(...)` but Java 8 compatible (the SDK targets Java 8
@@ -60,18 +59,22 @@ public object Futures {
      * Cancellation of the returned future cancels the scheduled task.
      */
     @JvmStatic
-    public fun delay(scheduler: ScheduledExecutorService, delay: JDuration): CompletableFuture<Void> {
+    public fun delay(
+        scheduler: ScheduledExecutorService,
+        delay: JDuration,
+    ): CompletableFuture<Void> {
         require(!delay.isNegative) { "delay must be non-negative (got $delay)" }
         val future = CompletableFuture<Void>()
         if (delay.isZero) {
             future.complete(null)
             return future
         }
-        val scheduled = scheduler.schedule(
-            { future.complete(null) },
-            delay.toNanos(),
-            TimeUnit.NANOSECONDS,
-        )
+        val scheduled =
+            scheduler.schedule(
+                { future.complete(null) },
+                delay.toNanos(),
+                TimeUnit.NANOSECONDS,
+            )
         // If a caller cancels the resulting future, propagate to the scheduled task so the
         // scheduler thread isn't held.
         future.whenComplete { _, _ -> scheduled.cancel(false) }

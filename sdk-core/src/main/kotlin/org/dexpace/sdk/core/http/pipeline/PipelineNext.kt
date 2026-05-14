@@ -12,7 +12,6 @@ import java.io.IOException
  * allocation per [copy] — and the underlying steps array is shared across copies.
  */
 public class PipelineNext internal constructor(private val state: PipelineCallState) {
-
     /**
      * Advances to the next step and invokes it. If no further step exists, dispatches the
      * request to the pipeline's [org.dexpace.sdk.core.client.HttpClient].
@@ -20,8 +19,11 @@ public class PipelineNext internal constructor(private val state: PipelineCallSt
     @Throws(IOException::class)
     public fun process(): Response {
         val nextStep = state.advance()
-        return if (nextStep == null) state.httpClient.execute(state.request)
-        else nextStep.process(state.request, this)
+        return if (nextStep == null) {
+            state.httpClient.execute(state.request)
+        } else {
+            nextStep.process(state.request, this)
+        }
     }
 
     /**

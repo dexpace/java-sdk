@@ -3,7 +3,6 @@ package org.dexpace.sdk.io
 import org.dexpace.sdk.core.io.Buffer
 import org.dexpace.sdk.core.io.Io
 import java.io.ByteArrayOutputStream
-import java.io.IOException
 import java.nio.charset.Charset
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -11,7 +10,6 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -23,7 +21,6 @@ import kotlin.test.assertTrue
  * boundary, slice(), outputStream(), emit(), and close() idempotency.
  */
 class OkioBufferTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -280,7 +277,7 @@ class OkioBufferTest {
         b.writeString("héllo", Charsets.ISO_8859_1)
         assertContentEquals(
             "héllo".toByteArray(Charsets.ISO_8859_1),
-            b.readByteArray()
+            b.readByteArray(),
         )
     }
 
@@ -467,16 +464,20 @@ class OkioBufferTest {
         // BufferedSource
 
         override val buffer: Buffer get() = this
+
         override fun exhausted(): Boolean = size == 0L
+
         override fun readByte(): Byte {
             val arr = materialize()
             return arr[read++]
         }
+
         override fun readByteArray(): ByteArray {
             val rem = snapshot()
             read = materialize().size
             return rem
         }
+
         override fun readByteArray(byteCount: Long): ByteArray {
             val arr = materialize()
             val n = byteCount.toInt()
@@ -485,17 +486,32 @@ class OkioBufferTest {
             read += n
             return out
         }
-        override fun readUtf8(): String = String(readByteArray(), Charsets.UTF_8)
-        override fun readUtf8(byteCount: Long): String = String(readByteArray(byteCount), Charsets.UTF_8)
-        override fun readUtf8Line(): String? = throw UnsupportedOperationException("unused")
-        override fun readString(charset: Charset): String = String(readByteArray(), charset)
-        override fun peek(): org.dexpace.sdk.core.io.BufferedSource = throw UnsupportedOperationException("unused")
-        override fun inputStream(): java.io.InputStream = throw UnsupportedOperationException("unused")
-        override fun skip(byteCount: Long) { read += byteCount.toInt() }
-        override fun slice(offset: Long, byteCount: Long): org.dexpace.sdk.core.io.BufferedSource =
-            throw UnsupportedOperationException("unused")
 
-        override fun read(sink: Buffer, byteCount: Long): Long {
+        override fun readUtf8(): String = String(readByteArray(), Charsets.UTF_8)
+
+        override fun readUtf8(byteCount: Long): String = String(readByteArray(byteCount), Charsets.UTF_8)
+
+        override fun readUtf8Line(): String? = throw UnsupportedOperationException("unused")
+
+        override fun readString(charset: Charset): String = String(readByteArray(), charset)
+
+        override fun peek(): org.dexpace.sdk.core.io.BufferedSource = throw UnsupportedOperationException("unused")
+
+        override fun inputStream(): java.io.InputStream = throw UnsupportedOperationException("unused")
+
+        override fun skip(byteCount: Long) {
+            read += byteCount.toInt()
+        }
+
+        override fun slice(
+            offset: Long,
+            byteCount: Long,
+        ): org.dexpace.sdk.core.io.BufferedSource = throw UnsupportedOperationException("unused")
+
+        override fun read(
+            sink: Buffer,
+            byteCount: Long,
+        ): Long {
             require(byteCount >= 0)
             if (exhausted()) return -1L
             if (byteCount == 0L) return 0L
@@ -512,11 +528,17 @@ class OkioBufferTest {
             contents = null
             return this
         }
-        override fun write(source: ByteArray, offset: Int, byteCount: Int): org.dexpace.sdk.core.io.BufferedSink {
+
+        override fun write(
+            source: ByteArray,
+            offset: Int,
+            byteCount: Int,
+        ): org.dexpace.sdk.core.io.BufferedSink {
             store.write(source, offset, byteCount)
             contents = null
             return this
         }
+
         override fun writeAll(source: org.dexpace.sdk.core.io.Source): Long {
             var total = 0L
             while (true) {
@@ -528,26 +550,43 @@ class OkioBufferTest {
             }
             return total
         }
+
         override fun writeUtf8(string: String): org.dexpace.sdk.core.io.BufferedSink {
             write(string.toByteArray(Charsets.UTF_8))
             return this
         }
-        override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): org.dexpace.sdk.core.io.BufferedSink {
+
+        override fun writeUtf8(
+            string: String,
+            beginIndex: Int,
+            endIndex: Int,
+        ): org.dexpace.sdk.core.io.BufferedSink {
             write(string.substring(beginIndex, endIndex).toByteArray(Charsets.UTF_8))
             return this
         }
-        override fun writeString(string: String, charset: Charset): org.dexpace.sdk.core.io.BufferedSink {
+
+        override fun writeString(
+            string: String,
+            charset: Charset,
+        ): org.dexpace.sdk.core.io.BufferedSink {
             write(string.toByteArray(charset))
             return this
         }
+
         override fun outputStream(): java.io.OutputStream = throw UnsupportedOperationException("unused")
+
         override fun emit(): org.dexpace.sdk.core.io.BufferedSink = this
 
-        override fun write(source: Buffer, byteCount: Long) {
+        override fun write(
+            source: Buffer,
+            byteCount: Long,
+        ) {
             val bytes = source.readByteArray(byteCount)
             write(bytes)
         }
+
         override fun flush() {}
+
         override fun close() {}
     }
 }

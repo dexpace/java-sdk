@@ -74,243 +74,306 @@ import java.util.Locale
  * - The `Authorization` header stripping and `userinfo` removal from `Location` URLs are
  *   security-critical; preserve them in any override.
  */
-public open class DefaultRedirectStep @JvmOverloads constructor(
-    private val options: HttpRedirectOptions = HttpRedirectOptions(),
-    internal val logger: ClientLogger = ClientLogger(DefaultRedirectStep::class),
-) : RedirectStep() {
+public open class DefaultRedirectStep
+    @JvmOverloads
+    constructor(
+        private val options: HttpRedirectOptions = HttpRedirectOptions(),
+        internal val logger: ClientLogger = ClientLogger(DefaultRedirectStep::class),
+    ) : RedirectStep() {
+        // Each branch (not-a-redirect, opted-out, recreate-returned-null, cycle-detected,
+        // max-hops-reached) is a distinct semantic outcome with its own log/close discipline;
+        // collapsing to a single return would require a sentinel and an outer switch.
+        @Suppress("ReturnCount")
+        @Throws(IOException::class)
+        override fun process(
+            request: Request,
+            next: PipelineNext,
+        ): Response {
+            val seenUris = LinkedHashSet<String>()
+            seenUris.add(request.url.toString())
 
-    @Throws(IOException::class)
-    override fun process(request: Request, next: PipelineNext): Response {
-        val seenUris = LinkedHashSet<String>()
-        seenUris.add(request.url.toString())
+            var current: Response = next.copy().process()
+            var attempts = 0
 
-        var current: Response = next.copy().process()
-        var attempts = 0
+            while (attempts < options.maxHops) {
+                if (!isRedirectStatus(current.status.code)) return current
 
-        while (attempts < options.maxHops) {
-            if (!isRedirectStatus(current.status.code)) return current
+                val condition = HttpRedirectCondition(current, attempts, seenUris)
+                val shouldRedirect =
+                    options.shouldRedirect?.shouldRedirect(condition)
+                        ?: defaultShouldRedirect(condition)
+                if (!shouldRedirect) return current
 
-            val condition = HttpRedirectCondition(current, attempts, seenUris)
-            val shouldRedirect = options.shouldRedirect?.shouldRedirect(condition)
-                ?: defaultShouldRedirect(condition)
-            if (!shouldRedirect) return current
-
-            val nextRequest = try {
-                recreateRedirectRequest(current)
-            } catch (t: Throwable) {
+                val nextRequest =
+                    try {
+                        recreateRedirectRequest(current)
+                    } catch (t: Throwable) {
+                        current.close()
+                        throw t
+                    } ?: return current
+                val nextUrlString = nextRequest.url.toString()
+                if (!seenUris.add(nextUrlString)) {
+                    // Cycle detected — return the current redirect response rather than looping.
+                    // The caller receives the in-flight response with close-responsibility intact,
+                    // matching the contract of every other `return current` path in this function.
+                    // Closing here would deliver an already-closed body to the caller.
+                    logRedirectLoop(current, nextRequest)
+                    return current
+                }
+                logRedirectHop(current, nextRequest, attempts)
                 current.close()
-                throw t
-            } ?: return current
-            val nextUrlString = nextRequest.url.toString()
-            if (!seenUris.add(nextUrlString)) {
-                // Cycle detected — return the current redirect response rather than looping.
-                // The caller receives the in-flight response with close-responsibility intact,
-                // matching the contract of every other `return current` path in this function.
-                // Closing here would deliver an already-closed body to the caller.
-                logRedirectLoop(current, nextRequest)
-                return current
+                current = next.copy().process(nextRequest)
+                attempts++
             }
-            logRedirectHop(current, nextRequest, attempts)
-            current.close()
-            current = next.copy().process(nextRequest)
-            attempts++
-        }
-        // Max attempts reached — the response IS the result, even if it's another redirect.
-        return current
-    }
-
-    private fun isRedirectStatus(code: Int): Boolean =
-        code == 301 || code == 302 || code == 303 || code == 307 || code == 308
-
-    /**
-     * Default predicate: follow if status is 301/302/307/308 (or 303 when opted in) AND
-     * the original method is allowed AND the [HttpRedirectOptions.locationHeader] is
-     * present. Loop detection is handled separately in the main loop.
-     */
-    private fun defaultShouldRedirect(condition: HttpRedirectCondition): Boolean {
-        val response = condition.response
-        val code = response.status.code
-
-        // 303 doesn't go through the method matrix — the reissue is always GET, so the
-        // original method is irrelevant. Opt-in via options.follow303.
-        if (code == 303) return options.follow303
-
-        // 301/302 — default policy is GET/HEAD only.
-        // 307/308 — original method preserved; any method is opt-in via allowedMethods.
-        if (code != 301 && code != 302 && code != 307 && code != 308) return false
-        if (response.request.method !in options.allowedMethods) return false
-        val location = response.headers.get(options.locationHeader)
-        return !location.isNullOrEmpty()
-    }
-
-    /**
-     * Builds the redirect target request. Returns null if the `Location` is missing,
-     * empty, or malformed — the caller treats null as "don't redirect, return the
-     * current response". Throws [IllegalStateException] when the redirect would downgrade
-     * the scheme from HTTPS to HTTP and [HttpRedirectOptions.allowSchemeDowngrade] is
-     * false, or when a 307/308 redirect carries a non-replayable body.
-     */
-    @Throws(IOException::class)
-    private fun recreateRedirectRequest(response: Response): Request? {
-        val rawLocation = response.headers.get(options.locationHeader)
-        if (rawLocation.isNullOrEmpty()) return null
-
-        val originalRequest = response.request
-        val resolvedUrl = resolveLocation(originalRequest.url, rawLocation) ?: return null
-
-        enforceSchemeDowngradePolicy(originalRequest.url, resolvedUrl)
-
-        val code = response.status.code
-        // 303 with follow303=true: reissue as GET, drop body and Content-* headers.
-        if (code == 303 && options.follow303) {
-            return buildGetRedirect(originalRequest, resolvedUrl)
+            // Max attempts reached — the response IS the result, even if it's another redirect.
+            return current
         }
 
-        // 307/308: original method AND body preserved. Replayability is required.
-        if (code == 307 || code == 308) {
-            val body = originalRequest.body
-            check(body == null || body.isReplayable()) {
-                "Redirect requires replayable body for 307/308; call Request.body.toReplayable() before send."
+        private fun isRedirectStatus(code: Int): Boolean = code in REDIRECT_STATUS_CODES
+
+        /**
+         * Default predicate: follow if status is 301/302/307/308 (or 303 when opted in) AND
+         * the original method is allowed AND the [HttpRedirectOptions.locationHeader] is
+         * present. Loop detection is handled separately in the main loop.
+         */
+        private fun defaultShouldRedirect(condition: HttpRedirectCondition): Boolean {
+            val response = condition.response
+            val code = response.status.code
+
+            // 303 doesn't go through the method matrix — the reissue is always GET, so the
+            // original method is irrelevant. Opt-in via options.follow303.
+            if (code == SC_SEE_OTHER) return options.follow303
+
+            // 301/302 — default policy is GET/HEAD only.
+            // 307/308 — original method preserved; any method is opt-in via allowedMethods.
+            if (code !in METHOD_PRESERVING_REDIRECTS) return false
+            if (response.request.method !in options.allowedMethods) return false
+            val location = response.headers.get(options.locationHeader)
+            return !location.isNullOrEmpty()
+        }
+
+        /**
+         * Builds the redirect target request. Returns null if the `Location` is missing,
+         * empty, or malformed — the caller treats null as "don't redirect, return the
+         * current response". Throws [IllegalStateException] when the redirect would downgrade
+         * the scheme from HTTPS to HTTP and [HttpRedirectOptions.allowSchemeDowngrade] is
+         * false, or when a 307/308 redirect carries a non-replayable body.
+         */
+        @Throws(IOException::class)
+        private fun recreateRedirectRequest(response: Response): Request? {
+            val rawLocation = response.headers.get(options.locationHeader)
+            if (rawLocation.isNullOrEmpty()) return null
+
+            val originalRequest = response.request
+            val resolvedUrl = resolveLocation(originalRequest.url, rawLocation) ?: return null
+
+            enforceSchemeDowngradePolicy(originalRequest.url, resolvedUrl)
+
+            val code = response.status.code
+            // 303 with follow303=true: reissue as GET, drop body and Content-* headers.
+            if (code == SC_SEE_OTHER && options.follow303) {
+                return buildGetRedirect(originalRequest, resolvedUrl)
+            }
+
+            // 307/308: original method AND body preserved. Replayability is required.
+            if (code == SC_TEMPORARY_REDIRECT || code == SC_PERMANENT_REDIRECT) {
+                val body = originalRequest.body
+                check(body == null || body.isReplayable()) {
+                    "Redirect requires replayable body for 307/308; call Request.body.toReplayable() before send."
+                }
+            }
+
+            return originalRequest.newBuilder()
+                .url(resolvedUrl)
+                .removeHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName)
+                .build()
+        }
+
+        /**
+         * Builds a fresh GET request that targets [resolvedUrl] and copies non-body, non-
+         * content metadata from [original]. The `Authorization` header and every `Content-*`
+         * header are stripped — the latter because the body is being dropped.
+         */
+        private fun buildGetRedirect(
+            original: Request,
+            resolvedUrl: URL,
+        ): Request {
+            val strippedHeaders = stripContentAndAuthHeaders(original.headers)
+            return Request.builder()
+                .method(Method.GET)
+                .url(resolvedUrl)
+                .headers(strippedHeaders)
+                .build()
+        }
+
+        private fun stripContentAndAuthHeaders(headers: Headers): Headers {
+            val builder = headers.newBuilder()
+            builder.remove(HttpHeaderName.AUTHORIZATION)
+            // Strip every header whose name starts with "content-" (case-insensitive). The
+            // underlying store may return names in mixed case (`Content-Type`), so lower-case
+            // before the prefix test. Iterate a snapshot of the keys to avoid concurrent
+            // modification while mutating the builder.
+            val toRemove = ArrayList<String>()
+            for (name in headers.names()) {
+                if (name.lowercase(Locale.US).startsWith("content-")) toRemove.add(name)
+            }
+            for (name in toRemove) builder.remove(name)
+            return builder.build()
+        }
+
+        /**
+         * Resolves [location] against [base]. Absolute URLs are returned as-is (with
+         * userinfo stripped); relative URLs are resolved via [URI.resolve]. Returns null
+         * for malformed inputs (logged at warning).
+         */
+        private fun resolveLocation(
+            base: URL,
+            location: String,
+        ): URL? {
+            return try {
+                val baseUri = base.toURI()
+                val resolved = baseUri.resolve(location)
+                stripUserInfo(resolved).toURL()
+            } catch (t: URISyntaxException) {
+                logMalformedLocation(location, t)
+                null
+            } catch (t: IllegalArgumentException) {
+                logMalformedLocation(location, t)
+                null
+            } catch (t: MalformedURLException) {
+                logMalformedLocation(location, t)
+                null
             }
         }
 
-        return originalRequest.newBuilder()
-            .url(resolvedUrl)
-            .removeHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName)
-            .build()
-    }
-
-    /**
-     * Builds a fresh GET request that targets [resolvedUrl] and copies non-body, non-
-     * content metadata from [original]. The `Authorization` header and every `Content-*`
-     * header are stripped — the latter because the body is being dropped.
-     */
-    private fun buildGetRedirect(original: Request, resolvedUrl: URL): Request {
-        val strippedHeaders = stripContentAndAuthHeaders(original.headers)
-        return Request.builder()
-            .method(Method.GET)
-            .url(resolvedUrl)
-            .headers(strippedHeaders)
-            .build()
-    }
-
-    private fun stripContentAndAuthHeaders(headers: Headers): Headers {
-        val builder = headers.newBuilder()
-        builder.remove(HttpHeaderName.AUTHORIZATION)
-        // Strip every header whose name starts with "content-" (case-insensitive). The
-        // underlying store may return names in mixed case (`Content-Type`), so lower-case
-        // before the prefix test. Iterate a snapshot of the keys to avoid concurrent
-        // modification while mutating the builder.
-        val toRemove = ArrayList<String>()
-        for (name in headers.names()) {
-            if (name.lowercase(Locale.US).startsWith("content-")) toRemove.add(name)
+        private fun logMalformedLocation(
+            location: String,
+            cause: Throwable,
+        ) {
+            logger.atWarning()
+                .event("http.redirect.malformed_location")
+                .field("location.raw", location)
+                .field("error.type", cause::class.java.simpleName ?: "Throwable")
+                .log()
         }
-        for (name in toRemove) builder.remove(name)
-        return builder.build()
-    }
 
-    /**
-     * Resolves [location] against [base]. Absolute URLs are returned as-is (with
-     * userinfo stripped); relative URLs are resolved via [URI.resolve]. Returns null
-     * for malformed inputs (logged at warning).
-     */
-    private fun resolveLocation(base: URL, location: String): URL? {
-        return try {
-            val baseUri = base.toURI()
-            val resolved = baseUri.resolve(location)
-            stripUserInfo(resolved).toURL()
-        } catch (t: URISyntaxException) {
-            logMalformedLocation(location, t)
-            null
-        } catch (t: IllegalArgumentException) {
-            logMalformedLocation(location, t)
-            null
-        } catch (t: MalformedURLException) {
-            logMalformedLocation(location, t)
-            null
+        /**
+         * Returns [uri] with its userinfo component cleared. If [uri] has no userinfo the
+         * input is returned unchanged.
+         */
+        private fun stripUserInfo(uri: URI): URI {
+            if (uri.userInfo == null) return uri
+            return URI(
+                uri.scheme,
+                null,
+                uri.host,
+                uri.port,
+                uri.path,
+                uri.query,
+                uri.fragment,
+            )
+        }
+
+        /**
+         * Enforces the HTTPS-to-HTTP downgrade policy. By default ([HttpRedirectOptions.allowSchemeDowngrade]
+         * = false) any HTTPS → HTTP redirect throws [IllegalStateException] before reissue,
+         * preventing credentials / TLS guarantees from silently disappearing. When the caller
+         * opts in, the downgrade is permitted but logged at WARNING so the deviation stays
+         * observable.
+         */
+        private fun enforceSchemeDowngradePolicy(
+            from: URL,
+            to: URL,
+        ) {
+            if (!isHttpsToHttp(from, to)) return
+            check(options.allowSchemeDowngrade) {
+                "Redirect scheme downgrade from HTTPS to HTTP is not allowed; " +
+                    "set allowSchemeDowngrade=true to override"
+            }
+            logger.atWarning()
+                .event("http.redirect.scheme_downgrade")
+                .field("from", safeRedact(from))
+                .field("to", safeRedact(to))
+                .log()
+        }
+
+        private fun isHttpsToHttp(
+            from: URL,
+            to: URL,
+        ): Boolean =
+            from.protocol.equals("https", ignoreCase = true) &&
+                to.protocol.equals("http", ignoreCase = true)
+
+        /**
+         * Emits the `http.redirect` log event for a single hop.
+         *
+         * **Breaking change (backwards-incompatible event-field change):** the older `url.from` /
+         * `url.to` fields have been removed. Operators and log parsers that referenced those keys
+         * must migrate to `redirect.from_url` / `redirect.target_url`.
+         */
+        private fun logRedirectHop(
+            response: Response,
+            nextRequest: Request,
+            attempt: Int,
+        ) {
+            logger.atInfo()
+                .event("http.redirect")
+                .field("http.response.status_code", response.status.code.toLong())
+                // Log as 1-based so "attempt 1" is the first redirect hop; the internal counter
+                // remains 0-based to keep the while-loop condition simple.
+                .field("http.redirect.attempt", (attempt + 1).toLong())
+                .field("redirect.from_url", safeRedact(response.request.url))
+                .field("redirect.target_url", safeRedact(nextRequest.url))
+                .log()
+        }
+
+        private fun logRedirectLoop(
+            response: Response,
+            nextRequest: Request,
+        ) {
+            logger.atWarning()
+                .event("http.redirect.loop_detected")
+                .field("http.response.status_code", response.status.code.toLong())
+                .field("url.repeat", safeRedact(nextRequest.url))
+                .log()
+        }
+
+        private fun safeRedact(url: URL): String =
+            try {
+                UrlRedactor.redact(url)
+            } catch (t: Throwable) {
+                "[malformed url]"
+            }
+
+        private companion object {
+            // HTTP redirect status codes recognised by the step. 304 (Not Modified) and 305
+            // (Use Proxy) are intentionally excluded — 304 isn't a redirect and 305 is
+            // deprecated by RFC 7231.
+            private const val SC_MOVED_PERMANENTLY = 301
+            private const val SC_FOUND = 302
+            private const val SC_SEE_OTHER = 303
+            private const val SC_TEMPORARY_REDIRECT = 307
+            private const val SC_PERMANENT_REDIRECT = 308
+
+            // Status codes for which a redirect is attempted. 303 included; method-rewrite
+            // semantics are handled separately in [defaultShouldRedirect].
+            private val REDIRECT_STATUS_CODES: Set<Int> =
+                setOf(
+                    SC_MOVED_PERMANENTLY,
+                    SC_FOUND,
+                    SC_SEE_OTHER,
+                    SC_TEMPORARY_REDIRECT,
+                    SC_PERMANENT_REDIRECT,
+                )
+
+            // Redirect codes that preserve the request method (vs 303 which always rewrites
+            // to GET). 301/302 default to GET/HEAD only; 307/308 preserve the original method.
+            private val METHOD_PRESERVING_REDIRECTS: Set<Int> =
+                setOf(
+                    SC_MOVED_PERMANENTLY,
+                    SC_FOUND,
+                    SC_TEMPORARY_REDIRECT,
+                    SC_PERMANENT_REDIRECT,
+                )
         }
     }
-
-    private fun logMalformedLocation(location: String, cause: Throwable) {
-        logger.atWarning()
-            .event("http.redirect.malformed_location")
-            .field("location.raw", location)
-            .field("error.type", cause::class.java.simpleName ?: "Throwable")
-            .log()
-    }
-
-    /**
-     * Returns [uri] with its userinfo component cleared. If [uri] has no userinfo the
-     * input is returned unchanged.
-     */
-    private fun stripUserInfo(uri: URI): URI {
-        if (uri.userInfo == null) return uri
-        return URI(
-            uri.scheme,
-            null,
-            uri.host,
-            uri.port,
-            uri.path,
-            uri.query,
-            uri.fragment,
-        )
-    }
-
-    /**
-     * Enforces the HTTPS-to-HTTP downgrade policy. By default ([HttpRedirectOptions.allowSchemeDowngrade]
-     * = false) any HTTPS → HTTP redirect throws [IllegalStateException] before reissue,
-     * preventing credentials / TLS guarantees from silently disappearing. When the caller
-     * opts in, the downgrade is permitted but logged at WARNING so the deviation stays
-     * observable.
-     */
-    private fun enforceSchemeDowngradePolicy(from: URL, to: URL) {
-        if (!isHttpsToHttp(from, to)) return
-        check(options.allowSchemeDowngrade) {
-            "Redirect scheme downgrade from HTTPS to HTTP is not allowed; " +
-                "set allowSchemeDowngrade=true to override"
-        }
-        logger.atWarning()
-            .event("http.redirect.scheme_downgrade")
-            .field("from", safeRedact(from))
-            .field("to", safeRedact(to))
-            .log()
-    }
-
-    private fun isHttpsToHttp(from: URL, to: URL): Boolean =
-        from.protocol.equals("https", ignoreCase = true) &&
-            to.protocol.equals("http", ignoreCase = true)
-
-    /**
-     * Emits the `http.redirect` log event for a single hop.
-     *
-     * **Breaking change (backwards-incompatible event-field change):** the older `url.from` /
-     * `url.to` fields have been removed. Operators and log parsers that referenced those keys
-     * must migrate to `redirect.from_url` / `redirect.target_url`.
-     */
-    private fun logRedirectHop(response: Response, nextRequest: Request, attempt: Int) {
-        logger.atInfo()
-            .event("http.redirect")
-            .field("http.response.status_code", response.status.code.toLong())
-            // Log as 1-based so "attempt 1" is the first redirect hop; the internal counter
-            // remains 0-based to keep the while-loop condition simple.
-            .field("http.redirect.attempt", (attempt + 1).toLong())
-            .field("redirect.from_url", safeRedact(response.request.url))
-            .field("redirect.target_url", safeRedact(nextRequest.url))
-            .log()
-    }
-
-    private fun logRedirectLoop(response: Response, nextRequest: Request) {
-        logger.atWarning()
-            .event("http.redirect.loop_detected")
-            .field("http.response.status_code", response.status.code.toLong())
-            .field("url.repeat", safeRedact(nextRequest.url))
-            .log()
-    }
-
-    private fun safeRedact(url: URL): String =
-        try {
-            UrlRedactor.redact(url)
-        } catch (t: Throwable) {
-            "[malformed url]"
-        }
-}

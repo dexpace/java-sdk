@@ -40,7 +40,7 @@ import java.util.Locale
 public data class MediaType private constructor(
     val type: String,
     val subtype: String,
-    val parameters: Map<String, String> = emptyMap()
+    val parameters: Map<String, String> = emptyMap(),
 ) {
     /** The bare type/subtype form, without any parameters. */
     val fullType: String
@@ -58,13 +58,14 @@ public data class MediaType private constructor(
      * consistent canonical form for comparison and logging purposes.
      */
     val charset: Charset?
-        get() = parameters["charset"]?.let { charsetValue ->
-            try {
-                Charset.forName(charsetValue.lowercase(Locale.US))
-            } catch (_: Exception) {
-                null
+        get() =
+            parameters["charset"]?.let { charsetValue ->
+                try {
+                    Charset.forName(charsetValue.lowercase(Locale.US))
+                } catch (_: Exception) {
+                    null
+                }
             }
-        }
 
     /**
      * Checks if this media type includes [other], treating wildcards in either the type or
@@ -85,9 +86,10 @@ public data class MediaType private constructor(
      * Parameters are joined without spaces around the `;` separator.
      */
     override fun toString(): String {
-        val formattedParams = parameters.entries.joinToString(separator = ";") { (key, value) ->
-            "$key=$value"
-        }
+        val formattedParams =
+            parameters.entries.joinToString(separator = ";") { (key, value) ->
+                "$key=$value"
+            }
         return if (formattedParams.isEmpty()) "$type/$subtype" else "$type/$subtype;$formattedParams"
     }
 
@@ -101,7 +103,11 @@ public data class MediaType private constructor(
          */
         @JvmStatic
         @JvmOverloads
-        public fun of(type: String, subtype: String, parameters: Map<String, String> = emptyMap()): MediaType {
+        public fun of(
+            type: String,
+            subtype: String,
+            parameters: Map<String, String> = emptyMap(),
+        ): MediaType {
             require(type.isNotBlank()) { "Type must not be blank" }
             require(subtype.isNotBlank()) { "Subtype must not be blank" }
             require(!(type == "*" && subtype != "*")) {
@@ -133,54 +139,56 @@ public data class MediaType private constructor(
 
             // Parse type and subtype
             val slashIndex = mimeString.indexOf('/')
-            if (slashIndex <= 0 || slashIndex == mimeString.length - 1) {
-                throw IllegalArgumentException("Invalid media type format: $mediaType")
+            require(slashIndex > 0 && slashIndex != mimeString.length - 1) {
+                "Invalid media type format: $mediaType"
             }
             val type = mimeString.substring(0, slashIndex).trim().lowercase(Locale.US)
             val subtype = mimeString.substring(slashIndex + 1).trim().lowercase(Locale.US)
 
-            if (type == "*" && subtype != "*") {
-                throw IllegalArgumentException("Invalid media type format: $mediaType")
+            require(!(type == "*" && subtype != "*")) {
+                "Invalid media type format: $mediaType"
             }
 
-            val parametersMap = parameterSegments
-                .filter(String::isNotBlank)
-                .associate { parameter ->
-                    // Split on the FIRST `=` only — values may legitimately contain
-                    // additional `=` characters (e.g. multipart boundaries such as
-                    // `boundary=abc=def`). A naive `split("=")` would reject those.
-                    val equalsIndex = parameter.indexOf('=')
-                    if (equalsIndex < 0) {
-                        throw IllegalArgumentException("Invalid parameter format: $parameter")
-                    }
-                    val key = parameter.substring(0, equalsIndex).trim()
-                    val rawValue = parameter.substring(equalsIndex + 1).trim()
-                    if (key.isEmpty() || rawValue.isEmpty()) {
-                        throw IllegalArgumentException("Invalid parameter format: $parameter")
-                    }
-                    // RFC 7230 §3.2.6: strip surrounding double-quotes and unescape
-                    // quoted-pair sequences (`\"` → `"`, `\\` → `\`).
-                    val value = if (rawValue.startsWith("\"") && rawValue.endsWith("\"") && rawValue.length >= 2) {
-                        val inner = rawValue.substring(1, rawValue.length - 1)
-                        val sb = StringBuilder(inner.length)
-                        var i = 0
-                        while (i < inner.length) {
-                            if (inner[i] == '\\' && i + 1 < inner.length) {
-                                sb.append(inner[i + 1])
-                                i += 2
-                            } else {
-                                sb.append(inner[i])
-                                i++
-                            }
+            val parametersMap =
+                parameterSegments
+                    .filter(String::isNotBlank)
+                    .associate { parameter ->
+                        // Split on the FIRST `=` only — values may legitimately contain
+                        // additional `=` characters (e.g. multipart boundaries such as
+                        // `boundary=abc=def`). A naive `split("=")` would reject those.
+                        val equalsIndex = parameter.indexOf('=')
+                        require(equalsIndex >= 0) {
+                            "Invalid parameter format: $parameter"
                         }
-                        sb.toString()
-                    } else {
-                        rawValue
+                        val key = parameter.substring(0, equalsIndex).trim()
+                        val rawValue = parameter.substring(equalsIndex + 1).trim()
+                        require(key.isNotEmpty() && rawValue.isNotEmpty()) {
+                            "Invalid parameter format: $parameter"
+                        }
+                        // RFC 7230 §3.2.6: strip surrounding double-quotes and unescape
+                        // quoted-pair sequences (`\"` → `"`, `\\` → `\`).
+                        val value =
+                            if (rawValue.startsWith("\"") && rawValue.endsWith("\"") && rawValue.length >= 2) {
+                                val inner = rawValue.substring(1, rawValue.length - 1)
+                                val sb = StringBuilder(inner.length)
+                                var i = 0
+                                while (i < inner.length) {
+                                    if (inner[i] == '\\' && i + 1 < inner.length) {
+                                        sb.append(inner[i + 1])
+                                        i += 2
+                                    } else {
+                                        sb.append(inner[i])
+                                        i++
+                                    }
+                                }
+                                sb.toString()
+                            } else {
+                                rawValue
+                            }
+                        // Keys are lower-cased for case-insensitive lookup; values are preserved
+                        // because boundaries, base64 tokens, etc. are case-sensitive.
+                        key.lowercase(Locale.US) to value
                     }
-                    // Keys are lower-cased for case-insensitive lookup; values are preserved
-                    // because boundaries, base64 tokens, etc. are case-sensitive.
-                    key.lowercase(Locale.US) to value
-                }
 
             return MediaType(type, subtype, parametersMap)
         }

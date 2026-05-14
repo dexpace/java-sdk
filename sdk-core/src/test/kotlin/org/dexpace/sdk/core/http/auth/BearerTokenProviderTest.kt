@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BearerTokenProviderTest {
-
     /**
      * Provider implementation that captures invocation arguments so we can verify the
      * single-arg `fetch(scopes)` default overload forwards to the two-arg form with an
@@ -17,7 +16,10 @@ class BearerTokenProviderTest {
         var lastParams: Map<String, Any>? = null
             private set
 
-        override fun fetch(scopes: List<String>, params: Map<String, Any>): BearerToken {
+        override fun fetch(
+            scopes: List<String>,
+            params: Map<String, Any>,
+        ): BearerToken {
             lastScopes = scopes
             lastParams = params
             return BearerToken("tk", null)

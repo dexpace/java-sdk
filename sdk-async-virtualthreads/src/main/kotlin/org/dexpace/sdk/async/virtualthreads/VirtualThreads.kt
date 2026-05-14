@@ -60,9 +60,7 @@ public class VirtualThreadAsyncHttpClient internal constructor(
     private val delegate: AsyncHttpClient,
     private val executor: ExecutorService,
 ) : AsyncHttpClient, AutoCloseable {
-
-    override fun executeAsync(request: Request): CompletableFuture<Response> =
-        delegate.executeAsync(request)
+    override fun executeAsync(request: Request): CompletableFuture<Response> = delegate.executeAsync(request)
 
     /** Shuts down the virtual-thread executor and waits for in-flight tasks to complete. */
     override fun close() {

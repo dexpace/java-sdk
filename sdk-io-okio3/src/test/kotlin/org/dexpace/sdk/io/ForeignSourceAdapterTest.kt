@@ -18,7 +18,6 @@ import kotlin.test.assertTrue
  * reads exercising the cached-wrapper branch, and exhaustion semantics.
  */
 class ForeignSourceAdapterTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -32,7 +31,10 @@ class ForeignSourceAdapterTest {
         var closeCount = 0
         private var offset = 0
 
-        override fun read(sink: Buffer, byteCount: Long): Long {
+        override fun read(
+            sink: Buffer,
+            byteCount: Long,
+        ): Long {
             require(byteCount >= 0)
             if (offset >= data.size) return -1
             val n = minOf(byteCount.toInt(), data.size - offset)

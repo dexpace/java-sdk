@@ -10,7 +10,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class BearerTokenTest {
-
     @Test
     fun `data class round-trips token and expiresAt for equality`() {
         val expiry = Instant.parse("2030-01-01T00:00:00Z")

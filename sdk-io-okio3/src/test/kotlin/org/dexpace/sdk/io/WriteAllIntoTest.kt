@@ -22,7 +22,6 @@ import kotlin.test.assertTrue
  * `read <= 0` guard against a foreign Source that returns 0.
  */
 class WriteAllIntoTest {
-
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -32,25 +31,51 @@ class WriteAllIntoTest {
     private class PlainBufferedSource(data: ByteArray) : BufferedSource {
         private val buf = OkioIoProvider.buffer().apply { write(data) }
         override val buffer: Buffer get() = buf
-        override fun read(sink: Buffer, byteCount: Long): Long = buf.read(sink, byteCount)
+
+        override fun read(
+            sink: Buffer,
+            byteCount: Long,
+        ): Long = buf.read(sink, byteCount)
+
         override fun close() {}
+
         override fun exhausted(): Boolean = buf.exhausted()
+
         override fun readByte(): Byte = buf.readByte()
+
         override fun readByteArray(): ByteArray = buf.readByteArray()
+
         override fun readByteArray(byteCount: Long): ByteArray = buf.readByteArray(byteCount)
+
         override fun readUtf8(): String = buf.readUtf8()
+
         override fun readUtf8(byteCount: Long): String = buf.readUtf8(byteCount)
+
         override fun readUtf8Line(): String? = buf.readUtf8Line()
+
         override fun readString(charset: Charset): String = buf.readString(charset)
+
         override fun peek(): BufferedSource = throw UnsupportedOperationException()
+
         override fun inputStream(): java.io.InputStream = throw UnsupportedOperationException()
-        override fun skip(byteCount: Long) { buf.skip(byteCount) }
-        override fun slice(offset: Long, byteCount: Long): BufferedSource = throw UnsupportedOperationException()
+
+        override fun skip(byteCount: Long) {
+            buf.skip(byteCount)
+        }
+
+        override fun slice(
+            offset: Long,
+            byteCount: Long,
+        ): BufferedSource = throw UnsupportedOperationException()
     }
 
     /** Foreign Source that returns 0 on first read — ensures the slow path's guard short-circuits. */
     private class ZeroSource : Source {
-        override fun read(sink: Buffer, byteCount: Long): Long = 0L
+        override fun read(
+            sink: Buffer,
+            byteCount: Long,
+        ): Long = 0L
+
         override fun close() {}
     }
 

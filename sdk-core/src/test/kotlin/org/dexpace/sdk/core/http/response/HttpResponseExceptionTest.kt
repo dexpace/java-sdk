@@ -12,7 +12,6 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class HttpResponseExceptionTest {
-
     @Test
     fun `null response and null cause means not retryable`() {
         val ex = HttpResponseException("boom", response = null)
@@ -68,11 +67,12 @@ class HttpResponseExceptionTest {
     fun `response takes precedence over cause when response status is non-retryable`() {
         // Response is 200 (not retryable) but cause is IOException (would be retryable).
         // Response wins because it is non-null — matches the spec's response-first rule.
-        val ex = HttpResponseException(
-            "ok with io cause",
-            response = response(Status.OK),
-            cause = IOException("io"),
-        )
+        val ex =
+            HttpResponseException(
+                "ok with io cause",
+                response = response(Status.OK),
+                cause = IOException("io"),
+            )
         assertFalse(ex.isRetryable)
     }
 
@@ -88,11 +88,12 @@ class HttpResponseExceptionTest {
     @Test
     fun `value parameter is preserved`() {
         val payload = mapOf("error" to "rate-limited")
-        val ex = HttpResponseException(
-            "payload",
-            response = response(Status.TOO_MANY_REQUESTS),
-            value = payload,
-        )
+        val ex =
+            HttpResponseException(
+                "payload",
+                response = response(Status.TOO_MANY_REQUESTS),
+                value = payload,
+            )
         assertSame(payload, ex.value)
         assertTrue(ex.isRetryable) // 429 is retryable.
     }
@@ -118,21 +119,23 @@ class HttpResponseExceptionTest {
         class TypedHttpResponseException(message: String, response: Response?, cause: Throwable?) :
             HttpResponseException(message, response, value = null, cause = cause)
 
-        val ex = TypedHttpResponseException(
-            "typed",
-            response = response(Status.SERVICE_UNAVAILABLE),
-            cause = null,
-        )
+        val ex =
+            TypedHttpResponseException(
+                "typed",
+                response = response(Status.SERVICE_UNAVAILABLE),
+                cause = null,
+            )
         assertTrue(ex.isRetryable)
     }
 
     // ---- Helpers -----------------------------------------------------------------------
 
     private fun response(status: Status): Response {
-        val req = Request.builder()
-            .method(Method.GET)
-            .url("https://api.example.com/")
-            .build()
+        val req =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/")
+                .build()
         return Response.builder()
             .request(req)
             .protocol(Protocol.HTTP_1_1)
@@ -142,9 +145,11 @@ class HttpResponseExceptionTest {
 
     private class SelfReferentialException(message: String) : RuntimeException(message) {
         private var selfCause: Boolean = false
+
         fun setSelfCause() {
             selfCause = true
         }
+
         override val cause: Throwable?
             get() = if (selfCause) this else null
     }

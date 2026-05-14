@@ -12,7 +12,6 @@ import kotlin.test.assertNotNull
  * test that should be replaced rather than added alongside.
  */
 class QueryParamTest {
-
     @Test
     fun `default constructor produces an instance`() {
         // The no-arg constructor itself must succeed even though all methods are TODO.

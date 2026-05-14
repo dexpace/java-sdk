@@ -10,6 +10,9 @@ import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.http.sse.ServerSentEventReader
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
+import org.slf4j.MDC
+import org.slf4j.helpers.BasicMDCAdapter
+import org.slf4j.spi.MDCAdapter
 import reactor.core.scheduler.Schedulers
 import reactor.test.StepVerifier
 import java.io.IOException
@@ -23,12 +26,8 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import org.slf4j.MDC
-import org.slf4j.helpers.BasicMDCAdapter
-import org.slf4j.spi.MDCAdapter
 
 class ReactorTest {
-
     @BeforeTest
     fun installIo() {
         Io.installProvider(OkioIoProvider)
@@ -36,9 +35,10 @@ class ReactorTest {
 
     @Test
     fun `executeMono completes with the response on subscribe`() {
-        val client = AsyncHttpClient { request ->
-            CompletableFuture.completedFuture(mockResponse(request, 200))
-        }
+        val client =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
         StepVerifier.create(client.executeMono(getRequest()))
             .assertNext { assertEquals(200, it.status.code) }
             .verifyComplete()
@@ -47,9 +47,10 @@ class ReactorTest {
     @Test
     fun `executeMono surfaces errors via onError`() {
         val sentinel = IOException("net")
-        val client = AsyncHttpClient { _ ->
-            CompletableFuture<Response>().apply { completeExceptionally(sentinel) }
-        }
+        val client =
+            AsyncHttpClient { _ ->
+                CompletableFuture<Response>().apply { completeExceptionally(sentinel) }
+            }
         StepVerifier.create(client.executeMono(getRequest()))
             .expectErrorMatches { it.message == "net" || it.cause?.message == "net" }
             .verify()
@@ -58,10 +59,11 @@ class ReactorTest {
     @Test
     fun `executeMono is cold — re-subscribing re-executes the supplier`() {
         val subscribeCount = AtomicInteger(0)
-        val client = AsyncHttpClient { request ->
-            subscribeCount.incrementAndGet()
-            CompletableFuture.completedFuture(mockResponse(request, 200))
-        }
+        val client =
+            AsyncHttpClient { request ->
+                subscribeCount.incrementAndGet()
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
         val mono = client.executeMono(getRequest())
         mono.block()
         mono.block()
@@ -70,9 +72,10 @@ class ReactorTest {
 
     @Test
     fun `sendMono delegates to the pipeline`() {
-        val pipeline = AsyncHttpPipelineBuilder(
-            AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, 201)) },
-        ).build()
+        val pipeline =
+            AsyncHttpPipelineBuilder(
+                AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, 201)) },
+            ).build()
         StepVerifier.create(pipeline.sendMono(getRequest()))
             .assertNext { assertEquals(201, it.status.code) }
             .verifyComplete()
@@ -119,10 +122,11 @@ class ReactorTest {
         MDC.put("trace.id", "reactor-transport-test")
         try {
             val seenTraceId = AtomicInteger(0)
-            val client = AsyncHttpClient { request ->
-                seenTraceId.set(MDC.get("trace.id")?.hashCode() ?: -1)
-                CompletableFuture.completedFuture(mockResponse(request, 200))
-            }
+            val client =
+                AsyncHttpClient { request ->
+                    seenTraceId.set(MDC.get("trace.id")?.hashCode() ?: -1)
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
             client.executeMono(getRequest()).block(java.time.Duration.ofSeconds(2))
             // The supplier is called synchronously on the subscribe thread, so MDC is already present.
             // We just verify that the supplier sees it (baseline regression).
@@ -139,9 +143,10 @@ class ReactorTest {
         installBasicMdcAdapter()
         MDC.put("trace.id", "reactor-caller-preserve")
         try {
-            val client = AsyncHttpClient { request ->
-                CompletableFuture.completedFuture(mockResponse(request, 200))
-            }
+            val client =
+                AsyncHttpClient { request ->
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
             client.executeMono(getRequest()).block(java.time.Duration.ofSeconds(2))
             // After block() returns, the caller's MDC should still be intact — withMdc inside the
             // adapter's hooks restores the previous (= caller's) MDC on exit.
@@ -155,11 +160,12 @@ class ReactorTest {
     @Test
     fun `cancelling executeMono subscription cancels the underlying CompletableFuture`() {
         val futureLatch = CompletableFuture<CompletableFuture<Response>>()
-        val client = AsyncHttpClient { _ ->
-            val f = CompletableFuture<Response>()
-            futureLatch.complete(f)
-            f
-        }
+        val client =
+            AsyncHttpClient { _ ->
+                val f = CompletableFuture<Response>()
+                futureLatch.complete(f)
+                f
+            }
         val mono = client.executeMono(getRequest())
         // StepVerifier creates subscription then cancels it.
         StepVerifier.create(mono)
@@ -167,7 +173,10 @@ class ReactorTest {
             .verify(Duration.ofSeconds(2))
         // Retrieve the underlying future that was created during subscription.
         val underlying = futureLatch.get(2, TimeUnit.SECONDS)
-        assertTrue(underlying.isCancelled, "Disposing the Mono subscription should cancel the underlying CompletableFuture")
+        assertTrue(
+            underlying.isCancelled,
+            "Disposing the Mono subscription should cancel the underlying CompletableFuture",
+        )
     }
 
     @Test
@@ -177,17 +186,21 @@ class ReactorTest {
         MDC.put("trace.id", "reactor-supplier-mdc")
         try {
             val seenTraceId = AtomicReference<String?>()
-            val client = AsyncHttpClient { request ->
-                seenTraceId.set(MDC.get("trace.id"))
-                CompletableFuture.completedFuture(mockResponse(request, 200))
-            }
+            val client =
+                AsyncHttpClient { request ->
+                    seenTraceId.set(MDC.get("trace.id"))
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
             // subscribeOn pushes subscription (and thus the Mono.fromFuture supplier) onto a
             // Reactor scheduler thread — the mdc.withMdc { ... } wrap must re-apply MDC there.
             client.executeMono(getRequest())
                 .subscribeOn(Schedulers.boundedElastic())
                 .block(Duration.ofSeconds(2))
-            assertEquals("reactor-supplier-mdc", seenTraceId.get(),
-                "MDC must be restored inside the Mono.fromFuture supplier even on a scheduler thread")
+            assertEquals(
+                "reactor-supplier-mdc",
+                seenTraceId.get(),
+                "MDC must be restored inside the Mono.fromFuture supplier even on a scheduler thread",
+            )
         } finally {
             MDC.clear()
             restoreMdcAdapter(originalAdapter)
@@ -196,16 +209,21 @@ class ReactorTest {
 
     private fun sseBytes(s: String) = Io.provider.source(s.toByteArray(Charsets.UTF_8))
 
-    private fun getRequest(): Request = Request.builder()
-        .method(Method.GET)
-        .url(URL("https://api.example.com/"))
-        .build()
+    private fun getRequest(): Request =
+        Request.builder()
+            .method(Method.GET)
+            .url(URL("https://api.example.com/"))
+            .build()
 
-    private fun mockResponse(request: Request, code: Int): Response = Response.builder()
-        .request(request)
-        .protocol(Protocol.HTTP_1_1)
-        .status(Status.fromCode(code))
-        .build()
+    private fun mockResponse(
+        request: Request,
+        code: Int,
+    ): Response =
+        Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.fromCode(code))
+            .build()
 
     private fun installBasicMdcAdapter() {
         val field = MDC::class.java.getDeclaredField("MDC_ADAPTER")

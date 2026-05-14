@@ -12,70 +12,76 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ConfigurationTest {
-
     // ----- Lookup order -----
 
     @Test
     fun `override wins over env and sysprop`() {
-        val cfg = ConfigurationBuilder()
-            .put("MAX_RETRY_ATTEMPTS", "9")
-            .envSource { "5" }
-            .propsSource { "3" }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .put("MAX_RETRY_ATTEMPTS", "9")
+                .envSource { "5" }
+                .propsSource { "3" }
+                .build()
         assertEquals("9", cfg.get("MAX_RETRY_ATTEMPTS"))
     }
 
     @Test
     fun `env wins over sysprop when env is non-empty`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
-            .propsSource { name -> if (name == "max.retry.attempts") "3" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
+                .propsSource { name -> if (name == "max.retry.attempts") "3" else null }
+                .build()
         assertEquals("5", cfg.get("MAX_RETRY_ATTEMPTS"))
     }
 
     @Test
     fun `sysprop wins over default when env is absent`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name -> if (name == "max.retry.attempts") "3" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name -> if (name == "max.retry.attempts") "3" else null }
+                .build()
         assertEquals("3", cfg.get("MAX_RETRY_ATTEMPTS", "1"))
     }
 
     @Test
     fun `default is returned when no layer matches`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertEquals("fallback", cfg.get("MISSING_KEY", "fallback"))
     }
 
     @Test
     fun `missing key returns null without default`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertNull(cfg.get("MISSING_KEY"))
     }
 
     @Test
     fun `empty env var falls through to sysprop`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { "" } // shell-set-but-empty: present but empty
-            .propsSource { name -> if (name == "max.retry.attempts") "7" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { "" } // shell-set-but-empty: present but empty
+                .propsSource { name -> if (name == "max.retry.attempts") "7" else null }
+                .build()
         assertEquals("7", cfg.get("MAX_RETRY_ATTEMPTS"))
     }
 
     @Test
     fun `empty env var falls through to default when sysprop also missing`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { "" }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { "" }
+                .propsSource { null }
+                .build()
         assertEquals("default-value", cfg.get("MAX_RETRY_ATTEMPTS", "default-value"))
     }
 
@@ -95,10 +101,11 @@ class ConfigurationTest {
 
     @Test
     fun `getInt returns default when missing`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertEquals(3, cfg.getInt("MISSING", 3))
     }
 
@@ -155,10 +162,11 @@ class ConfigurationTest {
 
     @Test
     fun `getBoolean returns default when missing`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertTrue(cfg.getBoolean("MISSING", true))
         assertFalse(cfg.getBoolean("MISSING", false))
     }
@@ -234,10 +242,11 @@ class ConfigurationTest {
 
     @Test
     fun `getDuration returns default when missing`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertEquals(Duration.ofSeconds(30), cfg.getDuration("MISSING", Duration.ofSeconds(30)))
     }
 
@@ -300,13 +309,15 @@ class ConfigurationTest {
     fun `setGlobalConfiguration null throws NullPointerException`() {
         // Force `null` past the Kotlin non-null param via reflection — mirrors a Java caller
         // who hands in null. The runtime `c == null` guard inside the function must trigger.
-        val method = Configuration::class.java.getMethod(
-            "setGlobalConfiguration",
-            Configuration::class.java,
-        )
-        val ex = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-            method.invoke(null, null as Configuration?)
-        }
+        val method =
+            Configuration::class.java.getMethod(
+                "setGlobalConfiguration",
+                Configuration::class.java,
+            )
+        val ex =
+            assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                method.invoke(null, null as Configuration?)
+            }
         assertTrue(ex.targetException is NullPointerException, "Expected NPE, got ${ex.targetException}")
     }
 
@@ -314,37 +325,42 @@ class ConfigurationTest {
 
     @Test
     fun `builder put null name throws NullPointerException`() {
-        val method = ConfigurationBuilder::class.java.getMethod(
-            "put",
-            String::class.java,
-            String::class.java,
-        )
-        val ex = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-            method.invoke(ConfigurationBuilder(), null as String?, "v")
-        }
+        val method =
+            ConfigurationBuilder::class.java.getMethod(
+                "put",
+                String::class.java,
+                String::class.java,
+            )
+        val ex =
+            assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                method.invoke(ConfigurationBuilder(), null as String?, "v")
+            }
         assertTrue(ex.targetException is NullPointerException, "Expected NPE, got ${ex.targetException}")
     }
 
     @Test
     fun `builder put null value throws NullPointerException`() {
-        val method = ConfigurationBuilder::class.java.getMethod(
-            "put",
-            String::class.java,
-            String::class.java,
-        )
-        val ex = assertFailsWith<java.lang.reflect.InvocationTargetException> {
-            method.invoke(ConfigurationBuilder(), "k", null as String?)
-        }
+        val method =
+            ConfigurationBuilder::class.java.getMethod(
+                "put",
+                String::class.java,
+                String::class.java,
+            )
+        val ex =
+            assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                method.invoke(ConfigurationBuilder(), "k", null as String?)
+            }
         assertTrue(ex.targetException is NullPointerException, "Expected NPE, got ${ex.targetException}")
     }
 
     @Test
     fun `builder test seams isolate from process env and sysprops`() {
         // Hermetic: neither the real env nor real sysprops should be touched.
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "K") "from-env" else null }
-            .propsSource { name -> if (name == "k") "from-props" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "K") "from-env" else null }
+                .propsSource { name -> if (name == "k") "from-props" else null }
+                .build()
         assertEquals("from-env", cfg.get("K"))
         // Real env vars (e.g. PATH) must not leak through the custom envSource.
         assertNull(cfg.get("PATH"))
@@ -372,10 +388,11 @@ class ConfigurationTest {
 
     @Test
     fun `get with empty default returns empty string`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertEquals("", cfg.get("X", ""))
     }
 
@@ -384,19 +401,21 @@ class ConfigurationTest {
     @Test
     fun `getProperty returns the raw system property value without normalization`() {
         // The propsSource gets the exact name passed in — no UPPER_SNAKE → lower.dot translation.
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name -> if (name == "https.proxyHost") "secure.example.com" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name -> if (name == "https.proxyHost") "secure.example.com" else null }
+                .build()
         assertEquals("secure.example.com", cfg.getProperty("https.proxyHost"))
     }
 
     @Test
     fun `getProperty returns null when the property is unset`() {
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { null }
+                .build()
         assertNull(cfg.getProperty("https.proxyHost"))
     }
 
@@ -404,10 +423,11 @@ class ConfigurationTest {
     fun `getProperty preserves casing - does not auto-normalize to lower dot`() {
         // get() would lowercase MAX_RETRY_ATTEMPTS → max.retry.attempts before hitting propsSource.
         // getProperty must NOT do that — verify by responding only to the exact UPPER_SNAKE name.
-        val cfg = ConfigurationBuilder()
-            .envSource { null }
-            .propsSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "42" else null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "42" else null }
+                .build()
         assertEquals("42", cfg.getProperty("MAX_RETRY_ATTEMPTS"))
         assertNull(cfg.getProperty("max.retry.attempts"))
     }
@@ -415,10 +435,11 @@ class ConfigurationTest {
     @Test
     fun `getProperty ignores envSource entirely`() {
         // getProperty is a pure system-property accessor — env-var fallback does not apply.
-        val cfg = ConfigurationBuilder()
-            .envSource { name -> if (name == "https.proxyHost") "from-env" else null }
-            .propsSource { null }
-            .build()
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "https.proxyHost") "from-env" else null }
+                .propsSource { null }
+                .build()
         assertNull(cfg.getProperty("https.proxyHost"))
     }
 
@@ -472,10 +493,11 @@ class ConfigurationTest {
         // Pairs with the existing null-throws test: the bridge with a valid argument forwards
         // to the companion successfully. Hits the static-bridge body lines.
         val custom = ConfigurationBuilder().put("BRIDGE", "hit").build()
-        val method = Configuration::class.java.getMethod(
-            "setGlobalConfiguration",
-            Configuration::class.java,
-        )
+        val method =
+            Configuration::class.java.getMethod(
+                "setGlobalConfiguration",
+                Configuration::class.java,
+            )
         method.invoke(null, custom)
         assertEquals("hit", Configuration.getGlobalConfiguration().get("BRIDGE"))
     }

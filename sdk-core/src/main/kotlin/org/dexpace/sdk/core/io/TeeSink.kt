@@ -39,7 +39,6 @@ internal class TeeSink(
     private val tap: Buffer,
     private val provider: IoProvider,
 ) : BufferedSink {
-
     /** Reusable staging area — keeps every typed write to a single encode + segment-move. */
     private val scratch: Buffer = provider.buffer()
 
@@ -55,7 +54,10 @@ internal class TeeSink(
         )
 
     @Throws(IOException::class)
-    override fun write(source: Buffer, byteCount: Long) {
+    override fun write(
+        source: Buffer,
+        byteCount: Long,
+    ) {
         // Mirror the prefix into tap (non-destructive), then drain into primary (destructive).
         source.copyTo(tap, 0, byteCount)
         primary.write(source, byteCount)
@@ -79,7 +81,11 @@ internal class TeeSink(
     }
 
     @Throws(IOException::class)
-    override fun write(source: ByteArray, offset: Int, byteCount: Int): BufferedSink {
+    override fun write(
+        source: ByteArray,
+        offset: Int,
+        byteCount: Int,
+    ): BufferedSink {
         scratch.write(source, offset, byteCount)
         drainScratch()
         return this
@@ -91,9 +97,9 @@ internal class TeeSink(
         while (true) {
             val read = source.read(scratch, SCRATCH_BYTES)
             when {
-                read == -1L -> break  // EOF — normal termination
+                read == -1L -> break // EOF — normal termination
                 read == 0L -> throw IOException(
-                    "Source returned 0 for byteCount=$SCRATCH_BYTES which violates the Source.read contract"
+                    "Source returned 0 for byteCount=$SCRATCH_BYTES which violates the Source.read contract",
                 )
                 else -> {
                     drainScratch()
@@ -112,14 +118,21 @@ internal class TeeSink(
     }
 
     @Throws(IOException::class)
-    override fun writeUtf8(string: String, beginIndex: Int, endIndex: Int): BufferedSink {
+    override fun writeUtf8(
+        string: String,
+        beginIndex: Int,
+        endIndex: Int,
+    ): BufferedSink {
         scratch.writeUtf8(string, beginIndex, endIndex)
         drainScratch()
         return this
     }
 
     @Throws(IOException::class)
-    override fun writeString(string: String, charset: Charset): BufferedSink {
+    override fun writeString(
+        string: String,
+        charset: Charset,
+    ): BufferedSink {
         scratch.writeString(string, charset)
         drainScratch()
         return this
@@ -135,7 +148,11 @@ internal class TeeSink(
                 tapStream.write(b)
             }
 
-            override fun write(b: ByteArray, off: Int, len: Int) {
+            override fun write(
+                b: ByteArray,
+                off: Int,
+                len: Int,
+            ) {
                 primaryStream.write(b, off, len)
                 tapStream.write(b, off, len)
             }

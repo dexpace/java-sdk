@@ -12,20 +12,22 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BasicChallengeHandlerTest {
-
     private val uri = URI.create("https://api.example.com/resource")
     private val basicChallenge = AuthenticateChallenge("Basic", mapOf("realm" to "api"))
-    private val digestChallenge = AuthenticateChallenge(
-        "Digest",
-        mapOf("realm" to "api", "nonce" to "x", "qop" to "auth"),
-    )
+    private val digestChallenge =
+        AuthenticateChallenge(
+            "Digest",
+            mapOf("realm" to "api", "nonce" to "x", "qop" to "auth"),
+        )
 
     @Test
     fun `constructor base64-encodes the credentials in the precomputed header`() {
         val handler = BasicChallengeHandler("alice", "wonderland")
         val header = handler.handleChallenges(Method.GET, uri, listOf(basicChallenge))!!
-        val expected = "Basic " + Base64.getEncoder()
-            .encodeToString("alice:wonderland".toByteArray(Charsets.UTF_8))
+        val expected =
+            "Basic " +
+                Base64.getEncoder()
+                    .encodeToString("alice:wonderland".toByteArray(Charsets.UTF_8))
         assertEquals(expected, header.value)
     }
 

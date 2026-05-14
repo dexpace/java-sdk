@@ -7,12 +7,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HeadersTest {
-
     @Test
     fun `string-set values are visible via typed get`() {
-        val headers = Headers.builder()
-            .set("authorization", "Bearer abc")
-            .build()
+        val headers =
+            Headers.builder()
+                .set("authorization", "Bearer abc")
+                .build()
 
         // The String API stores with case-insensitive normalisation; the typed API must
         // see the same value because both use the same lower-cased internal key.
@@ -21,9 +21,10 @@ class HeadersTest {
 
     @Test
     fun `typed-set values are visible via string get`() {
-        val headers = Headers.builder()
-            .set(HttpHeaderName.CONTENT_TYPE, "application/json")
-            .build()
+        val headers =
+            Headers.builder()
+                .set(HttpHeaderName.CONTENT_TYPE, "application/json")
+                .build()
 
         assertEquals("application/json", headers.get("Content-Type"))
         assertEquals("application/json", headers.get("content-type"))
@@ -31,10 +32,11 @@ class HeadersTest {
 
     @Test
     fun `add accumulates multiple values for the same typed name`() {
-        val headers = Headers.builder()
-            .set(HttpHeaderName.SET_COOKIE, "a=1")
-            .add(HttpHeaderName.SET_COOKIE, "b=2")
-            .build()
+        val headers =
+            Headers.builder()
+                .set(HttpHeaderName.SET_COOKIE, "a=1")
+                .add(HttpHeaderName.SET_COOKIE, "b=2")
+                .build()
 
         val values = headers.values(HttpHeaderName.SET_COOKIE)
         assertEquals(listOf("a=1", "b=2"), values)
@@ -44,10 +46,11 @@ class HeadersTest {
 
     @Test
     fun `set with null value removes the header (string overload)`() {
-        val headers = Headers.builder()
-            .set("X-Trace-Id", "trace-1")
-            .set("X-Trace-Id", null)
-            .build()
+        val headers =
+            Headers.builder()
+                .set("X-Trace-Id", "trace-1")
+                .set("X-Trace-Id", null)
+                .build()
 
         assertFalse(headers.contains("X-Trace-Id"))
         assertNull(headers.get("X-Trace-Id"))
@@ -55,10 +58,11 @@ class HeadersTest {
 
     @Test
     fun `set with null value removes the header (typed overload)`() {
-        val headers = Headers.builder()
-            .set(HttpHeaderName.AUTHORIZATION, "Bearer abc")
-            .set(HttpHeaderName.AUTHORIZATION, null)
-            .build()
+        val headers =
+            Headers.builder()
+                .set(HttpHeaderName.AUTHORIZATION, "Bearer abc")
+                .set(HttpHeaderName.AUTHORIZATION, null)
+                .build()
 
         assertFalse(headers.contains(HttpHeaderName.AUTHORIZATION))
         assertNull(headers.get(HttpHeaderName.AUTHORIZATION))
@@ -66,25 +70,28 @@ class HeadersTest {
 
     @Test
     fun `set replaces previously accumulated values`() {
-        val headers = Headers.builder()
-            .add(HttpHeaderName.SET_COOKIE, "a=1")
-            .add(HttpHeaderName.SET_COOKIE, "b=2")
-            .set(HttpHeaderName.SET_COOKIE, "c=3")
-            .build()
+        val headers =
+            Headers.builder()
+                .add(HttpHeaderName.SET_COOKIE, "a=1")
+                .add(HttpHeaderName.SET_COOKIE, "b=2")
+                .set(HttpHeaderName.SET_COOKIE, "c=3")
+                .build()
 
         assertEquals(listOf("c=3"), headers.values(HttpHeaderName.SET_COOKIE))
     }
 
     @Test
     fun `addAll merges values from another Headers instance`() {
-        val a = Headers.builder()
-            .set(HttpHeaderName.AUTHORIZATION, "Bearer abc")
-            .add(HttpHeaderName.SET_COOKIE, "a=1")
-            .build()
-        val b = Headers.builder()
-            .add(HttpHeaderName.SET_COOKIE, "b=2")
-            .set(HttpHeaderName.CONTENT_TYPE, "application/json")
-            .build()
+        val a =
+            Headers.builder()
+                .set(HttpHeaderName.AUTHORIZATION, "Bearer abc")
+                .add(HttpHeaderName.SET_COOKIE, "a=1")
+                .build()
+        val b =
+            Headers.builder()
+                .add(HttpHeaderName.SET_COOKIE, "b=2")
+                .set(HttpHeaderName.CONTENT_TYPE, "application/json")
+                .build()
 
         val merged = a.newBuilder().addAll(b).build()
 
@@ -96,9 +103,10 @@ class HeadersTest {
 
     @Test
     fun `contains works for both string and typed names`() {
-        val headers = Headers.builder()
-            .set(HttpHeaderName.AUTHORIZATION, "Bearer abc")
-            .build()
+        val headers =
+            Headers.builder()
+                .set(HttpHeaderName.AUTHORIZATION, "Bearer abc")
+                .build()
 
         assertTrue(headers.contains("Authorization"))
         assertTrue(headers.contains("authorization"))
@@ -109,11 +117,12 @@ class HeadersTest {
 
     @Test
     fun `remove with typed name clears all values for that header`() {
-        val headers = Headers.builder()
-            .add(HttpHeaderName.SET_COOKIE, "a=1")
-            .add(HttpHeaderName.SET_COOKIE, "b=2")
-            .remove(HttpHeaderName.SET_COOKIE)
-            .build()
+        val headers =
+            Headers.builder()
+                .add(HttpHeaderName.SET_COOKIE, "a=1")
+                .add(HttpHeaderName.SET_COOKIE, "b=2")
+                .remove(HttpHeaderName.SET_COOKIE)
+                .build()
 
         assertFalse(headers.contains(HttpHeaderName.SET_COOKIE))
         assertTrue(headers.values(HttpHeaderName.SET_COOKIE).isEmpty())
@@ -121,20 +130,22 @@ class HeadersTest {
 
     @Test
     fun `add with list overload appends all values`() {
-        val headers = Headers.builder()
-            .add(HttpHeaderName.SET_COOKIE, listOf("a=1", "b=2"))
-            .add(HttpHeaderName.SET_COOKIE, "c=3")
-            .build()
+        val headers =
+            Headers.builder()
+                .add(HttpHeaderName.SET_COOKIE, listOf("a=1", "b=2"))
+                .add(HttpHeaderName.SET_COOKIE, "c=3")
+                .build()
 
         assertEquals(listOf("a=1", "b=2", "c=3"), headers.values(HttpHeaderName.SET_COOKIE))
     }
 
     @Test
     fun `set with list overload replaces values`() {
-        val headers = Headers.builder()
-            .add(HttpHeaderName.SET_COOKIE, "old=1")
-            .set(HttpHeaderName.SET_COOKIE, listOf("new=1", "new=2"))
-            .build()
+        val headers =
+            Headers.builder()
+                .add(HttpHeaderName.SET_COOKIE, "old=1")
+                .set(HttpHeaderName.SET_COOKIE, listOf("new=1", "new=2"))
+                .build()
 
         assertEquals(listOf("new=1", "new=2"), headers.values(HttpHeaderName.SET_COOKIE))
     }
@@ -143,11 +154,12 @@ class HeadersTest {
 
     @Test
     fun `names returns every distinct lower-cased header name`() {
-        val headers = Headers.builder()
-            .set("Authorization", "Bearer abc")
-            .set("Content-Type", "application/json")
-            .add("X-Foo", "1")
-            .build()
+        val headers =
+            Headers.builder()
+                .set("Authorization", "Bearer abc")
+                .set("Content-Type", "application/json")
+                .add("X-Foo", "1")
+                .build()
         val names = headers.names()
         assertTrue(names.contains("authorization"), "expected lower-cased authorization, got $names")
         assertTrue(names.contains("content-type"))
@@ -156,11 +168,12 @@ class HeadersTest {
 
     @Test
     fun `entries returns name and values list pairs`() {
-        val headers = Headers.builder()
-            .add("X-Foo", "1")
-            .add("X-Foo", "2")
-            .set("X-Bar", "3")
-            .build()
+        val headers =
+            Headers.builder()
+                .add("X-Foo", "1")
+                .add("X-Foo", "2")
+                .set("X-Bar", "3")
+                .build()
         val map = headers.entries().associate { it.key to it.value }
         assertEquals(listOf("1", "2"), map["x-foo"])
         assertEquals(listOf("3"), map["x-bar"])
@@ -206,11 +219,12 @@ class HeadersTest {
 
     @Test
     fun `newBuilder round-trips and produces an equal Headers instance`() {
-        val original = Headers.builder()
-            .set("Authorization", "Bearer abc")
-            .add("Set-Cookie", "a=1")
-            .add("Set-Cookie", "b=2")
-            .build()
+        val original =
+            Headers.builder()
+                .set("Authorization", "Bearer abc")
+                .add("Set-Cookie", "a=1")
+                .add("Set-Cookie", "b=2")
+                .build()
         val rebuilt = original.newBuilder().build()
         assertEquals(original, rebuilt)
     }
@@ -241,10 +255,11 @@ class HeadersTest {
 
     @Test
     fun `remove with string name is case-insensitive`() {
-        val headers = Headers.builder()
-            .set("Authorization", "Bearer abc")
-            .remove("AUTHORIZATION")
-            .build()
+        val headers =
+            Headers.builder()
+                .set("Authorization", "Bearer abc")
+                .remove("AUTHORIZATION")
+                .build()
         assertFalse(headers.contains("authorization"))
     }
 }

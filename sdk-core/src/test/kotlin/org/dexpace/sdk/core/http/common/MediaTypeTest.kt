@@ -9,7 +9,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MediaTypeTest {
-
     // ---- parse ------------------------------------------------------------------
 
     @Test

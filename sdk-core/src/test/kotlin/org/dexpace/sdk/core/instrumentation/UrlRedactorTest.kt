@@ -6,7 +6,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class UrlRedactorTest {
-
     @Test
     fun `URL with no query and no userinfo returns identity`() {
         val url = URL("https://api.example.com/path")

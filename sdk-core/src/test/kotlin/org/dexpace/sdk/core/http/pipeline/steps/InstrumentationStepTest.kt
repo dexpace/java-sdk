@@ -1,7 +1,6 @@
 package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.Headers
-import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.pipeline.HttpPipelineBuilder
@@ -42,7 +41,6 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class InstrumentationStepTest {
-
     @BeforeTest
     fun setUp() {
         Io.installProvider(OkioIoProvider)
@@ -61,12 +59,13 @@ class InstrumentationStepTest {
 
     @Test
     fun `extending the abstract base inherits LOGGING stage`() {
-        val custom = object : InstrumentationStep() {
-            override fun process(
-                request: Request,
-                next: org.dexpace.sdk.core.http.pipeline.PipelineNext,
-            ): Response = next.process()
-        }
+        val custom =
+            object : InstrumentationStep() {
+                override fun process(
+                    request: Request,
+                    next: org.dexpace.sdk.core.http.pipeline.PipelineNext,
+                ): Response = next.process()
+            }
         assertEquals(Stage.LOGGING, custom.stage)
     }
 
@@ -74,14 +73,15 @@ class InstrumentationStepTest {
     fun `NONE level passes request through unchanged and starts span`() {
         val fake = FakeHttpClient().enqueue { status(200) }
         val tracer = RecordingTracer()
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.NONE, tracer = tracer),
-                    FixedClock(),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.NONE, tracer = tracer),
+                        FixedClock(),
+                    ),
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         assertEquals(200, response.status.code)
@@ -96,9 +96,10 @@ class InstrumentationStepTest {
     @Test
     fun `HEADERS level wraps neither body but still records request`() {
         val fake = FakeHttpClient().enqueue { status(204) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/list?api-version=2024-01&token=secret"))
         assertEquals(204, response.status.code)
@@ -115,9 +116,12 @@ class InstrumentationStepTest {
         // for this specific assertion.
         val fake = FakeHttpClient().enqueue { status(200).body("ok", MediaType.parse("text/plain")) }
         val draining = DrainingClient(fake)
-        val pipeline = HttpPipelineBuilder(draining)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(draining)
+                .append(
+                    DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)),
+                )
+                .build()
 
         val response = pipeline.send(postRequest("https://api.example.com/echo", "hello body"))
         response.close()
@@ -132,9 +136,12 @@ class InstrumentationStepTest {
     @Test
     fun `BODY_AND_HEADERS wraps response body and drains eagerly`() {
         val fake = FakeHttpClient().enqueue { status(200).body("payload", MediaType.parse("text/plain")) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)),
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/get"))
         val body = response.body ?: fail("expected non-null body")
@@ -148,9 +155,12 @@ class InstrumentationStepTest {
     fun `request body is left null when no request body is present`() {
         val fake = FakeHttpClient().enqueue { status(200) }
         val capturing = RequestCapturingClient(fake)
-        val pipeline = HttpPipelineBuilder(capturing)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(capturing)
+                .append(
+                    DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)),
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         response.close()
@@ -162,17 +172,19 @@ class InstrumentationStepTest {
     fun `downstream exception ends span with throwable and rethrows`() {
         val failingClient = ThrowingClient(java.io.IOException("network down"))
         val tracer = RecordingTracer()
-        val pipeline = HttpPipelineBuilder(failingClient)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(failingClient)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
+                    ),
+                )
+                .build()
 
-        val thrown = assertFails {
-            pipeline.send(getRequest("https://api.example.com/x"))
-        }
+        val thrown =
+            assertFails {
+                pipeline.send(getRequest("https://api.example.com/x"))
+            }
         assertEquals("network down", thrown.message)
         assertEquals(1, tracer.starts.size)
         val span = tracer.starts.single()
@@ -184,13 +196,14 @@ class InstrumentationStepTest {
     fun `metrics counter and histogram are emitted with method and status_code`() {
         val fake = FakeHttpClient().enqueue { status(201) }
         val meter = RecordingMeter()
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
+                    ),
+                )
+                .build()
 
         pipeline.send(getRequest("https://api.example.com/x"))
 
@@ -211,13 +224,14 @@ class InstrumentationStepTest {
     fun `metrics on failure tag error type instead of status_code`() {
         val failing = ThrowingClient(java.lang.RuntimeException("kaboom"))
         val meter = RecordingMeter()
-        val pipeline = HttpPipelineBuilder(failing)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(failing)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
+                    ),
+                )
+                .build()
 
         assertFails {
             pipeline.send(getRequest("https://api.example.com/x"))
@@ -252,9 +266,10 @@ class InstrumentationStepTest {
         // internal implementation detail of the log emit path; we rely on UrlRedactorTest
         // to verify the redaction itself.
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
+                .build()
         val r = pipeline.send(getRequest("https://user:pass@api.example.com/secret?api-version=1&token=abc"))
         assertEquals(200, r.status.code)
     }
@@ -264,14 +279,15 @@ class InstrumentationStepTest {
         val fake = FakeHttpClient().enqueue { status(200) }
         val clock = FixedClock(Instant.parse("2026-01-01T00:00:00Z"))
         val meter = RecordingMeter()
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
-                    clock,
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
+                        clock,
+                    ),
+                )
+                .build()
 
         pipeline.send(getRequest("https://api.example.com/x"))
         val measuredMs = meter.histograms.single().records.single().value
@@ -287,24 +303,26 @@ class InstrumentationStepTest {
         // isRedactedHeaderNamesLoggingEnabled=true (default) the redacted header is logged
         // as "REDACTED".
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(
-                        logLevel = HttpLogLevel.HEADERS,
-                        isRedactedHeaderNamesLoggingEnabled = true,
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(
+                            logLevel = HttpLogLevel.HEADERS,
+                            isRedactedHeaderNamesLoggingEnabled = true,
+                        ),
                     ),
-                ),
-            )
-            .build()
+                )
+                .build()
 
-        val req = Request.builder()
-            .method(Method.GET)
-            .url("https://api.example.com/x")
-            .addHeader("Authorization", "Bearer secret-token")
-            .addHeader("User-Agent", "test-suite/1.0")
-            .addHeader("X-Trace-Id", "abc-123") // unknown header — redacted (or omitted)
-            .build()
+        val req =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/x")
+                .addHeader("Authorization", "Bearer secret-token")
+                .addHeader("User-Agent", "test-suite/1.0")
+                .addHeader("X-Trace-Id", "abc-123") // unknown header — redacted (or omitted)
+                .build()
 
         val response = pipeline.send(req)
         assertEquals(200, response.status.code)
@@ -316,23 +334,25 @@ class InstrumentationStepTest {
         // isRedactedHeaderNamesLoggingEnabled=false, headers outside the allow-list are
         // silently omitted rather than emitted as "REDACTED".
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(
-                        logLevel = HttpLogLevel.HEADERS,
-                        isRedactedHeaderNamesLoggingEnabled = false,
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(
+                            logLevel = HttpLogLevel.HEADERS,
+                            isRedactedHeaderNamesLoggingEnabled = false,
+                        ),
                     ),
-                ),
-            )
-            .build()
+                )
+                .build()
 
-        val req = Request.builder()
-            .method(Method.GET)
-            .url("https://api.example.com/x")
-            .addHeader("Authorization", "Bearer secret-token")
-            .addHeader("X-Trace-Id", "abc-123")
-            .build()
+        val req =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/x")
+                .addHeader("Authorization", "Bearer secret-token")
+                .addHeader("X-Trace-Id", "abc-123")
+                .build()
 
         val response = pipeline.send(req)
         assertEquals(200, response.status.code)
@@ -344,16 +364,18 @@ class InstrumentationStepTest {
         // the joinToString(", ") path. The default allow-list contains Via — feed in two
         // values to drive that path.
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
+                .build()
 
-        val req = Request.builder()
-            .method(Method.GET)
-            .url("https://api.example.com/x")
-            .addHeader("Via", "1.1 proxy-a")
-            .addHeader("Via", "1.1 proxy-b")
-            .build()
+        val req =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/x")
+                .addHeader("Via", "1.1 proxy-a")
+                .addHeader("Via", "1.1 proxy-b")
+                .build()
 
         val response = pipeline.send(req)
         assertEquals(200, response.status.code)
@@ -364,16 +386,17 @@ class InstrumentationStepTest {
         // Cover the snapshot(maxBytes) path with maxBytes < body size.
         val payload = "x".repeat(100)
         val fake = FakeHttpClient().enqueue { status(200).body(payload, MediaType.parse("text/plain")) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(
-                        logLevel = HttpLogLevel.BODY_AND_HEADERS,
-                        bodyPreviewMaxBytes = 10,
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(
+                            logLevel = HttpLogLevel.BODY_AND_HEADERS,
+                            bodyPreviewMaxBytes = 10,
+                        ),
                     ),
-                ),
-            )
-            .build()
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         val body = response.body ?: fail("body must be present")
@@ -393,13 +416,14 @@ class InstrumentationStepTest {
         // and end state. Validates that setAttribute is composed correctly via the start map.
         val fake = FakeHttpClient().enqueue { status(204) }
         val tracer = RecordingTracer()
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
+                    ),
+                )
+                .build()
 
         pipeline.send(postRequest("https://api.example.com/echo", "data"))
 
@@ -415,19 +439,21 @@ class InstrumentationStepTest {
         // Drive a PUT request and verify the captured attributes include the method tag.
         val fake = FakeHttpClient().enqueue { status(200) }
         val meter = RecordingMeter()
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, meter = meter),
+                    ),
+                )
+                .build()
 
-        val put = Request.builder()
-            .method(Method.PUT)
-            .url("https://api.example.com/resource")
-            .body(RequestBody.create("update", MediaType.parse("text/plain")))
-            .build()
+        val put =
+            Request.builder()
+                .method(Method.PUT)
+                .url("https://api.example.com/resource")
+                .body(RequestBody.create("update", MediaType.parse("text/plain")))
+                .build()
         pipeline.send(put)
 
         val counter = meter.counters.single()
@@ -442,26 +468,34 @@ class InstrumentationStepTest {
         // Force a drain failure: a ResponseBody whose source() throws. The wrapper records
         // the exception via captureException and the instrumentation step's emitResponseEvent
         // path includes the response.body.drain_error field.
-        val failingBody = object : ResponseBody() {
-            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
-            override fun contentLength(): Long = -1
-            override fun source(): BufferedSource = throw IOException("simulated drain failure")
-            override fun close() { /* no-op */ }
-        }
-        val client = object : org.dexpace.sdk.core.client.HttpClient {
-            override fun execute(request: Request): Response =
-                Response.builder()
-                    .request(request)
-                    .protocol(Protocol.HTTP_1_1)
-                    .status(Status.OK)
-                    .headers(Headers.Builder().build())
-                    .body(failingBody)
-                    .build()
-        }
+        val failingBody =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)))
-            .build()
+                override fun contentLength(): Long = -1
+
+                override fun source(): BufferedSource = throw IOException("simulated drain failure")
+
+                override fun close() { /* no-op */ }
+            }
+        val client =
+            object : org.dexpace.sdk.core.client.HttpClient {
+                override fun execute(request: Request): Response =
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.OK)
+                        .headers(Headers.Builder().build())
+                        .body(failingBody)
+                        .build()
+            }
+
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(
+                    DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)),
+                )
+                .build()
 
         // The drain error is captured on the wrapper, not propagated through process(). The
         // caller still receives the wrapped body — subsequent source() calls re-throw the
@@ -484,13 +518,14 @@ class InstrumentationStepTest {
         for (method in listOf(Method.POST, Method.PUT, Method.PATCH, Method.DELETE)) {
             val fake = FakeHttpClient().enqueue { status(200) }
             val tracer = RecordingTracer()
-            val pipeline = HttpPipelineBuilder(fake)
-                .append(
-                    DefaultInstrumentationStep(
-                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
-                    ),
-                )
-                .build()
+            val pipeline =
+                HttpPipelineBuilder(fake)
+                    .append(
+                        DefaultInstrumentationStep(
+                            HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS, tracer = tracer),
+                        ),
+                    )
+                    .build()
 
             val body = if (method == Method.DELETE) null else RequestBody.create("x", MediaType.parse("text/plain"))
             val builder = Request.builder().method(method).url("https://api.example.com/x")
@@ -508,13 +543,14 @@ class InstrumentationStepTest {
         // but pinned here for clarity.
         val fake = FakeHttpClient().enqueue { status(200) }
         val capturing = RequestCapturingClient(fake)
-        val pipeline = HttpPipelineBuilder(capturing)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(capturing)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                    ),
+                )
+                .build()
 
         pipeline.send(getRequest("https://api.example.com/x"))
 
@@ -527,13 +563,14 @@ class InstrumentationStepTest {
         // Branch: shouldCaptureBody() == true AND response.body == null. The wrapResponseForLogging
         // function must short-circuit without allocating a LoggableResponseBody.
         val fake = FakeHttpClient().enqueue { status(204) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                    ),
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         assertNull(response.body, "204 responses have no body — wrapper must be a no-op")
@@ -545,26 +582,29 @@ class InstrumentationStepTest {
         // requestBody != null — the failure path appends a preview field. Drains the body
         // first via the DrainingClient analog, then throws to simulate a partial wire write
         // that fails mid-flight.
-        val drainingThenThrowing = object : org.dexpace.sdk.core.client.HttpClient {
-            override fun execute(request: Request): Response {
-                request.body?.let { body ->
-                    val sink = Io.provider.buffer()
-                    body.writeTo(sink)
+        val drainingThenThrowing =
+            object : org.dexpace.sdk.core.client.HttpClient {
+                override fun execute(request: Request): Response {
+                    request.body?.let { body ->
+                        val sink = Io.provider.buffer()
+                        body.writeTo(sink)
+                    }
+                    throw IOException("connection reset")
                 }
-                throw IOException("connection reset")
             }
-        }
-        val pipeline = HttpPipelineBuilder(drainingThenThrowing)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(drainingThenThrowing)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                    ),
+                )
+                .build()
 
-        val ex = assertFails {
-            pipeline.send(postRequest("https://api.example.com/echo", "captured-body-bytes"))
-        }
+        val ex =
+            assertFails {
+                pipeline.send(postRequest("https://api.example.com/echo", "captured-body-bytes"))
+            }
         assertEquals("connection reset", ex.message)
     }
 
@@ -573,9 +613,12 @@ class InstrumentationStepTest {
         // utf8Preview takes a fast empty branch on a zero-length array. Send a request that
         // results in a zero-byte response body so the preview hits the empty path.
         val fake = FakeHttpClient().enqueue { status(200).body("", MediaType.parse("text/plain")) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)),
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         val body = response.body ?: fail("body must be present (empty string body)")
@@ -590,22 +633,27 @@ class InstrumentationStepTest {
         // throws causes the field("request.content.length", body.contentLength()) call to
         // raise, which the step swallows and re-emits as `http.instrumentation.emit_request_failed`.
         val fake = FakeHttpClient().enqueue { status(200) }
-        val throwingBody = object : RequestBody() {
-            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
-            override fun contentLength(): Long = throw IllegalStateException("contentLength is unknown")
-            override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {
-                sink.write("hi".toByteArray(Charsets.UTF_8))
-            }
-        }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
-            .build()
+        val throwingBody =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
 
-        val req = Request.builder()
-            .method(Method.POST)
-            .url("https://api.example.com/x")
-            .body(throwingBody)
-            .build()
+                override fun contentLength(): Long = error("contentLength is unknown")
+
+                override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {
+                    sink.write("hi".toByteArray(Charsets.UTF_8))
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS)))
+                .build()
+
+        val req =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/x")
+                .body(throwingBody)
+                .build()
         // Despite the body's contentLength() throwing during request-event emission, the
         // pipeline still returns the response — the step swallows the log error.
         val response = pipeline.send(req)
@@ -618,34 +666,40 @@ class InstrumentationStepTest {
         val clientLogger = ClientLogger.forTesting(fakeSlf4j)
 
         val fake = FakeHttpClient().enqueue { status(200) }
-        val throwingBody = object : RequestBody() {
-            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
-            override fun contentLength(): Long = throw IllegalStateException("contentLength unknown")
-            override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {}
-        }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS),
-                    FixedClock(),
-                    clientLogger,
-                ),
-            )
-            .build()
+        val throwingBody =
+            object : RequestBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
 
-        val req = Request.builder()
-            .method(Method.POST)
-            .url("https://api.example.com/x")
-            .body(throwingBody)
-            .build()
+                override fun contentLength(): Long = error("contentLength unknown")
+
+                override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {}
+            }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.HEADERS),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val req =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/x")
+                .body(throwingBody)
+                .build()
 
         // Pipeline must still complete — emitInstrumentationError swallows the log failure.
         val response = pipeline.send(req)
         assertEquals(200, response.status.code)
 
-        val warningRecord = fakeSlf4j.records.first { rec ->
-            rec.keyValues.any { it.key == "event" && it.value == "http.instrumentation.emit_request_failed" }
-        }
+        val warningRecord =
+            fakeSlf4j.records.first { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.instrumentation.emit_request_failed" }
+            }
         val kv = warningRecord.keyValues.associate { it.key to it.value }
         assertEquals("request_event", kv["error.phase"])
     }
@@ -656,16 +710,18 @@ class InstrumentationStepTest {
         // bodyPreviewMaxBytes — LoggableResponseBody.snapshot(maxBytes) has a `require` that
         // throws IllegalArgumentException, which the step catches and logs.
         val fake = FakeHttpClient().enqueue { status(200).body("payload", MediaType.parse("text/plain")) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(
-                        logLevel = HttpLogLevel.BODY_AND_HEADERS,
-                        bodyPreviewMaxBytes = -1, // causes snapshot(-1) to throw
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(
+                            logLevel = HttpLogLevel.BODY_AND_HEADERS,
+                            // causes snapshot(-1) to throw
+                            bodyPreviewMaxBytes = -1,
+                        ),
                     ),
-                ),
-            )
-            .build()
+                )
+                .build()
 
         // The step catches the snapshot failure, logs a warning, and still hands back the
         // wrapped body. The caller's send() does NOT propagate the failure.
@@ -684,13 +740,14 @@ class InstrumentationStepTest {
         val tracer = RecordingTracer()
         val meter = RecordingMeter()
         val failing = ThrowingClient(IOException("network down"))
-        val pipeline = HttpPipelineBuilder(failing)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.NONE, tracer = tracer, meter = meter),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(failing)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.NONE, tracer = tracer, meter = meter),
+                    ),
+                )
+                .build()
 
         assertFails {
             pipeline.send(getRequest("https://api.example.com/x"))
@@ -709,13 +766,14 @@ class InstrumentationStepTest {
         // still record (span and metrics are independent of log level).
         val fake = FakeHttpClient().enqueue { status(200) }
         val meter = RecordingMeter()
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(
-                DefaultInstrumentationStep(
-                    HttpInstrumentationOptions(logLevel = HttpLogLevel.NONE, meter = meter),
-                ),
-            )
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.NONE, meter = meter),
+                    ),
+                )
+                .build()
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         assertEquals(200, response.status.code)
@@ -730,10 +788,13 @@ class InstrumentationStepTest {
             .method(Method.GET)
             .url(url)
             .addHeader("Authorization", "Bearer secret-token") // redacted by default allow-list
-            .addHeader("User-Agent", "test-suite/1.0")          // allowed by default
+            .addHeader("User-Agent", "test-suite/1.0") // allowed by default
             .build()
 
-    private fun postRequest(url: String, body: String): Request =
+    private fun postRequest(
+        url: String,
+        body: String,
+    ): Request =
         Request.builder()
             .method(Method.POST)
             .url(url)
@@ -741,7 +802,9 @@ class InstrumentationStepTest {
             .build()
 
     /** Test client that records the request reference seen at the transport boundary. */
-    private class RequestCapturingClient(private val delegate: FakeHttpClient) : org.dexpace.sdk.core.client.HttpClient {
+    private class RequestCapturingClient(
+        private val delegate: FakeHttpClient,
+    ) : org.dexpace.sdk.core.client.HttpClient {
         @Volatile
         var lastReceivedRequest: Request? = null
 
@@ -781,8 +844,14 @@ class InstrumentationStepTest {
         override val isRecording: Boolean = true
         override val context: org.dexpace.sdk.core.instrumentation.InstrumentationContext =
             org.dexpace.sdk.core.instrumentation.NoopInstrumentationContext
-        override fun setAttribute(key: String, value: Any): Span = this
+
+        override fun setAttribute(
+            key: String,
+            value: Any,
+        ): Span = this
+
         override fun setError(errorType: String): Span = this
+
         override fun makeCurrent(): org.dexpace.sdk.core.instrumentation.TracingScope =
             object : org.dexpace.sdk.core.instrumentation.TracingScope {
                 override fun close() {}
@@ -801,7 +870,10 @@ class InstrumentationStepTest {
     private class RecordingTracer : Tracer {
         val starts: MutableList<RecordedSpan> = mutableListOf()
 
-        override fun startSpan(name: String, attributes: Map<String, Any>): Span {
+        override fun startSpan(
+            name: String,
+            attributes: Map<String, Any>,
+        ): Span {
             val span = RecordedSpan(name, attributes)
             starts.add(span)
             return span
@@ -809,18 +881,27 @@ class InstrumentationStepTest {
     }
 
     private class RecordedMetric(val value: Long, val attributes: Map<String, Any>)
+
     private class RecordedHistogramSample(val value: Double, val attributes: Map<String, Any>)
 
     private class RecordingCounter(val name: String) : LongCounter {
         val records: MutableList<RecordedMetric> = mutableListOf()
-        override fun add(value: Long, attributes: Map<String, Any>) {
+
+        override fun add(
+            value: Long,
+            attributes: Map<String, Any>,
+        ) {
             records.add(RecordedMetric(value, attributes))
         }
     }
 
     private class RecordingHistogram(val name: String) : DoubleHistogram {
         val records: MutableList<RecordedHistogramSample> = mutableListOf()
-        override fun record(value: Double, attributes: Map<String, Any>) {
+
+        override fun record(
+            value: Double,
+            attributes: Map<String, Any>,
+        ) {
             records.add(RecordedHistogramSample(value, attributes))
         }
     }
@@ -829,13 +910,21 @@ class InstrumentationStepTest {
         val counters: MutableList<RecordingCounter> = mutableListOf()
         val histograms: MutableList<RecordingHistogram> = mutableListOf()
 
-        override fun counter(name: String, description: String, unit: String): LongCounter {
+        override fun counter(
+            name: String,
+            description: String,
+            unit: String,
+        ): LongCounter {
             val c = RecordingCounter(name)
             counters.add(c)
             return c
         }
 
-        override fun histogram(name: String, description: String, unit: String): DoubleHistogram {
+        override fun histogram(
+            name: String,
+            description: String,
+            unit: String,
+        ): DoubleHistogram {
             val h = RecordingHistogram(name)
             histograms.add(h)
             return h

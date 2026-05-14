@@ -22,13 +22,11 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class AuthStepTest {
-
     @BeforeTest
     fun setUp() {
         Io.installProvider(OkioIoProvider)
@@ -44,18 +42,20 @@ class AuthStepTest {
 
     @Test
     fun `stage is AUTH and final on BearerTokenAuthStep`() {
-        val step = BearerTokenAuthStep(
-            provider = { _, _ -> BearerToken("tk", null) },
-            scopes = listOf("scope"),
-        )
+        val step =
+            BearerTokenAuthStep(
+                provider = { _, _ -> BearerToken("tk", null) },
+                scopes = listOf("scope"),
+            )
         assertEquals(Stage.AUTH, step.stage)
     }
 
     @Test
     fun `stage is AUTH on a custom AuthStep subclass`() {
-        val custom = object : AuthStep() {
-            override fun authorizeRequest(request: Request): Request = request
-        }
+        val custom =
+            object : AuthStep() {
+                override fun authorizeRequest(request: Request): Request = request
+            }
         assertEquals(Stage.AUTH, custom.stage)
     }
 
@@ -64,9 +64,10 @@ class AuthStepTest {
     @Test
     fun `HTTPS-only check rejects http with IllegalStateException naming the step and scheme`() {
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(KeyCredentialAuthStep(KeyCredential("k")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(KeyCredentialAuthStep(KeyCredential("k")))
+                .build()
 
         val request = Request.builder().method(Method.GET).url("http://api.example.com/x").build()
         val ex = assertFailsWith<IllegalStateException> { pipeline.send(request) }
@@ -83,9 +84,10 @@ class AuthStepTest {
     @Test
     fun `HTTPS-only check is case-insensitive - HTTPS uppercase is accepted`() {
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(KeyCredentialAuthStep(KeyCredential("k")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(KeyCredentialAuthStep(KeyCredential("k")))
+                .build()
 
         // Java's URL parser lower-cases the scheme, so this is more a defensive guarantee:
         // we don't crash on the upper-case form some callers might construct manually.
@@ -98,14 +100,16 @@ class AuthStepTest {
     @Test
     fun `HTTPS-only fires BEFORE the token fetch on BearerTokenAuthStep`() {
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            fetches.incrementAndGet()
-            BearerToken("tk", null)
-        }
+        val provider =
+            BearerTokenProvider { _, _ ->
+                fetches.incrementAndGet()
+                BearerToken("tk", null)
+            }
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("s")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("s")))
+                .build()
 
         val request = Request.builder().method(Method.GET).url("http://api.example.com/x").build()
         assertFailsWith<IllegalStateException> { pipeline.send(request) }
@@ -117,9 +121,10 @@ class AuthStepTest {
     @Test
     fun `KeyCredentialAuthStep stamps Authorization with the raw key on GET`() {
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
+                .build()
 
         pipeline.send(getHttpsRequest())
 
@@ -131,9 +136,10 @@ class AuthStepTest {
     fun `KeyCredentialAuthStep stamps a custom header when configured`() {
         val customHeader = HttpHeaderName.fromString("X-API-Key")
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(KeyCredentialAuthStep(KeyCredential("secret", headerName = customHeader)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(KeyCredentialAuthStep(KeyCredential("secret", headerName = customHeader)))
+                .build()
 
         pipeline.send(getHttpsRequest())
 
@@ -150,9 +156,10 @@ class AuthStepTest {
         // Authorization with the raw key on GET" test by explicitly asserting *byte-for-byte*
         // equality so a regression that introduced a default prefix would fail loudly.
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(KeyCredentialAuthStep(KeyCredential("just-the-key", prefix = null)))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(KeyCredentialAuthStep(KeyCredential("just-the-key", prefix = null)))
+                .build()
 
         pipeline.send(getHttpsRequest())
 
@@ -167,9 +174,10 @@ class AuthStepTest {
     @Test
     fun `KeyCredentialAuthStep prepends the prefix with a single space`() {
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(KeyCredentialAuthStep(KeyCredential("secret-key", prefix = "SharedAccessKey")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key", prefix = "SharedAccessKey")))
+                .build()
 
         pipeline.send(getHttpsRequest())
 
@@ -183,9 +191,10 @@ class AuthStepTest {
     fun `BearerTokenAuthStep stamps Authorization Bearer with the token`() {
         val provider = BearerTokenProvider { _, _ -> BearerToken("abc.def.ghi", null) }
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         pipeline.send(getHttpsRequest())
 
@@ -196,17 +205,20 @@ class AuthStepTest {
     @Test
     fun `BearerTokenAuthStep caches a non-expiring token across multiple requests`() {
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            fetches.incrementAndGet()
-            BearerToken("tk", null)
-        }
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
-            .enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val provider =
+            BearerTokenProvider { _, _ ->
+                fetches.incrementAndGet()
+                BearerToken("tk", null)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         repeat(3) { pipeline.send(getHttpsRequest()) }
         assertEquals(1, fetches.get(), "non-expiring token should be fetched exactly once")
@@ -216,19 +228,29 @@ class AuthStepTest {
     fun `BearerTokenAuthStep refreshes a token that is within the refresh margin of expiry`() {
         val clock = FixedClock(Instant.parse("2024-01-01T00:00:00Z"))
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            val n = fetches.incrementAndGet()
-            // First token expires 60s after the clock's "now"; second token expires 600s.
-            BearerToken("tk-$n", clock.now().plusSeconds(if (n == 1) 60 else 600))
-        }
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
-            .enqueue { status(200) }
+        val provider =
+            BearerTokenProvider { _, _ ->
+                val n = fetches.incrementAndGet()
+                // First token expires 60s after the clock's "now"; second token expires 600s.
+                BearerToken("tk-$n", clock.now().plusSeconds(if (n == 1) 60 else 600))
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+                .enqueue { status(200) }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope"), refreshMargin = Duration.ofSeconds(30), clock = clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    BearerTokenAuthStep(
+                        provider,
+                        listOf("scope"),
+                        refreshMargin = Duration.ofSeconds(30),
+                        clock = clock,
+                    ),
+                )
+                .build()
 
         // First send: cached token tk-1 fetched at t=0, valid until 60s, margin=30s → valid for next 30s.
         pipeline.send(getHttpsRequest())
@@ -251,12 +273,14 @@ class AuthStepTest {
     @Test
     fun `BearerTokenAuthStep uses pre-formatted header value cache - second request reuses string`() {
         val provider = BearerTokenProvider { _, _ -> BearerToken("tk", null) }
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         pipeline.send(getHttpsRequest())
         pipeline.send(getHttpsRequest())
@@ -271,31 +295,34 @@ class AuthStepTest {
     @Test
     fun `BearerTokenAuthStep concurrent refresh - 8 threads x 100 requests fetches token exactly once`() {
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            fetches.incrementAndGet()
-            // Tiny sleep to widen the race window; a non-thread-safe step would call the
-            // provider many more times than once here.
-            Thread.sleep(2)
-            BearerToken("tk", null)
-        }
+        val provider =
+            BearerTokenProvider { _, _ ->
+                fetches.incrementAndGet()
+                // Tiny sleep to widen the race window; a non-thread-safe step would call the
+                // provider many more times than once here.
+                Thread.sleep(2)
+                BearerToken("tk", null)
+            }
         // FakeHttpClient is single-threaded by design (ArrayDeque, mutable list). For this
         // concurrency race test, use a thread-safe HttpClient that simply returns a fresh
         // 200 response per call and counts invocations atomically.
         val callCount = AtomicInteger(0)
-        val client = object : org.dexpace.sdk.core.client.HttpClient {
-            override fun execute(request: Request): Response {
-                callCount.incrementAndGet()
-                return Response.builder()
-                    .request(request)
-                    .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
-                    .status(org.dexpace.sdk.core.http.response.Status.OK)
-                    .build()
+        val client =
+            object : org.dexpace.sdk.core.client.HttpClient {
+                override fun execute(request: Request): Response {
+                    callCount.incrementAndGet()
+                    return Response.builder()
+                        .request(request)
+                        .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                        .status(org.dexpace.sdk.core.http.response.Status.OK)
+                        .build()
+                }
             }
-        }
 
-        val pipeline = HttpPipelineBuilder(client)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         val threads = 8
         val perThread = 100
@@ -333,15 +360,17 @@ class AuthStepTest {
     @Test
     fun `BearerTokenAuthStep propagates provider exception without caching`() {
         val attempts = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            val n = attempts.incrementAndGet()
-            if (n <= 2) throw RuntimeException("transient $n")
-            BearerToken("tk", null)
-        }
+        val provider =
+            BearerTokenProvider { _, _ ->
+                val n = attempts.incrementAndGet()
+                if (n <= 2) throw RuntimeException("transient $n")
+                BearerToken("tk", null)
+            }
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         // First two sends fail at the provider; each subsequent send re-attempts the fetch
         // (the failure is NOT cached).
@@ -361,24 +390,29 @@ class AuthStepTest {
         // Java callers can return null despite Kotlin's non-nullable return type. Bypass
         // Kotlin's compile-time null guard by implementing the SAM as an explicit Java-like
         // interface impl whose return type is the platform type via a `@Suppress`.
-        val provider = object : BearerTokenProvider {
-            @Suppress("UNCHECKED_CAST")
-            override fun fetch(scopes: List<String>, params: Map<String, Any>): BearerToken =
-                (null as BearerToken?) as BearerToken
-        }
+        val provider =
+            object : BearerTokenProvider {
+                @Suppress("UNCHECKED_CAST")
+                override fun fetch(
+                    scopes: List<String>,
+                    params: Map<String, Any>,
+                ): BearerToken = (null as BearerToken?) as BearerToken
+            }
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         // Either an IllegalStateException ("returned null") OR an NPE indicating null was
         // observed. Modern Kotlin (>=1.4) inserts an intrinsic null check at the SAM impl
         // boundary, raising NullPointerException before we reach the step's own null guard.
         // Both outcomes confirm the failure mode is "null fetch is rejected, loudly".
         val thrown = assertFailsWith<RuntimeException> { pipeline.send(getHttpsRequest()) }
+        val gotName = thrown::class.simpleName
         assertTrue(
             thrown is IllegalStateException || thrown is NullPointerException,
-            "expected IllegalStateException or NullPointerException, got ${thrown::class.simpleName}: ${thrown.message}"
+            "expected IllegalStateException or NullPointerException, got $gotName: ${thrown.message}",
         )
     }
 
@@ -391,9 +425,10 @@ class AuthStepTest {
         // Exercises the otherwise-unreachable error branch.
         val provider: BearerTokenProvider = NullReturningBearerTokenProvider()
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         val ex = assertFailsWith<IllegalStateException> { pipeline.send(getHttpsRequest()) }
         assertTrue(
@@ -409,14 +444,16 @@ class AuthStepTest {
         // the lock is acquired, the second null-check inside the lock also returns null,
         // fetchFresh runs, and the result is cached for subsequent reads.
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            fetches.incrementAndGet()
-            BearerToken("tk", null)
-        }
+        val provider =
+            BearerTokenProvider { _, _ ->
+                fetches.incrementAndGet()
+                BearerToken("tk", null)
+            }
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         pipeline.send(getHttpsRequest())
         assertEquals(1, fetches.get(), "first request must fetch since cache is empty")
@@ -430,16 +467,19 @@ class AuthStepTest {
         // independent of the margin grace.
         val clock = FixedClock(Instant.parse("2024-01-01T00:00:00Z"))
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            fetches.incrementAndGet()
-            BearerToken("tk-${fetches.get()}", clock.now().plusSeconds(10))
-        }
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope"), refreshMargin = Duration.ZERO, clock = clock))
-            .build()
+        val provider =
+            BearerTokenProvider { _, _ ->
+                fetches.incrementAndGet()
+                BearerToken("tk-${fetches.get()}", clock.now().plusSeconds(10))
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), refreshMargin = Duration.ZERO, clock = clock))
+                .build()
 
         pipeline.send(getHttpsRequest())
         assertEquals(1, fetches.get())
@@ -454,14 +494,16 @@ class AuthStepTest {
     @Test
     fun `BearerTokenAuthStep rejects a provider returning an already-expired token`() {
         val clock = FixedClock(Instant.parse("2024-06-01T00:00:00Z"))
-        val provider = BearerTokenProvider { _, _ ->
-            // Token expired 1s before "now".
-            BearerToken("tk", clock.now().minusSeconds(1))
-        }
+        val provider =
+            BearerTokenProvider { _, _ ->
+                // Token expired 1s before "now".
+                BearerToken("tk", clock.now().minusSeconds(1))
+            }
         val fake = FakeHttpClient().enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
 
         val ex = assertFailsWith<IllegalStateException> { pipeline.send(getHttpsRequest()) }
         assertTrue(ex.message?.contains("expired") == true, "msg=${ex.message}")
@@ -472,12 +514,14 @@ class AuthStepTest {
     @Test
     fun `401 with WWW-Authenticate returns the 401 unchanged by default`() {
         val provider = BearerTokenProvider { _, _ -> BearerToken("tk", null) }
-        val fake = FakeHttpClient()
-            .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
 
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope")))
-            .build()
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
 
         val response = pipeline.send(getHttpsRequest())
         assertEquals(401, response.status.code)
@@ -489,12 +533,16 @@ class AuthStepTest {
         // Subclass that would always retry — but the missing WWW-Authenticate header
         // short-circuits the retry path before authorizeRequestOnChallenge is called.
         val seenChallengeCallback = AtomicInteger(0)
-        val step = object : KeyCredentialAuthStep(KeyCredential("k")) {
-            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request {
-                seenChallengeCallback.incrementAndGet()
-                return request.newBuilder().setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "X").build()
+        val step =
+            object : KeyCredentialAuthStep(KeyCredential("k")) {
+                override fun authorizeRequestOnChallenge(
+                    request: Request,
+                    response: Response,
+                ): Request {
+                    seenChallengeCallback.incrementAndGet()
+                    return request.newBuilder().setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "X").build()
+                }
             }
-        }
         val fake = FakeHttpClient().enqueue { status(401) } // no WWW-Authenticate
 
         val pipeline = HttpPipelineBuilder(fake).append(step).build()
@@ -506,17 +554,22 @@ class AuthStepTest {
 
     @Test
     fun `subclass overriding authorizeRequestOnChallenge retries exactly once`() {
-        val step = object : KeyCredentialAuthStep(KeyCredential("initial-key")) {
-            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request {
-                // Swap to a fresh credential on 401.
-                return request.newBuilder()
-                    .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "refreshed-key")
-                    .build()
+        val step =
+            object : KeyCredentialAuthStep(KeyCredential("initial-key")) {
+                override fun authorizeRequestOnChallenge(
+                    request: Request,
+                    response: Response,
+                ): Request {
+                    // Swap to a fresh credential on 401.
+                    return request.newBuilder()
+                        .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "refreshed-key")
+                        .build()
+                }
             }
-        }
-        val fake = FakeHttpClient()
-            .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
-            .enqueue { status(200) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+                .enqueue { status(200) }
 
         val pipeline = HttpPipelineBuilder(fake).append(step).build()
         val response = pipeline.send(getHttpsRequest())
@@ -532,25 +585,32 @@ class AuthStepTest {
     fun `challenge retry closes the 401 response before driving the retry`() {
         val closes = AtomicInteger(0)
         // Wrap the second response (401) in a custom body that tracks close().
-        val client = object : org.dexpace.sdk.core.client.HttpClient {
-            private val callCount = AtomicInteger(0)
-            override fun execute(request: Request): Response {
-                val n = callCount.incrementAndGet()
-                val statusCode = if (n == 1) 401 else 200
-                val builder = Response.builder()
-                    .request(request)
-                    .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
-                    .status(org.dexpace.sdk.core.http.response.Status.fromCode(statusCode))
-                if (n == 1) {
-                    builder.addHeader("WWW-Authenticate", "Bearer realm=\"x\"")
-                    builder.body(CloseTrackingResponseBody(closes))
+        val client =
+            object : org.dexpace.sdk.core.client.HttpClient {
+                private val callCount = AtomicInteger(0)
+
+                override fun execute(request: Request): Response {
+                    val n = callCount.incrementAndGet()
+                    val statusCode = if (n == 1) 401 else 200
+                    val builder =
+                        Response.builder()
+                            .request(request)
+                            .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                            .status(org.dexpace.sdk.core.http.response.Status.fromCode(statusCode))
+                    if (n == 1) {
+                        builder.addHeader("WWW-Authenticate", "Bearer realm=\"x\"")
+                        builder.body(CloseTrackingResponseBody(closes))
+                    }
+                    return builder.build()
                 }
-                return builder.build()
             }
-        }
-        val step = object : KeyCredentialAuthStep(KeyCredential("k")) {
-            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request = request
-        }
+        val step =
+            object : KeyCredentialAuthStep(KeyCredential("k")) {
+                override fun authorizeRequestOnChallenge(
+                    request: Request,
+                    response: Response,
+                ): Request = request
+            }
 
         val pipeline = HttpPipelineBuilder(client).append(step).build()
         pipeline.send(getHttpsRequest())
@@ -561,22 +621,27 @@ class AuthStepTest {
     @Test
     fun `authorizeRequestOnChallenge throwing closes the 401 response before propagating`() {
         val closes = AtomicInteger(0)
-        val client = object : org.dexpace.sdk.core.client.HttpClient {
-            override fun execute(request: Request): Response {
-                return Response.builder()
-                    .request(request)
-                    .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
-                    .status(org.dexpace.sdk.core.http.response.Status.fromCode(401))
-                    .addHeader("WWW-Authenticate", "Bearer realm=\"x\"")
-                    .body(CloseTrackingResponseBody(closes))
-                    .build()
+        val client =
+            object : org.dexpace.sdk.core.client.HttpClient {
+                override fun execute(request: Request): Response {
+                    return Response.builder()
+                        .request(request)
+                        .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                        .status(org.dexpace.sdk.core.http.response.Status.fromCode(401))
+                        .addHeader("WWW-Authenticate", "Bearer realm=\"x\"")
+                        .body(CloseTrackingResponseBody(closes))
+                        .build()
+                }
             }
-        }
-        val step = object : KeyCredentialAuthStep(KeyCredential("k")) {
-            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request {
-                throw RuntimeException("challenge handler failure")
+        val step =
+            object : KeyCredentialAuthStep(KeyCredential("k")) {
+                override fun authorizeRequestOnChallenge(
+                    request: Request,
+                    response: Response,
+                ): Request {
+                    throw RuntimeException("challenge handler failure")
+                }
             }
-        }
         val pipeline = HttpPipelineBuilder(client).append(step).build()
 
         val ex = assertFailsWith<RuntimeException> { pipeline.send(getHttpsRequest()) }
@@ -591,26 +656,34 @@ class AuthStepTest {
         // and only invoke the SEND step on retry. Through `next.copy()`, the recorder is
         // invoked once per attempt — twice total here.
         val recorderCalls = AtomicInteger(0)
-        val recorder = object : org.dexpace.sdk.core.http.pipeline.HttpStep {
-            override val stage = org.dexpace.sdk.core.http.pipeline.Stage.POST_AUTH
-            override fun process(
-                request: Request,
-                next: org.dexpace.sdk.core.http.pipeline.PipelineNext,
-            ): Response {
-                recorderCalls.incrementAndGet()
-                return next.process()
+        val recorder =
+            object : org.dexpace.sdk.core.http.pipeline.HttpStep {
+                override val stage = org.dexpace.sdk.core.http.pipeline.Stage.POST_AUTH
+
+                override fun process(
+                    request: Request,
+                    next: org.dexpace.sdk.core.http.pipeline.PipelineNext,
+                ): Response {
+                    recorderCalls.incrementAndGet()
+                    return next.process()
+                }
             }
-        }
-        val step = object : KeyCredentialAuthStep(KeyCredential("k")) {
-            override fun authorizeRequestOnChallenge(request: Request, response: Response): Request = request
-        }
-        val fake = FakeHttpClient()
-            .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
-            .enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(step)
-            .append(recorder)
-            .build()
+        val step =
+            object : KeyCredentialAuthStep(KeyCredential("k")) {
+                override fun authorizeRequestOnChallenge(
+                    request: Request,
+                    response: Response,
+                ): Request = request
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(step)
+                .append(recorder)
+                .build()
 
         pipeline.send(getHttpsRequest())
         assertEquals(2, recorderCalls.get(), "downstream step must run on both initial and retry attempts")
@@ -620,16 +693,26 @@ class AuthStepTest {
     fun `FixedClock integration drives deterministic token expiry`() {
         val clock = FixedClock(Instant.parse("2024-06-01T00:00:00Z"))
         val fetches = AtomicInteger(0)
-        val provider = BearerTokenProvider { _, _ ->
-            fetches.incrementAndGet()
-            BearerToken("tk-${fetches.get()}", clock.now().plusSeconds(100))
-        }
-        val fake = FakeHttpClient()
-            .enqueue { status(200) }
-            .enqueue { status(200) }
-        val pipeline = HttpPipelineBuilder(fake)
-            .append(BearerTokenAuthStep(provider, listOf("scope"), refreshMargin = Duration.ofSeconds(10), clock = clock))
-            .build()
+        val provider =
+            BearerTokenProvider { _, _ ->
+                fetches.incrementAndGet()
+                BearerToken("tk-${fetches.get()}", clock.now().plusSeconds(100))
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    BearerTokenAuthStep(
+                        provider,
+                        listOf("scope"),
+                        refreshMargin = Duration.ofSeconds(10),
+                        clock = clock,
+                    ),
+                )
+                .build()
 
         pipeline.send(getHttpsRequest())
         assertEquals(1, fetches.get())
@@ -654,8 +737,11 @@ class AuthStepTest {
         private val closes: AtomicInteger,
     ) : org.dexpace.sdk.core.http.response.ResponseBody() {
         override fun mediaType() = null
+
         override fun contentLength(): Long = 0
+
         override fun source() = throw UnsupportedOperationException("not read in this test")
+
         override fun close() {
             closes.incrementAndGet()
         }

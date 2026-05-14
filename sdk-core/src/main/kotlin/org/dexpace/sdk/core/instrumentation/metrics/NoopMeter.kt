@@ -13,16 +13,23 @@ package org.dexpace.sdk.core.instrumentation.metrics
  * deliberately ships no metrics runtime.
  */
 public object NoopMeter : Meter {
-
     /**
      * Returns the shared [NoopCounter] singleton, ignoring all arguments.
      */
-    override fun counter(name: String, description: String, unit: String): LongCounter = NoopCounter
+    override fun counter(
+        name: String,
+        description: String,
+        unit: String,
+    ): LongCounter = NoopCounter
 
     /**
      * Returns the shared [NoopHistogram] singleton, ignoring all arguments.
      */
-    override fun histogram(name: String, description: String, unit: String): DoubleHistogram = NoopHistogram
+    override fun histogram(
+        name: String,
+        description: String,
+        unit: String,
+    ): DoubleHistogram = NoopHistogram
 }
 
 /**
@@ -33,7 +40,10 @@ public object NoopMeter : Meter {
  * instrument lookup) without breaking callers.
  */
 internal object NoopCounter : LongCounter {
-    override fun add(value: Long, attributes: Map<String, Any>) {
+    override fun add(
+        value: Long,
+        attributes: Map<String, Any>,
+    ) {
         // No-op. JIT inlines this to nothing at the call site.
     }
 }
@@ -45,7 +55,10 @@ internal object NoopCounter : LongCounter {
  * future implementations are free to change strategy without breaking callers.
  */
 internal object NoopHistogram : DoubleHistogram {
-    override fun record(value: Double, attributes: Map<String, Any>) {
+    override fun record(
+        value: Double,
+        attributes: Map<String, Any>,
+    ) {
         // No-op. JIT inlines this to nothing at the call site.
     }
 }

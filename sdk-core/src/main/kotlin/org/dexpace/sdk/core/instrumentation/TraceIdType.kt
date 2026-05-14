@@ -16,7 +16,7 @@ import java.util.concurrent.ThreadLocalRandom
 public enum class TraceIdType(public val generate: () -> TraceId) {
     DATADOG(::generateDatadogTraceId),
     W3C(::generateW3CTraceId),
-    NOOP(::generateNoopTraceId)
+    NOOP(::generateNoopTraceId),
 }
 
 /**

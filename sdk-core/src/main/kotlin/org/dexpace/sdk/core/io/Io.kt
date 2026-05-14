@@ -36,10 +36,11 @@ public object Io {
      * Returns the installed provider, or throws if none was installed.
      */
     public val provider: IoProvider
-        get() = installed ?: error(
-            "No IoProvider installed. Call Io.installProvider(...) at application startup " +
-                "(e.g. Io.installProvider(OkioIoProvider))."
-        )
+        get() =
+            installed ?: error(
+                "No IoProvider installed. Call Io.installProvider(...) at application startup " +
+                    "(e.g. Io.installProvider(OkioIoProvider)).",
+            )
 
     /**
      * Installs [provider] as the global I/O provider.
@@ -62,7 +63,7 @@ public object Io {
                     "An IoProvider (${existing::class.qualifiedName ?: existing::class}) is " +
                         "already installed; refusing to overwrite with a different provider " +
                         "(${provider::class.qualifiedName ?: provider::class}). " +
-                        "Use withProvider { ... } from org.dexpace.sdk.core.testing for scoped overrides."
+                        "Use withProvider { ... } from org.dexpace.sdk.core.testing for scoped overrides.",
                 )
             }
             installed = provider

@@ -50,44 +50,58 @@ public fun interface HttpRetryDelayProvider {
  * The companion [HttpRetryOptions.fixed] factory builds an options instance whose delay
  * never grows — useful for test injection or high-throughput retry against flaky endpoints.
  */
-public class HttpRetryOptions @JvmOverloads constructor(
-    public val maxRetries: Int = 3,
-    public val baseDelay: Duration = Duration.ofMillis(800),
-    public val maxDelay: Duration = Duration.ofSeconds(8),
-    public val fixedDelay: Duration? = null,
-    public val retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS,
-    public val shouldRetryCondition: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryResponse),
-    public val shouldRetryException: HttpRetryConditionPredicate = HttpRetryConditionPredicate(::defaultShouldRetryException),
-    public val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
-) {
-    public companion object {
-        /**
-         * The three `Retry-After` header forms parsed by [DefaultRetryStep]. Order matters —
-         * the first header present on the response wins.
-         */
-        @JvmField
-        public val DEFAULT_RETRY_AFTER_HEADERS: List<HttpHeaderName> = Collections.unmodifiableList(
-            listOf(
-                HttpHeaderName.RETRY_AFTER,
-                HttpHeaderName.RETRY_AFTER_MS,
-                HttpHeaderName.X_MS_RETRY_AFTER_MS,
-            )
-        )
+public class HttpRetryOptions
+    @JvmOverloads
+    constructor(
+        public val maxRetries: Int = 3,
+        public val baseDelay: Duration = Duration.ofMillis(DEFAULT_BASE_DELAY_MS),
+        public val maxDelay: Duration = Duration.ofSeconds(DEFAULT_MAX_DELAY_SECONDS),
+        public val fixedDelay: Duration? = null,
+        public val retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS,
+        public val shouldRetryCondition: HttpRetryConditionPredicate =
+            HttpRetryConditionPredicate(::defaultShouldRetryResponse),
+        public val shouldRetryException: HttpRetryConditionPredicate =
+            HttpRetryConditionPredicate(::defaultShouldRetryException),
+        public val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
+    ) {
+        public companion object {
+            // Default exponential-backoff parameters tuned to favour fast first-retry while
+            // bounding cumulative latency. Aligned with Azure Core's RetryOptions defaults.
+            private const val DEFAULT_BASE_DELAY_MS = 800L
+            private const val DEFAULT_MAX_DELAY_SECONDS = 8L
 
-        /**
-         * Returns an [HttpRetryOptions] that uses a flat [delay] between every retry — no
-         * exponential growth, no jitter. [baseDelay] and [maxDelay] are forced to zero
-         * so the backoff path is unreachable.
-         */
-        @JvmStatic
-        public fun fixed(maxRetries: Int, delay: Duration): HttpRetryOptions = HttpRetryOptions(
-            maxRetries = maxRetries,
-            fixedDelay = delay,
-            baseDelay = Duration.ZERO,
-            maxDelay = Duration.ZERO,
-        )
+            /**
+             * The three `Retry-After` header forms parsed by [DefaultRetryStep]. Order matters —
+             * the first header present on the response wins.
+             */
+            @JvmField
+            public val DEFAULT_RETRY_AFTER_HEADERS: List<HttpHeaderName> =
+                Collections.unmodifiableList(
+                    listOf(
+                        HttpHeaderName.RETRY_AFTER,
+                        HttpHeaderName.RETRY_AFTER_MS,
+                        HttpHeaderName.X_MS_RETRY_AFTER_MS,
+                    ),
+                )
+
+            /**
+             * Returns an [HttpRetryOptions] that uses a flat [delay] between every retry — no
+             * exponential growth, no jitter. [baseDelay] and [maxDelay] are forced to zero
+             * so the backoff path is unreachable.
+             */
+            @JvmStatic
+            public fun fixed(
+                maxRetries: Int,
+                delay: Duration,
+            ): HttpRetryOptions =
+                HttpRetryOptions(
+                    maxRetries = maxRetries,
+                    fixedDelay = delay,
+                    baseDelay = Duration.ZERO,
+                    maxDelay = Duration.ZERO,
+                )
+        }
     }
-}
 
 /**
  * Default response-side retry predicate. Retries when the status code is in

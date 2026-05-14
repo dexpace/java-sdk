@@ -9,7 +9,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class SpanLoggingExtensionsTest {
-
     @BeforeTest
     fun installMdcAdapter() {
         // The test runtime uses slf4j-nop whose MDCAdapter is a no-op. MDC.setMDCAdapter
@@ -46,18 +45,28 @@ class SpanLoggingExtensionsTest {
     fun `non-recording span returns the exact scope object returned by makeCurrent`() {
         // A non-recording span whose makeCurrent() returns a distinct (non-no-op) scope object.
         // makeCurrentWithLoggingContext must return that SAME scope instance, not a wrapper.
-        val stubScope = object : TracingScope {
-            override fun close() {}
-        }
-        val span = object : Span {
-            override val isRecording: Boolean = false
-            override val context: InstrumentationContext = NoopInstrumentationContext
-            override fun setAttribute(key: String, value: Any): Span = this
-            override fun setError(errorType: String): Span = this
-            override fun makeCurrent(): TracingScope = stubScope
-            override fun end() = Unit
-            override fun end(throwable: Throwable) = Unit
-        }
+        val stubScope =
+            object : TracingScope {
+                override fun close() {}
+            }
+        val span =
+            object : Span {
+                override val isRecording: Boolean = false
+                override val context: InstrumentationContext = NoopInstrumentationContext
+
+                override fun setAttribute(
+                    key: String,
+                    value: Any,
+                ): Span = this
+
+                override fun setError(errorType: String): Span = this
+
+                override fun makeCurrent(): TracingScope = stubScope
+
+                override fun end() = Unit
+
+                override fun end(throwable: Throwable) = Unit
+            }
         val returned = span.makeCurrentWithLoggingContext()
         // Must be the exact object from makeCurrent(), not wrapped.
         assertEquals(stubScope, returned, "expected the stub scope to be returned unwrapped")
@@ -84,24 +93,34 @@ class SpanLoggingExtensionsTest {
     ): Span {
         // Build the context first with a placeholder span reference, then close over the
         // outer span in a separate variable to avoid a circular initializer.
-        val ctx = object : InstrumentationContext {
-            override val traceIdType: TraceIdType = TraceIdType.NOOP
-            override val traceId: TraceId = TraceId(traceId)
-            override val spanId: SpanId = SpanId(spanId)
-            override val traceFlags: TraceFlags = TraceFlags.NOOP
-            override val traceState: TraceState = TraceState.NOOP
-            override val isValid: Boolean = true
-            override val isRemote: Boolean = false
-            // The span back-reference is unused by makeCurrentWithLoggingContext; use NOOP.
-            override val span: Span = Span.NOOP
-        }
+        val ctx =
+            object : InstrumentationContext {
+                override val traceIdType: TraceIdType = TraceIdType.NOOP
+                override val traceId: TraceId = TraceId(traceId)
+                override val spanId: SpanId = SpanId(spanId)
+                override val traceFlags: TraceFlags = TraceFlags.NOOP
+                override val traceState: TraceState = TraceState.NOOP
+                override val isValid: Boolean = true
+                override val isRemote: Boolean = false
+
+                // The span back-reference is unused by makeCurrentWithLoggingContext; use NOOP.
+                override val span: Span = Span.NOOP
+            }
         return object : Span {
             override val isRecording: Boolean = recording
             override val context: InstrumentationContext = ctx
-            override fun setAttribute(key: String, value: Any): Span = this
+
+            override fun setAttribute(
+                key: String,
+                value: Any,
+            ): Span = this
+
             override fun setError(errorType: String): Span = this
+
             override fun makeCurrent(): TracingScope = TracingScope { /* no-op */ }
+
             override fun end() = Unit
+
             override fun end(throwable: Throwable) = Unit
         }
     }

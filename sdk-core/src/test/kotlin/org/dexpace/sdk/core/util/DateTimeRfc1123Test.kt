@@ -8,7 +8,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class DateTimeRfc1123Test {
-
     @Test
     fun `format epoch produces canonical RFC 1123 string`() {
         assertEquals(
@@ -43,13 +42,14 @@ class DateTimeRfc1123Test {
 
     @Test
     fun `round-trip parse format identity for several samples`() {
-        val samples = listOf(
-            Instant.parse("2024-01-01T00:00:00Z"),
-            Instant.parse("1994-11-06T08:49:37Z"),
-            Instant.parse("2099-12-31T23:59:59Z"),
-            Instant.parse("1970-01-01T00:00:00Z"),
-            Instant.parse("1999-06-15T12:34:56Z"),
-        )
+        val samples =
+            listOf(
+                Instant.parse("2024-01-01T00:00:00Z"),
+                Instant.parse("1994-11-06T08:49:37Z"),
+                Instant.parse("2099-12-31T23:59:59Z"),
+                Instant.parse("1970-01-01T00:00:00Z"),
+                Instant.parse("1999-06-15T12:34:56Z"),
+            )
         for (sample in samples) {
             val formatted = DateTimeRfc1123.format(sample)
             val parsed = DateTimeRfc1123.parse(formatted)
@@ -99,9 +99,10 @@ class DateTimeRfc1123Test {
 
     @Test
     fun `parse rejects garbage input`() {
-        val ex = assertFailsWith<DateTimeParseException> {
-            DateTimeRfc1123.parse("not a date")
-        }
+        val ex =
+            assertFailsWith<DateTimeParseException> {
+                DateTimeRfc1123.parse("not a date")
+            }
         assertTrue(ex.message != null && ex.message!!.isNotEmpty())
     }
 

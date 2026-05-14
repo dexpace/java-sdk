@@ -16,11 +16,9 @@ import java.net.URI
 internal class CompositeChallengeHandler(
     handlers: List<ChallengeHandler>,
 ) : ChallengeHandler {
-
     private val handlers: List<ChallengeHandler> = handlers.toList()
 
-    override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean =
-        handlers.any { it.canHandle(challenges) }
+    override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean = handlers.any { it.canHandle(challenges) }
 
     override fun handleChallenges(
         method: Method,

@@ -20,7 +20,10 @@ public interface Sink : Closeable {
      *         [byteCount] bytes).
      */
     @Throws(IOException::class)
-    public fun write(source: Buffer, byteCount: Long)
+    public fun write(
+        source: Buffer,
+        byteCount: Long,
+    )
 
     /**
      * Pushes all buffered bytes to their final destination.

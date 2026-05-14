@@ -16,7 +16,6 @@ import java.util.Base64
  * over HTTPS or trusted-network tunnels.
  */
 public class BasicChallengeHandler(username: String, password: String) : ChallengeHandler {
-
     private val authHeaderValue: String
 
     init {
@@ -27,8 +26,9 @@ public class BasicChallengeHandler(username: String, password: String) : Challen
         // tokens. The inconsistency between the two handlers is per-spec.
         require(username.isNotEmpty()) { "username must not be empty" }
         require(password.isNotEmpty()) { "password must not be empty" }
-        val encoded = Base64.getEncoder()
-            .encodeToString("$username:$password".toByteArray(Charsets.UTF_8))
+        val encoded =
+            Base64.getEncoder()
+                .encodeToString("$username:$password".toByteArray(Charsets.UTF_8))
         authHeaderValue = "Basic $encoded"
     }
 

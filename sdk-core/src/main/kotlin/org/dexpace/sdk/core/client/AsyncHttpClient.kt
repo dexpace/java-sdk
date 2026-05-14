@@ -80,14 +80,15 @@ public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
 @Throws(IOException::class)
-public fun AsyncHttpClient.asBlocking(): HttpClient = HttpClient { request ->
-    try {
-        executeAsync(request).join()
-    } catch (ce: CompletionException) {
-        // `join()` wraps every exceptional completion in CompletionException; unwrap so
-        // callers' `catch (IOException)` blocks see the original failure rather than the
-        // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
-        // is a RuntimeException, not a CompletionException, so it propagates as-is.
-        throw Futures.unwrap(ce)
+public fun AsyncHttpClient.asBlocking(): HttpClient =
+    HttpClient { request ->
+        try {
+            executeAsync(request).join()
+        } catch (ce: CompletionException) {
+            // `join()` wraps every exceptional completion in CompletionException; unwrap so
+            // callers' `catch (IOException)` blocks see the original failure rather than the
+            // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
+            // is a RuntimeException, not a CompletionException, so it propagates as-is.
+            throw Futures.unwrap(ce)
+        }
     }
-}

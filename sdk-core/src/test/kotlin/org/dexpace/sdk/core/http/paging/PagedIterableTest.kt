@@ -18,26 +18,27 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PagedIterableTest {
-
     private lateinit var request: Request
 
     @BeforeTest
     fun setUp() {
-        request = Request.builder()
-            .url("https://api.example.test/items")
-            .method(Method.GET)
-            .build()
+        request =
+            Request.builder()
+                .url("https://api.example.test/items")
+                .method(Method.GET)
+                .build()
     }
 
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
 
-    private fun emptyResponse(): Response = Response.builder()
-        .request(request)
-        .protocol(Protocol.HTTP_1_1)
-        .status(Status.OK)
-        .build()
+    private fun emptyResponse(): Response =
+        Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.OK)
+            .build()
 
     private fun <T> page(
         value: List<T>,
@@ -47,15 +48,16 @@ class PagedIterableTest {
         firstLink: String? = null,
         lastLink: String? = null,
         response: Response = emptyResponse(),
-    ): PagedResponse<T> = PagedResponse(
-        response = response,
-        value = value,
-        continuationToken = continuationToken,
-        nextLink = nextLink,
-        previousLink = previousLink,
-        firstLink = firstLink,
-        lastLink = lastLink,
-    )
+    ): PagedResponse<T> =
+        PagedResponse(
+            response = response,
+            value = value,
+            continuationToken = continuationToken,
+            nextLink = nextLink,
+            previousLink = previousLink,
+            firstLink = firstLink,
+            lastLink = lastLink,
+        )
 
     // ---------------------------------------------------------------------
     // Basic iteration
@@ -69,13 +71,14 @@ class PagedIterableTest {
 
     @Test
     fun `two pages chained via nextLink combine in order`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1, 2, 3), nextLink = "p2") },
-            nextPage = { _, link ->
-                assertEquals("p2", link)
-                page(listOf(4, 5, 6))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2, 3), nextLink = "p2") },
+                nextPage = { _, link ->
+                    assertEquals("p2", link)
+                    page(listOf(4, 5, 6))
+                },
+            )
         assertEquals(listOf(1, 2, 3, 4, 5, 6), iterable.toList())
     }
 
@@ -83,10 +86,11 @@ class PagedIterableTest {
     fun `byPage returns each page in order without flattening`() {
         val p1 = page(listOf(10, 20), nextLink = "p2")
         val p2 = page(listOf(30, 40))
-        val iterable = PagedIterable<Int>(
-            firstPage = { p1 },
-            nextPage = { _, _ -> p2 },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { p1 },
+                nextPage = { _, _ -> p2 },
+            )
         val pages = iterable.byPage().toList()
         assertEquals(2, pages.size)
         assertSame(p1, pages[0])
@@ -114,50 +118,54 @@ class PagedIterableTest {
 
     @Test
     fun `empty page with non-null nextLink continues to next page`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(emptyList(), nextLink = "p2") },
-            nextPage = { _, link ->
-                assertEquals("p2", link)
-                page(listOf(1, 2))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(emptyList(), nextLink = "p2") },
+                nextPage = { _, link ->
+                    assertEquals("p2", link)
+                    page(listOf(1, 2))
+                },
+            )
         assertEquals(listOf(1, 2), iterable.toList())
     }
 
     @Test
     fun `continuationToken used when nextLink is null`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), continuationToken = "tok") },
-            nextPage = { _, link ->
-                assertEquals("tok", link)
-                page(listOf(2))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), continuationToken = "tok") },
+                nextPage = { _, link ->
+                    assertEquals("tok", link)
+                    page(listOf(2))
+                },
+            )
         assertEquals(listOf(1, 2), iterable.toList())
     }
 
     @Test
     fun `nextLink wins when both nextLink and continuationToken are set`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "link", continuationToken = "tok") },
-            nextPage = { _, link ->
-                assertEquals("link", link, "nextLink should take precedence over continuationToken")
-                page(listOf(2))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "link", continuationToken = "tok") },
+                nextPage = { _, link ->
+                    assertEquals("link", link, "nextLink should take precedence over continuationToken")
+                    page(listOf(2))
+                },
+            )
         assertEquals(listOf(1, 2), iterable.toList())
     }
 
     @Test
     fun `empty string nextLink terminates iteration`() {
         val nextPageCalled = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1, 2), nextLink = "") },
-            nextPage = { _, _ ->
-                nextPageCalled.incrementAndGet()
-                page(listOf(99))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2), nextLink = "") },
+                nextPage = { _, _ ->
+                    nextPageCalled.incrementAndGet()
+                    page(listOf(99))
+                },
+            )
         assertEquals(listOf(1, 2), iterable.toList())
         assertEquals(0, nextPageCalled.get(), "nextPage should not be called for empty nextLink")
     }
@@ -165,23 +173,25 @@ class PagedIterableTest {
     @Test
     fun `empty string continuationToken terminates iteration`() {
         val nextPageCalled = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1, 2), continuationToken = "") },
-            nextPage = { _, _ ->
-                nextPageCalled.incrementAndGet()
-                page(listOf(99))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2), continuationToken = "") },
+                nextPage = { _, _ ->
+                    nextPageCalled.incrementAndGet()
+                    page(listOf(99))
+                },
+            )
         assertEquals(listOf(1, 2), iterable.toList())
         assertEquals(0, nextPageCalled.get(), "nextPage should not be called for empty continuationToken")
     }
 
     @Test
     fun `null nextPage result terminates iteration`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "p2") },
-            nextPage = { _, _ -> null },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "p2") },
+                nextPage = { _, _ -> null },
+            )
         assertEquals(listOf(1), iterable.toList())
     }
 
@@ -192,10 +202,11 @@ class PagedIterableTest {
     @Test
     fun `iterator called multiple times starts fresh`() {
         val firstPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(firstPage = {
-            firstPageCalls.incrementAndGet()
-            page(listOf(1, 2, 3))
-        })
+        val iterable =
+            PagedIterable<Int>(firstPage = {
+                firstPageCalls.incrementAndGet()
+                page(listOf(1, 2, 3))
+            })
 
         assertEquals(listOf(1, 2, 3), iterable.toList())
         assertEquals(listOf(1, 2, 3), iterable.toList())
@@ -206,16 +217,17 @@ class PagedIterableTest {
     fun `iterator short-circuits when consumer stops pulling`() {
         val firstPageCalls = AtomicInteger(0)
         val nextPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = {
-                firstPageCalls.incrementAndGet()
-                page(listOf(1, 2, 3), nextLink = "p2")
-            },
-            nextPage = { _, _ ->
-                nextPageCalls.incrementAndGet()
-                page(listOf(4, 5, 6))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = {
+                    firstPageCalls.incrementAndGet()
+                    page(listOf(1, 2, 3), nextLink = "p2")
+                },
+                nextPage = { _, _ ->
+                    nextPageCalls.incrementAndGet()
+                    page(listOf(4, 5, 6))
+                },
+            )
 
         // Take only the first two items — never advance past page 1.
         val first = iterable.take(2).toList()
@@ -231,14 +243,15 @@ class PagedIterableTest {
     @Test
     fun `maxPages caps iteration when server returns the same nextLink repeatedly`() {
         val nextPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "same") },
-            nextPage = { _, _ ->
-                nextPageCalls.incrementAndGet()
-                page(listOf(2), nextLink = "same")
-            },
-            maxPages = 3,
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "same") },
+                nextPage = { _, _ ->
+                    nextPageCalls.incrementAndGet()
+                    page(listOf(2), nextLink = "same")
+                },
+                maxPages = 3,
+            )
 
         // 3 pages total: first + 2 nextPage calls. Items: [1, 2, 2].
         assertEquals(listOf(1, 2, 2), iterable.toList())
@@ -248,14 +261,15 @@ class PagedIterableTest {
     @Test
     fun `maxPages of 1 stops after the first page`() {
         val nextPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1, 2), nextLink = "p2") },
-            nextPage = { _, _ ->
-                nextPageCalls.incrementAndGet()
-                page(listOf(3, 4))
-            },
-            maxPages = 1,
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2), nextLink = "p2") },
+                nextPage = { _, _ ->
+                    nextPageCalls.incrementAndGet()
+                    page(listOf(3, 4))
+                },
+                maxPages = 1,
+            )
         assertEquals(listOf(1, 2), iterable.toList())
         assertEquals(0, nextPageCalls.get())
     }
@@ -266,17 +280,18 @@ class PagedIterableTest {
         // branch — first page yielded, count becomes 1, falls through to fetch
         // page 2, yields it, count becomes 2, inner break fires before fetching page 3.
         val nextPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "p2") },
-            nextPage = { _, link ->
-                nextPageCalls.incrementAndGet()
-                when (link) {
-                    "p2" -> page(listOf(2), nextLink = "p3")
-                    else -> page(listOf(99))
-                }
-            },
-            maxPages = 2,
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "p2") },
+                nextPage = { _, link ->
+                    nextPageCalls.incrementAndGet()
+                    when (link) {
+                        "p2" -> page(listOf(2), nextLink = "p3")
+                        else -> page(listOf(99))
+                    }
+                },
+                maxPages = 2,
+            )
         assertEquals(listOf(1, 2), iterable.toList())
         // Exactly one nextPage call — fetch for p2, then cap stops the loop before p3.
         assertEquals(1, nextPageCalls.get(), "third page must not be fetched once cap is reached")
@@ -284,11 +299,12 @@ class PagedIterableTest {
 
     @Test
     fun `byPage yields exactly maxPages pages`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "p2") },
-            nextPage = { _, _ -> page(listOf(2), nextLink = "p3") },
-            maxPages = 2,
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "p2") },
+                nextPage = { _, _ -> page(listOf(2), nextLink = "p3") },
+                maxPages = 2,
+            )
         val pages = iterable.byPage().toList()
         assertEquals(2, pages.size)
         assertEquals(listOf(1), pages[0].value)
@@ -301,13 +317,14 @@ class PagedIterableTest {
         // firstPage IS invoked but the loop body is skipped because the cap is reached
         // before any yield.
         val firstPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(
-            firstPage = {
-                firstPageCalls.incrementAndGet()
-                page(listOf(1, 2, 3))
-            },
-            maxPages = 0L,
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = {
+                    firstPageCalls.incrementAndGet()
+                    page(listOf(1, 2, 3))
+                },
+                maxPages = 0L,
+            )
         assertEquals(emptyList(), iterable.toList())
         assertEquals(1, firstPageCalls.get(), "firstPage is still invoked under the lazy contract")
     }
@@ -319,14 +336,15 @@ class PagedIterableTest {
         // loop forever. This test verifies that the recommended explicit-cap pattern works.
         val callCount = AtomicInteger(0)
         val cap = 5L
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "loop") },
-            nextPage = { _, _ ->
-                callCount.incrementAndGet()
-                page(listOf(2), nextLink = "loop") // always returns same link
-            },
-            maxPages = cap,
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "loop") },
+                nextPage = { _, _ ->
+                    callCount.incrementAndGet()
+                    page(listOf(2), nextLink = "loop") // always returns same link
+                },
+                maxPages = cap,
+            )
 
         val items = iterable.toList()
         // cap pages × 1 item each = cap items total (first page + (cap-1) nextPage calls).
@@ -341,10 +359,11 @@ class PagedIterableTest {
 
     @Test
     fun `stream returns same contents as iterator`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1, 2), nextLink = "p2") },
-            nextPage = { _, _ -> page(listOf(3, 4)) },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2), nextLink = "p2") },
+                nextPage = { _, _ -> page(listOf(3, 4)) },
+            )
 
         val streamed: List<Int> = iterable.stream().collect(Collectors.toList())
         assertEquals(listOf(1, 2, 3, 4), streamed)
@@ -353,10 +372,11 @@ class PagedIterableTest {
     @Test
     fun `stream is independent across calls`() {
         val firstPageCalls = AtomicInteger(0)
-        val iterable = PagedIterable<Int>(firstPage = {
-            firstPageCalls.incrementAndGet()
-            page(listOf(1, 2, 3))
-        })
+        val iterable =
+            PagedIterable<Int>(firstPage = {
+                firstPageCalls.incrementAndGet()
+                page(listOf(1, 2, 3))
+            })
 
         val s1: List<Int> = iterable.stream().collect(Collectors.toList())
         val s2: List<Int> = iterable.stream().collect(Collectors.toList())
@@ -371,9 +391,10 @@ class PagedIterableTest {
 
     @Test
     fun `network failure in firstPage propagates from iterator advance`() {
-        val iterable = PagedIterable<Int>(firstPage = {
-            throw IOException("dns failure")
-        })
+        val iterable =
+            PagedIterable<Int>(firstPage = {
+                throw IOException("dns failure")
+            })
 
         val iterator = iterable.iterator()
         val ex = assertFailsWith<IOException> { iterator.hasNext() }
@@ -382,10 +403,11 @@ class PagedIterableTest {
 
     @Test
     fun `network failure in nextPage propagates after first page is drained`() {
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1, 2), nextLink = "p2") },
-            nextPage = { _, _ -> throw IOException("404 on next page") },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2), nextLink = "p2") },
+                nextPage = { _, _ -> throw IOException("404 on next page") },
+            )
 
         val iterator = iterable.iterator()
         // First two items come from page 1 — no error yet.
@@ -402,10 +424,11 @@ class PagedIterableTest {
         // When pages.next() throws, the original exception must propagate to the caller.
         // AbstractIterator transitions to FAILED state after the throw, so subsequent
         // hasNext() calls raise IllegalArgumentException (not the original IOException).
-        val iterable = PagedIterable<Int>(
-            firstPage = { page(listOf(1), nextLink = "p2") },
-            nextPage = { _, _ -> throw IOException("persistent failure") },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = "p2") },
+                nextPage = { _, _ -> throw IOException("persistent failure") },
+            )
 
         val iterator = iterable.iterator()
         assertTrue(iterator.hasNext())
@@ -430,26 +453,31 @@ class PagedIterableTest {
         // entirely (does NOT call super) — Response.close() calls body.close(), which is
         // what we want to observe.
         val closed = AtomicInteger(0)
-        val body = object : org.dexpace.sdk.core.http.response.ResponseBody() {
-            override fun mediaType() = null
-            override fun contentLength() = -1L
-            override fun source(): org.dexpace.sdk.core.io.BufferedSource =
-                throw UnsupportedOperationException("not needed for close test")
+        val body =
+            object : org.dexpace.sdk.core.http.response.ResponseBody() {
+                override fun mediaType() = null
 
-            override fun close() {
-                closed.incrementAndGet()
+                override fun contentLength() = -1L
+
+                override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+                    throw UnsupportedOperationException("not needed for close test")
+
+                override fun close() {
+                    closed.incrementAndGet()
+                }
             }
-        }
-        val response = Response.builder()
-            .request(request)
-            .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
-            .body(body)
-            .build()
-        val paged = PagedResponse(
-            response = response,
-            value = listOf(1, 2, 3),
-        )
+        val response =
+            Response.builder()
+                .request(request)
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .body(body)
+                .build()
+        val paged =
+            PagedResponse(
+                response = response,
+                value = listOf(1, 2, 3),
+            )
 
         assertEquals(Status.OK.code, paged.statusCode)
         assertSame(response.headers, paged.headers)
@@ -467,16 +495,17 @@ class PagedIterableTest {
     fun `byPage forwards the supplied PagingOptions to firstPage and nextPage`() {
         val seenOptionsFirst = arrayOfNulls<PagingOptions>(1)
         val seenOptionsNext = arrayOfNulls<PagingOptions>(1)
-        val iterable = PagedIterable<Int>(
-            firstPage = { opts ->
-                seenOptionsFirst[0] = opts
-                page(listOf(1), nextLink = "p2")
-            },
-            nextPage = { opts, _ ->
-                seenOptionsNext[0] = opts
-                page(listOf(2))
-            },
-        )
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { opts ->
+                    seenOptionsFirst[0] = opts
+                    page(listOf(1), nextLink = "p2")
+                },
+                nextPage = { opts, _ ->
+                    seenOptionsNext[0] = opts
+                    page(listOf(2))
+                },
+            )
 
         val opts = PagingOptions(offset = 10, pageSize = 5, pageIndex = 2, continuationToken = "tok")
         assertEquals(listOf(1, 2), iterable.byPage(opts).flatMap { it.value }.toList())
