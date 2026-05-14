@@ -28,14 +28,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * only clears the buffer. The [closedFlag] exists solely to invalidate outstanding slices
  * spawned via [slice]; it does NOT guard the read/write methods of this instance.
  */
-internal class OkioBuffer(val delegate: okio.Buffer = okio.Buffer()) : Buffer {
+internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : Buffer {
 
     /**
      * Shared by every [slice] spawned from this buffer so that closing the buffer invalidates
      * outstanding slices. [okio.Buffer.close] is a no-op for in-memory buffers, but the slice
      * contract still requires the invariant — track closure ourselves.
      */
-    internal val closedFlag = AtomicBoolean(false)
+    private val closedFlag = AtomicBoolean(false)
 
     override val size: Long get() = delegate.size
 

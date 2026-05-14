@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * [closedFlag] is atomic only so that a `close()` on one thread is observable elsewhere; the
  * sink itself is single-threaded.
  */
-internal class OkioBufferedSink(val delegate: okio.BufferedSink) : BufferedSink {
+internal class OkioBufferedSink(internal val delegate: okio.BufferedSink) : BufferedSink {
 
     /**
      * Tracks whether [close] has been called. Every mutating operation checks this and throws

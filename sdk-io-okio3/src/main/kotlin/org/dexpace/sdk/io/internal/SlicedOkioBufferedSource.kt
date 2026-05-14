@@ -307,7 +307,7 @@ internal class SlicedOkioBufferedSource(
     }
 
     private companion object {
-        val EMPTY_BYTES = ByteArray(0)
-        const val SEGMENT_SIZE: Long = 8192L
+        private val EMPTY_BYTES = ByteArray(0)
+        private const val SEGMENT_SIZE: Long = 8192L
     }
 }

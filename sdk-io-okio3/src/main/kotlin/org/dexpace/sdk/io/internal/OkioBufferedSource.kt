@@ -30,12 +30,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * later [close] from reaching [delegate.close].
  */
 internal class OkioBufferedSource private constructor(
-    val delegate: okio.BufferedSource,
+    internal val delegate: okio.BufferedSource,
     /**
      * Shared closed-state passed DOWN to slices so they can detect parent closure.
      * Only the ROOT source sets this flag on close; peek views share it read-only.
      */
-    internal val parentClosed: AtomicBoolean,
+    private val parentClosed: AtomicBoolean,
     /** Whether THIS specific instance owns the [parentClosed] flag (i.e. it is the root). */
     private val isRoot: Boolean,
 ) : BufferedSource {
