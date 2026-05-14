@@ -1,108 +1,77 @@
 # Dexpace Java SDK
 
-> [!CAUTION]
-> **PROPRIETARY & CONFIDENTIAL SOFTWARE**
->
-> **NO RIGHTS ARE GRANTED.**
->
-> Any use, copying, modification, or distribution without
-> explicit written consent from **Omar Aljarrah / dexpace**
-> constitutes copyright infringement.
+A toolkit for building Java/Kotlin HTTP client libraries. Written in Kotlin, targeting JDK 8 bytecode, with adapter modules for synchronous calls, `CompletableFuture`, Kotlin coroutines, Reactor `Mono`/`Flux`, Netty `Future`, and JDK 21+ virtual threads.
 
-A zero-dependency, production-grade SDK core for building Java/Kotlin HTTP client libraries.
-Written in Kotlin, targeting **JDK 8+**, with first-class support for synchronous calls,
-`CompletableFuture` async, Kotlin coroutines, Reactor `Mono`/`Flux`, Netty `Future`, and
-JDK 21+ virtual threads.
+> **License — Proprietary & Confidential.** Copyright © 2026 Omar Aljarrah, dexpace. All rights reserved. No license is granted to use, copy, modify, distribute, or run this software without an executed commercial agreement with the copyright holder. See [LICENSE.md](LICENSE.md).
 
-## Highlights
+## Status
 
-- **Zero runtime dependencies** in `sdk-core` beyond SLF4J API and Kotlin stdlib.
-- **Pluggable I/O** via `IoProvider` — `sdk-core` defines contracts; `sdk-io-okio3` is the
-  Okio 3.x reference implementation. Write your own to support a different stream lib.
-- **Pluggable transport** via `HttpClient` / `AsyncHttpClient` — the SDK is a *toolkit*, not
-  an HTTP client. Plug in OkHttp, the JDK 11 HTTP client, Apache HttpClient, etc.
-- **Hybrid pipeline architecture** with stage-based ordering, surgical type-based edits
-  (`insertAfter<T>` / `replace<T>` / `remove<T>`), and pillar enforcement (one retry, one
-  redirect, one auth, one instrumentation step).
-- **Production resilience steps shipped**: `RetryStep` (exponential backoff + jitter +
-  `Retry-After`), `RedirectStep` (authorization stripping, HTTPS→HTTP rejection),
-  `AuthStep` family (`KeyCredential`, `BearerToken` with caching, Digest with RFC 7616),
-  `InstrumentationStep` (structured logging + tracing + metrics).
-- **Non-destructive body logging** with full capture and repeatable reads, race-safe
-  consumed-once guards, drain-error caching.
-- **Async-first contract** with `CompletableFuture` and ergonomic adapters for coroutines,
-  Reactor, Netty, and virtual threads.
-- **Immutable HTTP models** with fluent builder APIs and full Java interop
-  (`@JvmOverloads`, `@JvmStatic`, `@JvmField` where it matters).
-- **Virtual-thread safe** — `ReentrantLock` over `synchronized`, `AtomicBoolean.compareAndSet`
-  over `@Volatile` flips, no carrier-pinning code paths in the hot path.
-- **97%+ line coverage via Kotlinx Kover** with ~1,400 tests across modules.
+`0.0.1-alpha.1`. The public API is stabilising; breaking changes between alpha releases are expected. The repository is closed-source; external pull requests are not accepted at this time.
 
-## Module Layout
+## Overview
 
-| Module | Description | JVM Target |
+The SDK provides:
+
+- An async-first HTTP request/response model with immutable builders and Java-friendly factories (`@JvmOverloads`, `@JvmStatic`, `@JvmField` where applicable).
+- A composable pipeline runtime with stage-based ordering, surgical type-based edits (`insertAfter<T>`, `replace<T>`, `remove<T>`), and pillar enforcement (exactly one retry, redirect, auth, and instrumentation step per pipeline).
+- Built-in resilience steps: retry (exponential backoff with jitter and `Retry-After` honouring), redirect (authorization stripping, HTTPS→HTTP rejection), auth (`KeyCredential`, `BearerToken` with caching, RFC 7616 Digest in MD5 / MD5-sess / SHA-256 / SHA-256-sess), and instrumentation (structured logging, tracing, metrics).
+- Non-destructive body logging — `TeeSink`-based capture on requests, drain-and-peek on responses — with race-safe consumed-once guards and cached drain errors.
+- A pluggable I/O seam (`IoProvider`) so the core has zero hard dependency on a stream library.
+- A pluggable transport seam (`HttpClient` / `AsyncHttpClient`) so the core has no opinion about how bytes reach the wire.
+
+`sdk-core` has zero runtime dependencies beyond SLF4J API (compile-only) and the Kotlin standard library. All third-party concurrency libraries (Okio, kotlinx-coroutines, Reactor, Netty) are confined to adapter modules.
+
+## Requirements
+
+| Requirement | Version |
+|---|---|
+| JDK (consumers of `sdk-core` and the Java-8 adapter modules) | 8 or newer |
+| JDK (consumers of `sdk-async-virtualthreads`) | 21 or newer |
+| Gradle (for local builds) | 9.3.1 |
+| Kotlin | 2.3.21 |
+
+## Modules
+
+| Module | Purpose | JVM Target |
 |---|---|---|
-| `sdk-core` | Contracts, pipeline runtime, sync + async pipelines, all built-in steps. Zero runtime deps. | Java 8 |
+| `sdk-core` | Contracts, pipeline runtime, sync + async pipelines, built-in steps. Zero runtime deps beyond SLF4J API and Kotlin stdlib. | Java 8 |
 | `sdk-io-okio3` | Okio 3.x implementation of `IoProvider`. | Java 8 |
-| `sdk-async-coroutines` | Kotlin coroutines adapter — `suspend` extensions, `CoroutineScope.completableFutureOf`, `runInterruptible`-aware sync bridge. | Java 8 |
+| `sdk-async-coroutines` | Kotlin coroutines adapter: `suspend` extensions, `CoroutineScope.completableFutureOf`, MDC propagation. | Java 8 |
 | `sdk-async-reactor` | Reactor `Mono` / `Flux` adapter, including SSE → `Flux` with backpressure. | Java 8 |
 | `sdk-async-netty` | Netty `io.netty.util.concurrent.Future` adapter with bidirectional cancellation. | Java 8 |
 | `sdk-async-virtualthreads` | JDK 21+ virtual-thread executor adapter (`AutoCloseable`). | Java 21 |
 
-Each adapter module follows the same pattern: depend on `sdk-core`, bring in exactly one
-third-party concurrency lib, expose ergonomic extensions. Consumers pay only for what they
-use.
-
-## Package Map (sdk-core)
-
-| Package | Highlights |
-|---|---|
-| `client` | `HttpClient`, `AsyncHttpClient` — the two transport SPIs (sync + async). |
-| `http.request` | `Request`, `RequestBody`, `FileRequestBody`, `LoggableRequestBody`, `Method`. |
-| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status`, `HttpResponseException`. |
-| `http.common` | `Headers`, `HttpHeaderName` (interned), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
-| `http.context` | `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext` chain, `ContextStore`. |
-| `http.pipeline` | Sync (`HttpStep`/`HttpPipeline`/`HttpPipelineBuilder`/`PipelineNext`/`Stage`) and async (`AsyncHttpStep`/`AsyncHttpPipeline`/`AsyncHttpPipelineBuilder`/`AsyncPipelineNext`) pipeline machinery, plus `AsyncPipelineBridges`. |
-| `http.pipeline.steps` | Concrete steps: `RetryStep` / `RedirectStep` / `AuthStep` / `KeyCredentialAuthStep` / `BearerTokenAuthStep` / `InstrumentationStep` / `SetDateStep` + their `*Options` / `*Condition` types. |
-| `http.auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, `AuthMetadata`, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler` (MD5 / MD5-sess / SHA-256 / SHA-256-sess). |
-| `http.sse` | `ServerSentEventReader` (WHATWG spec), `ServerSentEvent`, `ServerSentEventListener`, `BufferedSource.readServerSentEvents()`. |
-| `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` + `stream()` accessors. |
-| `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |
-| `instrumentation` | `ClientLogger` (zero-alloc disabled path), `LoggingEvent`, `UrlRedactor`, `Tracer` / `NoopTracer`, `Span` / `NoopSpan`, `InstrumentationContext`. |
-| `instrumentation.metrics` | `Meter`, `LongCounter`, `DoubleHistogram`, `NoopMeter`. |
-| `config` | `Configuration` (system-property + env-var layered lookup), `ConfigurationBuilder`. |
-| `util` | `Clock`, `Uuids` (non-blocking v4), `DateTimeRfc1123`, `RetryUtils`, `ProxyOptions`, `Futures`. |
-| `generics` | `Builder<T>` — the generic builder interface every SDK builder implements. |
-
-A separate `src/main/java` tree carries the legacy/compat layer that backs generated service
-clients (Azure-style annotations, embedded Jackson Core, embedded Aalto XML, OTel adapters).
-It is intentionally not part of the hand-written Kotlin surface.
+Each adapter module depends on `sdk-core` and exactly one third-party concurrency library, so consumers only pay for the runtime they use.
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [Architecture Overview](docs/architecture.md) | High-level design, module structure, component responsibilities |
+| [Architecture Overview](docs/architecture.md) | Design, module structure, component responsibilities |
 | [HTTP Layer](docs/http.md) | Request/response models, headers, media types, context system, `HttpClient` |
 | [I/O Module](docs/io.md) | I/O contracts and the `IoProvider` seam |
 | [HTTP Body Logging & Concurrency](docs/http-body-logging-and-concurrency.md) | Body logging system, concurrency model, thread safety |
 | [Pipeline Mechanism](docs/pipelines.md) | Pipeline architecture, stages, step composition, async pipeline |
 | [Style Guides](styleguide/README.md) | Kotlin and Kotlin-on-JVM style guides this codebase follows |
 
-## Quick Start
-
-### Build
+## Building
 
 ```bash
-./gradlew build           # build everything
-./gradlew test            # run all tests
-./gradlew koverHtmlReport # coverage report
+./gradlew build                # build every module
+./gradlew test                 # run all tests (1,465 tests across modules)
+./gradlew koverHtmlReport      # aggregate coverage report at build/reports/kover/html/
+./gradlew apiCheck             # binary-compatibility check against committed .api snapshots
+./gradlew apiDump              # regenerate .api snapshots after intentional API changes
 ```
 
-### Sync — `HttpClient` + `HttpPipeline`
+Coverage at HEAD: 95.9% line, 90.4% branch (1,465 tests, 0 failures).
+
+## Usage
+
+### Synchronous — `HttpClient` + `HttpPipeline`
 
 ```kotlin
-Io.installProvider(OkioIoProvider)   // one-time at app startup
+Io.installProvider(OkioIoProvider)   // one-time at application startup
 
 val pipeline = HttpPipelineBuilder(transport)
     .append(SetDateStep())
@@ -127,7 +96,7 @@ pipeline.send(request).use { response ->
 }
 ```
 
-### Async — `AsyncHttpClient` + `AsyncHttpPipeline`
+### Asynchronous — `AsyncHttpClient` + `AsyncHttpPipeline`
 
 ```kotlin
 val async = AsyncHttpPipelineBuilder(asyncTransport)
@@ -140,13 +109,13 @@ async.sendAsync(request).whenComplete { response, error ->
 }
 ```
 
-Or bridge from a sync pipeline:
+Bridge a sync pipeline to async:
 
 ```kotlin
 val async = syncPipeline.toAsync(Executors.newVirtualThreadPerTaskExecutor())
 ```
 
-### Kotlin coroutines (sdk-async-coroutines)
+### Kotlin coroutines — `sdk-async-coroutines`
 
 ```kotlin
 import org.dexpace.sdk.async.coroutines.send
@@ -154,7 +123,7 @@ import org.dexpace.sdk.async.coroutines.send
 val response = async.send(request)   // suspend fun
 ```
 
-### Reactor (sdk-async-reactor)
+### Reactor — `sdk-async-reactor`
 
 ```kotlin
 import org.dexpace.sdk.async.reactor.sendMono
@@ -164,7 +133,7 @@ async.sendMono(request)
     .subscribe()
 ```
 
-SSE → `Flux` with backpressure:
+Server-Sent Events as a `Flux` with backpressure:
 
 ```kotlin
 response.body!!.source().readServerSentEventsAsFlux()
@@ -172,7 +141,7 @@ response.body!!.source().readServerSentEventsAsFlux()
     .subscribe()
 ```
 
-### Netty (sdk-async-netty)
+### Netty — `sdk-async-netty`
 
 ```kotlin
 import org.dexpace.sdk.async.netty.executeNetty
@@ -181,7 +150,7 @@ val nettyFuture = asyncClient.executeNetty(request, eventLoop)
 nettyFuture.addListener { /* fire on event-loop thread */ }
 ```
 
-### Virtual threads (sdk-async-virtualthreads, JDK 21+)
+### Virtual threads — `sdk-async-virtualthreads` (JDK 21+)
 
 ```kotlin
 val syncTransport = /* a blocking HttpClient */
@@ -194,30 +163,20 @@ syncTransport.asAsyncVirtualThreads().use { vt ->
 ### Body logging
 
 ```kotlin
-// Request — captures bytes during write via TeeSink
-val logged = LoggableRequestBody(body)
-// ... pass `logged` as the request body; transport calls writeTo()
-logger.debug("request body: {}", logged.snapshot().take(8 * 1024))
+// Request: bytes captured during write via TeeSink
+val loggedRequest = LoggableRequestBody(body)
+// pass `loggedRequest` as the request body; transport calls writeTo()
+logger.debug("request body: {}", loggedRequest.snapshot().take(8 * 1024))
 
-// Response — drains lazily, caches drain errors, peek-based repeat reads
-val logged = LoggableResponseBody(response.body!!)
-val preview = logged.snapshot(maxBytes = 8 * 1024)
-val full = logged.source().readByteArray()   // still available
+// Response: drained lazily, drain errors cached, peek-based repeat reads
+val loggedResponse = LoggableResponseBody(response.body!!)
+val preview = loggedResponse.snapshot(maxBytes = 8 * 1024)
+val full = loggedResponse.source().readByteArray()   // still available
 ```
-
-### Coverage
-
-```bash
-./gradlew koverHtmlReport
-open build/reports/kover/html/index.html
-```
-
-Current line coverage: **97.7%**. Branch coverage: **92.1%**.
 
 ## Pipeline Stages
 
-Steps run in declaration order of `Stage.entries`. Pillar stages (`isPillar = true`) admit
-exactly one step; non-pillar stages admit any number, ordered by `append` / `prepend`.
+Steps execute in declaration order of `Stage.entries`. Pillar stages (`isPillar = true`) admit exactly one step; non-pillar stages admit any number, ordered by `append` and `prepend`.
 
 ```
 REDIRECT (pillar)  →  POST_REDIRECT     →  RETRY (pillar)   →  POST_RETRY        →
@@ -226,19 +185,48 @@ LOGGING (pillar)   →  POST_LOGGING      →  PRE_SERDE        →  SERDE (pill
 POST_SERDE         →  PRE_SEND          →  SEND (terminal — HttpClient.execute)
 ```
 
-See [docs/pipelines.md](docs/pipelines.md) for the full step-author walkthrough.
+See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 
-## Tech Stack
+## Package Map (`sdk-core`)
 
-| Component | Version |
+| Package | Highlights |
 |---|---|
-| Kotlin | 2.3.21 |
-| Gradle | 9.3.1 |
-| `sdk-core` / okio3 / coroutines / reactor / netty JVM target | Java 8 |
-| `sdk-async-virtualthreads` JVM target | Java 21 |
-| SLF4J API | 2.0.18 (compileOnly) |
-| Okio | 3.17.0 (`sdk-io-okio3`) |
-| kotlinx-coroutines | 1.11.0 (`sdk-async-coroutines`) |
-| Reactor Core | 3.8.5 (`sdk-async-reactor`) |
-| Netty Common | 4.2.13.Final (`sdk-async-netty`) |
-| Kotlinx Kover | 0.9.8 (coverage; root) |
+| `client` | `HttpClient`, `AsyncHttpClient` — the two transport SPIs (sync and async). |
+| `http.request` | `Request`, `RequestBody`, `FileRequestBody`, `LoggableRequestBody`, `Method`. |
+| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status`, `HttpResponseException`. |
+| `http.common` | `Headers`, `HttpHeaderName` (interned), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
+| `http.context` | `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext` chain, `ContextStore`. |
+| `http.pipeline` | Sync (`HttpStep` / `HttpPipeline` / `HttpPipelineBuilder` / `PipelineNext` / `Stage`) and async (`AsyncHttpStep` / `AsyncHttpPipeline` / `AsyncHttpPipelineBuilder` / `AsyncPipelineNext`) pipeline machinery, plus `AsyncPipelineBridges`. |
+| `http.pipeline.steps` | Concrete steps: `RetryStep`, `RedirectStep`, `AuthStep`, `KeyCredentialAuthStep`, `BearerTokenAuthStep`, `InstrumentationStep`, `SetDateStep`, and their `*Options` / `*Condition` types. |
+| `http.auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, `AuthMetadata`, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler`. |
+| `http.sse` | `ServerSentEventReader` (WHATWG spec), `ServerSentEvent`, `ServerSentEventListener`, `BufferedSource.readServerSentEvents()`. |
+| `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` and `stream()` accessors. |
+| `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |
+| `instrumentation` | `ClientLogger` (zero-alloc disabled path), `LoggingEvent`, `UrlRedactor`, `Tracer` / `NoopTracer`, `Span` / `NoopSpan`, `InstrumentationContext`. |
+| `instrumentation.metrics` | `Meter`, `LongCounter`, `DoubleHistogram`, `NoopMeter`. |
+| `config` | `Configuration` (system-property + env-var layered lookup), `ConfigurationBuilder`. |
+| `util` | `Clock`, `Uuids` (non-blocking v4), `DateTimeRfc1123`, `RetryUtils`, `ProxyOptions`, `Futures`. |
+| `generics` | `Builder<T>` — the generic builder interface every SDK builder implements. |
+
+The `src/main/java` tree under `sdk-core` carries a legacy/compat layer that backs generated service clients (Azure-style annotations, embedded Jackson Core, embedded Aalto XML, OpenTelemetry adapters). It is intentionally not part of the hand-written Kotlin surface.
+
+## Build Quality Gates
+
+- `explicitApi = ExplicitApiMode.Strict` on every Kotlin module — every public declaration must declare its visibility and return type.
+- `allWarningsAsErrors = true` for every Kotlin compile task.
+- ktlint and detekt run with `ignoreFailures = false`. Detekt is currently skipped on `sdk-async-virtualthreads` pending a detekt release that supports JDK 25; see the module's build script for the upstream issue link and re-enable conditions.
+- `kotlinx-binary-compatibility-validator` gates the public API surface against committed `.api` snapshots.
+- Aggregate Kover coverage is gated at an 80% line-coverage floor.
+
+## Dependencies
+
+| Component | Version | Scope |
+|---|---|---|
+| Kotlin | 2.3.21 | All modules |
+| Gradle | 9.3.1 | Build |
+| SLF4J API | 2.0.18 | `sdk-core` (compileOnly) |
+| Okio | 3.17.0 | `sdk-io-okio3` |
+| kotlinx-coroutines | 1.11.0 | `sdk-async-coroutines` |
+| Reactor Core | 3.8.5 | `sdk-async-reactor` |
+| Netty Common | 4.2.13.Final | `sdk-async-netty` |
+| Kover | 0.9.8 | Coverage (root project) |
