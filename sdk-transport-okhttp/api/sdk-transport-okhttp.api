@@ -1,0 +1,25 @@
+public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport : org/dexpace/sdk/core/client/AsyncHttpClient, org/dexpace/sdk/core/client/HttpClient {
+	public static final field Companion Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Companion;
+	public synthetic fun <init> (Lokhttp3/OkHttpClient;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public static final fun create (Lokhttp3/OkHttpClient;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder : org/dexpace/sdk/core/generics/Builder {
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
+	public final fun callTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun connectTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun followRedirects (Z)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun proxy (Lorg/dexpace/sdk/core/util/ProxyOptions;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun readTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun writeTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+}
+
+public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun create (Lokhttp3/OkHttpClient;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
+}
+
