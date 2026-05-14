@@ -469,6 +469,13 @@ The SDK provides everything around this interface — body abstractions, logging
 contexts, serialization — but **not the transport itself**. This separation ensures the
 SDK core has zero transport dependencies.
 
+Two reference transport implementations ship with the project:
+
+- **`sdk-transport-okhttp`** — OkHttp 5.x; Java 8 bytecode; sync (`Call.execute`) and async (`Call.enqueue`) paths with native cancellation propagation.
+- **`sdk-transport-jdkhttp`** — `java.net.http.HttpClient` (JEP 321, JDK 11+); Java 11 bytecode; sync and async via JDK-native APIs; `CompletableFuture.cancel()` propagates to the underlying exchange natively.
+
+Both implement `HttpClient` and `AsyncHttpClient` on a single class. See the README's Usage section for instantiation examples.
+
 ---
 
 ## Design Decisions

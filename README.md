@@ -27,6 +27,7 @@ The SDK provides:
 |---|---|
 | JDK (consumers of `sdk-core` and the Java-8 adapter modules) | 8 or newer |
 | JDK (consumers of `sdk-async-virtualthreads`) | 21 or newer |
+| JDK (consumers of `sdk-transport-jdkhttp`) | 11 or newer |
 | Gradle (for local builds) | 9.3.1 |
 | Kotlin | 2.3.21 |
 
@@ -40,6 +41,8 @@ The SDK provides:
 | `sdk-async-reactor` | Reactor `Mono` / `Flux` adapter, including SSE → `Flux` with backpressure. | Java 8 |
 | `sdk-async-netty` | Netty `io.netty.util.concurrent.Future` adapter with bidirectional cancellation. | Java 8 |
 | `sdk-async-virtualthreads` | JDK 21+ virtual-thread executor adapter (`AutoCloseable`). | Java 21 |
+| `sdk-transport-okhttp` | OkHttp 5.x implementation of `HttpClient` + `AsyncHttpClient`. | Java 8 |
+| `sdk-transport-jdkhttp` | `java.net.http.HttpClient` (JEP 321) implementation of `HttpClient` + `AsyncHttpClient`. | Java 11 |
 
 Each adapter module depends on `sdk-core` and exactly one third-party concurrency library, so consumers only pay for the runtime they use.
 
@@ -58,15 +61,55 @@ Each adapter module depends on `sdk-core` and exactly one third-party concurrenc
 
 ```bash
 ./gradlew build                # build every module
-./gradlew test                 # run all tests (1,465 tests across modules)
+./gradlew test                 # run all tests (1,496 tests across modules)
 ./gradlew koverHtmlReport      # aggregate coverage report at build/reports/kover/html/
 ./gradlew apiCheck             # binary-compatibility check against committed .api snapshots
 ./gradlew apiDump              # regenerate .api snapshots after intentional API changes
 ```
 
-Coverage at HEAD: 95.9% line, 90.4% branch (1,465 tests, 0 failures).
+Coverage at HEAD: 93.3% line, 87.6% branch (1,496 tests, 0 failures).
 
 ## Usage
+
+### Choosing a transport
+
+The SDK is a toolkit, not an HTTP client — bring your own `HttpClient` / `AsyncHttpClient` implementation. Two reference transports ship with the project:
+
+#### OkHttp — `sdk-transport-okhttp`
+
+```kotlin
+// BYO factory: pass your own preconfigured OkHttpClient
+val transport = OkHttpTransport.create(myOkHttpClient)
+
+// OR SDK-managed builder
+val transport = OkHttpTransport.builder()
+    .connectTimeout(Duration.ofSeconds(5))
+    .readTimeout(Duration.ofSeconds(30))
+    .followRedirects(false)   // default — SDK has DefaultRedirectStep
+    .build()
+
+val pipeline = HttpPipelineBuilder(transport)
+    .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3)))
+    .build()
+```
+
+Implements both `HttpClient` (sync) and `AsyncHttpClient` (async, via OkHttp `Call.enqueue`). Cancellation propagates from `CompletableFuture.cancel()` to `okhttp3.Call.cancel()`. Java 8 bytecode target.
+
+#### java.net.http.HttpClient — `sdk-transport-jdkhttp` (JDK 11+)
+
+```kotlin
+// BYO factory
+val transport = JdkHttpTransport.create(myJdkHttpClient)
+
+// OR SDK-managed builder
+val transport = JdkHttpTransport.builder()
+    .connectTimeout(Duration.ofSeconds(5))
+    .responseTimeout(Duration.ofSeconds(30))
+    .httpVersion(JdkHttpTransport.HttpVersion.HTTP_2)   // default
+    .build()
+```
+
+Implements both `HttpClient` and `AsyncHttpClient` (via `HttpClient.sendAsync`). Cancellation propagates natively — `CompletableFuture.cancel()` aborts the underlying exchange. Java 11 bytecode target — consumers must be on JDK 11+.
 
 ### Synchronous — `HttpClient` + `HttpPipeline`
 
@@ -229,4 +272,6 @@ The `src/main/java` tree under `sdk-core` carries a legacy/compat layer that bac
 | kotlinx-coroutines | 1.11.0 | `sdk-async-coroutines` |
 | Reactor Core | 3.8.5 | `sdk-async-reactor` |
 | Netty Common | 4.2.13.Final | `sdk-async-netty` |
+| OkHttp | 5.0.0 | `sdk-transport-okhttp` |
+| mockwebserver3 | 5.0.0 | `sdk-transport-okhttp`, `sdk-transport-jdkhttp` (test-only) |
 | Kover | 0.9.8 | Coverage (root project) |

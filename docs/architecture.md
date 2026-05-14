@@ -88,10 +88,24 @@ java-sdk/
   sdk-async-netty/                    Netty Future adapter (Java 8 target)
   sdk-async-virtualthreads/           Virtual-thread executor adapter (Java 21 target)
 
+  sdk-transport-okhttp/               Reference transport: OkHttp 5.x (Java 8 target)
+    src/main/kotlin/
+      org/dexpace/sdk/transport/okhttp/
+        OkHttpTransport.kt            Public — implements HttpClient + AsyncHttpClient
+        internal/                     Internal adapters (request, response, body, restricted-headers)
+    src/test/kotlin/                  JUnit Platform tests (MockWebServer)
+
+  sdk-transport-jdkhttp/              Reference transport: java.net.http.HttpClient (Java 11 target)
+    src/main/kotlin/
+      org/dexpace/sdk/transport/jdkhttp/
+        JdkHttpTransport.kt           Public — implements HttpClient + AsyncHttpClient
+        internal/                     Internal adapters (request, response, body publishers, restricted-headers)
+    src/test/kotlin/
+
   docs/                               Design documentation
 ```
 
-All modules except `sdk-async-virtualthreads` target Java 8 bytecode. `sdk-async-virtualthreads` overrides the toolchain to JDK 21 because virtual threads require it; consumers of that module must be on JDK 21+.
+All modules except `sdk-async-virtualthreads` and `sdk-transport-jdkhttp` target Java 8 bytecode. `sdk-async-virtualthreads` overrides the toolchain to JDK 21 because virtual threads require it; `sdk-transport-jdkhttp` overrides to JDK 11 because `java.net.http.HttpClient` was finalised in JEP 321. Consumers of each module must be on the corresponding JDK or newer.
 
 `sdk-core` defines only contracts and contains no concrete I/O implementation. Adapter modules depend on `sdk-core` and bring exactly one third-party library each; consumers pay only for what they use.
 
@@ -225,6 +239,12 @@ interface HttpClient {
 A minimal interface that consuming libraries implement against their chosen HTTP transport
 (HttpURLConnection, Apache HC, Jetty, Netty, etc.). The SDK provides everything around
 this interface — body abstractions, logging, pipelines, contexts — but not the transport.
+
+Two production-ready reference transports ship with the project today: `sdk-transport-okhttp`
+(OkHttp 5.x, Java 8 bytecode) and `sdk-transport-jdkhttp` (`java.net.http.HttpClient`, Java 11
+bytecode). Both implement `HttpClient` and `AsyncHttpClient` on a single class and can be
+instantiated either by passing a preconfigured underlying client (BYO factory) or by using the
+SDK-managed builder. See the README's "Choosing a transport" section for usage examples.
 
 ### Serialization
 
@@ -369,6 +389,13 @@ The SDK core avoids all third-party dependencies (beyond SLF4J and Kotlin stdlib
 - **No HTTP transport**: `HttpClient` is an interface; consumers pick their transport
 
 This means any JVM project can depend on `sdk-core` without transitive dependency conflicts.
+
+The reference transport modules are the deliberate exception to the zero-dep rule: each pulls
+in exactly one transport library — OkHttp 5.x for `sdk-transport-okhttp`, and no additional
+runtime dependency for `sdk-transport-jdkhttp` (it uses the JDK standard library's
+`java.net.http.HttpClient`). The principle still holds: `sdk-core` itself has zero runtime
+deps; transport libraries are isolated to their own modules so consumers only pay for the
+transport they pick.
 
 ### JDK 8 Compatibility
 
