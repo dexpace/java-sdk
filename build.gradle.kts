@@ -106,8 +106,7 @@ allprojects {
         tasks.withType<KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_1_8)
-                // TODO: re-enable allWarningsAsErrors once tier-3 polish lands
-                allWarningsAsErrors.set(false)
+                allWarningsAsErrors.set(true)
             }
         }
 

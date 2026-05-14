@@ -6,7 +6,7 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
-import java.net.URL
+import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
@@ -97,7 +97,7 @@ class VirtualThreadsTest {
 
     private fun getRequest(): Request = Request.builder()
         .method(Method.GET)
-        .url(URL("https://api.example.com/"))
+        .url(URI.create("https://api.example.com/").toURL())
         .build()
 
     private fun mockResponse(request: Request, code: Int): Response = Response.builder()
