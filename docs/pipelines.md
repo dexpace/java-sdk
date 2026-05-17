@@ -46,14 +46,18 @@ This enables:
 
 ### Key source files
 
-| File                   | Package         | Purpose                                         |
-|------------------------|-----------------|-------------------------------------------------|
-| `RequestPipeline.kt`   | `pipeline`      | Sequential request processing                   |
-| `ResponsePipeline.kt`  | `pipeline`      | Sequential response processing (interface)      |
-| `BuilderPipeline.kt`   | `pipeline`      | Builder-based object construction through steps |
-| `ExecutionPipeline.kt` | `pipeline`      | Core HTTP execution stage (WIP)                 |
-| `PipelineStep.kt`      | `pipeline.step` | Step interfaces and specializations             |
-| `StepConfigTrait.kt`   | `pipeline.step` | Step configuration: metadata, retry             |
+| File                       | Package         | Purpose                                                          |
+|----------------------------|-----------------|------------------------------------------------------------------|
+| `RequestPipeline.kt`       | `pipeline`      | Sequential request transformation                                |
+| `ResponsePipeline.kt`      | `pipeline`      | Recovery-aware response fold (response + recovery steps)         |
+| `ExecutionPipeline.kt`     | `pipeline`      | Top-level request → transport → recovery → response orchestrator |
+| `ResponseOutcome.kt`       | `pipeline`      | Sealed `Success(Response)` / `Failure(Throwable)` sum type       |
+| `BuilderPipeline.kt`       | `pipeline`      | Builder-based object construction through steps                  |
+| `PipelineStep.kt`          | `pipeline.step` | Generic `PipelineStep<T, V>` functional interface                |
+| `RequestPipelineStep.kt`   | `pipeline.step` | `Request → Request` specialization                               |
+| `ResponsePipelineStep.kt`  | `pipeline.step` | `Response → Response` success-path specialization                |
+| `ResponseRecoveryStep.kt`  | `pipeline.step` | `ResponseOutcome → ResponseOutcome` recovery hook                |
+| `StepConfigTrait.kt`       | `pipeline.step` | Step configuration: metadata, retry                              |
 
 ---
 
@@ -61,7 +65,7 @@ This enables:
 
 ### Pipeline Types
 
-The SDK defines four pipeline types, each handling a different phase of the HTTP lifecycle:
+The SDK defines five pipeline types, each handling a different phase of the HTTP lifecycle:
 
 ```
                     BuilderPipeline<Request>
@@ -69,48 +73,66 @@ The SDK defines four pipeline types, each handling a different phase of the HTTP
                             │
                             ▼
                       RequestPipeline
-                    (transform request)
+                    (transform request — BeforeRequest)
                             │
                             ▼
-                     ExecutionPipeline
-                    (send via HttpClient)
+                       HttpClient.execute
+                    (transport — produces ResponseOutcome)
                             │
                             ▼
                      ResponsePipeline
-                    (transform response)
+                    (response steps + recovery chain
+                     — AfterSuccess + AfterError)
+
+                  Orchestrated by ExecutionPipeline
+                  (catches all exceptions, threads through recovery)
 ```
 
-| Pipeline             | Input             | Output    | Phase                                               |
-|----------------------|-------------------|-----------|-----------------------------------------------------|
-| `BuilderPipeline<T>` | `BuilderTrait<T>` | `T`       | Pre-construction: configure a builder through steps |
-| `RequestPipeline`    | `Request`         | `Request` | Pre-execution: transform the request                |
-| `ExecutionPipeline`  | —                 | —         | Execution: invoke the HTTP transport (WIP)          |
-| `ResponsePipeline`   | —                 | —         | Post-execution: transform the response (interface)  |
+| Pipeline             | Input             | Output           | Phase                                                  |
+|----------------------|-------------------|------------------|--------------------------------------------------------|
+| `BuilderPipeline<T>` | `BuilderTrait<T>` | `T`              | Pre-construction: configure a builder through steps    |
+| `RequestPipeline`    | `Request`         | `Request`        | Pre-execution: transform the request                   |
+| `ExecutionPipeline`  | `Request`         | `Response`       | Top-level orchestrator: request + transport + recovery |
+| `ResponsePipeline`   | `ResponseOutcome` | `ResponseOutcome`| Post-execution: response transforms + recovery chain   |
 
 ### Step System
 
-All steps implement the generic `PipelineStep<T, V>` functional interface:
+Two distinct step shapes are wired into the pipeline. The first is the generic transformer
+used by `RequestPipeline` and `ResponsePipeline`:
 
 ```kotlin
-fun interface PipelineStep<in T, out V> {
-    fun execute(input: T, context: DispatchContext): V
+public fun interface PipelineStep<in T, out V> {
+    public fun execute(input: T, context: DispatchContext): V
 }
 ```
 
-Specialized type aliases narrow the generics for common use cases:
+Specialized `fun interface`s narrow the generics for common use cases:
 
 ```kotlin
-interface RequestPipelineStep : PipelineStep<Request, Request>
-interface ResponsePipelineStep : PipelineStep<Response, Response>
+public fun interface RequestPipelineStep : PipelineStep<Request, Request>
+public fun interface ResponsePipelineStep : PipelineStep<Response, Response>
 ```
 
-The `StepRetryTrait` adds retry capability:
+The second shape is the recovery hook used by `ResponsePipeline`'s recovery chain — it takes
+the full outcome rather than a bare value so steps can inspect failures:
 
 ```kotlin
-interface StepRetryTrait<in T, out V> : PipelineStep<T, V> {
-    fun retry(context: ExchangeContext): V
+public fun interface ResponseRecoveryStep {
+    public fun invoke(outcome: ResponseOutcome): ResponseOutcome
 }
 ```
+
+A `StepRetryTrait` (legacy) optionally augments a `PipelineStep` with a retry hook:
+
+```kotlin
+public interface StepRetryTrait<in T, out V> : PipelineStep<T, V> {
+    public fun retry(context: ExchangeContext): V
+}
+```
+
+The canonical retry implementation lives in WU-3 (`RetryStep`) and is structured as a
+`ResponseRecoveryStep` so it composes uniformly with the recovery chain rather than relying
+on the legacy trait.
 
 ### Context Flow
 
@@ -137,24 +159,32 @@ The `RequestPipeline` processes a `Request` through an ordered list of
 and returns a (potentially modified) request.
 
 ```kotlin
-fun interface RequestPipeline {
-    fun execute(request: Request, context: DispatchContext): Request
-
-    val steps: List<RequestPipelineStep>
-        get() = emptyList()
+public class RequestPipeline(
+    public val steps: List<RequestPipelineStep> = emptyList(),
+) {
+    public fun execute(request: Request, context: DispatchContext): Request
 }
 ```
 
 Steps execute **sequentially** — the output of step N becomes the input of step N+1.
-The pipeline is a `fun interface`, meaning a lambda can serve as a simple pipeline:
+Empty pipelines return the input request unchanged. Individual steps are typically lambdas
+courtesy of `fun interface RequestPipelineStep`:
 
 ```kotlin
-val pipeline = RequestPipeline { request, context ->
-    request.newBuilder()
-        .header("X-Request-Id", context.instrumentationContext.traceId.value)
-        .build()
-}
+val pipeline = RequestPipeline(
+    steps = listOf(
+        RequestPipelineStep { request, context ->
+            request.newBuilder()
+                .header("X-Request-Id", context.instrumentationContext.traceId.value)
+                .build()
+        },
+    ),
+)
 ```
+
+If a step throws, `RequestPipeline.execute` propagates the throwable unchanged. The
+surrounding `ExecutionPipeline` is responsible for translating that throwable into a
+`ResponseOutcome.Failure` so it can be observed by recovery steps (see below).
 
 ### Common request steps
 
@@ -170,26 +200,78 @@ val pipeline = RequestPipeline { request, context ->
 
 ## ResponsePipeline
 
-The `ResponsePipeline` is the post-execution counterpart to `RequestPipeline`. It is
-currently defined as an interface placeholder:
+The `ResponsePipeline` is the recovery-aware post-execution counterpart to `RequestPipeline`.
+It folds a `ResponseOutcome` (a sealed sum of `Success(Response)` and `Failure(Throwable)`)
+through two ordered step lists:
 
 ```kotlin
-interface ResponsePipeline {}
+public class ResponsePipeline(
+    responseSteps: List<ResponsePipelineStep> = emptyList(),
+    recoverySteps: List<ResponseRecoveryStep> = emptyList(),
+)
 ```
 
-When implemented, it will process the `Response` through a sequence of
-`ResponsePipelineStep`s — each receiving the current response and context, and returning
-a (potentially modified) response.
+1. **`responseSteps`** are the success-path transformers — Airbyte's `AfterSuccess` equivalent.
+   Each receives the current `Response` and returns the next. They run **only** when the
+   outcome is currently `Success`; if a response step throws, the throwable is converted into
+   a `ResponseOutcome.Failure` and threaded through the subsequent recovery chain.
+2. **`recoverySteps`** are the recovery hooks — Airbyte's `AfterError` equivalent, generalized
+   so they observe every outcome (success or failure). Each `ResponseRecoveryStep` receives
+   the current outcome and returns the next:
+   - **Rescue.** Receive `Failure`, return `Success` (cached fallback, stale-while-revalidate).
+   - **Replace.** Receive `Failure(t1)`, return `Failure(t2)` (typed-exception mapping).
+   - **Pass-through.** Return the input unchanged.
+   - **Retry (delegated).** Re-invoke the underlying transport and return the new outcome.
 
-### Planned response steps
+Order: response steps run first on the success path, then **all** recovery steps run
+sequentially regardless of how many response steps ran. This guarantees recovery always sees
+the terminal outcome, including failures produced by response steps:
+
+```
+Outcome ──► [respStep1 ─► respStep2 ─► ...] ──► [recoveryStep1 ─► recoveryStep2 ─► ...]
+            (skipped when outcome is Failure)
+```
+
+If a recovery step itself throws, its throwable is wrapped in a `ResponseOutcome.Failure` and
+fed to the next recovery step — recovery exceptions never bypass downstream recovery. The
+pipeline's `apply` method never throws; callers inspect the returned outcome to decide whether
+to surface a `Response` or rethrow.
+
+### ResponseOutcome
+
+```kotlin
+public sealed class ResponseOutcome {
+    public data class Success(val response: Response) : ResponseOutcome()
+    public data class Failure(val error: Throwable) : ResponseOutcome()
+
+    public fun isSuccess(): Boolean
+    public fun isFailure(): Boolean
+    public fun getOrNull(): Response?
+    public fun errorOrNull(): Throwable?
+    public inline fun <R> fold(onSuccess: (Response) -> R, onFailure: (Throwable) -> R): R
+}
+```
+
+The `fold` helper mirrors `kotlin.Result.fold` for ergonomic collapsing of an outcome into a
+single value.
+
+### Common response steps
 
 | Step              | Purpose                                             |
 |-------------------|-----------------------------------------------------|
-| Status validation | Throw on 4xx/5xx if configured                      |
 | Body logging      | Wrap body in `LoggableResponseBody` for diagnostics |
 | Header extraction | Pull rate limit headers, pagination tokens          |
 | Deserialization   | Convert body to domain objects                      |
 | Metric recording  | Record latency, status codes, body sizes            |
+
+### Common recovery steps
+
+| Step                | Purpose                                                                |
+|---------------------|------------------------------------------------------------------------|
+| `RetryStep` (WU-3)  | Re-invoke transport on retryable failures with exponential backoff     |
+| Status-to-exception | Map 4xx/5xx responses (or transport `IOException`) to typed exceptions |
+| Auth-401 eviction   | Evict cached OAuth token on `UnauthorizedException` and retry once     |
+| Circuit breaker     | Open the breaker on consecutive failures; fast-fail for the open phase |
 
 ---
 
@@ -235,16 +317,70 @@ fun build(context: DispatchContext): T = steps
 
 ## ExecutionPipeline
 
-The `ExecutionPipeline` represents the core execution stage where the request is sent
-to the HTTP transport and a response is received. This is currently a placeholder:
+The `ExecutionPipeline` is the top-level entry point that ties `RequestPipeline`, the
+`HttpClient` transport, and the recovery-aware `ResponsePipeline` together. SDK consumers
+call `executionPipeline.execute(request, context)` and receive a `Response` (or rethrow the
+terminal failure).
 
 ```kotlin
-class ExecutionPipeline {}
+public class ExecutionPipeline(
+    public val httpClient: HttpClient,
+    public val requestPipeline: RequestPipeline = RequestPipeline(),
+    public val responsePipeline: ResponsePipeline = ResponsePipeline(),
+)
 ```
 
-When implemented, it will coordinate between the `RequestPipeline` (pre-processing),
-the `HttpClient` (transport), and the `ResponsePipeline` (post-processing), forming the
-complete request/response lifecycle.
+### Execution flow
+
+```
+                  ┌─────────────────────────────────────────┐
+                  │              ExecutionPipeline           │
+                  └─────────────────────────────────────────┘
+                                       │
+                                       ▼
+                              ┌────────────────┐
+                              │ RequestPipeline│  (BeforeRequest)
+                              └────────┬───────┘
+                                       │     throw
+                                       │     ──────────────┐
+                                       ▼                   │
+                              ┌────────────────┐           │
+                              │ HttpClient     │           │
+                              │ .execute()     │           │
+                              └────────┬───────┘           │
+                                       │     throw         │
+                                       │     ────────────┐ │
+                                       ▼                 ▼ ▼
+                            ResponseOutcome.Success  ResponseOutcome.Failure
+                                       │                 │
+                                       └────────┬────────┘
+                                                ▼
+                              ┌────────────────────────────┐
+                              │      ResponsePipeline       │
+                              │                             │
+                              │  [responseSteps (Success)]  │  (AfterSuccess)
+                              │             │               │
+                              │             ▼               │
+                              │  [recoverySteps (any)]      │  (AfterError, generalized)
+                              └────────────────────────────┘
+                                                │
+                                                ▼
+                                       ┌──────────────────┐
+                                       │ Unwrap outcome:   │
+                                       │  Success → return │
+                                       │  Failure → throw  │
+                                       └──────────────────┘
+```
+
+**Key correctness invariant.** **Every** exception raised inside a request step, the
+transport, or a response step is caught and converted into a `ResponseOutcome.Failure` before
+the recovery chain runs. Recovery steps observe the failure regardless of where in the
+pipeline it originated — this fixes Airbyte's design defect where a `BeforeRequest` exception
+bypassed `AfterError` entirely (`utils/Hook.java`).
+
+`execute` rethrows the terminal `Failure.error` unchanged when no recovery step rescued it.
+Wrapping into typed SDK exceptions is the recovery chain's job (see the WU-2 typed exception
+hierarchy and WU-10 auth provider).
 
 ---
 
@@ -407,15 +543,46 @@ class RetryableAuthStep(
 }
 ```
 
+### End-to-end execution with recovery
+
+```kotlin
+val mapToTypedException = ResponseRecoveryStep { outcome ->
+    when (outcome) {
+        is ResponseOutcome.Success -> outcome
+        is ResponseOutcome.Failure ->
+            ResponseOutcome.Failure(SdkException("transport failed", outcome.error))
+    }
+}
+
+val pipeline = ExecutionPipeline(
+    httpClient = transport,
+    requestPipeline = RequestPipeline(listOf(authStep, userAgentStep)),
+    responsePipeline = ResponsePipeline(
+        responseSteps = listOf(decodingStep),
+        recoverySteps = listOf(retryStep, mapToTypedException),
+    ),
+)
+
+val response = pipeline.execute(request, DispatchContext.default())
+```
+
+If any phase of the pipeline raises an exception, the recovery chain observes it through a
+`ResponseOutcome.Failure` and may rescue, replace, or pass through. The terminal outcome is
+unwrapped: `Success` returns the `Response`; `Failure` rethrows.
+
 ---
 
 ## File Index
 
-| File                      | Visibility | Description                                                                                      |
-|---------------------------|------------|--------------------------------------------------------------------------------------------------|
-| `RequestPipeline.kt`      | public     | Sequential request processing (`fun interface`)                                                  |
-| `ResponsePipeline.kt`     | public     | Response processing interface (placeholder)                                                      |
-| `BuilderPipeline.kt`      | public     | Builder-based construction through steps                                                         |
-| `ExecutionPipeline.kt`    | public     | Core execution stage (placeholder)                                                               |
-| `step/PipelineStep.kt`    | public     | Step interfaces: `PipelineStep`, `StepRetryTrait`, `RequestPipelineStep`, `ResponsePipelineStep` |
-| `step/StepConfigTrait.kt` | public     | Configuration traits: metadata, retry config                                                     |
+| File                            | Visibility | Description                                                                |
+|---------------------------------|------------|----------------------------------------------------------------------------|
+| `RequestPipeline.kt`            | public     | Sequential request transformation                                          |
+| `ResponsePipeline.kt`           | public     | Recovery-aware response fold (response + recovery steps)                   |
+| `ExecutionPipeline.kt`          | public     | Top-level orchestrator: request → transport → recovery → response          |
+| `ResponseOutcome.kt`            | public     | Sealed `Success(Response)` / `Failure(Throwable)` sum type                 |
+| `BuilderPipeline.kt`            | public     | Builder-based construction through steps                                   |
+| `step/PipelineStep.kt`          | public     | Generic `PipelineStep<T, V>` functional interface                          |
+| `step/RequestPipelineStep.kt`   | public     | `Request → Request` specialization                                         |
+| `step/ResponsePipelineStep.kt`  | public     | `Response → Response` success-path specialization                          |
+| `step/ResponseRecoveryStep.kt`  | public     | `ResponseOutcome → ResponseOutcome` recovery hook                          |
+| `step/StepConfigTrait.kt`       | public     | Configuration traits: metadata, retry config                               |
