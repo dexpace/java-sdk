@@ -102,6 +102,14 @@ java-sdk/
         internal/                     Internal adapters (request, response, body publishers, restricted-headers)
     src/test/kotlin/
 
+  sdk-serde-jackson/                  Jackson 2.18 Serde adapter (Java 8 target)
+    src/main/kotlin/
+      org/dexpace/sdk/serde/jackson/
+        JacksonSerde.kt               Public — Serde implementation + typed deserializeAs helpers
+        JacksonObjectMappers.kt       Public — defaultObjectMapper() factory
+        TristateModule.kt             Public — Jackson module wiring Tristate ser/de
+    src/test/kotlin/
+
   docs/                               Design documentation
 ```
 
@@ -255,9 +263,26 @@ SDK-managed builder. See the README's "Choosing a transport" section for usage e
 | `Serde`          | Combined serializer/deserializer interface               |
 | `Deserializer`   | Deserialize from `String`, `ByteArray`, or `InputStream` |
 | `SerializeTrait` | Mixin for types that can serialize themselves            |
+| `Tristate<T>`    | Three-valued container (Absent / Null / Present) for `PATCH` payloads |
 
 The core module defines abstractions only. Concrete implementations (Jackson, Moshi, kotlinx.serialization) belong in
-optional extension modules.
+optional extension modules. `sdk-serde-jackson` ships today as the reference Jackson 2.18 adapter, including a
+`TristateModule` that wires the [`Tristate<T>`](#tristate) type through Jackson's
+serializer / deserializer pipeline.
+
+#### Jackson adapter (`sdk-serde-jackson`)
+
+| Type                       | Visibility | Role                                                                 |
+|----------------------------|------------|----------------------------------------------------------------------|
+| `JacksonSerde`             | public     | `Serde` impl + typed `deserializeAs(input, TypeReference<T>)` helpers |
+| `JacksonObjectMappers`     | public     | `defaultObjectMapper()` factory with SDK-correct defaults             |
+| `TristateModule`           | public     | Jackson `SimpleModule` wiring `Tristate<T>` ser/de + property-omit hook |
+
+SDK-correct mapper defaults installed by `JacksonObjectMappers.defaultObjectMapper()`:
+
+- `KotlinModule`, `JavaTimeModule`, `Jdk8Module`, `TristateModule` all registered.
+- `DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES` disabled — payloads can grow without breaking clients.
+- `SerializationFeature.WRITE_DATES_AS_TIMESTAMPS` disabled — emits ISO-8601 strings, not epoch numbers.
 
 ### Instrumentation
 

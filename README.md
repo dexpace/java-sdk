@@ -43,6 +43,7 @@ The SDK provides:
 | `sdk-async-virtualthreads` | JDK 21+ virtual-thread executor adapter (`AutoCloseable`). | Java 21 |
 | `sdk-transport-okhttp` | OkHttp 5.x implementation of `HttpClient` + `AsyncHttpClient`. | Java 8 |
 | `sdk-transport-jdkhttp` | `java.net.http.HttpClient` (JEP 321) implementation of `HttpClient` + `AsyncHttpClient`. | Java 11 |
+| `sdk-serde-jackson` | Jackson 2.18 implementation of `Serde` with SDK-correct defaults (`FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`) + `Tristate<T>` ser/de. | Java 8 |
 
 Each adapter module depends on `sdk-core` and exactly one third-party concurrency library, so consumers only pay for the runtime they use.
 
@@ -274,4 +275,5 @@ The `src/main/java` tree under `sdk-core` carries a legacy/compat layer that bac
 | Netty Common | 4.2.13.Final | `sdk-async-netty` |
 | OkHttp | 5.0.0 | `sdk-transport-okhttp` |
 | mockwebserver3 | 5.0.0 | `sdk-transport-okhttp`, `sdk-transport-jdkhttp` (test-only) |
+| Jackson | 2.18.2 | `sdk-serde-jackson` |
 | Kover | 0.9.8 | Coverage (root project) |
