@@ -34,4 +34,11 @@ public object NoopInstrumentationContext : InstrumentationContext {
 
     /** Always [Span.NOOP] — the no-op context cannot host a recording span. */
     override val span: Span = Span.NOOP
+
+    /**
+     * Always [NoopHttpTracerFactory] — the no-op context cannot mint a recording tracer.
+     * Explicit override (rather than inheriting the interface default) so the no-op
+     * identity is part of the type's contract and is asserted by tests.
+     */
+    override val httpTracerFactory: HttpTracerFactory = NoopHttpTracerFactory
 }

@@ -37,6 +37,20 @@ public interface InstrumentationContext {
 
     /** Currently active span associated with this context; [Span.NOOP] when tracing is disabled. */
     public val span: Span
+
+    /**
+     * Factory used to mint an [HttpTracer] for each operation that runs within this
+     * context. Defaults to [NoopHttpTracerFactory] so existing implementations of
+     * [InstrumentationContext] do not need to declare anything — adding this property
+     * is a non-breaking change. Real tracing backends override this with a factory that
+     * builds tracers backed by their span/metric API.
+     *
+     * The SDK pipeline calls `httpTracerFactory.newTracer(operationName, attributes)`
+     * once per operation; the resulting tracer receives the full event stream defined
+     * by [HttpTracer] before being discarded at operation end.
+     */
+    public val httpTracerFactory: HttpTracerFactory
+        get() = NoopHttpTracerFactory
 }
 
 /**
