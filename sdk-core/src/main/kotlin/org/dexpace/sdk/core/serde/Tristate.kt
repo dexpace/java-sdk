@@ -114,7 +114,6 @@ public sealed class Tristate<out T> {
          * "seen" by the caller. Use [absent] when the source data has no entry at all.
          */
         @JvmStatic
-        public fun <T : Any> ofNullable(value: T?): Tristate<T> =
-            if (value == null) Null else Present(value)
+        public fun <T : Any> ofNullable(value: T?): Tristate<T> = if (value == null) Null else Present(value)
     }
 }
