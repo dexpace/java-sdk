@@ -1868,6 +1868,43 @@ public final class org/dexpace/sdk/core/pipeline/ResponsePipeline {
 	public final fun getResponseSteps ()Ljava/util/List;
 }
 
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep : org/dexpace/sdk/core/pipeline/step/RequestPipelineStep {
+	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Companion;
+	public static final field DEFAULT_HEADER_NAME Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;)V
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;Ljava/lang/String;Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun apply (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
+	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public synthetic fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/request/Request;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun addToken (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public final fun addToken (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep;
+	public final fun headerName (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public final fun mode (Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public final fun tokens (Ljava/util/List;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode : java/lang/Enum {
+	public static final field Append Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+	public static final field Replace Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+	public static fun values ()[Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+}
+
 public abstract interface class org/dexpace/sdk/core/pipeline/step/PipelineStep {
 	public abstract fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
 }
@@ -1962,5 +1999,14 @@ public final class org/dexpace/sdk/core/util/RetryUtils {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/util/RetryUtils;
 	public static final fun isRetryable (I)Z
 	public static final fun isRetryable (Ljava/lang/Throwable;)Z
+}
+
+public final class org/dexpace/sdk/core/util/SdkInfo {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/util/SdkInfo;
+	public final fun defaultTokens ()Ljava/util/List;
+	public final fun getJavaVendor ()Ljava/lang/String;
+	public final fun getJavaVersion ()Ljava/lang/String;
+	public final fun getOsName ()Ljava/lang/String;
+	public final fun getSdkVersion ()Ljava/lang/String;
 }
 
