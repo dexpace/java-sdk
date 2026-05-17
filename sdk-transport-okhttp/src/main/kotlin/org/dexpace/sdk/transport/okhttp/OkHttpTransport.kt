@@ -22,6 +22,7 @@ import java.net.URI
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.Response as OkResponse
 import org.dexpace.sdk.core.generics.Builder as SdkBuilder
 
@@ -36,9 +37,12 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
  * Construction:
  * - [create] — BYO factory: hand the transport a fully-configured [OkHttpClient]
  *   (interceptors, dispatcher, SSL, connection pool, etc. are the caller's concern). The
- *   SDK does not clone or rebuild the supplied client.
+ *   SDK does not clone or rebuild the supplied client. The transport's [close] is a no-op
+ *   in this case — the caller owns the client's lifecycle.
  * - [builder] — SDK-managed config: only the knobs the SDK pipeline cares about
- *   (timeouts, proxy, followRedirects). Internally constructs an [OkHttpClient].
+ *   (timeouts, proxy, followRedirects). Internally constructs an [OkHttpClient]. When the
+ *   transport is built this way it owns the underlying client, so [close] shuts down its
+ *   dispatcher executor, evicts its connection pool, and closes its cache (if any).
  *
  * The default for `followRedirects` is `false` because the SDK pipeline already has
  * `DefaultRedirectStep`; letting OkHttp follow redirects underneath would double-handle
@@ -49,10 +53,22 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
  */
 public class OkHttpTransport private constructor(
     private val client: OkHttpClient,
+    /**
+     * `true` when the SDK created the underlying [OkHttpClient] via [Builder.build]; `false`
+     * when the caller handed in their own client via [create]. Drives the close-or-no-op
+     * decision in [close] per the SDK's ownership-aware lifecycle contract.
+     */
+    private val owned: Boolean,
 ) : HttpClient, AsyncHttpClient {
     private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.okhttp.OkHttpTransport")
     private val requestAdapter: RequestAdapter = RequestAdapter(log)
     private val responseAdapter: ResponseAdapter = ResponseAdapter()
+
+    /**
+     * Latches `true` on the first [close] so subsequent calls are no-ops. `AtomicBoolean`
+     * keeps the latch lock-free and virtual-thread-friendly per the SDK's concurrency rules.
+     */
+    private val closed: AtomicBoolean = AtomicBoolean(false)
 
     /**
      * Synchronously executes [request] on the caller's thread. Honours `Thread.interrupt`
@@ -111,13 +127,73 @@ public class OkHttpTransport private constructor(
         return future
     }
 
+    /**
+     * Releases SDK-owned OkHttp resources. When this transport was built via [builder] the
+     * underlying [OkHttpClient] is closed by:
+     *
+     *  1. `dispatcher().executorService().shutdown()` — graceful shutdown of OkHttp's
+     *     dispatcher pool; in-flight calls finish before threads exit.
+     *  2. `connectionPool().evictAll()` — closes idle keep-alive connections so their
+     *     sockets are returned to the OS promptly.
+     *  3. `cache()?.close()` — closes the response cache (if one is configured) so its
+     *     file descriptors are released.
+     *
+     * When the caller supplied the [OkHttpClient] via [create] this method is a no-op: the
+     * caller owns the client's lifecycle and may continue using it after the transport is
+     * closed.
+     *
+     * Idempotent — repeated calls latch on the first invocation. Interrupt-safe — the
+     * shutdown calls don't block waiting for executor termination, so `Thread.interrupt()`
+     * is preserved as-is for callers' subsequent operations.
+     */
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) {
+            return
+        }
+        if (!owned) {
+            return
+        }
+        // `shutdown()` is non-blocking — it stops accepting new tasks and lets in-flight
+        // ones finish. We deliberately do NOT call `awaitTermination` here because the
+        // SDK's close() contract is non-blocking; callers who need to wait can schedule
+        // shutdown via their own coordinator. `shutdownNow()` is also avoided to honour
+        // OkHttp's documented graceful-drain semantics.
+        try {
+            client.dispatcher.executorService.shutdown()
+        } catch (e: SecurityException) {
+            log.atWarning()
+                .event("okhttp.close.dispatcher.shutdown.denied")
+                .cause(e)
+                .log("OkHttp dispatcher executor refused shutdown")
+        }
+        try {
+            client.connectionPool.evictAll()
+        } catch (e: RuntimeException) {
+            // evictAll iterates the pool under lock; any unexpected runtime failure must
+            // not leak out of close() and prevent the cache.close() below.
+            log.atWarning()
+                .event("okhttp.close.connection-pool.evict.failed")
+                .cause(e)
+                .log("OkHttp connection-pool eviction failed")
+        }
+        try {
+            client.cache?.close()
+        } catch (e: IOException) {
+            log.atWarning()
+                .event("okhttp.close.cache.close.failed")
+                .cause(e)
+                .log("OkHttp response cache close failed")
+        }
+    }
+
     public companion object {
         /**
          * BYO factory: wrap a fully-configured [OkHttpClient]. The supplied client is used
-         * verbatim — the SDK does not override `followRedirects`, timeouts, or interceptors.
+         * verbatim — the SDK does not override `followRedirects`, timeouts, or interceptors,
+         * and [close] will NOT shut down this client (the caller owns its lifecycle).
          */
         @JvmStatic
-        public fun create(client: OkHttpClient): OkHttpTransport = OkHttpTransport(client)
+        public fun create(client: OkHttpClient): OkHttpTransport = OkHttpTransport(client, owned = false)
 
         /** Returns a fresh [Builder] for SDK-managed [OkHttpClient] construction. */
         @JvmStatic
@@ -185,7 +261,8 @@ public class OkHttpTransport private constructor(
         /**
          * Builds an [OkHttpTransport]. The underlying [OkHttpClient] is created with the
          * knobs configured above; unconfigured knobs fall through to OkHttp's library
-         * defaults.
+         * defaults. The transport owns the resulting client, so [OkHttpTransport.close]
+         * will shut down its dispatcher executor and evict its connection pool.
          */
         override fun build(): OkHttpTransport {
             val okBuilder = OkHttpClient.Builder()
@@ -196,7 +273,7 @@ public class OkHttpTransport private constructor(
             proxy?.let { applyProxy(okBuilder, it) }
             okBuilder.followRedirects(followRedirects)
             okBuilder.followSslRedirects(followRedirects)
-            return OkHttpTransport(okBuilder.build())
+            return OkHttpTransport(okBuilder.build(), owned = true)
         }
 
         /**
