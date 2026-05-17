@@ -1478,7 +1478,40 @@ public final class org/dexpace/sdk/core/instrumentation/ClientLogger {
 public final class org/dexpace/sdk/core/instrumentation/ClientLogger$Companion {
 }
 
+public abstract interface class org/dexpace/sdk/core/instrumentation/HttpTracer {
+	public fun attemptFailed (Ljava/lang/Throwable;Ljava/lang/Long;)V
+	public fun attemptRetriesExhausted (Ljava/lang/Throwable;)V
+	public fun attemptStarted (I)V
+	public fun connectionAcquired (Ljava/lang/String;I)V
+	public fun operationFailed (Ljava/lang/Throwable;)V
+	public fun operationStarted (Ljava/lang/String;)V
+	public fun operationSucceeded ()V
+	public fun requestSent (Ljava/lang/Long;)V
+	public fun requestUrlResolved (Ljava/lang/String;)V
+	public fun responseHeadersReceived (ILorg/dexpace/sdk/core/http/common/Headers;)V
+	public fun responseReceived (Ljava/lang/Long;)V
+}
+
+public final class org/dexpace/sdk/core/instrumentation/HttpTracer$DefaultImpls {
+	public static fun attemptFailed (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Throwable;Ljava/lang/Long;)V
+	public static fun attemptRetriesExhausted (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Throwable;)V
+	public static fun attemptStarted (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;I)V
+	public static fun connectionAcquired (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/String;I)V
+	public static fun operationFailed (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Throwable;)V
+	public static fun operationStarted (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/String;)V
+	public static fun operationSucceeded (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;)V
+	public static fun requestSent (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Long;)V
+	public static fun requestUrlResolved (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/String;)V
+	public static fun responseHeadersReceived (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;ILorg/dexpace/sdk/core/http/common/Headers;)V
+	public static fun responseReceived (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Long;)V
+}
+
+public abstract interface class org/dexpace/sdk/core/instrumentation/HttpTracerFactory {
+	public abstract fun newTracer (Ljava/lang/String;Ljava/util/Map;)Lorg/dexpace/sdk/core/instrumentation/HttpTracer;
+}
+
 public abstract interface class org/dexpace/sdk/core/instrumentation/InstrumentationContext {
+	public fun getHttpTracerFactory ()Lorg/dexpace/sdk/core/instrumentation/HttpTracerFactory;
 	public abstract fun getSpan ()Lorg/dexpace/sdk/core/instrumentation/Span;
 	public abstract fun getSpanId-ozr2qno ()Ljava/lang/String;
 	public abstract fun getTraceFlags-DG3hc0k ()Ljava/lang/String;
@@ -1487,6 +1520,10 @@ public abstract interface class org/dexpace/sdk/core/instrumentation/Instrumenta
 	public abstract fun getTraceState-0Ay6N4s ()Ljava/lang/String;
 	public abstract fun isRemote ()Z
 	public abstract fun isValid ()Z
+}
+
+public final class org/dexpace/sdk/core/instrumentation/InstrumentationContext$DefaultImpls {
+	public static fun getHttpTracerFactory (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;)Lorg/dexpace/sdk/core/instrumentation/HttpTracerFactory;
 }
 
 public final class org/dexpace/sdk/core/instrumentation/LogLevel : java/lang/Enum {
@@ -1532,8 +1569,29 @@ public final class org/dexpace/sdk/core/instrumentation/MdcSnapshot$Companion {
 	public final fun capture ()Lorg/dexpace/sdk/core/instrumentation/MdcSnapshot;
 }
 
+public final class org/dexpace/sdk/core/instrumentation/NoopHttpTracer : org/dexpace/sdk/core/instrumentation/HttpTracer {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/instrumentation/NoopHttpTracer;
+	public fun attemptFailed (Ljava/lang/Throwable;Ljava/lang/Long;)V
+	public fun attemptRetriesExhausted (Ljava/lang/Throwable;)V
+	public fun attemptStarted (I)V
+	public fun connectionAcquired (Ljava/lang/String;I)V
+	public fun operationFailed (Ljava/lang/Throwable;)V
+	public fun operationStarted (Ljava/lang/String;)V
+	public fun operationSucceeded ()V
+	public fun requestSent (Ljava/lang/Long;)V
+	public fun requestUrlResolved (Ljava/lang/String;)V
+	public fun responseHeadersReceived (ILorg/dexpace/sdk/core/http/common/Headers;)V
+	public fun responseReceived (Ljava/lang/Long;)V
+}
+
+public final class org/dexpace/sdk/core/instrumentation/NoopHttpTracerFactory : org/dexpace/sdk/core/instrumentation/HttpTracerFactory {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/instrumentation/NoopHttpTracerFactory;
+	public fun newTracer (Ljava/lang/String;Ljava/util/Map;)Lorg/dexpace/sdk/core/instrumentation/HttpTracer;
+}
+
 public final class org/dexpace/sdk/core/instrumentation/NoopInstrumentationContext : org/dexpace/sdk/core/instrumentation/InstrumentationContext {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/instrumentation/NoopInstrumentationContext;
+	public fun getHttpTracerFactory ()Lorg/dexpace/sdk/core/instrumentation/HttpTracerFactory;
 	public fun getSpan ()Lorg/dexpace/sdk/core/instrumentation/Span;
 	public fun getSpanId-ozr2qno ()Ljava/lang/String;
 	public fun getTraceFlags-DG3hc0k ()Ljava/lang/String;
