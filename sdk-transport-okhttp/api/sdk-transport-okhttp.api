@@ -1,7 +1,8 @@
 public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport : org/dexpace/sdk/core/client/AsyncHttpClient, org/dexpace/sdk/core/client/HttpClient {
 	public static final field Companion Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Companion;
-	public synthetic fun <init> (Lokhttp3/OkHttpClient;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lokhttp3/OkHttpClient;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public fun close ()V
 	public static final fun create (Lokhttp3/OkHttpClient;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
 	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;

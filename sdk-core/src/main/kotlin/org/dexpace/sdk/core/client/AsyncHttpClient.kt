@@ -32,6 +32,19 @@ import java.util.concurrent.Executor
  * cancelling the future does NOT close the [Response] body; callers must still call
  * `Response.close()` on success-path completions even when discarding the value.
  *
+ * ## Lifecycle
+ * [AsyncHttpClient] extends [AutoCloseable]. The default [close] is a no-op so SAM literals
+ * (`AsyncHttpClient { request -> ... }`) and existing implementations remain valid without
+ * modification. Transport implementations that own background threads or connection pools should
+ * override [close] to release them. The contract mirrors [HttpClient.close]:
+ *
+ *  1. **Idempotent.** Repeated calls must be safe.
+ *  2. **Ownership-aware.** Only release SDK-owned resources; user-supplied executors/clients
+ *     are left untouched.
+ *  3. **Interrupt-safe.** Honour `Thread.interrupt()` on any blocking shutdown step.
+ *
+ * After [close] returns, calls to [executeAsync] have undefined behaviour.
+ *
  * ## Bridging to/from sync
  * - `HttpClient.asAsync(executor)` wraps a blocking transport in an async facade by submitting
  *   each `execute(...)` call to the given [Executor]. Pair with a virtual-thread executor on
@@ -40,7 +53,7 @@ import java.util.concurrent.Executor
  *   `executeAsync(...).join()` and unwraps the [CompletionException] so callers see the
  *   original [Exception] / [Response] semantics.
  */
-public fun interface AsyncHttpClient {
+public fun interface AsyncHttpClient : AutoCloseable {
     /**
      * Sends [request] over the underlying transport. The returned future completes with the
      * matching [Response] (caller owns close) or completes exceptionally with the transport
@@ -48,6 +61,16 @@ public fun interface AsyncHttpClient {
      * response must complete exceptionally instead.
      */
     public fun executeAsync(request: Request): CompletableFuture<Response>
+
+    /**
+     * Releases any resources held by this transport. The default implementation is a no-op so
+     * SAM literals and lightweight client wrappers do not need to implement [AutoCloseable.close]
+     * explicitly. Transport implementations that own background threads, connection pools, or
+     * executors must override this method; see the class-level "Lifecycle" KDoc for the contract.
+     */
+    public override fun close() {
+        // No-op default. Transports with owned resources override this.
+    }
 }
 
 /**
