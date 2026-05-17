@@ -1926,6 +1926,41 @@ public final class org/dexpace/sdk/core/pipeline/ResponsePipeline {
 	public final fun getResponseSteps ()Ljava/util/List;
 }
 
+public final class org/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep : org/dexpace/sdk/core/pipeline/step/RequestPipelineStep {
+	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Companion;
+	public static final field DEFAULT_HEADER Ljava/lang/String;
+	public static final field DEFAULT_RESPECT_EXISTING Z
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Set;Lkotlin/jvm/functions/Function0;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public static final fun default ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;
+	public synthetic fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun getHeader ()Ljava/lang/String;
+	public final fun getKeyStrategy ()Lkotlin/jvm/functions/Function0;
+	public final fun getMethods ()Ljava/util/Set;
+	public final fun getRespectExisting ()Z
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;
+	public final fun header (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public final fun keyStrategy (Ljava/util/function/Supplier;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public final fun keyStrategy (Lkotlin/jvm/functions/Function0;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public final fun methods (Ljava/util/Set;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public final fun respectExisting (Z)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public final fun default ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;
+	public final fun getDEFAULT_KEY_STRATEGY ()Lkotlin/jvm/functions/Function0;
+	public final fun getDEFAULT_METHODS ()Ljava/util/Set;
+}
+
 public abstract interface class org/dexpace/sdk/core/pipeline/step/PipelineStep {
 	public abstract fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
 }
