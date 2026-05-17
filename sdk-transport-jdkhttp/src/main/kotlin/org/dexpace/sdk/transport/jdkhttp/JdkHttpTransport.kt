@@ -20,6 +20,8 @@ import java.net.URI
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.atomic.AtomicBoolean
 import org.dexpace.sdk.core.generics.Builder as SdkBuilder
 
 /**
@@ -36,9 +38,13 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
  *   [java.net.http.HttpClient]. The SDK does not clone or rebuild the supplied client.
  *   `responseTimeout` is captured separately because the JDK applies the per-request
  *   timeout on [java.net.http.HttpRequest.Builder.timeout], not on the client itself.
+ *   The transport's [close] is a no-op for BYO-supplied clients — the caller owns the
+ *   client's lifecycle.
  * - [builder] — SDK-managed config: only the knobs the SDK pipeline cares about
  *   (connect/response timeout, proxy, follow-redirects, HTTP version). Internally
- *   constructs a [java.net.http.HttpClient].
+ *   constructs a [java.net.http.HttpClient]. The transport owns the resulting client and
+ *   will close it on [close] when the JDK runtime supports it (JDK 21+ adds
+ *   [AutoCloseable] to `java.net.http.HttpClient`).
  *
  * The default for `followRedirects` is `false` because the SDK pipeline already has
  * `DefaultRedirectStep`; letting the JDK follow redirects underneath would double-handle
@@ -54,10 +60,31 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
 public class JdkHttpTransport private constructor(
     private val client: java.net.http.HttpClient,
     private val responseTimeout: Duration?,
+    /**
+     * `true` when the SDK created the underlying [java.net.http.HttpClient] via
+     * [Builder.build]; `false` when the caller handed in their own client via [create].
+     * Drives the close-or-no-op decision in [close] per the SDK's ownership-aware
+     * lifecycle contract.
+     */
+    private val owned: Boolean,
+    /**
+     * The executor passed to [java.net.http.HttpClient.Builder.executor], when SDK-owned.
+     * `null` when the JDK is using its default internal executor (which the JDK manages
+     * itself) or when the transport was built via the BYO [create] factory. Only this
+     * field's executor — if any — is shut down by [close]; user-supplied executors are
+     * left untouched.
+     */
+    private val ownedExecutor: ExecutorService?,
 ) : HttpClient, AsyncHttpClient {
     private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.jdkhttp.JdkHttpTransport")
     private val requestAdapter: RequestAdapter = RequestAdapter(log)
     private val responseAdapter: ResponseAdapter = ResponseAdapter()
+
+    /**
+     * Latches `true` on the first [close] so subsequent calls are no-ops. `AtomicBoolean`
+     * keeps the latch lock-free and virtual-thread-friendly per the SDK's concurrency rules.
+     */
+    private val closed: AtomicBoolean = AtomicBoolean(false)
 
     /**
      * Synchronously executes [request] on the caller's thread. Honours `Thread.interrupt`
@@ -104,14 +131,72 @@ public class JdkHttpTransport private constructor(
             .thenApply { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
     }
 
+    /**
+     * Releases SDK-owned JDK HTTP resources. When this transport was built via [builder]:
+     *
+     *  1. The underlying [java.net.http.HttpClient] is closed when the JDK runtime exposes
+     *     [AutoCloseable] on it. The interface was added in JDK 21 (JEP 461) along with
+     *     `shutdown()` / `shutdownNow()` / `awaitTermination`; on JDK 11–20 the JDK client
+     *     has no public close hook, so the close is skipped (the client's internal selector
+     *     and daemon executor are released by the GC when the transport reference is
+     *     dropped).
+     *  2. Any [ExecutorService] the SDK created and passed to the JDK client builder is
+     *     shut down. Today the [Builder] does not expose an executor knob, so this branch
+     *     is unreachable from public API; the field is wired in advance so a future
+     *     `Builder.executor(...)` addition can opt in without changing the close contract.
+     *
+     * When the caller supplied the [java.net.http.HttpClient] via [create] this method is a
+     * no-op: the caller owns the client's lifecycle and may continue using it after the
+     * transport is closed.
+     *
+     * Idempotent — repeated calls latch on the first invocation. Interrupt-safe — the close
+     * path uses non-blocking shutdown semantics so `Thread.interrupt()` is preserved as-is.
+     */
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) {
+            return
+        }
+        if (!owned) {
+            return
+        }
+        // `java.net.http.HttpClient` became `AutoCloseable` in JDK 21 (JEP 461). The
+        // `is AutoCloseable` check emits an `instanceof` bytecode that is valid on JDK 11
+        // (where it always evaluates `false`) and on JDK 21+ (where the interface is
+        // present). This keeps the module compilable on Java 11 while still releasing
+        // resources promptly when the runtime supports it.
+        val closeableClient: AutoCloseable? = client as? AutoCloseable
+        if (closeableClient != null) {
+            try {
+                closeableClient.close()
+            } catch (e: RuntimeException) {
+                log.atWarning()
+                    .event("jdkhttp.close.client.failed")
+                    .cause(e)
+                    .log("java.net.http.HttpClient close failed")
+            }
+        }
+        ownedExecutor?.let { exec ->
+            try {
+                exec.shutdown()
+            } catch (e: SecurityException) {
+                log.atWarning()
+                    .event("jdkhttp.close.executor.shutdown.denied")
+                    .cause(e)
+                    .log("JDK transport executor refused shutdown")
+            }
+        }
+    }
+
     public companion object {
         /**
          * BYO factory: wrap a fully-configured [java.net.http.HttpClient]. The supplied
          * client is used verbatim — the SDK does not override connect timeout, redirect
-         * policy, version, or executor. No per-request response timeout is applied.
+         * policy, version, or executor, and [close] will NOT shut down this client (the
+         * caller owns its lifecycle). No per-request response timeout is applied.
          */
         @JvmStatic
-        public fun create(client: java.net.http.HttpClient): JdkHttpTransport = JdkHttpTransport(client, null)
+        public fun create(client: java.net.http.HttpClient): JdkHttpTransport =
+            JdkHttpTransport(client, null, owned = false, ownedExecutor = null)
 
         /**
          * BYO factory with a per-request response timeout. The timeout is applied to every
@@ -124,7 +209,7 @@ public class JdkHttpTransport private constructor(
         public fun create(
             client: java.net.http.HttpClient,
             responseTimeout: Duration?,
-        ): JdkHttpTransport = JdkHttpTransport(client, responseTimeout)
+        ): JdkHttpTransport = JdkHttpTransport(client, responseTimeout, owned = false, ownedExecutor = null)
 
         /** Returns a fresh [Builder] for SDK-managed [java.net.http.HttpClient] construction. */
         @JvmStatic
@@ -221,7 +306,10 @@ public class JdkHttpTransport private constructor(
         /**
          * Builds a [JdkHttpTransport]. The underlying [java.net.http.HttpClient] is created
          * with the knobs configured above; unconfigured knobs fall through to the JDK's
-         * library defaults.
+         * library defaults. The transport owns the resulting client, so
+         * [JdkHttpTransport.close] will release it on JDK 21+ (where the JDK client gained
+         * [AutoCloseable]) and is a no-op on JDK 11–20 (where the JDK client has no public
+         * close hook).
          */
         override fun build(): JdkHttpTransport {
             val clientBuilder = java.net.http.HttpClient.newBuilder()
@@ -241,7 +329,11 @@ public class JdkHttpTransport private constructor(
                 },
             )
             proxy?.let { applyProxy(clientBuilder, it) }
-            return JdkHttpTransport(clientBuilder.build(), responseTimeout)
+            // No SDK-owned executor today — the JDK client uses its internal cached daemon
+            // executor when one isn't supplied via `Builder.executor`. When the Builder
+            // exposes an executor knob in the future, capture it here and pass it through
+            // to the [JdkHttpTransport] constructor so [close] can shut it down.
+            return JdkHttpTransport(clientBuilder.build(), responseTimeout, owned = true, ownedExecutor = null)
         }
 
         /**

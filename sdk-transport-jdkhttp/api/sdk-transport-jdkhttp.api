@@ -1,7 +1,8 @@
 public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport : org/dexpace/sdk/core/client/AsyncHttpClient, org/dexpace/sdk/core/client/HttpClient {
 	public static final field Companion Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Companion;
-	public synthetic fun <init> (Ljava/net/http/HttpClient;Ljava/time/Duration;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/net/http/HttpClient;Ljava/time/Duration;ZLjava/util/concurrent/ExecutorService;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public fun close ()V
 	public static final fun create (Ljava/net/http/HttpClient;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
 	public static final fun create (Ljava/net/http/HttpClient;Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
