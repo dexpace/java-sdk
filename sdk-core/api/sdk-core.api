@@ -1478,40 +1478,7 @@ public final class org/dexpace/sdk/core/instrumentation/ClientLogger {
 public final class org/dexpace/sdk/core/instrumentation/ClientLogger$Companion {
 }
 
-public abstract interface class org/dexpace/sdk/core/instrumentation/HttpTracer {
-	public fun attemptFailed (Ljava/lang/Throwable;Ljava/lang/Long;)V
-	public fun attemptRetriesExhausted (Ljava/lang/Throwable;)V
-	public fun attemptStarted (I)V
-	public fun connectionAcquired (Ljava/lang/String;I)V
-	public fun operationFailed (Ljava/lang/Throwable;)V
-	public fun operationStarted (Ljava/lang/String;)V
-	public fun operationSucceeded ()V
-	public fun requestSent (Ljava/lang/Long;)V
-	public fun requestUrlResolved (Ljava/lang/String;)V
-	public fun responseHeadersReceived (ILorg/dexpace/sdk/core/http/common/Headers;)V
-	public fun responseReceived (Ljava/lang/Long;)V
-}
-
-public final class org/dexpace/sdk/core/instrumentation/HttpTracer$DefaultImpls {
-	public static fun attemptFailed (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Throwable;Ljava/lang/Long;)V
-	public static fun attemptRetriesExhausted (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Throwable;)V
-	public static fun attemptStarted (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;I)V
-	public static fun connectionAcquired (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/String;I)V
-	public static fun operationFailed (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Throwable;)V
-	public static fun operationStarted (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/String;)V
-	public static fun operationSucceeded (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;)V
-	public static fun requestSent (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Long;)V
-	public static fun requestUrlResolved (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/String;)V
-	public static fun responseHeadersReceived (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;ILorg/dexpace/sdk/core/http/common/Headers;)V
-	public static fun responseReceived (Lorg/dexpace/sdk/core/instrumentation/HttpTracer;Ljava/lang/Long;)V
-}
-
-public abstract interface class org/dexpace/sdk/core/instrumentation/HttpTracerFactory {
-	public abstract fun newTracer (Ljava/lang/String;Ljava/util/Map;)Lorg/dexpace/sdk/core/instrumentation/HttpTracer;
-}
-
 public abstract interface class org/dexpace/sdk/core/instrumentation/InstrumentationContext {
-	public fun getHttpTracerFactory ()Lorg/dexpace/sdk/core/instrumentation/HttpTracerFactory;
 	public abstract fun getSpan ()Lorg/dexpace/sdk/core/instrumentation/Span;
 	public abstract fun getSpanId-ozr2qno ()Ljava/lang/String;
 	public abstract fun getTraceFlags-DG3hc0k ()Ljava/lang/String;
@@ -1520,10 +1487,6 @@ public abstract interface class org/dexpace/sdk/core/instrumentation/Instrumenta
 	public abstract fun getTraceState-0Ay6N4s ()Ljava/lang/String;
 	public abstract fun isRemote ()Z
 	public abstract fun isValid ()Z
-}
-
-public final class org/dexpace/sdk/core/instrumentation/InstrumentationContext$DefaultImpls {
-	public static fun getHttpTracerFactory (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;)Lorg/dexpace/sdk/core/instrumentation/HttpTracerFactory;
 }
 
 public final class org/dexpace/sdk/core/instrumentation/LogLevel : java/lang/Enum {
@@ -1569,29 +1532,8 @@ public final class org/dexpace/sdk/core/instrumentation/MdcSnapshot$Companion {
 	public final fun capture ()Lorg/dexpace/sdk/core/instrumentation/MdcSnapshot;
 }
 
-public final class org/dexpace/sdk/core/instrumentation/NoopHttpTracer : org/dexpace/sdk/core/instrumentation/HttpTracer {
-	public static final field INSTANCE Lorg/dexpace/sdk/core/instrumentation/NoopHttpTracer;
-	public fun attemptFailed (Ljava/lang/Throwable;Ljava/lang/Long;)V
-	public fun attemptRetriesExhausted (Ljava/lang/Throwable;)V
-	public fun attemptStarted (I)V
-	public fun connectionAcquired (Ljava/lang/String;I)V
-	public fun operationFailed (Ljava/lang/Throwable;)V
-	public fun operationStarted (Ljava/lang/String;)V
-	public fun operationSucceeded ()V
-	public fun requestSent (Ljava/lang/Long;)V
-	public fun requestUrlResolved (Ljava/lang/String;)V
-	public fun responseHeadersReceived (ILorg/dexpace/sdk/core/http/common/Headers;)V
-	public fun responseReceived (Ljava/lang/Long;)V
-}
-
-public final class org/dexpace/sdk/core/instrumentation/NoopHttpTracerFactory : org/dexpace/sdk/core/instrumentation/HttpTracerFactory {
-	public static final field INSTANCE Lorg/dexpace/sdk/core/instrumentation/NoopHttpTracerFactory;
-	public fun newTracer (Ljava/lang/String;Ljava/util/Map;)Lorg/dexpace/sdk/core/instrumentation/HttpTracer;
-}
-
 public final class org/dexpace/sdk/core/instrumentation/NoopInstrumentationContext : org/dexpace/sdk/core/instrumentation/InstrumentationContext {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/instrumentation/NoopInstrumentationContext;
-	public fun getHttpTracerFactory ()Lorg/dexpace/sdk/core/instrumentation/HttpTracerFactory;
 	public fun getSpan ()Lorg/dexpace/sdk/core/instrumentation/Span;
 	public fun getSpanId-ozr2qno ()Ljava/lang/String;
 	public fun getTraceFlags-DG3hc0k ()Ljava/lang/String;
@@ -1926,39 +1868,41 @@ public final class org/dexpace/sdk/core/pipeline/ResponsePipeline {
 	public final fun getResponseSteps ()Ljava/util/List;
 }
 
-public final class org/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep : org/dexpace/sdk/core/pipeline/step/RequestPipelineStep {
-	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Companion;
-	public static final field DEFAULT_HEADER Ljava/lang/String;
-	public static final field DEFAULT_RESPECT_EXISTING Z
-	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Set;Lkotlin/jvm/functions/Function0;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
-	public static final fun default ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep : org/dexpace/sdk/core/pipeline/step/RequestPipelineStep {
+	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Companion;
+	public static final field DEFAULT_HEADER_NAME Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;)V
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;Ljava/lang/String;Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun apply (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
+	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
 	public synthetic fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/request/Request;
-	public final fun getHeader ()Ljava/lang/String;
-	public final fun getKeyStrategy ()Lkotlin/jvm/functions/Function0;
-	public final fun getMethods ()Ljava/util/Set;
-	public final fun getRespectExisting ()Z
-	public final fun newBuilder ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
 }
 
-public final class org/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder : org/dexpace/sdk/core/generics/Builder {
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder : org/dexpace/sdk/core/generics/Builder {
 	public fun <init> ()V
-	public fun <init> (Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;)V
+	public final fun addToken (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public final fun addToken (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
 	public synthetic fun build ()Ljava/lang/Object;
-	public fun build ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;
-	public final fun header (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
-	public final fun keyStrategy (Ljava/util/function/Supplier;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
-	public final fun keyStrategy (Lkotlin/jvm/functions/Function0;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
-	public final fun methods (Ljava/util/Set;)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
-	public final fun respectExisting (Z)Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
+	public fun build ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep;
+	public final fun headerName (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public final fun mode (Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+	public final fun tokens (Ljava/util/List;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
 }
 
-public final class org/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Companion {
-	public final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep$Builder;
-	public final fun default ()Lorg/dexpace/sdk/core/pipeline/step/IdempotencyKeyStep;
-	public final fun getDEFAULT_KEY_STRATEGY ()Lkotlin/jvm/functions/Function0;
-	public final fun getDEFAULT_METHODS ()Ljava/util/Set;
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode : java/lang/Enum {
+	public static final field Append Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+	public static final field Replace Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
+	public static fun values ()[Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;
 }
 
 public abstract interface class org/dexpace/sdk/core/pipeline/step/PipelineStep {
@@ -1991,45 +1935,6 @@ public abstract interface class org/dexpace/sdk/core/serde/Serializer {
 	public abstract fun serialize (Ljava/lang/Object;Ljava/io/OutputStream;)V
 	public abstract fun serialize (Ljava/lang/Object;[B)V
 	public abstract fun serializeToByteArray (Ljava/lang/Object;)[B
-}
-
-public abstract class org/dexpace/sdk/core/serde/Tristate {
-	public static final field Companion Lorg/dexpace/sdk/core/serde/Tristate$Companion;
-	public static final fun absent ()Lorg/dexpace/sdk/core/serde/Tristate;
-	public final fun fold (Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
-	public final fun getOrNull ()Ljava/lang/Object;
-	public final fun isAbsent ()Z
-	public final fun isNull ()Z
-	public final fun isPresent ()Z
-	public static final fun nullValue ()Lorg/dexpace/sdk/core/serde/Tristate;
-	public static final fun ofNullable (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
-	public static final fun present (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
-}
-
-public final class org/dexpace/sdk/core/serde/Tristate$Absent : org/dexpace/sdk/core/serde/Tristate {
-	public static final field INSTANCE Lorg/dexpace/sdk/core/serde/Tristate$Absent;
-}
-
-public final class org/dexpace/sdk/core/serde/Tristate$Companion {
-	public final fun absent ()Lorg/dexpace/sdk/core/serde/Tristate;
-	public final fun nullValue ()Lorg/dexpace/sdk/core/serde/Tristate;
-	public final fun ofNullable (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
-	public final fun present (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
-}
-
-public final class org/dexpace/sdk/core/serde/Tristate$Null : org/dexpace/sdk/core/serde/Tristate {
-	public static final field INSTANCE Lorg/dexpace/sdk/core/serde/Tristate$Null;
-}
-
-public final class org/dexpace/sdk/core/serde/Tristate$Present : org/dexpace/sdk/core/serde/Tristate {
-	public fun <init> (Ljava/lang/Object;)V
-	public final fun component1 ()Ljava/lang/Object;
-	public final fun copy (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate$Present;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/serde/Tristate$Present;Ljava/lang/Object;ILjava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate$Present;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getValue ()Ljava/lang/Object;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
 }
 
 public abstract interface class org/dexpace/sdk/core/util/Clock {
@@ -2094,5 +1999,14 @@ public final class org/dexpace/sdk/core/util/RetryUtils {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/util/RetryUtils;
 	public static final fun isRetryable (I)Z
 	public static final fun isRetryable (Ljava/lang/Throwable;)Z
+}
+
+public final class org/dexpace/sdk/core/util/SdkInfo {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/util/SdkInfo;
+	public final fun defaultTokens ()Ljava/util/List;
+	public final fun getJavaVendor ()Ljava/lang/String;
+	public final fun getJavaVersion ()Ljava/lang/String;
+	public final fun getOsName ()Ljava/lang/String;
+	public final fun getSdkVersion ()Ljava/lang/String;
 }
 
