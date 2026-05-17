@@ -15,6 +15,10 @@ request/response lifecycle.
     - [Response Model](#response-model)
     - [ResponseBody](#responsebody)
     - [Status](#status)
+- [Exceptions](#exceptions)
+    - [HttpException Hierarchy](#httpexception-hierarchy)
+    - [NetworkException](#networkexception)
+    - [HttpExceptionFactory](#httpexceptionfactory)
 - [Common Types](#common-types)
     - [Headers](#headers)
     - [MediaType](#mediatype)
@@ -226,6 +230,98 @@ val status = Status.fromCode(404)  // Status.NOT_FOUND
 ```
 
 Throws `IllegalArgumentException` for unknown codes.
+
+---
+
+## Exceptions
+
+The SDK ships a typed exception hierarchy under `org.dexpace.sdk.core.http.response.exception`.
+The shape mirrors `gax`'s `ApiException` taxonomy translated to HTTP terms: one base class plus
+one concrete subclass per canonical status code. Each subclass bakes its retryable flag at
+construction time, so a downstream retry policy can read `exception.retryable` instead of
+maintaining a parallel predicate map.
+
+### HttpException Hierarchy
+
+`HttpException` is the abstract base for every exception that carries a parsed HTTP response.
+It extends `RuntimeException` — not `IOException` — because by the time you have one, a
+response was received and parsed; the failure is at the protocol level, not at the I/O level.
+
+```kotlin
+abstract class HttpException(
+    val status: Status,
+    val headers: Headers,
+    val body: ResponseBody?,         // lazy — NOT eagerly buffered
+    val retryable: Boolean,           // baked at construction; never re-derived
+    message: String? = null,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause) {
+    fun bodySnapshot(maxBytes: Int = DEFAULT_SNAPSHOT_BYTES): ByteArray?
+}
+```
+
+`bodySnapshot()` returns a non-consuming preview of the body bytes (uses
+`BufferedSource.peek()` internally) — capped at `maxBytes` so a misbehaving server cannot OOM
+the logger. Returns `null` when the response had no body.
+
+**Concrete subclasses** (one per canonical status):
+
+| Status | Subclass | Retryable |
+|--------|----------|:---------:|
+| 400 | `BadRequestException` | no |
+| 401 | `UnauthorizedException` | no |
+| 403 | `ForbiddenException` | no |
+| 404 | `NotFoundException` | no |
+| 405 | `MethodNotAllowedException` | no |
+| 409 | `ConflictException` | no |
+| 410 | `GoneException` | no |
+| 413 | `PayloadTooLargeException` | no |
+| 415 | `UnsupportedMediaTypeException` | no |
+| 422 | `UnprocessableEntityException` | no |
+| 429 | `TooManyRequestsException` | **yes** |
+| 500 | `InternalServerErrorException` | **yes** |
+| 502 | `BadGatewayException` | **yes** |
+| 503 | `ServiceUnavailableException` | **yes** |
+| 504 | `GatewayTimeoutException` | **yes** |
+| other 4xx | `ClientErrorException` (fallback) | no |
+| other 5xx | `ServerErrorException` (fallback) | **yes** |
+
+All subclasses are `open` so service-client codegen can derive a per-operation typed subclass
+that stamps a deserialized error payload (Expedia-style `{Op}{StatusCode}Exception`) without
+modifying this module.
+
+### NetworkException
+
+`NetworkException` covers transport-level failures — connection refused, DNS lookup failure,
+TLS handshake failure, socket read timeout, peer reset — i.e. anything that prevents a full
+response from reaching the SDK in the first place. It is a sibling of `HttpException`, not a
+subclass: it extends `java.io.IOException` so existing `catch (IOException)` call sites keep
+working, and it carries no status/headers/body because none arrived.
+
+```kotlin
+class NetworkException(message: String? = null, cause: Throwable? = null) : IOException(message, cause) {
+    val retryable: Boolean = true  // always retryable at the SDK level
+}
+```
+
+The `retryable` flag is always `true`: nothing reached the server, so the SDK can safely
+attempt the request again. Whether the request itself is *safe* to retry (HTTP method
+idempotency, replayable body) is the retry policy's call, not this class's.
+
+### HttpExceptionFactory
+
+`HttpExceptionFactory.fromResponse(response)` maps a non-2xx `Response` to the right
+subclass:
+
+```kotlin
+val response = httpClient.execute(request)
+if (!response.status.isSuccess) {
+    throw HttpExceptionFactory.fromResponse(response)
+}
+```
+
+The factory throws `IllegalArgumentException` if called with a 1xx/2xx/3xx response — those
+are not exceptions and should not be funneled through this path.
 
 ---
 
@@ -640,6 +736,10 @@ exchangeCtx.close()
 | `Response.kt`         | `http.response` | public     | Immutable response data class + builder      |
 | `ResponseBody.kt`     | `http.response` | public     | Abstract response body + convenience methods |
 | `Status.kt`           | `http.response` | public     | HTTP status code enum (100-599)              |
+| `HttpException.kt`    | `http.response.exception` | public | Abstract base for typed HTTP exceptions      |
+| `HttpExceptions.kt`   | `http.response.exception` | public | One concrete subclass per canonical status   |
+| `NetworkException.kt` | `http.response.exception` | public | Transport-level failure (IOException sibling)|
+| `HttpExceptionFactory.kt` | `http.response.exception` | public | `Response` → typed exception dispatcher  |
 | `Headers.kt`          | `http.common`   | public     | Immutable multi-map + builder                |
 | `MediaType.kt`        | `http.common`   | public     | Parsed MIME type with charset extraction     |
 | `CommonMediaTypes.kt` | `http.common`   | public     | Media type constants                         |
