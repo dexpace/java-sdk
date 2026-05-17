@@ -29,6 +29,7 @@ concerns.
     - [Virtual Thread Safety](#virtual-thread-safety)
     - [Internal Visibility](#internal-visibility)
     - [Cancellation](#cancellation)
+    - [Lifecycle](#lifecycle)
 - [File Inventory](#file-inventory)
 
 ---
@@ -231,8 +232,9 @@ See [Pipeline Mechanism](pipelines.md) for full design documentation.
 **Package**: `org.dexpace.sdk.core.client`
 
 ```kotlin
-interface HttpClient {
+fun interface HttpClient : AutoCloseable {
     fun execute(request: Request): Response
+    override fun close() { /* default no-op */ }
 }
 ```
 
@@ -240,11 +242,20 @@ A minimal interface that consuming libraries implement against their chosen HTTP
 (HttpURLConnection, Apache HC, Jetty, Netty, etc.). The SDK provides everything around
 this interface — body abstractions, logging, pipelines, contexts — but not the transport.
 
+Both `HttpClient` and `AsyncHttpClient` extend `AutoCloseable` with a default no-op
+`close()`, so SAM literals (`HttpClient { req -> ... }`) and lightweight wrappers remain
+valid without an explicit close override. Transports that own background threads,
+connection pools, or executors override `close()` to release them. See the
+[Lifecycle](#lifecycle) cross-cutting section for the full contract (idempotency,
+ownership distinction, interrupt-safety).
+
 Two production-ready reference transports ship with the project today: `sdk-transport-okhttp`
 (OkHttp 5.x, Java 8 bytecode) and `sdk-transport-jdkhttp` (`java.net.http.HttpClient`, Java 11
 bytecode). Both implement `HttpClient` and `AsyncHttpClient` on a single class and can be
-instantiated either by passing a preconfigured underlying client (BYO factory) or by using the
-SDK-managed builder. See the README's "Choosing a transport" section for usage examples.
+instantiated either by passing a preconfigured underlying client (BYO factory — `close()` is a
+no-op, the caller owns the client's lifecycle) or by using the SDK-managed builder (`close()`
+releases the underlying transport resources). See the README's "Choosing a transport" section
+for usage examples.
 
 ### Serialization
 
@@ -494,6 +505,56 @@ What this means for consumers:
 - Coroutine consumers running SDK calls inside `withContext(Dispatchers.IO)` get
   cancellation propagation for free — `Job` cancellation interrupts the blocked thread,
   which the SDK handles per the convention above.
+
+### Lifecycle
+
+`HttpClient` and `AsyncHttpClient` extend `java.lang.AutoCloseable`. The interfaces ship a
+default no-op `close()` so SAM literals (`HttpClient { req -> ... }`) and lightweight
+wrappers stay valid without modification. Transports that own background threads,
+connection pools, or executors override `close()` to release those resources.
+
+The contract every transport implementation must uphold:
+
+1. **Idempotent.** Repeated `close()` calls must be safe. The canonical pattern uses
+   `private val closed = AtomicBoolean(false)` plus `closed.compareAndSet(false, true)` —
+   lock-free, virtual-thread-friendly, no `synchronized` (which would pin a carrier thread
+   under Loom).
+2. **Ownership-aware.** Distinguish SDK-owned resources from user-supplied dependencies.
+   An `internal val owned: Boolean` field — set to `true` only by the SDK's own builder
+   (`OkHttpTransport.builder().build()`, `JdkHttpTransport.builder().build()`) and `false`
+   by the BYO factory (`OkHttpTransport.create(yourClient)`,
+   `JdkHttpTransport.create(yourClient)`) — gates the close action. Caller-supplied
+   `OkHttpClient`s, `java.net.http.HttpClient`s, and `Executor`s are NEVER touched by the
+   SDK; their lifecycle belongs to the caller.
+3. **Interrupt-safe.** If `close()` waits on `executorService.shutdown()` or similar, it
+   must respect `Thread.interrupt()` per the [Cancellation](#cancellation) convention. The
+   current OkHttp adapter calls `shutdown()` (non-blocking) rather than `shutdownNow()` or
+   `awaitTermination(...)`, so this is enforced trivially — no blocking step exists. Any
+   future blocking close path must catch `InterruptedException`, restore the interrupt
+   status, and surface as `InterruptedIOException`.
+4. **Best-effort, non-throwing.** A failure to shut down one sub-resource must not
+   prevent the rest of the close path from running. Adapters log the failure at
+   `WARN` via the SDK's `ClientLogger` and continue.
+
+Concrete adapter behaviour:
+
+- **`sdk-transport-okhttp`** — `OkHttpTransport.close()` on an SDK-owned client calls
+  `dispatcher.executorService.shutdown()` (graceful drain), `connectionPool.evictAll()`
+  (release idle sockets), and `cache?.close()` (release file descriptors). On a
+  user-supplied client, all three are skipped.
+- **`sdk-transport-jdkhttp`** — `JdkHttpTransport.close()` on an SDK-owned client casts
+  the underlying `java.net.http.HttpClient` to `AutoCloseable`. The interface was added
+  in JDK 21 (JEP 461), so on JDK 11–20 the `instanceof` check returns `false` and the
+  close is a documented no-op; on JDK 21+ the JDK client's selector and internal daemon
+  executor are shut down promptly. The transport additionally shuts down any SDK-owned
+  `ExecutorService` it passed to `HttpClient.Builder.executor(...)`; today the builder
+  does not expose that knob, so the field is wired in advance for a future
+  `Builder.executor(...)` opt-in.
+
+After `close()` returns, the behaviour of subsequent `execute(...)` / `executeAsync(...)`
+calls is undefined — implementations may throw or return an error response, but the SDK
+does not mandate a specific failure mode. Callers should not reuse a closed transport;
+they should construct a fresh one.
 
 ---
 
