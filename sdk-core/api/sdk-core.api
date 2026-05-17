@@ -1958,6 +1958,45 @@ public abstract interface class org/dexpace/sdk/core/serde/Serializer {
 	public abstract fun serializeToByteArray (Ljava/lang/Object;)[B
 }
 
+public abstract class org/dexpace/sdk/core/serde/Tristate {
+	public static final field Companion Lorg/dexpace/sdk/core/serde/Tristate$Companion;
+	public static final fun absent ()Lorg/dexpace/sdk/core/serde/Tristate;
+	public final fun fold (Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+	public final fun getOrNull ()Ljava/lang/Object;
+	public final fun isAbsent ()Z
+	public final fun isNull ()Z
+	public final fun isPresent ()Z
+	public static final fun nullValue ()Lorg/dexpace/sdk/core/serde/Tristate;
+	public static final fun ofNullable (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
+	public static final fun present (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
+}
+
+public final class org/dexpace/sdk/core/serde/Tristate$Absent : org/dexpace/sdk/core/serde/Tristate {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/serde/Tristate$Absent;
+}
+
+public final class org/dexpace/sdk/core/serde/Tristate$Companion {
+	public final fun absent ()Lorg/dexpace/sdk/core/serde/Tristate;
+	public final fun nullValue ()Lorg/dexpace/sdk/core/serde/Tristate;
+	public final fun ofNullable (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
+	public final fun present (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate;
+}
+
+public final class org/dexpace/sdk/core/serde/Tristate$Null : org/dexpace/sdk/core/serde/Tristate {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/serde/Tristate$Null;
+}
+
+public final class org/dexpace/sdk/core/serde/Tristate$Present : org/dexpace/sdk/core/serde/Tristate {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun copy (Ljava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate$Present;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/serde/Tristate$Present;Ljava/lang/Object;ILjava/lang/Object;)Lorg/dexpace/sdk/core/serde/Tristate$Present;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class org/dexpace/sdk/core/util/Clock {
 	public static final field Companion Lorg/dexpace/sdk/core/util/Clock$Companion;
 	public static final field SYSTEM Lorg/dexpace/sdk/core/util/Clock;
