@@ -1,39 +1,57 @@
 # Dexpace Java SDK
 
-A toolkit for building Java/Kotlin HTTP client libraries. Written in Kotlin, targeting JDK 8 bytecode, with adapter modules for synchronous calls, `CompletableFuture`, Kotlin coroutines, Reactor `Mono`/`Flux`, Netty `Future`, and JDK 21+ virtual threads.
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.3.21-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+![JDK](https://img.shields.io/badge/JDK-8%2B-437291.svg?logo=openjdk&logoColor=white)
+![Coverage](https://img.shields.io/badge/coverage-93.3%25-success.svg)
 
-> **License — MIT.** Copyright © 2026 dexpace and Omar Aljarrah. See [LICENSE](LICENSE).
+A toolkit for building HTTP client libraries on the JVM. Dexpace is not an HTTP client: it is the machinery a client is made of. Immutable request and response models, a staged pipeline runtime, resilience steps, and seams for transport, I/O, serialization, and async runtimes.
 
-## Status
+Written in Kotlin, targeting JDK 8 bytecode. `sdk-core` has zero runtime dependencies beyond the Kotlin standard library and the SLF4J API (compile-only); every third-party library lives behind an adapter module, so consumers pay only for the runtime they use.
 
-`0.0.1-alpha.1`. The public API is stabilising; breaking changes between alpha releases are expected. External pull requests are welcome.
+Current version `0.0.1-alpha.1`. The public API is stabilising and breaking changes between alpha releases are expected. External pull requests are welcome.
 
-## Overview
+## Quick start
 
-The SDK provides:
+```kotlin
+Io.installProvider(OkioIoProvider)   // once, at application startup
 
-- An async-first HTTP request/response model with immutable builders and Java-friendly factories (`@JvmOverloads`, `@JvmStatic`, `@JvmField` where applicable).
-- A composable pipeline runtime with stage-based ordering, surgical type-based edits (`insertAfter<T>`, `replace<T>`, `remove<T>`), and pillar enforcement (exactly one retry, redirect, auth, and instrumentation step per pipeline).
-- Built-in resilience steps: retry (exponential backoff with jitter and `Retry-After` honouring), redirect (authorization stripping, HTTPS→HTTP rejection), auth (`KeyCredential`, `BearerToken` with caching, RFC 7616 Digest in MD5 / MD5-sess / SHA-256 / SHA-256-sess), and instrumentation (structured logging, tracing, metrics).
-- Non-destructive body logging — `TeeSink`-based capture on requests, drain-and-peek on responses — with race-safe consumed-once guards and cached drain errors.
-- A pluggable I/O seam (`IoProvider`) so the core has zero hard dependency on a stream library.
-- A pluggable transport seam (`HttpClient` / `AsyncHttpClient`) so the core has no opinion about how bytes reach the wire.
+val transport = OkHttpTransport.builder()
+    .connectTimeout(Duration.ofSeconds(5))
+    .readTimeout(Duration.ofSeconds(30))
+    .build()
 
-`sdk-core` has zero runtime dependencies beyond SLF4J API (compile-only) and the Kotlin standard library. All third-party concurrency libraries (Okio, kotlinx-coroutines, Reactor, Netty) are confined to adapter modules.
+val pipeline = HttpPipelineBuilder(transport)
+    .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3)))
+    .append(KeyCredentialAuthStep(KeyCredential("my-api-key")))
+    .build()
 
-## Requirements
+val request = Request.builder()
+    .method(Method.GET)
+    .url("https://api.example.com/v1/resource")
+    .build()
 
-| Requirement | Version |
-|---|---|
-| JDK (consumers of `sdk-core` and the Java-8 adapter modules) | 8 or newer |
-| JDK (consumers of `sdk-async-virtualthreads`) | 21 or newer |
-| JDK (consumers of `sdk-transport-jdkhttp`) | 11 or newer |
-| Gradle (for local builds) | 9.3.1 |
-| Kotlin | 2.3.21 |
+pipeline.send(request).use { response ->
+    if (response.status.isSuccess) {
+        val bytes = response.body?.source()?.readByteArray()
+        // process
+    }
+}
+```
+
+The rest of this document covers the moving parts: transports, the async pipeline, runtime adapters, and body logging.
+
+## Design principles
+
+- The request/response model is async-first and immutable: private constructors, builders, `newBuilder()` copies, and Java-friendly factories (`@JvmOverloads`, `@JvmStatic`, `@JvmField` where applicable).
+- The pipeline runtime orders steps by stage, supports surgical type-based edits (`insertAfter<T>`, `replace<T>`, `remove<T>`), and enforces pillars: exactly one retry, redirect, auth, and instrumentation step per pipeline.
+- Resilience ships in the box. Retry honours `Retry-After` and backs off exponentially with jitter; redirects strip authorization headers and reject HTTPS→HTTP downgrades; auth covers `KeyCredential`, cached `BearerToken`, and RFC 7616 Digest (MD5, MD5-sess, SHA-256, SHA-256-sess); instrumentation provides structured logging, tracing, and metrics.
+- Body logging never disturbs the wire. Request bytes are captured through a `TeeSink` during the write; responses are drained once and re-read through `peek()` views, with race-safe consumed-once guards and cached drain errors.
+- Two seams keep the core dependency-free: `IoProvider` for streams, and `HttpClient` / `AsyncHttpClient` for transport. The core has no opinion about how bytes reach the wire.
 
 ## Modules
 
-| Module | Purpose | JVM Target |
+| Module | Purpose | JVM target |
 |---|---|---|
 | `sdk-core` | Contracts, pipeline runtime, sync + async pipelines, built-in steps. Zero runtime deps beyond SLF4J API and Kotlin stdlib. | Java 8 |
 | `sdk-io-okio3` | Okio 3.x implementation of `IoProvider`. | Java 8 |
@@ -45,38 +63,26 @@ The SDK provides:
 | `sdk-transport-jdkhttp` | `java.net.http.HttpClient` (JEP 321) implementation of `HttpClient` + `AsyncHttpClient`. | Java 11 |
 | `sdk-serde-jackson` | Jackson 2.18 implementation of `Serde` with SDK-correct defaults (`FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`) + `Tristate<T>` ser/de. | Java 8 |
 
-Each adapter module depends on `sdk-core` and exactly one third-party concurrency library, so consumers only pay for the runtime they use.
+Each adapter module depends on `sdk-core` and exactly one third-party library. JDK 8 or newer is the baseline, with the two exceptions in the table: `sdk-transport-jdkhttp` needs JDK 11 and `sdk-async-virtualthreads` needs JDK 21. Local builds use Gradle 9.3.1 and Kotlin 2.3.21.
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [Architecture Overview](docs/architecture.md) | Design, module structure, component responsibilities |
-| [HTTP Layer](docs/http.md) | Request/response models, headers, media types, context system, `HttpClient` |
-| [I/O Module](docs/io.md) | I/O contracts and the `IoProvider` seam |
-| [HTTP Body Logging & Concurrency](docs/http-body-logging-and-concurrency.md) | Body logging system, concurrency model, thread safety |
-| [Pipeline Mechanism](docs/pipelines.md) | Pipeline architecture, stages, step composition, async pipeline |
-| [Style Guides](styleguide/README.md) | Kotlin and Kotlin-on-JVM style guides this codebase follows |
-
-## Building
-
-```bash
-./gradlew build                # build every module
-./gradlew test                 # run all tests (1,496 tests across modules)
-./gradlew koverHtmlReport      # aggregate coverage report at build/reports/kover/html/
-./gradlew apiCheck             # binary-compatibility check against committed .api snapshots
-./gradlew apiDump              # regenerate .api snapshots after intentional API changes
-```
-
-Coverage at HEAD: 93.3% line, 87.6% branch (1,496 tests, 0 failures).
+| [Architecture overview](docs/architecture.md) | Design, module structure, component responsibilities |
+| [HTTP layer](docs/http.md) | Request/response models, headers, media types, context system, `HttpClient` |
+| [I/O module](docs/io.md) | I/O contracts and the `IoProvider` seam |
+| [HTTP body logging and concurrency](docs/http-body-logging-and-concurrency.md) | Body logging system, concurrency model, thread safety |
+| [Pipeline mechanism](docs/pipelines.md) | Pipeline architecture, stages, step composition, async pipeline |
+| [Style guides](styleguide/README.md) | Kotlin and Kotlin-on-JVM style guides this codebase follows |
 
 ## Usage
 
 ### Choosing a transport
 
-The SDK is a toolkit, not an HTTP client — bring your own `HttpClient` / `AsyncHttpClient` implementation. Two reference transports ship with the project:
+Bring your own `HttpClient` / `AsyncHttpClient` implementation, or use one of the two reference transports that ship with the project.
 
-#### OkHttp — `sdk-transport-okhttp`
+#### OkHttp: `sdk-transport-okhttp`
 
 ```kotlin
 // BYO factory: pass your own preconfigured OkHttpClient
@@ -88,15 +94,11 @@ val transport = OkHttpTransport.builder()
     .readTimeout(Duration.ofSeconds(30))
     .followRedirects(false)   // default — SDK has DefaultRedirectStep
     .build()
-
-val pipeline = HttpPipelineBuilder(transport)
-    .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3)))
-    .build()
 ```
 
-Implements both `HttpClient` (sync) and `AsyncHttpClient` (async, via OkHttp `Call.enqueue`). Cancellation propagates from `CompletableFuture.cancel()` to `okhttp3.Call.cancel()`. Java 8 bytecode target.
+Implements both `HttpClient` (sync) and `AsyncHttpClient` (async, via OkHttp `Call.enqueue`). `CompletableFuture.cancel()` propagates to `okhttp3.Call.cancel()`. Java 8 bytecode.
 
-#### java.net.http.HttpClient — `sdk-transport-jdkhttp` (JDK 11+)
+#### java.net.http.HttpClient: `sdk-transport-jdkhttp` (JDK 11+)
 
 ```kotlin
 // BYO factory
@@ -110,13 +112,13 @@ val transport = JdkHttpTransport.builder()
     .build()
 ```
 
-Implements both `HttpClient` and `AsyncHttpClient` (via `HttpClient.sendAsync`). Cancellation propagates natively — `CompletableFuture.cancel()` aborts the underlying exchange. Java 11 bytecode target — consumers must be on JDK 11+.
+Implements both SPIs through `HttpClient.sendAsync`; `CompletableFuture.cancel()` aborts the underlying exchange natively. Java 11 bytecode, so consumers must be on JDK 11 or newer.
 
-### Synchronous — `HttpClient` + `HttpPipeline`
+### The full synchronous pipeline
+
+The quick start above shows the minimal path. A production pipeline usually fills every pillar:
 
 ```kotlin
-Io.installProvider(OkioIoProvider)   // one-time at application startup
-
 val pipeline = HttpPipelineBuilder(transport)
     .append(SetDateStep())
     .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3)))
@@ -140,7 +142,7 @@ pipeline.send(request).use { response ->
 }
 ```
 
-### Asynchronous — `AsyncHttpClient` + `AsyncHttpPipeline`
+### Asynchronous: `AsyncHttpClient` + `AsyncHttpPipeline`
 
 ```kotlin
 val async = AsyncHttpPipelineBuilder(asyncTransport)
@@ -159,7 +161,7 @@ Bridge a sync pipeline to async:
 val async = syncPipeline.toAsync(Executors.newVirtualThreadPerTaskExecutor())
 ```
 
-### Kotlin coroutines — `sdk-async-coroutines`
+### Kotlin coroutines: `sdk-async-coroutines`
 
 ```kotlin
 import org.dexpace.sdk.async.coroutines.send
@@ -167,7 +169,7 @@ import org.dexpace.sdk.async.coroutines.send
 val response = async.send(request)   // suspend fun
 ```
 
-### Reactor — `sdk-async-reactor`
+### Reactor: `sdk-async-reactor`
 
 ```kotlin
 import org.dexpace.sdk.async.reactor.sendMono
@@ -185,7 +187,7 @@ response.body!!.source().readServerSentEventsAsFlux()
     .subscribe()
 ```
 
-### Netty — `sdk-async-netty`
+### Netty: `sdk-async-netty`
 
 ```kotlin
 import org.dexpace.sdk.async.netty.executeNetty
@@ -194,7 +196,7 @@ val nettyFuture = asyncClient.executeNetty(request, eventLoop)
 nettyFuture.addListener { /* fire on event-loop thread */ }
 ```
 
-### Virtual threads — `sdk-async-virtualthreads` (JDK 21+)
+### Virtual threads: `sdk-async-virtualthreads` (JDK 21+)
 
 ```kotlin
 val syncTransport = /* a blocking HttpClient */
@@ -218,7 +220,7 @@ val preview = loggedResponse.snapshot(maxBytes = 8 * 1024)
 val full = loggedResponse.source().readByteArray()   // still available
 ```
 
-## Pipeline Stages
+## Pipeline stages
 
 Steps execute in declaration order of `Stage.entries`. Pillar stages (`isPillar = true`) admit exactly one step; non-pillar stages admit any number, ordered by `append` and `prepend`.
 
@@ -231,7 +233,7 @@ POST_SERDE         →  PRE_SEND          →  SEND (terminal — HttpClient.exe
 
 See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 
-## Package Map (`sdk-core`)
+## Package map (`sdk-core`)
 
 | Package | Highlights |
 |---|---|
@@ -252,13 +254,27 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `util` | `Clock`, `Uuids` (non-blocking v4), `DateTimeRfc1123`, `RetryUtils`, `ProxyOptions`, `Futures`. |
 | `generics` | `Builder<T>` — the generic builder interface every SDK builder implements. |
 
-## Build Quality Gates
+## Building
 
-- `explicitApi = ExplicitApiMode.Strict` on every Kotlin module — every public declaration must declare its visibility and return type.
+```bash
+./gradlew build                # build every module
+./gradlew test                 # run all tests (1,496 tests across modules)
+./gradlew koverHtmlReport      # aggregate coverage report at build/reports/kover/html/
+./gradlew apiCheck             # binary-compatibility check against committed .api snapshots
+./gradlew apiDump              # regenerate .api snapshots after intentional API changes
+```
+
+Coverage at HEAD: 93.3% line, 87.6% branch (1,496 tests, 0 failures).
+
+### Quality gates
+
+All of these break the build:
+
+- `explicitApi = ExplicitApiMode.Strict` on every Kotlin module: every public declaration states its visibility and return type.
 - `allWarningsAsErrors = true` for every Kotlin compile task.
-- ktlint and detekt run with `ignoreFailures = false`. Detekt is currently skipped on `sdk-async-virtualthreads` pending a detekt release that supports JDK 25; see the module's build script for the upstream issue link and re-enable conditions.
+- ktlint and detekt with `ignoreFailures = false`. Detekt is skipped on `sdk-async-virtualthreads` pending a release that supports JDK 25; the module's build script links the upstream issue and the re-enable conditions.
 - `kotlinx-binary-compatibility-validator` gates the public API surface against committed `.api` snapshots.
-- Aggregate Kover coverage is gated at an 80% line-coverage floor.
+- Aggregate Kover line coverage has an 80% floor.
 
 ## Dependencies
 
