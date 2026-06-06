@@ -252,8 +252,6 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `util` | `Clock`, `Uuids` (non-blocking v4), `DateTimeRfc1123`, `RetryUtils`, `ProxyOptions`, `Futures`. |
 | `generics` | `Builder<T>` — the generic builder interface every SDK builder implements. |
 
-The `src/main/java` tree under `sdk-core` carries a legacy/compat layer that backs generated service clients (Azure-style annotations, embedded Jackson Core, embedded Aalto XML, OpenTelemetry adapters). It is intentionally not part of the hand-written Kotlin surface.
-
 ## Build Quality Gates
 
 - `explicitApi = ExplicitApiMode.Strict` on every Kotlin module — every public declaration must declare its visibility and return type.
