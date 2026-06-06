@@ -2,11 +2,11 @@
 
 A toolkit for building Java/Kotlin HTTP client libraries. Written in Kotlin, targeting JDK 8 bytecode, with adapter modules for synchronous calls, `CompletableFuture`, Kotlin coroutines, Reactor `Mono`/`Flux`, Netty `Future`, and JDK 21+ virtual threads.
 
-> **License — Proprietary & Confidential.** Copyright © 2026 Omar Aljarrah, dexpace. All rights reserved. No license is granted to use, copy, modify, distribute, or run this software without an executed commercial agreement with the copyright holder. See [LICENSE.md](LICENSE.md).
+> **License — MIT.** Copyright © 2026 dexpace and Omar Aljarrah. See [LICENSE](LICENSE).
 
 ## Status
 
-`0.0.1-alpha.1`. The public API is stabilising; breaking changes between alpha releases are expected. The repository is closed-source; external pull requests are not accepted at this time.
+`0.0.1-alpha.1`. The public API is stabilising; breaking changes between alpha releases are expected. External pull requests are welcome.
 
 ## Overview
 
@@ -277,3 +277,7 @@ The `src/main/java` tree under `sdk-core` carries a legacy/compat layer that bac
 | mockwebserver3 | 5.0.0 | `sdk-transport-okhttp`, `sdk-transport-jdkhttp` (test-only) |
 | Jackson | 2.18.2 | `sdk-serde-jackson` |
 | Kover | 0.9.8 | Coverage (root project) |
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). Copyright © 2026 dexpace and Omar Aljarrah. Every source file carries an MIT license header.

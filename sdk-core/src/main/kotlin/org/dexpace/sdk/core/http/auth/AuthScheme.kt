@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 dexpace and Omar Aljarrah
+ *
+ * Licensed under the MIT License. See LICENSE in the project root.
+ * SPDX-License-Identifier: MIT
+ */
+
 package org.dexpace.sdk.core.http.auth
 
 // Public API surface — not every auth-scheme entry is referenced within this module; SDK consumers may use any.

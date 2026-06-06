@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 dexpace and Omar Aljarrah
+ *
+ * Licensed under the MIT License. See LICENSE in the project root.
+ * SPDX-License-Identifier: MIT
+ */
+
 @file:JvmName("HttpPipelineBridges")
 
 package org.dexpace.sdk.core.http.pipeline

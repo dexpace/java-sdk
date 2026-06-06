@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 dexpace and Omar Aljarrah
+ *
+ * Licensed under the MIT License. See LICENSE in the project root.
+ * SPDX-License-Identifier: MIT
+ */
+
 plugins {
     kotlin("jvm")
     `java-test-fixtures`
@@ -44,8 +51,8 @@ publishing {
                 url.set("https://github.com/dexpace/java-sdk")
                 licenses {
                     license {
-                        name.set("Proprietary")
-                        url.set("https://github.com/dexpace/java-sdk/blob/main/LICENSE.md")
+                        name.set("MIT License")
+                        url.set("https://github.com/dexpace/java-sdk/blob/main/LICENSE")
                         distribution.set("repo")
                     }
                 }
