@@ -5,127 +5,117 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-./gradlew build                       # Build all modules
-./gradlew :sdk-core:build             # Build sdk-core only
-./gradlew :sdk-core:compileKotlin     # Fast compile-only check
-./gradlew :sdk-io-okio3:test          # Run the okio3 adapter test suite
+./gradlew build                            # Build all modules — runs tests, ktlint, detekt, apiCheck, kover gate
+./gradlew :sdk-core:build                  # Build one module
+./gradlew :sdk-core:compileKotlin          # Fast compile-only check
 ./gradlew test --tests "<FQCN>.<method>"   # Run a single JUnit Platform test
+./gradlew apiCheck                         # Binary-compatibility check against committed .api snapshots
+./gradlew apiDump                          # Regenerate .api snapshots after INTENTIONAL public-API changes
+./gradlew koverHtmlReport                  # Aggregate coverage report at build/reports/kover/html/
 ```
 
-No linter is wired up yet — `ktlint` and `kover` are TODOs in the root `build.gradle.kts`. `sdk-core/src/test` is empty.
+All quality gates break the build: ktlint + detekt (`config/detekt.yml`), `allWarningsAsErrors`, explicit-API
+strict mode, binary-compatibility-validator, and an 80% aggregate line-coverage floor (Kover). Detekt is
+skipped on `sdk-async-virtualthreads` only — detekt 1.23.x cannot parse JDK-25 toolchains; see that module's
+build script for the upstream issue and re-enable conditions.
 
 ## Repository Layout
 
-Six Gradle modules (see `settings.gradle.kts`):
+Nine Gradle modules (see `settings.gradle.kts`). `gradle/libs.versions.toml` is the single source of truth
+for dependency and plugin versions. Group `org.dexpace`, version `0.0.1-alpha.1`.
 
-- **`sdk-core`** — the production SDK. Kotlin 2.3.21, **JVM target Java 8**, zero external deps beyond `slf4j-api` (compileOnly) and `kotlin-reflect`. Holds all the public API surface (`org.dexpace.sdk.core.*`). Contains a large `src/main/java` legacy/compat tree (~367 files) that backs generated service clients.
-- **`sdk-io-okio3`** — the Okio 3.x implementation of `sdk-core`'s I/O contracts. **JVM target Java 8** (same as `sdk-core`). The **only** I/O adapter today; other adapters (Okio 2, plain java.io, custom) can be added by implementing one `IoProvider` interface. Do not pull Okio types into `sdk-core`.
-- **`sdk-async-coroutines`** — Kotlin coroutines adapter (`suspend` extensions, `CoroutineScope.completableFutureOf`, MDC propagation). JVM target Java 8.
-- **`sdk-async-reactor`** — Reactor `Mono`/`Flux` adapter, including SSE → `Flux` with backpressure. JVM target Java 8.
-- **`sdk-async-netty`** — Netty `io.netty.util.concurrent.Future` adapter with bidirectional cancellation. JVM target Java 8.
-- **`sdk-async-virtualthreads`** — JDK 21+ virtual-thread executor adapter (`AutoCloseable`). **JVM target Java 21** — consumers of this module must be on JDK 21+.
+| Module | Purpose | JVM target |
+|---|---|---|
+| `sdk-core` | All public contracts: HTTP models, sync + async pipelines and steps, auth, SSE, paging, pagination, serde abstractions, instrumentation, I/O seam. Zero runtime deps beyond SLF4J API (compileOnly) + Kotlin stdlib. | 8 |
+| `sdk-io-okio3` | Okio 3.x implementation of `IoProvider` — the only I/O adapter today. | 8 |
+| `sdk-async-coroutines` | Kotlin coroutines adapter: `suspend` extensions, MDC propagation. | 8 |
+| `sdk-async-reactor` | Reactor `Mono`/`Flux` adapter, incl. SSE → `Flux` with backpressure. | 8 |
+| `sdk-async-netty` | Netty `Future` adapter with bidirectional cancellation. | 8 |
+| `sdk-async-virtualthreads` | Virtual-thread executor adapter (`AutoCloseable`). | **21** |
+| `sdk-transport-okhttp` | OkHttp 5.x `HttpClient` + `AsyncHttpClient` transport. | 8 |
+| `sdk-transport-jdkhttp` | `java.net.http.HttpClient` (JEP 321) transport. | **11** |
+| `sdk-serde-jackson` | Jackson 2.18 `Serde` implementation + `Tristate<T>` ser/de. | 8 |
 
-### Directory tree
+Key `sdk-core` packages (`org.dexpace.sdk.core.*`): `client` (the `HttpClient`/`AsyncHttpClient` transport
+SPIs), `http.request` / `http.response` / `http.common` (immutable models), `http.context` (context promotion
+chain), `http.auth` (credentials, RFC 7235 challenges, Digest), `http.sse` (WHATWG Server-Sent Events),
+`http.paging` (`PagedIterable`), `http.pipeline` (+`.steps` — stage-based sync/async pipeline runtime),
+`pipeline` (+`.step`, `.step.retry` — recovery-aware Request/Response/Execution pipeline primitives),
+`pagination` (Paginator + 4 strategies), `serde` (incl. `Tristate`), `instrumentation` (+`.metrics`), `io`,
+`config`, `util`, `generics`. The full package map with highlights is in `README.md`.
 
-```
-java-sdk/
-├── build.gradle.kts                 # Root build — applies kotlin("jvm") + java to all subprojects, pins JVM target 1.8
-├── settings.gradle.kts              # Declares all 6 modules
-├── gradle.properties, gradlew*      # Standard Gradle wrapper
-├── docs/                            # Design docs — read before structural changes
-│   ├── architecture.md              # Big picture, package map, data flow
-│   ├── io.md                        # I/O contracts + IoProvider seam
-│   ├── http.md                      # Request/Response/Headers/MediaType, context system
-│   ├── pipelines.md                 # Pipeline + step composition
-│   └── http-body-logging-and-concurrency.md
-│
-├── sdk-core/                        # Production SDK module (Java 8 target)
-│   ├── build.gradle.kts
-│   └── src/
-│       ├── main/kotlin/org/dexpace/sdk/core/    # Primary public API
-│       │   ├── client/              # HttpClient interface (transport SPI)
-│       │   ├── http/
-│       │   │   ├── request/         # Request, RequestBody, LoggableRequestBody, Method
-│       │   │   ├── response/        # Response, ResponseBody, LoggableResponseBody, Status
-│       │   │   ├── common/          # Headers, MediaType, CommonMediaTypes, Protocol
-│       │   │   └── context/         # CallContext → DispatchContext → RequestContext → ExchangeContext
-│       │   ├── io/                  # Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink
-│       │   ├── pipeline/            # RequestPipeline, ResponsePipeline, BuilderPipeline, ExecutionPipeline
-│       │   │   └── step/            # PipelineStep, RequestPipelineStep, config + retry traits
-│       │   ├── serde/               # Serde, Deserializer, SerializeTrait (abstractions only)
-│       │   ├── instrumentation/     # InstrumentationContext, Span, TracingScope, Noop* defaults
-│       │   ├── generics/            # Builder<T>
-│       │   ├── model/               # (small) domain model abstractions
-│       │   └── util/                # SDK-level annotations
-│       │
-│       ├── main/java/               # Java compat layer backing generated service clients (~367 files)
-│       │   ├── annotations/         # @ServiceClient, @ServiceMethod, @Metadata
-│       │   ├── binarydata/          # BinaryData impls
-│       │   ├── credentials/         # KeyCredential, oauth/
-│       │   ├── http/                # client/, models/, paging/, pipeline/, annotations/
-│       │   ├── implementation/      # http/, instrumentation/ (otel/ + fallback/), utils/
-│       │   ├── instrumentation/     # logging/, metrics/, tracing/
-│       │   ├── models/              # binarydata/, geo/
-│       │   ├── serialization/       # json/ (embedded Jackson core), xml/ (embedded Aalto)
-│       │   ├── traits/              # HttpTrait, ProxyTrait, EndpointTrait, …
-│       │   └── utils/               # configuration/
-│       │
-│       └── test/                    # Empty placeholder — no tests yet
-│
-├── sdk-io-okio3/                    # Okio 3.x adapter (Java 8 target)
-│   ├── build.gradle.kts
-│   └── src/
-│       ├── main/kotlin/org/dexpace/sdk/io/
-│       │   ├── OkioIoProvider.kt    # Public — install via Io.installProvider(OkioIoProvider)
-│       │   └── internal/            # internal adapter classes wrapping okio.{Buffer,BufferedSource,BufferedSink}
-│       └── test/                    # JUnit Platform + kotlin("test")
-│
-├── sdk-async-coroutines/            # Kotlin coroutines adapter (Java 8 target)
-│   └── build.gradle.kts
-├── sdk-async-reactor/               # Reactor Mono/Flux adapter (Java 8 target)
-│   └── build.gradle.kts
-├── sdk-async-netty/                 # Netty Future adapter (Java 8 target)
-│   └── build.gradle.kts
-└── sdk-async-virtualthreads/        # Virtual-thread executor adapter (Java 21 target)
-    └── build.gradle.kts
-```
+`docs/` (read before structural changes): `architecture.md`, `http.md`, `io.md`, `pipelines.md`,
+`http-body-logging-and-concurrency.md`, `implementation-plan.md` (phased work-unit plan),
+`refs-comparison.md` (survey of peer SDKs). `styleguide/` holds the Kotlin / Kotlin-JVM style guides this
+codebase follows.
 
 ## Architecture — Big Picture
 
-The SDK is an **HTTP-client toolkit, not an HTTP client**. It provides abstractions, models, and pipelines; consuming libraries plug in a concrete transport via the `HttpClient` interface, and a concrete I/O implementation via the `IoProvider` interface.
+The SDK is an **HTTP-client toolkit, not an HTTP client**. `sdk-core` provides abstractions, models, and
+pipelines; transports plug in via `HttpClient` / `AsyncHttpClient` (two reference transports ship as
+modules), and concrete I/O plugs in via `IoProvider`.
 
 Layered, from the bottom up:
 
-1. **`io/` contracts** — `Source` / `Sink` (primitive byte channels), `BufferedSource` / `BufferedSink` (HTTP-pragmatic typed reads/writes: byte arrays, UTF-8 strings, lines, peek, java.io bridges), `Buffer` (both source and sink + `snapshot()` for body logging). All interfaces — `sdk-core` contains no concrete I/O implementation. `IoProvider` is the single factory seam; `Io.installProvider(provider)` wires it once at startup and `Io.provider` resolves it everywhere. Failure mode is loud: missing provider throws an `IllegalStateException` with the install instruction.
-2. **`http.request` / `http.response` / `http.common`** — immutable models (`Request`, `Response`, `Headers`, `MediaType`, `Protocol`) built with private constructors + `Builder` + `newBuilder()`. `RequestBody` exposes `isReplayable()` and `toReplayable(provider)`; built-in factories cover byte arrays, strings, in-memory `Buffer`s, `BufferedSource`s, mark-supporting `InputStream`s (replay via `reset()`, no buffer needed), and files (`FileRequestBody` — transports can type-check it to dispatch `FileChannel.transferTo` for `sendfile(2)`).
-3. **Logging bodies** — `LoggableRequestBody` (in `http/request/`) uses `TeeSink` to mirror written bytes into an internal `Buffer` without disturbing the primary write. `LoggableResponseBody` (in `http/response/`) eagerly drains the wrapped body into an internal `Buffer` on first access, then returns non-consuming `peek()` views for repeatable reads. Both expose `snapshot(): ByteArray` for log preview.
-4. **`http.context`** — context promotion chain: `DispatchContext` → `RequestContext` → `ExchangeContext`, all carrying an `InstrumentationContext` for tracing.
-5. **`pipeline/`** + **`pipeline/step/`** — composable request/response processing. `RequestPipeline` and `PipelineStep` are `fun interface`s; `BuilderPipeline<T>` applies builder-mutating steps and folds to a final `T`. `ResponsePipeline` and `ExecutionPipeline` are placeholders (interface / empty class) — wire them up rather than inventing a parallel mechanism.
-6. **`client/HttpClient`** — single-method interface (`fun execute(Request): Response`). Transport is **not** provided by `sdk-core`.
-
-### Adapter modules
-
-`sdk-io-okio3` is the reference implementation of `IoProvider`. The only public type is `OkioIoProvider` (a Kotlin `object`); concrete adapter classes (`OkioBuffer`, `OkioBufferedSource`, `OkioBufferedSink`) are `internal` to the module. Adding a new adapter is: implement `IoProvider`, ship the module, call `Io.installProvider(YourProvider)` at startup. No `ServiceLoader`, no META-INF/services.
+1. **`io/` contracts** — `Source`/`Sink`, `BufferedSource`/`BufferedSink`, `Buffer`, `TeeSink`. All
+   interfaces; no concrete I/O in `sdk-core`. `Io.installProvider(provider)` wires the single `IoProvider`
+   seam once at startup; a missing provider throws `IllegalStateException` with the install instruction.
+2. **HTTP models** — immutable `Request`/`Response`/`Headers`/`MediaType` etc., private constructor +
+   `Builder` + `newBuilder()`. `RequestBody.isReplayable()`/`toReplayable()`; `FileRequestBody` lets
+   transports dispatch `FileChannel.transferTo`.
+3. **Logging bodies** — `LoggableRequestBody` (TeeSink mirror on write) and `LoggableResponseBody`
+   (drain-once + `peek()` views), both with `snapshot()` previews and race-safe consumed-once guards.
+4. **`http.context`** — `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext`, each
+   carrying an `InstrumentationContext`.
+5. **Pipelines** — two cooperating layers, both real (no placeholders):
+   - `http.pipeline` — stage-based runtime: `HttpPipelineBuilder` + `HttpStep` ordered by `Stage` with
+     pillar stages (exactly one REDIRECT / RETRY / AUTH / LOGGING / SERDE step per pipeline), plus the
+     async mirror (`AsyncHttpPipeline`, `AsyncHttpStep`) and sync→async bridges.
+   - `pipeline` — recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline`,
+     `ResponseOutcome`, with steps like `RetryStep` (backoff + `Retry-After`), `IdempotencyKeyStep`,
+     `ClientIdentityStep`.
+   See `docs/pipelines.md` before touching either.
+6. **Transports** — `sdk-transport-okhttp` (Java 8) and `sdk-transport-jdkhttp` (Java 11). Both implement
+   sync + async SPIs, propagate cancellation into the native client, and own `close()` for SDK-managed
+   resources only (BYO clients are never closed by the SDK).
 
 ## Conventions (enforced — match these when adding code)
 
-- **Java 8 bytecode in `sdk-core`.** Avoid `InputStream.transferTo` (Java 9+), `Thread.threadId()` (19+), `java.net.http.HttpClient` (11+), records, sealed `permits`, etc. The toolchain is pinned to 8.
-- **`ReentrantLock` over `synchronized`** (`lock.withLock { … }`). Reason: synchronized pins carrier threads under Loom; ReentrantLock lets virtual threads unmount.
-- **Blocking calls respect `Thread.interrupt()`.** Catches `InterruptedException`, calls `Thread.currentThread().interrupt()` to preserve status, throws `InterruptedIOException` (or the operation's natural exception with the interrupt added as suppressed). Documented in `docs/architecture.md` under Cancellation.
-- **Immutable data + private constructor + `Builder` implementing `Builder<T>`.** `newBuilder()` returns a pre-filled builder. Add `@JvmOverloads` on public constructors/factories for Java callers.
-- **Explicit visibility on every Kotlin declaration.** The root build sets `explicitApi = ExplicitApiMode.Strict` on every Kotlin module's main source set, so every top-level/class-member declaration must declare `public`, `internal`, or `private` — there is no "implicit public". Rules of thumb:
-  - **`public`** for anything exported across a module boundary that consumers may rely on: public model classes (`Request`, `Response`, `Headers`, `MediaType`, …), public interfaces (`HttpClient`, `IoProvider`, `RequestPipeline`, …), companion-object factories, top-level extension functions in adapter modules, and the canonical `Io.installProvider(...)`-style entry points.
-  - **`internal`** for implementation details that other classes in the same module reach across packages but external consumers must not see: cross-class helpers in `sdk-io-okio3.internal.*`, package-shared utility functions, and test-only seams.
-  - **`@JvmSynthetic internal`** when an `internal` symbol's Java-mangled name (e.g. `foo$sdk_core`) is technically callable from Java; `@JvmSynthetic` hides it from the bytecode's accessible-from-Java surface so name mangling cannot be circumvented.
-  - **`private`** for file- or class-local helpers that nothing outside the declaring file or class needs.
-  Public API is intentionally narrow: in `sdk-io-okio3` only `OkioIoProvider` is public; every adapter class lives under `org.dexpace.sdk.io.internal` and is `internal`. Strict-mode also requires explicit return types on public declarations — builder methods using `= apply { … }` must declare the builder's class as the return type.
-- **`sdk-core` has zero non-SLF4J runtime deps.** Do not add Okio (or any other I/O lib) to `sdk-core/build.gradle.kts`. Anything I/O-specific lives in an adapter module.
-- **Logging uses SLF4J `compileOnly`.** Don't add a runtime logging dependency.
-- **Commit style:** `chore:` prefix for refactors/cleanup — see `git log`.
+- **Java 8 bytecode everywhere except** `sdk-transport-jdkhttp` (11) and `sdk-async-virtualthreads` (21).
+  Avoid `InputStream.transferTo` (9+), `Thread.threadId()` (19+), records, sealed `permits` in Java-8
+  modules. A module that genuinely needs a newer JDK must override **both** `jvmToolchain(N)` **and**
+  `compilerOptions { jvmTarget.set(JvmTarget.JVM_N) }` in its own build script — overriding only the
+  toolchain produces Java-8-format bytecode referencing newer stdlib symbols (`NoSuchMethodError` on JDK 8).
+- **MIT license header in every source file.** Each `.kt`, `.java`, and `.kts` file starts with the 6-line
+  `Copyright (c) 2026 dexpace and Omar Aljarrah` / `SPDX-License-Identifier: MIT` block — copy it from any
+  existing file when creating new ones. Nothing enforces this automatically; it is a review convention.
+- **`ReentrantLock` over `synchronized`** (`lock.withLock { … }`) — synchronized pins carrier threads under
+  Loom.
+- **Blocking calls respect `Thread.interrupt()`** — catch `InterruptedException`, restore the interrupt
+  flag, throw `InterruptedIOException` (or add the interrupt as suppressed). See `docs/architecture.md`
+  (Cancellation).
+- **Immutable data + private constructor + `Builder` implementing `Builder<T>`**, `newBuilder()` pre-filled,
+  `@JvmOverloads`/`@JvmStatic` for Java callers.
+- **Explicit-API strict mode** on every main source set: every declaration needs an explicit visibility and
+  public declarations need explicit return types (`= apply { … }` builder methods must declare the return
+  type). Tests are exempt. Use `internal` for cross-package implementation details, `@JvmSynthetic internal`
+  when the mangled name would still be Java-callable, `private` otherwise. Adapter modules expose a single
+  public entry point (e.g. only `OkioIoProvider` is public in `sdk-io-okio3`).
+- **`sdk-core` has zero non-SLF4J runtime deps** — I/O, Jackson, and concurrency libraries live only in
+  adapter modules. SLF4J is `compileOnly` (added by the root build to every Kotlin module).
+- **Commit style:** `feat:` / `test:` / `docs:` / `chore:` prefixes; `merge:` for work-unit merge commits.
 
 ## Things That Will Bite You
 
-- The repo is mid-refactor (branch: `OmarAlJarrah/memory-streams-initial-building-blocks`). The original `io/` module had a segment-pool design (`Segment.kt`, `SegmentPool.kt`, `Real*BufferedSource/Sink`, `PeekSource.kt`); those files appear `D` in `git status`. They were replaced by the contract-only design described above. Don't try to resurrect them — concrete implementations belong in adapter modules.
-- `sdk-io-okio3` is **Java 8** like `sdk-core` — it inherits the toolchain from the root build. The **only** module on JDK 21 is `sdk-async-virtualthreads`. Do not copy `sdk-async-virtualthreads`'s `jvmToolchain(21)` override back into any other module.
-- `pr.diff` in the repo root is a generated artifact, not source — ignore it.
-- `Io.installProvider(...)` must run before any code that calls `Io.provider`. Tests use `Io.installProvider(OkioIoProvider)` in `@BeforeTest`; production code should install in the application's startup path.
+- **Public API changes fail `apiCheck`.** Any visible signature change needs `./gradlew apiDump` and the
+  regenerated `api/*.api` files committed alongside the change. Never run `apiDump` to silence an
+  *unintentional* break.
+- **`Io.installProvider(...)` must run before any code touches `Io.provider`.** Tests install
+  `OkioIoProvider` in `@BeforeTest`; production installs in the application startup path.
+- **Coverage floor is aggregate 80% line coverage.** New under-tested code can fail `:koverCachedVerify`
+  even when its own module builds clean — check `koverHtmlReport` when the gate trips.
+- **Transport tests use `mockwebserver3`** (OkHttp's). Follow the existing patterns in
+  `sdk-transport-okhttp`/`sdk-transport-jdkhttp` test suites rather than spinning up real sockets.
+- **`allWarningsAsErrors` is on** — a deprecation warning in any Kotlin module breaks the build.
+- Root-build Kover excludes still reference a removed `sdk-core/src/main/java/` compat tree; they are
+  inert. Do not resurrect that tree — generated/compat code is gone by design.
