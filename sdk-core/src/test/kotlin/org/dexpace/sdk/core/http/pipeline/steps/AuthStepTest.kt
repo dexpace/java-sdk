@@ -731,6 +731,110 @@ class AuthStepTest {
         assertEquals(2, fetches.get(), "token should refresh once we cross the 100-10 = 90s mark")
     }
 
+    // ----------------- Cross-origin redirect credential leak (S-1) -----------------
+
+    @Test
+    fun `cross-origin redirect does NOT re-stamp the bearer credential on the foreign host`() {
+        // REDIRECT wraps AUTH: the 302 to a different host is re-issued through AUTH, which
+        // must NOT re-stamp the caller's bearer token onto the foreign origin.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("super-secret", null) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://evil.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        // First hop (same origin) carries the token.
+        assertEquals("Bearer super-secret", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        // Second hop (foreign origin) must NOT carry the token — and must not leak the internal marker.
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "bearer credential must not follow a cross-origin redirect",
+        )
+        assertNull(
+            fake.requests[1].headers.get(CrossOriginRedirectMarker.MARKER_HEADER),
+            "internal cross-origin marker must be stripped before the wire",
+        )
+        assertEquals("https://evil.example.com/v2", fake.requests[1].url.toString())
+    }
+
+    @Test
+    fun `cross-origin redirect does NOT re-stamp the key credential on the foreign host`() {
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://evil.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        assertEquals("secret-key", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "key credential must not follow a cross-origin redirect",
+        )
+        assertNull(fake.requests[1].headers.get(CrossOriginRedirectMarker.MARKER_HEADER))
+    }
+
+    @Test
+    fun `same-origin redirect DOES re-stamp the credential on the original host`() {
+        // A same-origin redirect is not marked; the AUTH stage re-stamps as normal.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("tk", null) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://api.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        // Both hops are same-origin → the token is (re-)stamped on each.
+        assertEquals("Bearer tk", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        assertEquals(
+            "Bearer tk",
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "same-origin redirect must re-stamp the credential",
+        )
+    }
+
+    @Test
+    fun `cross-origin redirect differing only by port is treated as cross-origin`() {
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://api.example.com:8443/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "a port-only origin difference must still suppress credential re-stamping",
+        )
+    }
+
     // ----------------- Helpers -----------------
 
     private fun getHttpsRequest(): Request =

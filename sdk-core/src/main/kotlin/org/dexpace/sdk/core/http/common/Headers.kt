@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.core.http.common
 
+import java.util.Collections
 import java.util.Locale
 
 // Public API surface — not every accessor/mutator on this class is referenced within this module; SDK consumers may use any.
@@ -53,12 +54,14 @@ public data class Headers private constructor(
      * @param name the header name (case-insensitive)
      * @return an unmodifiable list of header values, or an empty list if none
      */
-    public fun values(name: String): List<String> = headersMap[sanitizeName(name)] ?: emptyList()
+    public fun values(name: String): List<String> =
+        headersMap[sanitizeName(name)]?.let(Collections::unmodifiableList) ?: emptyList()
 
     /**
      * Returns all header values for the given typed name.
      */
-    public fun values(name: HttpHeaderName): List<String> = headersMap[name.caseInsensitiveName] ?: emptyList()
+    public fun values(name: HttpHeaderName): List<String> =
+        headersMap[name.caseInsensitiveName]?.let(Collections::unmodifiableList) ?: emptyList()
 
     /**
      * Returns true if any value is present for the given name.
@@ -82,11 +85,24 @@ public data class Headers private constructor(
     public fun names(): Set<String> = headersMap.keys.toSet()
 
     /**
-     * Returns an unmodifiable list of all header entries.
+     * Returns an unmodifiable snapshot of all header entries at the time of the call.
      *
-     * @return an unmodifiable list of header entries as [Map.Entry]
+     * Each entry is an immutable copy whose value list is itself unmodifiable, so callers
+     * cannot mutate this [Headers] instance through the returned set, its entries
+     * ([Map.Entry.setValue]), or the per-name value lists — even by casting.
+     *
+     * @return an immutable snapshot of header entries as [Map.Entry]
      */
-    public fun entries(): Set<Map.Entry<String, List<String>>> = headersMap.entries
+    public fun entries(): Set<Map.Entry<String, List<String>>> {
+        val snapshot = LinkedHashMap<String, List<String>>(headersMap.size)
+        headersMap.forEach { (key, value) ->
+            snapshot[key] = Collections.unmodifiableList(value)
+        }
+        // `Collections.unmodifiableMap(...).entries` rejects both structural mutation
+        // (add/remove/clear) and per-entry `setValue`, unlike `unmodifiableSet`, which
+        // leaves `Map.Entry.setValue` open against the backing map.
+        return Collections.unmodifiableMap(snapshot).entries
+    }
 
     /**
      * Returns a new [Builder] initialized with the existing headers.
@@ -265,7 +281,17 @@ public data class Headers private constructor(
          *
          * @return the built [Headers]
          */
-        public fun build(): Headers = Headers(LinkedHashMap(headersMap))
+        public fun build(): Headers {
+            // Deep, defensive copy: snapshot each value list into its own unmodifiable
+            // copy so that (a) later builder mutations cannot reach into the built
+            // instance, and (b) the lists handed out by accessors cannot be mutated via
+            // a cast to MutableList.
+            val snapshot = LinkedHashMap<String, List<String>>(headersMap.size)
+            headersMap.forEach { (key, values) ->
+                snapshot[key] = Collections.unmodifiableList(ArrayList(values))
+            }
+            return Headers(snapshot)
+        }
     }
 
     public companion object {

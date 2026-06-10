@@ -126,6 +126,25 @@ class BackoffCalculatorTest {
         assertEquals(Duration.ZERO, delay)
     }
 
+    @Test
+    fun `huge retryAfterHint is clamped instead of overflowing toNanos`() {
+        // Duration.ofSeconds(Long.MAX_VALUE).toNanos() throws ArithmeticException; computeDelay
+        // must clamp the hint to its 365-day ceiling rather than propagate the overflow.
+        val hugeHint = Duration.ofSeconds(Long.MAX_VALUE)
+        // totalTimeout = ZERO disables the deadline cap, so the clamped hint is returned as-is.
+        val delay = BackoffCalculator.computeDelay(1, noJitterSettings, hugeHint)
+        assertEquals(Duration.ofDays(MAX_HINT_DAYS), delay, "Huge hint must clamp to the 365-day ceiling")
+    }
+
+    @Test
+    fun `huge retryAfterHint does not throw even with a deadline cap`() {
+        val settings = noJitterSettings.newBuilder().totalTimeout(Duration.ofSeconds(5)).build()
+        val hugeHint = Duration.ofSeconds(Long.MAX_VALUE)
+        // The clamp keeps toNanos() in range; the deadline cap then shrinks it to the budget.
+        val delay = BackoffCalculator.computeDelay(1, settings, hugeHint)
+        assertEquals(Duration.ofSeconds(5), delay)
+    }
+
     // endregion
 
     // region -- deadline cap --
@@ -183,5 +202,8 @@ class BackoffCalculatorTest {
         // Deadline constants.
         private const val BUDGET_MS_TIGHT = 100L
         private const val ELAPSED_MS = 20L
+
+        // Hint-clamp ceiling (must match BackoffCalculator.MAX_HINT).
+        private const val MAX_HINT_DAYS = 365L
     }
 }

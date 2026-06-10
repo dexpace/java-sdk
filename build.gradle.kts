@@ -10,6 +10,12 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.net.URI
 
 plugins {
+    // The `base` plugin gives the root project the standard lifecycle tasks (notably
+    // `check` and `build`). Without it the root has no `check` task to hang the aggregate
+    // coverage verification on, so the documented 80% floor would never run from a plain
+    // `./gradlew build`. See the `check` wiring near the bottom of this file.
+    base
+
     // `apply false` brings the Kotlin plugin onto the classpath so each subproject can
     // declare `plugins { kotlin("jvm") }` without restating the version — but does not
     // apply Kotlin to the root project itself (which has no source).
@@ -36,8 +42,6 @@ group = "org.dexpace"
 version = "0.0.1-alpha.1"
 
 // Coverage: aggregate every Kover-enabled subproject through this root project's reports.
-// The legacy Java compat tree (`sdk-core/src/main/java/`) is excluded — it is generated
-// code that backs service clients and is not part of the SDK's hand-written surface.
 dependencies {
     kover(project(":sdk-core"))
     kover(project(":sdk-io-okio3"))
@@ -54,23 +58,6 @@ kover {
     reports {
         filters {
             excludes {
-                // Generated service-client compat layer (sdk-core/src/main/java/).
-                // These classes are compiled into BARE packages (no org.dexpace prefix) —
-                // "annotations.*" is the fully-qualified name pattern, not a suffix glob.
-                // Kotlin SDK classes live under org.dexpace.sdk.core.* and are unaffected
-                // by these patterns.
-                classes(
-                    "annotations.*",
-                    "binarydata.*",
-                    "credentials.*",
-                    "http.*",
-                    "implementation.*",
-                    "instrumentation.*",
-                    "models.*",
-                    "serialization.*",
-                    "traits.*",
-                    "utils.*",
-                )
                 // Test fixtures (test-only support code, fully-qualified org.dexpace namespace).
                 classes("org.dexpace.sdk.core.testing.*")
             }
@@ -83,6 +70,16 @@ kover {
             }
         }
     }
+}
+
+// Make the aggregate coverage floor real: hang the root-aggregate `koverVerify` (the only
+// task carrying the `minBound(80)` rule above) off the root `check` lifecycle task. Because
+// the `base` plugin wires `build` → `check`, a plain `./gradlew build` (or `check`) now runs
+// the aggregate verification and fails when the floor is breached. The per-module `koverVerify`
+// tasks carry no rule and pass trivially, so the floor is enforced exactly once — no
+// double-counting.
+tasks.named("check") {
+    dependsOn(tasks.named("koverVerify"))
 }
 
 allprojects {
@@ -143,6 +140,18 @@ allprojects {
     tasks.withType<AbstractArchiveTask>().configureEach {
         isPreserveFileTimestamps = false
         isReproducibleFileOrder = true
+    }
+
+    // Stamp the SDK coordinates into every Jar manifest so `SdkInfo.sdkVersion` (which reads
+    // `Package.getImplementationVersion()`) resolves to the project version instead of the
+    // "unknown" fallback. Without this the User-Agent emits `dexpace-sdk/unknown`.
+    tasks.withType<Jar>().configureEach {
+        manifest {
+            attributes(
+                "Implementation-Title" to project.name,
+                "Implementation-Version" to project.version,
+            )
+        }
     }
 }
 

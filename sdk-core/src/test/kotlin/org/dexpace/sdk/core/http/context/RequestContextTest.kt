@@ -38,14 +38,17 @@ class RequestContextTest {
         val instr = FakeInstrumentationContext(TraceId(id))
         val req = request()
         val resp = response()
+        val parent = RequestContext(instr, req)
+        ownedIds.add(parent.callKey)
 
-        val promoted = RequestContext(instr, req).toExchangeContext(resp)
+        val promoted = parent.toExchangeContext(resp)
 
         assertSame(instr, promoted.instrumentationContext)
         assertSame(req, promoted.request)
         assertSame(resp, promoted.response)
-        // Promotion registers the new context under the trace id.
-        assertSame(promoted, ContextStore.get(id))
+        // Promotion carries the call key forward and registers the new context under it.
+        assertEquals(parent.callKey, promoted.callKey)
+        assertSame(promoted, ContextStore.get(promoted.callKey))
     }
 
     @Test
@@ -60,12 +63,13 @@ class RequestContextTest {
     }
 
     @Test
-    fun `close evicts entry keyed by trace id`() {
+    fun `close evicts entry keyed by call key`() {
         val id = owned("close")
         val instr = FakeInstrumentationContext(TraceId(id))
         val ctx = RequestContext(instr, request())
-        ContextStore.set(id, ctx)
+        ownedIds.add(ctx.callKey)
+        ContextStore.set(ctx.callKey, ctx)
         ctx.close()
-        assertEquals(null, ContextStore.get(id))
+        assertEquals(null, ContextStore.get(ctx.callKey))
     }
 }

@@ -288,6 +288,72 @@ class MediaTypeTest {
         assertEquals(original, reparsed)
     }
 
+    @Test
+    fun `toString quotes a parameter value containing a separator`() {
+        // A boundary containing `;` must be quoted, otherwise the `;` re-parses as the start
+        // of a new parameter and the value is corrupted on the wire.
+        val mt = MediaType.of("multipart", "form-data", mapOf("boundary" to "a;b"))
+        assertEquals("multipart/form-data;boundary=\"a;b\"", mt.toString())
+        assertEquals(mt, MediaType.parse(mt.toString()))
+        assertEquals("a;b", MediaType.parse(mt.toString()).parameters["boundary"])
+    }
+
+    @Test
+    fun `toString quotes a parameter value containing whitespace`() {
+        val mt = MediaType.of("text", "plain", mapOf("title" to "hello world"))
+        assertEquals("text/plain;title=\"hello world\"", mt.toString())
+        assertEquals(mt, MediaType.parse(mt.toString()))
+    }
+
+    @Test
+    fun `toString quotes an empty parameter value`() {
+        // An empty value cannot be emitted bare (parse rejects an empty rawValue); it must
+        // be quoted so the original (empty) value survives a round trip.
+        val mt = MediaType.of("text", "plain", mapOf("x" to ""))
+        assertEquals("text/plain;x=\"\"", mt.toString())
+        assertEquals(mt, MediaType.parse(mt.toString()))
+        assertEquals("", MediaType.parse(mt.toString()).parameters["x"])
+    }
+
+    @Test
+    fun `toString escapes quote and backslash characters in a parameter value`() {
+        val mt = MediaType.of("multipart", "form-data", mapOf("boundary" to "a\"b\\c"))
+        // Each `"` and `\` is emitted as a quoted-pair inside the quoted-string.
+        assertEquals("multipart/form-data;boundary=\"a\\\"b\\\\c\"", mt.toString())
+        assertEquals(mt, MediaType.parse(mt.toString()))
+        assertEquals("a\"b\\c", MediaType.parse(mt.toString()).parameters["boundary"])
+    }
+
+    @Test
+    fun `toString leaves a bare token value unquoted`() {
+        // A value made entirely of RFC 7230 tchar characters needs no quoting.
+        val mt = MediaType.of("application", "json", mapOf("charset" to "utf-8"))
+        assertEquals("application/json;charset=utf-8", mt.toString())
+    }
+
+    @Test
+    fun `parse-toString round-trips for every constructible parameter value`() {
+        val tricky =
+            listOf(
+                "simple-token",
+                "a;b",
+                "a=b",
+                "hello world",
+                "with\"quote",
+                "with\\backslash",
+                "with,comma",
+                "tab\there",
+                "",
+                "AbCdEf",
+            )
+        for (value in tricky) {
+            val mt = MediaType.of("multipart", "form-data", mapOf("boundary" to value))
+            val reparsed = MediaType.parse(mt.toString())
+            assertEquals(value, reparsed.parameters["boundary"], "round trip failed for value [$value]")
+            assertEquals(mt, reparsed, "MediaType inequality after round trip for value [$value]")
+        }
+    }
+
     // ---- equality + hashCode ----------------------------------------------------
 
     @Test

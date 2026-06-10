@@ -84,6 +84,21 @@ public class ClientIdentityStep
         ): Request = apply(input)
 
         /**
+         * Returns a [ClientIdentityStepBuilder] pre-filled with this instance's token list,
+         * header name, and [Mode] so callers can derive a tweaked step without re-stating
+         * every field. Mirrors the `newBuilder()` convention on
+         * [IdempotencyKeyStep][org.dexpace.sdk.core.pipeline.step.IdempotencyKeyStep] and
+         * [RetrySettings][org.dexpace.sdk.core.pipeline.step.retry.RetrySettings].
+         *
+         * The pre-filled tokens are treated as caller-owned: a subsequent
+         * [ClientIdentityStepBuilder.addToken] appends to them rather than discarding the
+         * default seed (there is no seed to discard once an instance has been materialised).
+         *
+         * @return A new builder carrying this instance's configuration.
+         */
+        public fun newBuilder(): ClientIdentityStepBuilder = ClientIdentityStepBuilder(this)
+
+        /**
          * Applies the step to [request] and returns the resulting request. If the
          * configured token list is empty the request is returned unchanged.
          *
@@ -131,6 +146,24 @@ public class ClientIdentityStep
             private var seeded: Boolean = false
             private var headerName: String = DEFAULT_HEADER_NAME
             private var mode: Mode = Mode.Append
+
+            /** Creates an empty builder seeded with the documented defaults. */
+            public constructor()
+
+            /**
+             * Creates a builder pre-filled with the configuration of [step]. The copied
+             * token list is treated as caller-owned (the default seed is considered already
+             * discarded), so a subsequent [addToken] appends to it rather than clearing it.
+             *
+             * @param step The step whose configuration to copy.
+             */
+            public constructor(step: ClientIdentityStep) {
+                this.tokens.clear()
+                this.tokens.addAll(step.tokens)
+                this.seeded = true
+                this.headerName = step.headerName
+                this.mode = step.mode
+            }
 
             /**
              * Appends a single token to the end of the ordered list. Caller responsibility

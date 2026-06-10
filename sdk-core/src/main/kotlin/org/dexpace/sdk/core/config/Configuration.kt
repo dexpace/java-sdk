@@ -144,10 +144,13 @@ public class Configuration internal constructor(
         @Suppress("ReturnCount")
         internal fun parseDuration(raw: String): Duration? {
             if (raw.isEmpty()) return null
-            // ISO-8601 path: `PT5S`, `P1D`, etc.
+            // ISO-8601 path: `PT5S`, `P1D`, etc. Reject negative durations (e.g. `PT-5S`) for the
+            // same reason the shorthand path does below — downstream consumers (Clock.sleep,
+            // Futures.delay) assume a non-negative duration and throw on a negative one.
             if (Character.toUpperCase(raw[0]) == 'P') {
                 return try {
-                    Duration.parse(raw)
+                    val d = Duration.parse(raw)
+                    if (d.isNegative) null else d
                 } catch (_: Exception) {
                     null
                 }

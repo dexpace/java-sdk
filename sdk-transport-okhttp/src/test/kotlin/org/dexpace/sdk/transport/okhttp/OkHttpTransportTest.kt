@@ -15,26 +15,33 @@ import okhttp3.OkHttpClient
 import okio.Buffer
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.Protocol
+import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
+import org.dexpace.sdk.transport.okhttp.internal.SdkRequestBodyAdapter
+import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
 import java.net.ServerSocket
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -63,7 +70,7 @@ class OkHttpTransportTest {
     // -------- sync golden paths --------
 
     @Test
-    fun `executeGetReturnsBody`() {
+    fun executeGetReturnsBody() {
         server.enqueue(MockResponse.Builder().code(200).body("hello").build())
         val request = simpleGet("/sync")
         transport.execute(request).use { response ->
@@ -73,7 +80,7 @@ class OkHttpTransportTest {
     }
 
     @Test
-    fun `executePostSendsBody`() {
+    fun executePostSendsBody() {
         server.enqueue(MockResponse.Builder().code(201).build())
         val payload = "request-body-bytes"
         val request =
@@ -93,7 +100,7 @@ class OkHttpTransportTest {
     // -------- async golden paths --------
 
     @Test
-    fun `executeAsyncReturnsBody`() {
+    fun executeAsyncReturnsBody() {
         server.enqueue(MockResponse.Builder().code(200).body("async-hello").build())
         val request = simpleGet("/async-get")
         val future = transport.executeAsync(request)
@@ -105,7 +112,7 @@ class OkHttpTransportTest {
     }
 
     @Test
-    fun `executeAsyncPostSendsBody`() {
+    fun executeAsyncPostSendsBody() {
         server.enqueue(MockResponse.Builder().code(202).build())
         val payload = "async-request-bytes"
         val request =
@@ -125,7 +132,7 @@ class OkHttpTransportTest {
     // -------- headers round-trip --------
 
     @Test
-    fun `headersRoundTrip`() {
+    fun headersRoundTrip() {
         server.enqueue(
             MockResponse.Builder()
                 .code(200)
@@ -159,7 +166,7 @@ class OkHttpTransportTest {
     // -------- restricted headers --------
 
     @Test
-    fun `restrictedHeadersAreDropped`() {
+    fun restrictedHeadersAreDropped() {
         server.enqueue(MockResponse.Builder().code(200).body("ok").build())
         val request =
             Request.builder()
@@ -188,7 +195,7 @@ class OkHttpTransportTest {
     // -------- request body streaming --------
 
     @Test
-    fun `requestBodyStreamingMatrix`() {
+    fun requestBodyStreamingMatrix() {
         val sizes = listOf(1, 1024, 100 * 1024, 5 * 1024 * 1024)
         for (size in sizes) {
             val bytes = randomBytes(size, seed = size.toLong())
@@ -209,7 +216,7 @@ class OkHttpTransportTest {
     // -------- response body streaming --------
 
     @Test
-    fun `responseBodyStreamingMatrix`() {
+    fun responseBodyStreamingMatrix() {
         val sizes = listOf(1, 1024, 100 * 1024, 5 * 1024 * 1024)
         for (size in sizes) {
             val bytes = randomBytes(size, seed = -size.toLong())
@@ -226,7 +233,7 @@ class OkHttpTransportTest {
     // -------- timeouts --------
 
     @Test
-    fun `connectTimeoutFires`() {
+    fun connectTimeoutFires() {
         // Acquire a free port and immediately close the socket so connects fail fast (no
         // SYN-ACK). connectTimeout should still bound the wait.
         val deadPort = freePort()
@@ -247,7 +254,7 @@ class OkHttpTransportTest {
     }
 
     @Test
-    fun `readTimeoutFires`() {
+    fun readTimeoutFires() {
         // Headers delay is comfortably longer than the read timeout so the timeout fires
         // first, but short enough that MockWebServer's pending-response state has cleared
         // by the time `@StartStop` shuts it down at the end of the test. A 10-second delay
@@ -280,7 +287,7 @@ class OkHttpTransportTest {
     // -------- cancellation --------
 
     @Test
-    fun `syncCancellationPropagates`() {
+    fun syncCancellationPropagates() {
         // Verifies the documented contract: when `execute` surfaces an
         // `InterruptedIOException`, the calling thread's interrupt status is preserved.
         // OkHttp 5.x's default transport uses plain `java.net.Socket` rather than
@@ -323,7 +330,7 @@ class OkHttpTransportTest {
     }
 
     @Test
-    fun `asyncCancellationPropagates`() {
+    fun asyncCancellationPropagates() {
         // Headers delay is bounded so MockWebServer's shutdown doesn't observe a still-
         // pending response after the test. The test only needs the call to be in-flight
         // long enough for future.cancel() to propagate to Call.cancel().
@@ -357,7 +364,7 @@ class OkHttpTransportTest {
     // -------- redirect behaviour --------
 
     @Test
-    fun `followRedirectsDefaultFalse`() {
+    fun followRedirectsDefaultFalse() {
         server.enqueue(
             MockResponse.Builder()
                 .code(302)
@@ -373,7 +380,7 @@ class OkHttpTransportTest {
     // -------- BYO factory --------
 
     @Test
-    fun `byoFactoryRespectsClient`() {
+    fun byoFactoryRespectsClient() {
         server.enqueue(MockResponse.Builder().code(200).body("byo").build())
         val interceptorRan = AtomicBoolean(false)
         val customClient =
@@ -396,12 +403,151 @@ class OkHttpTransportTest {
     // -------- protocol mapping --------
 
     @Test
-    fun `protocolMappingHttp11`() {
+    fun protocolMappingHttp11() {
         // MockWebServer defaults to HTTP/1.1 over plain text — verify the protocol is mapped.
         server.enqueue(MockResponse.Builder().code(200).body("h1").build())
         transport.execute(simpleGet("/proto")).use { response ->
             assertEquals(Protocol.HTTP_1_1, response.protocol)
         }
+    }
+
+    // -------- non-replayable body: single write, no OkHttp re-send --------
+
+    @Test
+    fun nonReplayableBodyIsSentOnce() {
+        // A BufferedSource-backed body is single-use: a second writeTo trips its consume
+        // guard. Because SdkRequestBodyAdapter now reports isOneShot()==true and the
+        // SDK-managed client disables retryOnConnectionFailure, OkHttp writes the body
+        // exactly once and the POST succeeds. An interceptor counts request-body writes to
+        // prove there is exactly one.
+        val writeCount = AtomicInteger(0)
+        val countingClient =
+            OkHttpClient.Builder()
+                .followRedirects(false)
+                .retryOnConnectionFailure(false)
+                .addInterceptor(
+                    Interceptor { chain ->
+                        if (chain.request().body != null) {
+                            writeCount.incrementAndGet()
+                        }
+                        chain.proceed(chain.request())
+                    },
+                )
+                .build()
+        val countingTransport = OkHttpTransport.create(countingClient)
+
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val payload = "single-use-body-bytes"
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/one-shot").toUrl())
+                .body(nonReplayableBody(payload))
+                .build()
+
+        countingTransport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+
+        val recorded = server.takeRequest()
+        assertEquals(payload, recorded.body?.utf8())
+        assertEquals(1, writeCount.get(), "OkHttp must write the body exactly once")
+    }
+
+    @Test
+    fun isOneShotReflectsReplayability() {
+        // The adapter's isOneShot() drives OkHttp's re-send decision: a non-replayable SDK
+        // body must report true (no re-send), a replayable body must report false.
+        val nonReplayable = SdkRequestBodyAdapter(nonReplayableBody("x"))
+        assertTrue(nonReplayable.isOneShot(), "non-replayable body must be one-shot")
+
+        val replayable = SdkRequestBodyAdapter(RequestBody.create("x", CommonMediaTypes.TEXT_PLAIN))
+        assertFalse(replayable.isOneShot(), "replayable body must not be one-shot")
+    }
+
+    // -------- vendor status codes are surfaced, not rejected --------
+
+    @Test
+    fun vendorStatusCodeIsSurfacedWithoutLeak() {
+        // Cloudflare 520 is outside the canonical enum. The total Status.fromCode maps it to
+        // a Status carrying the raw code; the response (and its body) must be surfaced and
+        // closeable. Closing it returns the connection so a follow-up request reuses the pool
+        // rather than leaking the socket.
+        server.enqueue(MockResponse.Builder().code(520).body("origin down").build())
+        transport.execute(simpleGet("/vendor-status")).use { response ->
+            assertEquals(520, response.status.code, "vendor code must be surfaced verbatim")
+            assertEquals("origin down", response.body?.source()?.readUtf8())
+        }
+        // A second call succeeds, proving the first connection was released cleanly.
+        server.enqueue(MockResponse.Builder().code(200).body("recovered").build())
+        transport.execute(simpleGet("/after-vendor-status")).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("recovered", response.body?.source()?.readUtf8())
+        }
+    }
+
+    // -------- FileRequestBody zero-copy fast path --------
+
+    @Test
+    fun fileRequestBodyIsSentInFull(
+        @TempDir tmp: Path,
+    ) {
+        val bytes = randomBytes(64 * 1024, seed = 99L)
+        val file = tmp.resolve("upload.bin")
+        Files.write(file, bytes)
+
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/file-upload").toUrl())
+                .body(FileRequestBody(file, CommonMediaTypes.APPLICATION_OCTET_STREAM))
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        val received = recorded.body?.toByteArray() ?: ByteArray(0)
+        assertEquals(md5(bytes), md5(received), "uploaded file bytes must round-trip")
+        assertEquals(
+            "application/octet-stream",
+            recorded.headers["Content-Type"]?.substringBefore(';'),
+            "Content-Type from FileRequestBody must reach the wire",
+        )
+        assertEquals(bytes.size.toString(), recorded.headers["Content-Length"], "length must match count")
+    }
+
+    @Test
+    fun fileRequestBodyHonoursPositionAndCount(
+        @TempDir tmp: Path,
+    ) {
+        val bytes = randomBytes(10_000, seed = 7L)
+        val file = tmp.resolve("slice.bin")
+        Files.write(file, bytes)
+
+        val position = 1_000L
+        val count = 4_096L
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/file-slice").toUrl())
+                .body(
+                    FileRequestBody(
+                        file,
+                        CommonMediaTypes.APPLICATION_OCTET_STREAM,
+                        position,
+                        count,
+                    ),
+                )
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        val received = recorded.body?.toByteArray() ?: ByteArray(0)
+        val expected = bytes.copyOfRange(position.toInt(), (position + count).toInt())
+        assertContentEquals(expected, received, "only the requested byte range must be uploaded")
     }
 
     // -------- helpers --------
@@ -411,6 +557,21 @@ class OkHttpTransportTest {
             .method(Method.GET)
             .url(server.url(path).toUrl())
             .build()
+
+    /**
+     * Builds a single-use (non-replayable) body backed by a [BufferedSource]. A second
+     * `writeTo` trips its consume guard, so any OkHttp re-send would throw — exactly the
+     * failure [org.dexpace.sdk.transport.okhttp.internal.SdkRequestBodyAdapter.isOneShot]
+     * exists to prevent.
+     */
+    private fun nonReplayableBody(content: String): RequestBody {
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        return RequestBody.create(
+            Io.provider.source(bytes),
+            CommonMediaTypes.TEXT_PLAIN,
+            bytes.size.toLong(),
+        )
+    }
 
     private fun randomBytes(
         size: Int,

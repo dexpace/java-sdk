@@ -31,9 +31,17 @@ public interface Serializer {
         outputStream: OutputStream,
     )
 
-    /** Encode [input] into the caller-supplied [buffer]. Behavior on overflow is implementation-defined. */
+    /**
+     * Encode [input] into the caller-supplied [buffer] starting at [offset], returning the number
+     * of bytes written. The caller can slice the valid prefix as `buffer[offset until offset + n]`.
+     *
+     * @throws IndexOutOfBoundsException when [offset] is negative or beyond [buffer]'s length, or
+     *   when the encoded payload does not fit in the remaining space (`buffer.size - offset`). The
+     *   buffer contents are unspecified after an overflow throw.
+     */
     public fun serialize(
         input: Any,
         buffer: ByteArray,
-    )
+        offset: Int = 0,
+    ): Int
 }

@@ -31,6 +31,12 @@ import org.dexpace.sdk.core.http.response.ResponseBody as SdkResponseBody
  * The body's `Content-Type` is parsed via [MediaType.parse]; an unparseable value is
  * silently downgraded to `null` (the SDK contract allows `mediaType()` to be `null`).
  *
+ * The status is mapped through the **total** [Status.fromCode], so a vendor-specific code
+ * (nginx 499, Cloudflare 520–526/530, …) is surfaced faithfully rather than rejected. If any
+ * step of adaptation throws — a missing I/O provider, an exhausted body source, a builder
+ * invariant — the OkHttp [OkResponse] is closed before the throwable propagates so its live
+ * connection is never leaked.
+ *
  * No retention of the OkHttp response object is necessary beyond the body — the body's
  * own close releases everything.
  */
@@ -39,37 +45,45 @@ internal class ResponseAdapter {
         sdkRequest: SdkRequest,
         okhttpResponse: OkResponse,
     ): SdkResponse {
-        val headersBuilder = Headers.Builder()
-        for ((name, value) in okhttpResponse.headers) {
-            headersBuilder.add(name, value)
-        }
-        // OkHttp 5.x exposes `Response.body` as a non-nullable `ResponseBody`; bodies for
-        // status codes that have no payload (204, 304, etc.) are zero-length, not null. We
-        // surface them via the SDK's `ResponseBody.create` for consistency — closing the
-        // SDK body releases the underlying connection regardless of payload size.
-        val okhttpBody = okhttpResponse.body
-        val contentType = okhttpBody.contentType()?.toString()
-        val mediaType =
-            contentType?.let {
-                try {
-                    MediaType.parse(it)
-                } catch (_: IllegalArgumentException) {
-                    // Content-Type returned by the server is malformed; surface the body
-                    // without a typed MediaType rather than fail the response.
-                    null
-                }
+        try {
+            val headersBuilder = Headers.Builder()
+            for ((name, value) in okhttpResponse.headers) {
+                headersBuilder.add(name, value)
             }
-        val length = okhttpBody.contentLength()
-        val bufferedSource = Io.provider.source(okhttpBody.byteStream())
-        val sdkBody: SdkResponseBody = SdkResponseBody.create(bufferedSource, mediaType, length)
-        return SdkResponse.builder()
-            .request(sdkRequest)
-            .protocol(toSdkProtocol(okhttpResponse.protocol))
-            .status(Status.fromCode(okhttpResponse.code))
-            .message(okhttpResponse.message)
-            .headers(headersBuilder.build())
-            .body(sdkBody)
-            .build()
+            // OkHttp 5.x exposes `Response.body` as a non-nullable `ResponseBody`; bodies for
+            // status codes that have no payload (204, 304, etc.) are zero-length, not null. We
+            // surface them via the SDK's `ResponseBody.create` for consistency — closing the
+            // SDK body releases the underlying connection regardless of payload size.
+            val okhttpBody = okhttpResponse.body
+            val contentType = okhttpBody.contentType()?.toString()
+            val mediaType =
+                contentType?.let {
+                    try {
+                        MediaType.parse(it)
+                    } catch (_: IllegalArgumentException) {
+                        // Content-Type returned by the server is malformed; surface the body
+                        // without a typed MediaType rather than fail the response.
+                        null
+                    }
+                }
+            val length = okhttpBody.contentLength()
+            val bufferedSource = Io.provider.source(okhttpBody.byteStream())
+            val sdkBody: SdkResponseBody = SdkResponseBody.create(bufferedSource, mediaType, length)
+            return SdkResponse.builder()
+                .request(sdkRequest)
+                .protocol(toSdkProtocol(okhttpResponse.protocol))
+                .status(Status.fromCode(okhttpResponse.code))
+                .message(okhttpResponse.message)
+                .headers(headersBuilder.build())
+                .body(sdkBody)
+                .build()
+        } catch (t: Throwable) {
+            // Acquiring the body source or constructing the SDK Response failed after the
+            // OkHttp response (and its socket) were already live. Release it before the
+            // throwable escapes so the connection is not leaked.
+            okhttpResponse.close()
+            throw t
+        }
     }
 
     /**

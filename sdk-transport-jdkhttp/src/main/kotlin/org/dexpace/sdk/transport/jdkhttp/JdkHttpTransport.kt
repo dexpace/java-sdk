@@ -19,6 +19,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
 import java.net.Authenticator
+import java.net.InetSocketAddress
 import java.net.PasswordAuthentication
 import java.net.Proxy
 import java.net.ProxySelector
@@ -349,27 +350,26 @@ public class JdkHttpTransport private constructor(
          *     proxies natively; SOCKS proxies route through `java.net.Socket` for the
          *     low-level connect, but the JDK client cannot accept a SOCKS proxy on its own
          *     builder. For SOCKS, configure a [java.net.ProxySelector] system-wide and
-         *     leave [ProxyOptions.type] as HTTP from the SDK builder. This adapter logs at
-         *     verbose and continues without applying SOCKS — it does not throw, so callers
-         *     who pass SOCKS via this builder see direct connections, not failures.
+         *     leave [ProxyOptions.type] as HTTP from the SDK builder. This adapter silently
+         *     returns without applying SOCKS — it does not throw, so callers who pass SOCKS
+         *     via this builder see direct connections, not failures.
          *  2. Non-proxy hosts are honoured via a [ProxySelector] subclass that returns
          *     `Proxy.NO_PROXY` for matching hosts and the configured proxy otherwise.
          *  3. Credentials (when present) are wired through a process-scoped
-         *     [Authenticator]. The JDK client picks up the default authenticator at
-         *     `sendAsync` time; setting it on the builder works only for credentials that
-         *     match the proxy host (the adapter's authenticator answers any prompt with
-         *     the supplied basic auth).
+         *     [ProxyAuthenticator]. The JDK client picks up this authenticator at request
+         *     time; it answers **only** proxy (407) challenges whose host/port match the
+         *     configured proxy, returning `null` for origin-server (401) challenges so the
+         *     proxy credentials never leak to an origin host.
          *
-         * Credentials are deliberately never logged; only the proxy host/port appears in
-         * the verbose log.
+         * Credentials are deliberately never logged.
          */
         private fun applyProxy(
             clientBuilder: java.net.http.HttpClient.Builder,
             options: ProxyOptions,
         ) {
             if (options.type != ProxyOptions.Type.HTTP) {
-                // SOCKS via the JDK client builder is not supported; verbose log and continue
-                // without applying. See KDoc above for the system-wide workaround.
+                // SOCKS via the JDK client builder is not supported; silently return without
+                // applying. See KDoc above for the system-wide workaround.
                 return
             }
             val proxy = Proxy(Proxy.Type.HTTP, options.address)
@@ -383,13 +383,50 @@ public class JdkHttpTransport private constructor(
             val user = options.username
             val pass = options.password
             if (user != null && pass != null) {
-                clientBuilder.authenticator(
-                    object : Authenticator() {
-                        override fun getPasswordAuthentication(): PasswordAuthentication =
-                            PasswordAuthentication(user, pass.toCharArray())
-                    },
-                )
+                clientBuilder.authenticator(ProxyAuthenticator(options.address, user, pass))
             }
+        }
+    }
+
+    /**
+     * Process-scoped [Authenticator] that answers **only** proxy (407) challenges with the
+     * configured proxy credentials. The JDK invokes the installed authenticator for both
+     * `PROXY` (407) and `SERVER` (401) challenges; returning the proxy credentials for a
+     * `SERVER` challenge would leak them to any origin host that emits a 401, so this
+     * authenticator returns `null` for every non-proxy challenge — letting origin 401s fall
+     * through to the SDK's own auth handling unanswered.
+     *
+     * The match is tightened further: the credentials are returned only when the challenging
+     * host and port also match the configured proxy address, so a second proxy in the chain
+     * (or a CONNECT tunnel to a different proxy) never receives these credentials either.
+     *
+     * The proxy password is held as a defensive copy and never logged.
+     *
+     * `internal` (not `private`) only so the module's own unit test can exercise the
+     * proxy-vs-origin challenge discrimination directly; it is not part of the public API.
+     */
+    internal class ProxyAuthenticator(
+        private val proxyAddress: InetSocketAddress,
+        private val username: String,
+        password: String,
+    ) : Authenticator() {
+        private val password: CharArray = password.toCharArray()
+
+        override fun getPasswordAuthentication(): PasswordAuthentication? {
+            if (requestorType != RequestorType.PROXY) {
+                // Origin-server (401) challenge — never answer with proxy credentials.
+                return null
+            }
+            val host = requestingHost
+            val port = requestingPort
+            val proxyHost = proxyAddress.hostString
+            if (host != null && proxyHost != null && !host.equals(proxyHost, ignoreCase = true)) {
+                return null
+            }
+            if (port != -1 && port != proxyAddress.port) {
+                return null
+            }
+            return PasswordAuthentication(username, password.copyOf())
         }
     }
 

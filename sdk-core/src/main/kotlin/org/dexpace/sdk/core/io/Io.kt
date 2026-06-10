@@ -78,9 +78,9 @@ public object Io {
     }
 
     /**
-     * Swaps the installed provider without checking for conflicts. Intended as a
-     * package-private seam for [org.dexpace.sdk.core.testing.withProvider]; not part of the
-     * public API.
+     * Swaps the installed provider without checking for conflicts. Intended as an `internal`
+     * seam for the test-fixtures `org.dexpace.sdk.core.testing.withProvider` helper; not part
+     * of the public API.
      */
     internal fun swapProvider(provider: IoProvider?): IoProvider? =
         lock.withLock { installed.also { installed = provider } }

@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Method
+import java.util.Collections
 import java.util.EnumSet
 
 /**
@@ -49,9 +50,16 @@ public class HttpRedirectOptions
          * redirect following entirely.
          */
         public val maxHops: Int = 3,
-        public val allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
+        allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
         public val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
         public val follow303: Boolean = false,
         public val allowSchemeDowngrade: Boolean = false,
         public val shouldRedirect: HttpRedirectPredicate? = null,
-    )
+    ) {
+        /**
+         * Methods that follow a redirect. Stored as an unmodifiable defensive copy so neither a
+         * later mutation of the caller-supplied [EnumSet] nor a mutation through this accessor can
+         * change the configured policy after construction.
+         */
+        public val allowedMethods: Set<Method> = Collections.unmodifiableSet(EnumSet.copyOf(allowedMethods))
+    }

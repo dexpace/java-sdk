@@ -32,6 +32,15 @@ import kotlin.math.pow
  */
 public object BackoffCalculator {
     /**
+     * Ceiling applied to a server-supplied `retryAfterHint` before it is converted to
+     * nanoseconds. A hostile or buggy server can present a [Duration] large enough that
+     * [Duration.toNanos] overflows `Long` and throws [ArithmeticException]; clamping to
+     * 365 days keeps [computeDelay] total. No legitimate pacing hint asks a client to wait a
+     * year, so the clamp is operationally inert for real traffic.
+     */
+    private val MAX_HINT: Duration = Duration.ofDays(365)
+
+    /**
      * Computes the delay before the next retry.
      *
      * @param attempt 1-indexed attempt number — `1` represents the delay before the **first
@@ -63,14 +72,27 @@ public object BackoffCalculator {
             if (retryAfterHint != null) {
                 // Server-supplied hint wins; we do NOT apply symmetric jitter because the
                 // X-RateLimit-Reset path already adds positive jitter inside the parser,
-                // and Retry-After is meant to be respected literally per RFC 7231.
-                retryAfterHint.toNanos().coerceAtLeast(0L)
+                // and Retry-After is meant to be respected literally per RFC 7231. Clamp to
+                // MAX_HINT first so a far-future hint cannot overflow toNanos().
+                clampHint(retryAfterHint).toNanos().coerceAtLeast(0L)
             } else {
                 val scaledNanos = exponentialNanos(attempt, settings)
                 applyJitter(scaledNanos, settings.jitter)
             }
         return clampToDeadline(Duration.ofNanos(baseNanos), settings.totalTimeout, elapsed)
     }
+
+    /**
+     * Clamps a server-supplied hint to `[Duration.ZERO, MAX_HINT]` so the subsequent
+     * [Duration.toNanos] cannot overflow. A negative hint (the caller may pass one) is
+     * floored to zero; an over-long hint is capped at [MAX_HINT].
+     */
+    private fun clampHint(hint: Duration): Duration =
+        when {
+            hint.isNegative -> Duration.ZERO
+            hint > MAX_HINT -> MAX_HINT
+            else -> hint
+        }
 
     /**
      * Computes the unjittered exponential delay for the [attempt]-th retry, capped at

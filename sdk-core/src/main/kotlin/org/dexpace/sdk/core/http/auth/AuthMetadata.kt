@@ -7,6 +7,8 @@
 
 package org.dexpace.sdk.core.http.auth
 
+import java.util.Collections
+
 /**
  * Per-request auth metadata describing which [AuthScheme]s an operation supports and any
  * OAuth-specific parameters (scopes / extra params) the auth step should forward to the
@@ -21,6 +23,10 @@ package org.dexpace.sdk.core.http.auth
  * documentation, future wiring) can reference it without a parallel refactor blocking
  * Rank 6.
  *
+ * Each collection is defensively copied on the way in and exposed as an unmodifiable view,
+ * so a caller that retains and later mutates the argument collection cannot mutate this
+ * instance (or re-break the non-empty [schemes] invariant) after construction.
+ *
  * @param schemes the auth schemes this operation supports, in preference order. Must not be empty.
  * @param oauthScopes OAuth scopes to forward to the token provider; ignored for non-OAuth schemes.
  * @param oauthParams extra OAuth params to forward (e.g. `claims`); defaults to empty.
@@ -29,11 +35,20 @@ package org.dexpace.sdk.core.http.auth
 public class AuthMetadata
     @JvmOverloads
     constructor(
-        public val schemes: List<AuthScheme>,
-        public val oauthScopes: List<String> = emptyList(),
-        public val oauthParams: Map<String, Any> = emptyMap(),
+        schemes: List<AuthScheme>,
+        oauthScopes: List<String> = emptyList(),
+        oauthParams: Map<String, Any> = emptyMap(),
     ) {
+        /** The supported auth schemes, in preference order; an unmodifiable defensive copy. */
+        public val schemes: List<AuthScheme> = Collections.unmodifiableList(schemes.toList())
+
+        /** OAuth scopes to forward to the token provider; an unmodifiable defensive copy. */
+        public val oauthScopes: List<String> = Collections.unmodifiableList(oauthScopes.toList())
+
+        /** Extra OAuth params to forward; an unmodifiable defensive copy. */
+        public val oauthParams: Map<String, Any> = Collections.unmodifiableMap(oauthParams.toMap())
+
         init {
-            require(schemes.isNotEmpty()) { "schemes must not be empty" }
+            require(this.schemes.isNotEmpty()) { "schemes must not be empty" }
         }
     }

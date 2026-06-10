@@ -45,4 +45,12 @@ public data class BearerToken(val token: String, val expiresAt: Instant?) : Cred
         now: Instant,
         marginBefore: Duration = Duration.ZERO,
     ): Boolean = expiresAt != null && now.plus(marginBefore).isAfter(expiresAt)
+
+    /**
+     * Redacts the secret token. The compiler-generated `data class` `toString()` would
+     * print `token=<secret>` in clear text, so any log line, exception message, or
+     * debugger that stringifies a token would leak it; this override emits `token=***`
+     * instead. Value [equals]/[hashCode] are unaffected.
+     */
+    override fun toString(): String = "BearerToken(token=***, expiresAt=$expiresAt)"
 }

@@ -57,4 +57,51 @@ class AuthMetadataTest {
         val metadata = AuthMetadata(listOf(AuthScheme.NO_AUTH))
         assertEquals(listOf(AuthScheme.NO_AUTH), metadata.schemes)
     }
+
+    @Test
+    fun `mutating the source schemes list after construction does not affect the instance`() {
+        // I-3: schemes must be defensively copied in, so a retained caller collection can't
+        // mutate the instance (or re-break the non-empty invariant) after construction.
+        val source = mutableListOf(AuthScheme.BASIC, AuthScheme.DIGEST)
+        val metadata = AuthMetadata(source)
+        source.clear()
+        source.add(AuthScheme.OAUTH2)
+        assertEquals(listOf(AuthScheme.BASIC, AuthScheme.DIGEST), metadata.schemes)
+    }
+
+    @Test
+    fun `mutating the source oauth collections after construction does not affect the instance`() {
+        // I-3: oauthScopes and oauthParams are defensively copied in as well.
+        val scopes = mutableListOf("read")
+        val params = mutableMapOf<String, Any>("a" to "1")
+        val metadata = AuthMetadata(listOf(AuthScheme.OAUTH2), scopes, params)
+        scopes.add("write")
+        params["b"] = "2"
+        assertEquals(listOf("read"), metadata.oauthScopes)
+        assertEquals(mapOf<String, Any>("a" to "1"), metadata.oauthParams)
+    }
+
+    @Test
+    fun `exposed schemes view is unmodifiable`() {
+        // I-3: the exposed collections are unmodifiable views — mutation via cast throws.
+        val metadata = AuthMetadata(listOf(AuthScheme.BASIC))
+        assertFailsWith<UnsupportedOperationException> {
+            @Suppress("UNCHECKED_CAST")
+            (metadata.schemes as MutableList<AuthScheme>).add(AuthScheme.DIGEST)
+        }
+    }
+
+    @Test
+    fun `exposed oauth views are unmodifiable`() {
+        val metadata =
+            AuthMetadata(listOf(AuthScheme.OAUTH2), listOf("read"), mapOf("a" to "1"))
+        assertFailsWith<UnsupportedOperationException> {
+            @Suppress("UNCHECKED_CAST")
+            (metadata.oauthScopes as MutableList<String>).add("write")
+        }
+        assertFailsWith<UnsupportedOperationException> {
+            @Suppress("UNCHECKED_CAST")
+            (metadata.oauthParams as MutableMap<String, Any>)["b"] = "2"
+        }
+    }
 }

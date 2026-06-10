@@ -166,12 +166,45 @@ class DateTimeRfc1123Test {
 
     @Test
     fun `parse fringe-but-valid mixed-case RFC 1123 date is handled by primary parser`() {
-        // Exercises TOLERANT_PARSER (parseCaseInsensitive) directly — no fallback needed.
         // Mixed-case weekday and month names are technically non-conformant but widely
-        // encountered in the wild; the case-insensitive wrapper handles them.
+        // encountered in the wild; the case-insensitive parser handles them.
         assertEquals(
             Instant.parse("1994-11-06T08:49:37Z"),
             DateTimeRfc1123.parse("Sun, 06 Nov 1994 08:49:37 GMT"),
+        )
+    }
+
+    @Test
+    fun `parse tolerates a weekday that disagrees with the date`() {
+        // 06 Nov 1994 was a Sunday, but the header names "Mon". RFC 7231 §7.1.1.1 treats the
+        // weekday as informational, so the inconsistent token must NOT cause a parse failure;
+        // the date itself (06 Nov 1994) is what is honoured.
+        assertEquals(
+            Instant.parse("1994-11-06T08:49:37Z"),
+            DateTimeRfc1123.parse("Mon, 06 Nov 1994 08:49:37 GMT"),
+        )
+    }
+
+    @Test
+    fun `parse ignores the weekday entirely across multiple wrong spellings`() {
+        // 01 Jan 2024 was a Monday; every other weekday token below disagrees, yet all resolve
+        // to the same instant because the weekday is never validated.
+        val expected = Instant.parse("2024-01-01T00:00:00Z")
+        for (weekday in listOf("Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) {
+            assertEquals(
+                expected,
+                DateTimeRfc1123.parse("$weekday, 01 Jan 2024 00:00:00 GMT"),
+                "weekday token `$weekday` must be ignored, not validated",
+            )
+        }
+    }
+
+    @Test
+    fun `parse tolerates a disagreeing weekday with a numeric offset`() {
+        // Exercises the lenient-weekday path together with a non-UTC numeric offset.
+        assertEquals(
+            Instant.parse("2023-12-31T19:00:00Z"),
+            DateTimeRfc1123.parse("Sun, 01 Jan 2024 00:00:00 +0500"),
         )
     }
 }

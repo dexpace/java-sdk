@@ -232,6 +232,31 @@ class TeeSinkTest {
     }
 
     @Test
+    fun `outputStream single-byte write captures byte in tap even when primary throws`() {
+        // The tap must be mirrored BEFORE the primary is touched, mirroring the typed-write
+        // path's drainScratch ordering. A primary-side failure mid-write must still leave the
+        // attempted byte captured in the tap snapshot for body logging.
+        val provider = OkioIoProvider
+        val tap = provider.buffer()
+        val tee = TeeSink(ThrowingPrimary(), tap, provider)
+        val s = tee.outputStream()
+        assertFailsWith<IOException> { s.write('Z'.code) }
+        assertContentEquals(byteArrayOf('Z'.code.toByte()), tap.snapshot())
+    }
+
+    @Test
+    fun `outputStream array write captures chunk in tap even when primary throws`() {
+        // Same partial-failure guarantee for the (b, off, len) overload: the failing chunk is
+        // mirrored into the tap before the primary stream is forwarded the bytes.
+        val provider = OkioIoProvider
+        val tap = provider.buffer()
+        val tee = TeeSink(ThrowingPrimary(), tap, provider)
+        val s = tee.outputStream()
+        assertFailsWith<IOException> { s.write("01234567".toByteArray(), 2, 4) }
+        assertContentEquals("2345".toByteArray(), tap.snapshot())
+    }
+
+    @Test
     fun `buffer property is unsupported on TeeSink`() {
         // Direct buffer access would write to the tap only, never the primary sink — a
         // silent wire-body corruption. `TeeSink.buffer` rejects with a clear message
@@ -259,6 +284,68 @@ class TeeSinkTest {
         // it. Reading it from inside sdk-core ensures the synthetic accessor is exercised.
         val buf: Buffer = OkioIoProvider.buffer()
         assertEquals(buf, buf.buffer)
+    }
+
+    /**
+     * A BufferedSink whose `outputStream()` returns an [OutputStream] that throws [IOException]
+     * on every write. Used to assert that `TeeSink.outputStream()` mirrors the attempted bytes
+     * into the tap BEFORE forwarding to the (failing) primary, so a primary-side mid-write
+     * failure still leaves the failing chunk captured in the tap snapshot.
+     *
+     * Only `outputStream()` is exercised by these tests; the remaining members are unreachable
+     * and throw to make any accidental use obvious.
+     */
+    private class ThrowingPrimary : BufferedSink {
+        override val buffer: Buffer get() = throw UnsupportedOperationException()
+
+        override fun outputStream(): java.io.OutputStream =
+            object : java.io.OutputStream() {
+                override fun write(b: Int) {
+                    throw IOException("simulated primary failure")
+                }
+
+                override fun write(
+                    b: ByteArray,
+                    off: Int,
+                    len: Int,
+                ) {
+                    throw IOException("simulated primary failure")
+                }
+            }
+
+        override fun write(
+            source: Buffer,
+            byteCount: Long,
+        ): Unit = throw UnsupportedOperationException()
+
+        override fun flush(): Unit = throw UnsupportedOperationException()
+
+        override fun close(): Unit = throw UnsupportedOperationException()
+
+        override fun write(source: ByteArray): BufferedSink = throw UnsupportedOperationException()
+
+        override fun write(
+            source: ByteArray,
+            offset: Int,
+            byteCount: Int,
+        ): BufferedSink = throw UnsupportedOperationException()
+
+        override fun writeAll(source: Source): Long = throw UnsupportedOperationException()
+
+        override fun writeUtf8(string: String): BufferedSink = throw UnsupportedOperationException()
+
+        override fun writeUtf8(
+            string: String,
+            beginIndex: Int,
+            endIndex: Int,
+        ): BufferedSink = throw UnsupportedOperationException()
+
+        override fun writeString(
+            string: String,
+            charset: Charset,
+        ): BufferedSink = throw UnsupportedOperationException()
+
+        override fun emit(): BufferedSink = throw UnsupportedOperationException()
     }
 
     /**

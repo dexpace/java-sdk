@@ -21,6 +21,7 @@ import org.dexpace.sdk.core.http.response.Response
  * | 403 | [ForbiddenException] |
  * | 404 | [NotFoundException] |
  * | 405 | [MethodNotAllowedException] |
+ * | 408 | [RequestTimeoutException] |
  * | 409 | [ConflictException] |
  * | 410 | [GoneException] |
  * | 413 | [PayloadTooLargeException] |
@@ -47,6 +48,7 @@ public object HttpExceptionFactory {
     private const val SC_FORBIDDEN = 403
     private const val SC_NOT_FOUND = 404
     private const val SC_METHOD_NOT_ALLOWED = 405
+    private const val SC_REQUEST_TIMEOUT = 408
     private const val SC_CONFLICT = 409
     private const val SC_GONE = 410
     private const val SC_PAYLOAD_TOO_LARGE = 413
@@ -78,6 +80,7 @@ public object HttpExceptionFactory {
             SC_FORBIDDEN -> ForbiddenException(response)
             SC_NOT_FOUND -> NotFoundException(response)
             SC_METHOD_NOT_ALLOWED -> MethodNotAllowedException(response)
+            SC_REQUEST_TIMEOUT -> RequestTimeoutException(response)
             SC_CONFLICT -> ConflictException(response)
             SC_GONE -> GoneException(response)
             SC_PAYLOAD_TOO_LARGE -> PayloadTooLargeException(response)

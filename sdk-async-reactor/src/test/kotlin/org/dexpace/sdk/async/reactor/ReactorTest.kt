@@ -214,6 +214,97 @@ class ReactorTest {
         }
     }
 
+    @Test
+    fun `executeMono captures MDC at subscribe time, not at assembly time`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        try {
+            val seenTraceId = AtomicReference<String?>()
+            val client =
+                AsyncHttpClient { request ->
+                    seenTraceId.set(MDC.get("trace.id"))
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
+
+            // Assemble the cold Mono under one MDC value.
+            MDC.put("trace.id", "assembly-time")
+            val mono = client.executeMono(getRequest())
+
+            // Mutate MDC AFTER assembly, BEFORE subscribing. With eager (assembly-time) capture the
+            // supplier would observe "assembly-time"; with Mono.defer the capture happens per
+            // subscription, so it must observe the subscriber's value instead.
+            MDC.put("trace.id", "subscribe-time")
+            mono.block(Duration.ofSeconds(2))
+
+            assertEquals(
+                "subscribe-time",
+                seenTraceId.get(),
+                "MDC must be captured per-subscription, so the supplier sees the subscriber's trace.id",
+            )
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `executeMono re-subscription picks up the live MDC each time`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        try {
+            val seenTraceIds = java.util.concurrent.CopyOnWriteArrayList<String?>()
+            val client =
+                AsyncHttpClient { request ->
+                    seenTraceIds.add(MDC.get("trace.id"))
+                    CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
+
+            MDC.put("trace.id", "first")
+            val mono = client.executeMono(getRequest())
+            mono.block(Duration.ofSeconds(2))
+
+            // Re-subscribe under a different MDC; deferred capture must reflect the new value.
+            MDC.put("trace.id", "second")
+            mono.block(Duration.ofSeconds(2))
+
+            assertEquals(listOf("first", "second"), seenTraceIds.toList())
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
+    @Test
+    fun `sendMono captures MDC at subscribe time, not at assembly time`() {
+        val originalAdapter = MDC.getMDCAdapter()
+        installBasicMdcAdapter()
+        try {
+            val seenTraceId = AtomicReference<String?>()
+            val pipeline =
+                AsyncHttpPipelineBuilder(
+                    AsyncHttpClient { request ->
+                        seenTraceId.set(MDC.get("trace.id"))
+                        CompletableFuture.completedFuture(mockResponse(request, 200))
+                    },
+                ).build()
+
+            MDC.put("trace.id", "assembly-time")
+            val mono = pipeline.sendMono(getRequest())
+
+            MDC.put("trace.id", "subscribe-time")
+            mono.block(Duration.ofSeconds(2))
+
+            assertEquals(
+                "subscribe-time",
+                seenTraceId.get(),
+                "sendMono must capture MDC per-subscription, so the supplier sees the subscriber's trace.id",
+            )
+        } finally {
+            MDC.clear()
+            restoreMdcAdapter(originalAdapter)
+        }
+    }
+
     private fun sseBytes(s: String) = Io.provider.source(s.toByteArray(Charsets.UTF_8))
 
     private fun getRequest(): Request =

@@ -23,7 +23,6 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -63,13 +62,20 @@ import kotlin.concurrent.withLock
  *  3. An [InterruptedIOException] is raised through the recovery outcome — matching the SDK's
  *     cancellation contract (see `docs/architecture.md`).
  *
- * ## Lifecycle
+ * ## Lifecycle &amp; thread-safety
  *
- * One `RetryStep` instance is intended to be created **per call** because it carries both
- * the [HttpClient] reference (transport) and the originating [request]. The retry state
- * (attempt count, start instant) is held on the instance itself rather than a thread-local
- * or [org.dexpace.sdk.core.http.context.RequestContext] mutation so the step is safe to
- * reuse across the recovery chain without external synchronisation primitives.
+ * A `RetryStep` instance is **stateless across calls** and therefore safe to share, reuse,
+ * and invoke concurrently — honouring the [ResponseRecoveryStep] contract ("steps are shared
+ * across concurrent requests"). The per-call retry state (attempt count, start instant) is
+ * not held on the instance; it is allocated fresh inside each top-level [invoke]/[attempt]
+ * and threaded through the retry loop as a local [AttemptState]. Two threads invoking the
+ * same instance, or the same thread invoking it again after a prior attempt was exhausted,
+ * each start from a clean attempt budget. The only mutable instance field is the lazy-init
+ * guard for the default scheduler, which is itself lock-protected.
+ *
+ * The [httpClient] and the originating [request] are captured at construction; a single
+ * instance therefore retries exactly that one request template. Construct a distinct
+ * `RetryStep` per logical request you intend to retry.
  *
  * Wire it into a pipeline by adding it to the `recoverySteps` of a
  * [org.dexpace.sdk.core.pipeline.ResponsePipeline], or invoke [attempt] directly to obtain
@@ -87,14 +93,24 @@ public class RetryStep
         public val request: Request,
         private val clock: Clock = Clock.systemUTC(),
     ) : ResponseRecoveryStep {
-        /** 1-indexed attempt number for the **next** retry. Starts at 1 (delay before retry #1). */
-        private val attemptNumber: AtomicLong = AtomicLong(1L)
-
-        /** Wall-clock start of this RetryStep's involvement. Captured at first invocation. */
-        private val startInstant: Instant = clock.instant()
-
         /** Lock guards lazy-init of the default scheduler so we never create two. */
         private val lock: ReentrantLock = ReentrantLock()
+
+        /**
+         * Per-call retry bookkeeping. Allocated fresh at the top of each [invoke]/[attempt] so
+         * a shared/reused [RetryStep] never inherits a stale attempt budget and concurrent
+         * invocations cannot clobber each other's state.
+         *
+         * @property attempt 1-indexed number for the **next** retry; starts at 1 (the delay
+         *  before retry #1) and increments as each retry is dispatched.
+         * @property startInstant Wall-clock start of this call's retry involvement, captured
+         *  once when the state is created. Drives the total-timeout budget.
+         */
+        private class AttemptState(
+            val startInstant: Instant,
+        ) {
+            var attempt: Int = 1
+        }
 
         /**
          * Invokes the retry logic on the given [outcome]. On a retryable failure, blocks the
@@ -111,7 +127,7 @@ public class RetryStep
             if (!isClassifiedRetryable(error)) return outcome
             if (!canRetry(request)) return outcome
 
-            return runRetryLoop(error)
+            return runRetryLoop(error, AttemptState(clock.instant()))
         }
 
         /**
@@ -140,15 +156,20 @@ public class RetryStep
          * Drives the retry loop: compute delay, await it, re-execute, repeat until success
          * or exhaustion. Always returns an outcome — exceptions raised during the loop are
          * captured as [ResponseOutcome.Failure].
+         *
+         * @param state The per-call attempt budget; mutated locally as retries are dispatched.
          */
-        private fun runRetryLoop(initialError: Throwable): ResponseOutcome {
+        private fun runRetryLoop(
+            initialError: Throwable,
+            state: AttemptState,
+        ): ResponseOutcome {
             var lastError: Throwable = initialError
             while (true) {
-                val readyState = prepareNextAttempt(lastError)
+                val readyState = prepareNextAttempt(lastError, state)
                 when (readyState) {
                     is AttemptStep.Abort -> return ResponseOutcome.Failure(readyState.error)
                     is AttemptStep.Proceed -> {
-                        attemptNumber.incrementAndGet()
+                        state.attempt += 1
                         val outcome = executeOnce()
                         if (outcome is ResponseOutcome.Success) return outcome
                         val nextError = (outcome as ResponseOutcome.Failure).error
@@ -169,10 +190,13 @@ public class RetryStep
          * points and trips detekt's `ReturnCount` rule.
          */
         @Suppress("ReturnCount")
-        private fun prepareNextAttempt(lastError: Throwable): AttemptStep {
-            val attempt = attemptNumber.get().toInt()
+        private fun prepareNextAttempt(
+            lastError: Throwable,
+            state: AttemptState,
+        ): AttemptStep {
+            val attempt = state.attempt
             if (attempt >= settings.maxAttempts) return AttemptStep.Abort(lastError)
-            val elapsed = Duration.between(startInstant, clock.instant())
+            val elapsed = Duration.between(state.startInstant, clock.instant())
             if (deadlineExhausted(elapsed)) return AttemptStep.Abort(lastError)
             val hint = retryAfterHintFor(lastError)
             val delay = BackoffCalculator.computeDelay(attempt, settings, hint, elapsed)
@@ -205,9 +229,24 @@ public class RetryStep
             class Abort(val error: Throwable) : AttemptStep()
         }
 
-        /** Returns the parsed `Retry-After` / `X-RateLimit-Reset` hint from an [HttpException], or null. */
-        private fun retryAfterHintFor(error: Throwable): Duration? =
-            (error as? HttpException)?.let { RetryAfterParser.parse(it.headers, clock.instant()) }
+        /**
+         * Returns the parsed `Retry-After` / `X-RateLimit-Reset` hint from an [HttpException],
+         * or `null` when the error is not an [HttpException] or carries no usable hint.
+         *
+         * [RetryAfterParser] is total and should never throw, but this call is defensively
+         * wrapped: any [RuntimeException] from hint parsing is swallowed and the method
+         * returns `null`, so the loop falls back to its exponential schedule while keeping the
+         * original upstream throwable as the surfaced error. A malformed pacing header must
+         * never mask the real upstream failure.
+         */
+        private fun retryAfterHintFor(error: Throwable): Duration? {
+            val http = error as? HttpException ?: return null
+            return try {
+                RetryAfterParser.parse(http.headers, clock.instant())
+            } catch (_: RuntimeException) {
+                null
+            }
+        }
 
         /**
          * Returns true when [elapsed] + [delay] does not exceed [RetrySettings.totalTimeout].

@@ -53,7 +53,8 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
  *
  * The default for `followRedirects` is `false` because the SDK pipeline already has
  * `DefaultRedirectStep`; letting OkHttp follow redirects underneath would double-handle
- * them.
+ * them. For the same reason an SDK-managed client disables OkHttp's
+ * `retryOnConnectionFailure`, leaving the SDK pipeline as the single retry authority.
  *
  * Both transports are immutable after construction. The underlying [OkHttpClient] is
  * documented thread-safe.
@@ -86,12 +87,21 @@ public class OkHttpTransport private constructor(
     override fun execute(request: Request): Response {
         val okRequest = requestAdapter.adapt(request)
         val call = client.newCall(okRequest)
+        val okResponse =
+            try {
+                call.execute()
+            } catch (e: InterruptedIOException) {
+                Thread.currentThread().interrupt()
+                throw e
+            }
+        // Adaptation acquires the body source and constructs the SDK Response; any throw here
+        // (e.g. `Io.provider` not installed, an unparseable Content-Type) would otherwise
+        // leak `okResponse` — and its live socket. Mirror the async path: close on failure.
         return try {
-            val okResponse = call.execute()
             responseAdapter.adapt(request, okResponse)
-        } catch (e: InterruptedIOException) {
-            Thread.currentThread().interrupt()
-            throw e
+        } catch (t: Throwable) {
+            okResponse.close()
+            throw t
         }
     }
 
@@ -280,6 +290,13 @@ public class OkHttpTransport private constructor(
             proxy?.let { applyProxy(okBuilder, it) }
             okBuilder.followRedirects(followRedirects)
             okBuilder.followSslRedirects(followRedirects)
+            // The SDK pipeline is the single retry authority (DefaultRetryStep / RetryStep).
+            // OkHttp's built-in connection-failure retry would re-attempt the call underneath
+            // it — the same double-handling the followRedirects(false) decision avoids — and,
+            // because it re-writes the request body, would trip a non-replayable body's
+            // consume-guard. Disable it on SDK-managed clients only; BYO clients keep their
+            // own configuration.
+            okBuilder.retryOnConnectionFailure(false)
             return OkHttpTransport(okBuilder.build(), owned = true)
         }
 

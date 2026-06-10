@@ -81,4 +81,34 @@ class BearerTokenTest {
         val cred: Credential = BearerToken("tk", null)
         assertEquals("tk", (cred as BearerToken).token)
     }
+
+    @Test
+    fun `toString redacts the token but keeps expiresAt`() {
+        // S-4: the secret token must never reach a log line, exception, or debugger via
+        // the default data-class toString.
+        val expiry = Instant.parse("2030-01-01T00:00:00Z")
+        val token = BearerToken("super-secret-value", expiry)
+        val rendered = token.toString()
+        assertFalse(rendered.contains("super-secret-value"), "toString must not contain the raw token")
+        assertTrue(rendered.contains("token=***"), "toString must redact the token")
+        assertTrue(rendered.contains(expiry.toString()), "toString should keep expiresAt for diagnostics")
+    }
+
+    @Test
+    fun `toString redacts the token for a non-expiring token`() {
+        val token = BearerToken("another-secret", null)
+        val rendered = token.toString()
+        assertFalse(rendered.contains("another-secret"), "toString must not contain the raw token")
+        assertEquals("BearerToken(token=***, expiresAt=null)", rendered)
+    }
+
+    @Test
+    fun `redacted toString does not affect equality or hashCode`() {
+        // S-4: redaction is a toString-only change; value semantics are preserved.
+        val a = BearerToken("tk", null)
+        val b = BearerToken("tk", null)
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertNotEquals(BearerToken("tk", null), BearerToken("other", null))
+    }
 }

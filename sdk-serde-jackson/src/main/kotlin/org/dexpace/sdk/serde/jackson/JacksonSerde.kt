@@ -7,6 +7,8 @@
 
 package org.dexpace.sdk.serde.jackson
 
+import com.fasterxml.jackson.core.JsonGenerator
+import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.dexpace.sdk.core.serde.Deserializer
@@ -27,15 +29,11 @@ import java.io.OutputStream
  * ## Type erasure and `T`
  *
  * Jackson's `readValue` requires runtime type information to materialize parametric types
- * (`List<MyDto>`, `Map<String, OtherDto>`, ...). The bare [Deserializer.deserialize] overloads
- * inherited from `sdk-core` use a method-level type parameter that is erased at runtime and
- * therefore cannot disambiguate parametric targets. Two pragmatic options:
- *
- *  - For **non-parametric** targets, the inherited overloads work because Jackson is told the
- *    raw class at the call site via the inferred reified type. In practice, prefer the
- *    [deserializeAs] family below for any non-trivial type.
- *  - For **parametric** targets, use the [deserializeAs] family (which accepts a
- *    [TypeReference]) or the reified extension at the call site.
+ * (`List<MyDto>`, `Map<String, OtherDto>`, ...). The [Deserializer.deserialize] overloads inherited
+ * from `sdk-core` carry an explicit `Class<T>` token (and a reified extension that forwards it), so
+ * **non-parametric** targets materialize as their real type with no unchecked cast. For
+ * **parametric** targets a raw `Class` is insufficient — use the [deserializeAs] family below
+ * (which accepts a [TypeReference]).
  *
  * ## Thread-safety
  *
@@ -79,7 +77,15 @@ public class JacksonSerde private constructor(
         @JvmStatic
         public fun withDefaults(): JacksonSerde = JacksonSerde(JacksonObjectMappers.defaultObjectMapper())
 
-        /** Build a [JacksonSerde] backed by a caller-supplied [mapper]. */
+        /**
+         * Build a [JacksonSerde] backed by a caller-supplied [mapper].
+         *
+         * The caller-owned-stream contract on [Serializer.serialize] / [Deserializer.deserialize]
+         * holds regardless of the mapper's `AUTO_CLOSE_TARGET`/`AUTO_CLOSE_SOURCE` settings: the
+         * stream overloads drive a per-call generator/parser with auto-close disabled, so the
+         * caller's [OutputStream]/[InputStream] is left open and the supplied [mapper] is never
+         * mutated.
+         */
         @JvmStatic
         public fun from(mapper: ObjectMapper): JacksonSerde = JacksonSerde(mapper)
     }
@@ -102,45 +108,72 @@ internal class JacksonSerializer internal constructor(
         input: Any,
         outputStream: OutputStream,
     ) {
-        // Jackson's writeValue(OutputStream, Object) does NOT close the stream; caller owns it.
-        mapper.writeValue(outputStream, input)
+        // The caller owns closing the stream. AUTO_CLOSE_TARGET is disabled on the per-call
+        // generator instance (not the shared factory), so the caller-supplied mapper is never
+        // mutated and the stream is left open after close()/flush — see JacksonSerde.from(...).
+        val generator = mapper.factory.createGenerator(outputStream).disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
+        generator.use { gen ->
+            mapper.writeValue(gen, input)
+        }
     }
 
     override fun serialize(
         input: Any,
         buffer: ByteArray,
-    ) {
-        // Render to bytes then memcpy into the caller's buffer. Behavior on overflow: throw a
-        // standard IndexOutOfBoundsException — documented as "implementation-defined" on the
-        // Serializer contract, and bounds-check is cheap.
-        val encoded = mapper.writeValueAsBytes(input)
-        if (encoded.size > buffer.size) {
+        offset: Int,
+    ): Int {
+        // Render to bytes then memcpy into the caller's buffer at [offset], returning the count so
+        // the caller can slice the valid prefix. Overflow / bad offset throws IndexOutOfBoundsException
+        // per the Serializer contract; bounds-check is cheap.
+        if (offset < 0 || offset > buffer.size) {
             throw IndexOutOfBoundsException(
-                "Encoded payload (${encoded.size} bytes) exceeds caller buffer (${buffer.size} bytes).",
+                "offset $offset out of bounds for buffer of size ${buffer.size}.",
             )
         }
-        System.arraycopy(encoded, 0, buffer, 0, encoded.size)
+        val encoded = mapper.writeValueAsBytes(input)
+        val remaining = buffer.size - offset
+        if (encoded.size > remaining) {
+            throw IndexOutOfBoundsException(
+                "Encoded payload (${encoded.size} bytes) exceeds remaining buffer space " +
+                    "($remaining bytes from offset $offset).",
+            )
+        }
+        System.arraycopy(encoded, 0, buffer, offset, encoded.size)
+        return encoded.size
     }
 }
 
 /**
  * Jackson-backed [Deserializer] reading from strings, byte arrays, or input streams.
  *
- * The method-level `<T>` is erased at runtime; this implementation uses `Object::class.java`
- * as the deserialization target by default. Callers needing precise typing should use
- * [JacksonSerde.deserializeAs] which accepts a [TypeReference].
+ * Each overload binds the target type via the caller-supplied [Class] token (`readValue(input,
+ * type)`), so there is no unchecked cast and a non-parametric DTO materializes as its real type.
+ * Parametric targets (`List<MyDto>`) need a [TypeReference]; use [JacksonSerde.deserializeAs].
  *
  * `internal` for the same reason as [JacksonSerializer].
  */
 internal class JacksonDeserializer internal constructor(
     private val mapper: ObjectMapper,
 ) : Deserializer {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> deserialize(input: String): T = mapper.readValue(input, Any::class.java) as T
+    override fun <T> deserialize(
+        input: String,
+        type: Class<T>,
+    ): T = mapper.readValue(input, type)
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> deserialize(input: ByteArray): T = mapper.readValue(input, Any::class.java) as T
+    override fun <T> deserialize(
+        input: ByteArray,
+        type: Class<T>,
+    ): T = mapper.readValue(input, type)
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> deserialize(inputStream: InputStream): T = mapper.readValue(inputStream, Any::class.java) as T
+    override fun <T> deserialize(
+        inputStream: InputStream,
+        type: Class<T>,
+    ): T {
+        // The caller owns closing the stream. Drive a per-call parser with AUTO_CLOSE_SOURCE off so
+        // a caller-supplied mapper (see JacksonSerde.from) is not mutated and the stream stays open.
+        val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
+        return parser.use { p ->
+            mapper.readValue(p, type)
+        }
+    }
 }

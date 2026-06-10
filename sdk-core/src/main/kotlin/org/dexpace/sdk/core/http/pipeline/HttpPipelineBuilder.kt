@@ -25,8 +25,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  * Logging: pillar replacement emits a `pipeline.pillar.replaced` warning via SLF4J.
  */
 public class HttpPipelineBuilder(private val httpClient: HttpClient) {
-    @PublishedApi
-    internal val steps: StagedSteps<HttpStep> =
+    private val steps: StagedSteps<HttpStep> =
         StagedSteps(
             stageOf = HttpStep::stage,
             onPillarReplaced = { stage, prev, next ->
@@ -55,57 +54,58 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
      */
     public fun prependAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::prepend) }
 
-    /** Insert [step] immediately after the first instance of [T] in the pipeline. */
+    /**
+     * Insert [step] immediately after the first instance of [T] in the pipeline.
+     *
+     * Placement is **within [T]'s stage only**: [step] must declare the same [Stage] as the
+     * matched anchor. A cross-stage insert throws [IllegalArgumentException] rather than
+     * silently relocating [step] to wherever its own stage falls (steps are re-bucketed by
+     * stage on every edit). Route a different-stage step with [append] / [prepend] instead.
+     */
     public inline fun <reified T : HttpStep> insertAfter(step: HttpStep): HttpPipelineBuilder =
-        spliceAt<T>(step) { idx, flat ->
-            ArrayList<HttpStep>(flat.size + 1).apply {
-                addAll(flat.subList(0, idx + 1))
-                add(step)
-                addAll(flat.subList(idx + 1, flat.size))
-            }
-        }
-
-    /** Insert [step] immediately before the first instance of [T] in the pipeline. */
-    public inline fun <reified T : HttpStep> insertBefore(step: HttpStep): HttpPipelineBuilder =
-        spliceAt<T>(step) { idx, flat ->
-            ArrayList<HttpStep>(flat.size + 1).apply {
-                addAll(flat.subList(0, idx))
-                add(step)
-                addAll(flat.subList(idx, flat.size))
-            }
-        }
-
-    /** Replace the first instance of [T] with [step]. */
-    public inline fun <reified T : HttpStep> replace(step: HttpStep): HttpPipelineBuilder =
-        spliceAt<T>(step) { idx, flat ->
-            ArrayList<HttpStep>(flat.size).apply {
-                addAll(flat)
-                set(idx, step)
-            }
-        }
-
-    /** Remove every instance of [T] from the pipeline. No-op if none exist. */
-    public inline fun <reified T : HttpStep> remove(): HttpPipelineBuilder {
-        steps.reload(steps.flatten().filter { it !is T })
-        return this
-    }
+        insertAfter(T::class.java, step)
 
     /**
-     * Inline plumbing for the surgical edits: locate the first instance of `T`, invoke
-     * [transform] to produce a new step list, and rebuild from it. Throws if no `T` exists —
-     * callers prefer fail-fast over silent no-op for "edit the X step" intent.
+     * Insert [step] immediately before the first instance of [T] in the pipeline. Same
+     * within-stage-only constraint as [insertAfter] — see its KDoc.
      */
+    public inline fun <reified T : HttpStep> insertBefore(step: HttpStep): HttpPipelineBuilder =
+        insertBefore(T::class.java, step)
+
+    /**
+     * Replace the first instance of [T] with [step]. [step] must declare the same [Stage] as
+     * the replaced step; a cross-stage replacement throws [IllegalArgumentException].
+     */
+    public inline fun <reified T : HttpStep> replace(step: HttpStep): HttpPipelineBuilder = replace(T::class.java, step)
+
+    /** Remove every instance of [T] from the pipeline. No-op if none exist. */
+    public inline fun <reified T : HttpStep> remove(): HttpPipelineBuilder = remove(T::class.java)
+
+    /** Non-inline body for [insertAfter]; keeps [StagedSteps] off the public API surface. */
     @PublishedApi
-    internal inline fun <reified T : HttpStep> spliceAt(
-        @Suppress("UNUSED_PARAMETER") step: HttpStep,
-        transform: (Int, List<HttpStep>) -> List<HttpStep>,
-    ): HttpPipelineBuilder {
-        val flat = steps.flatten()
-        val idx = flat.indexOfFirst { it is T }
-        require(idx >= 0) { "No ${T::class.simpleName} in pipeline" }
-        steps.reload(transform(idx, flat))
-        return this
-    }
+    internal fun insertAfter(
+        anchorType: Class<out HttpStep>,
+        step: HttpStep,
+    ): HttpPipelineBuilder = apply { steps.insertRelativeToFirst(anchorType, step, InsertPosition.AFTER) }
+
+    /** Non-inline body for [insertBefore]; keeps [StagedSteps] off the public API surface. */
+    @PublishedApi
+    internal fun insertBefore(
+        anchorType: Class<out HttpStep>,
+        step: HttpStep,
+    ): HttpPipelineBuilder = apply { steps.insertRelativeToFirst(anchorType, step, InsertPosition.BEFORE) }
+
+    /** Non-inline body for [replace]; keeps [StagedSteps] off the public API surface. */
+    @PublishedApi
+    internal fun replace(
+        anchorType: Class<out HttpStep>,
+        step: HttpStep,
+    ): HttpPipelineBuilder = apply { steps.replaceFirst(anchorType, step) }
+
+    /** Non-inline body for [remove]; keeps [StagedSteps] off the public API surface. */
+    @PublishedApi
+    internal fun remove(anchorType: Class<out HttpStep>): HttpPipelineBuilder =
+        apply { steps.removeMatching(anchorType) }
 
     /**
      * Builds an immutable [HttpPipeline] in stage order. [Stage.SEND] is reserved for the

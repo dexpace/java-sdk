@@ -478,6 +478,27 @@ class ConfigurationTest {
     }
 
     @Test
+    fun `parseDuration rejects negative ISO-8601 duration`() {
+        // `PT-5S` is a syntactically valid ISO-8601 duration that yields a negative Duration.
+        // Consumers (Clock.sleep, Futures.delay) throw on negatives, so the parser must reject
+        // it here rather than letting a negative value escape — matching the shorthand path.
+        assertNull(Configuration.parseDuration("PT-5S"))
+        assertNull(Configuration.parseDuration("P-1D"))
+    }
+
+    @Test
+    fun `parseDuration accepts zero ISO-8601 duration`() {
+        // Zero is non-negative and must survive the negativity guard.
+        assertEquals(Duration.ZERO, Configuration.parseDuration("PT0S"))
+    }
+
+    @Test
+    fun `getDuration with negative ISO-8601 override returns default`() {
+        val cfg = ConfigurationBuilder().put("T", "PT-5S").build()
+        assertEquals(Duration.ofSeconds(9), cfg.getDuration("T", Duration.ofSeconds(9)))
+    }
+
+    @Test
     fun `parseDuration handles lowercase P prefix for ISO-8601`() {
         // `Character.toUpperCase(raw[0]) == 'P'` covers both "P..." and "p..." case-insensitively.
         assertEquals(Duration.ofSeconds(5), Configuration.parseDuration("pt5s"))

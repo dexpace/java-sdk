@@ -93,7 +93,14 @@ internal class RequestAdapter(
     /**
      * Copies headers from the SDK request to the JDK builder. Entries named in
      * [RestrictedHeaders] are skipped with a DEBUG log; pass-through values are
-     * `addHeader`'d individually so multi-value semantics are preserved on the wire.
+     * `header`'d individually so multi-value semantics are preserved on the wire.
+     *
+     * Each `builder.header(...)` call is wrapped in a `try/catch(IllegalArgumentException)`:
+     * the JDK's disallowed-header set is version-dependent and may grow, so a header that
+     * [RestrictedHeaders] doesn't anticipate could still be rejected by `HttpRequest.Builder`.
+     * Catching it here drops the offending header with a DEBUG log rather than letting the
+     * `IllegalArgumentException` escape [adapt] (and therefore `execute`, declared
+     * `@Throws(IOException)`) where a caller's `catch(IOException)` would not observe it.
      */
     private fun attachHeaders(
         builder: HttpRequest.Builder,
@@ -108,7 +115,15 @@ internal class RequestAdapter(
                 continue
             }
             for (value in values) {
-                builder.header(rawName, value)
+                try {
+                    builder.header(rawName, value)
+                } catch (e: IllegalArgumentException) {
+                    logger.atVerbose()
+                        .event("transport.jdkhttp.header.rejected")
+                        .field("name", rawName)
+                        .cause(e)
+                        .log("JDK rejected header value; dropping before dispatch")
+                }
             }
         }
     }

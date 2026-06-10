@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.async.virtualthreads
 
+import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
@@ -17,7 +18,11 @@ import org.slf4j.MDC
 import org.slf4j.helpers.BasicMDCAdapter
 import org.slf4j.spi.MDCAdapter
 import java.net.URI
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -55,6 +60,31 @@ class VirtualThreadsTest {
         // After close, the executor service has terminated; submitting again would throw.
         val thrown = runCatching { vt.executeAsync(getRequest()).get(2, TimeUnit.SECONDS) }.exceptionOrNull()
         assertTrue(thrown != null, "expected closed virtual-thread executor to reject new tasks")
+    }
+
+    @Test
+    fun `close is idempotent — a second close does not touch the executor again`() {
+        val closeCount = AtomicInteger(0)
+        val backing = Executors.newVirtualThreadPerTaskExecutor()
+        val executor =
+            object : ExecutorService by backing {
+                override fun close() {
+                    closeCount.incrementAndGet()
+                    backing.close()
+                }
+            }
+        val delegate = AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, 200)) }
+        val client = VirtualThreadAsyncHttpClient(delegate, executor)
+
+        client.close()
+        client.close()
+        client.close()
+
+        assertEquals(
+            1,
+            closeCount.get(),
+            "only the first close() should shut the executor down; later calls must be no-ops",
+        )
     }
 
     @Test

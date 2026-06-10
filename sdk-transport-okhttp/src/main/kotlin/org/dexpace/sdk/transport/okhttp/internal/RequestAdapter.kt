@@ -8,9 +8,11 @@
 package org.dexpace.sdk.transport.okhttp.internal
 
 import okhttp3.Request
-import org.dexpace.sdk.core.http.request.Method
+import okhttp3.RequestBody
+import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.http.request.Request as SdkRequest
+import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
 
 /**
  * Adapts an SDK [SdkRequest] into OkHttp's [Request].
@@ -21,9 +23,11 @@ import org.dexpace.sdk.core.http.request.Request as SdkRequest
  *  2. Headers: every name/value pair is copied across **except** entries named in
  *     [RestrictedHeaders] — those are silently dropped (with a DEBUG log) because OkHttp
  *     computes them from the body / connection.
- *  3. Method + body: the SDK body is wrapped in [SdkRequestBodyAdapter] when present.
- *     Methods that require a body (POST/PUT/PATCH/DELETE) pass the adapter; methods
- *     without one (GET/HEAD/OPTIONS/TRACE) pass `null` per OkHttp's contract.
+ *  3. Method + body: a [FileRequestBody] is wrapped in [FileRequestBodyAdapter] so the
+ *     bytes stream zero-copy through okio's [okio.FileHandle]; any other SDK body is wrapped
+ *     in the generic [SdkRequestBodyAdapter]. Methods that require a body
+ *     (POST/PUT/PATCH/DELETE) pass the adapter; methods without one (GET/HEAD/OPTIONS/TRACE)
+ *     pass `null` per OkHttp's contract.
  *
  * The adapter is stateless — the [logger] is the only field it carries so the DEBUG log
  * naming dropped headers attributes to the transport.
@@ -45,14 +49,20 @@ internal class RequestAdapter(
                 builder.addHeader(rawName, value)
             }
         }
-        val okhttpBody = request.body?.let { SdkRequestBodyAdapter(it) }
+        val okhttpBody = request.body?.let { toOkHttpBody(it) }
         builder.method(request.method.method, okhttpBody)
         return builder.build()
     }
 
     /**
-     * OkHttp accepts any token as the method name; the SDK enum is restricted to canonical
-     * HTTP methods. Exposed for completeness — call sites use [Method.method] directly.
+     * Selects the OkHttp [RequestBody] adapter for an SDK body. A [FileRequestBody] streams
+     * zero-copy via [FileRequestBodyAdapter] (okio `FileHandle` → OkHttp's `BufferedSink`,
+     * honouring `position`/`count`); every other body shape uses the generic
+     * [SdkRequestBodyAdapter].
      */
-    fun methodName(method: Method): String = method.method
+    private fun toOkHttpBody(body: SdkRequestBody): RequestBody =
+        when (body) {
+            is FileRequestBody -> FileRequestBodyAdapter(body)
+            else -> SdkRequestBodyAdapter(body)
+        }
 }

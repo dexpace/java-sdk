@@ -29,9 +29,22 @@ import java.util.Locale
  * ## Security
  *
  * The `Authorization` header is stripped before every redirect reissue — even when the
- * redirect target is the same origin. Re-stamping a credential for a known origin is the
- * job of an [org.dexpace.sdk.core.http.pipeline.Stage.AUTH] step, not this one. Stripping
- * unconditionally prevents credentials from leaking to a server-supplied URI.
+ * redirect target is the same origin. Re-stamping a credential for a *known* origin is the
+ * job of an [org.dexpace.sdk.core.http.pipeline.Stage.AUTH] step, not this one.
+ *
+ * Because the AUTH stage runs *inside* the redirect loop, it would otherwise re-stamp the
+ * caller's credential onto whatever host the redirect targets. To prevent a credential leak
+ * to a server-chosen foreign origin, a **cross-origin** re-issue (scheme, host, or port
+ * differs from the originating request) is tagged with an internal marker (see
+ * [CrossOriginRedirectMarker]); the shipped [AuthStep] implementations skip stamping when
+ * the marker is present and strip it before the request reaches the wire. The concrete
+ * guarantee: with the shipped [BearerTokenAuthStep] / [KeyCredentialAuthStep], a cross-origin
+ * redirect never carries the caller's bearer/key credential to the foreign host. A custom
+ * AUTH step that ignores the marker does not inherit this guarantee.
+ *
+ * On a cross-origin redirect the `Cookie` and `Proxy-Authorization` headers are also
+ * stripped, matching browser / OkHttp / JDK behaviour — they are origin-scoped credentials
+ * that must not follow a redirect to a different host.
  *
  * If the `Location` header carries `userinfo` (`https://user:pass@host`), it is dropped
  * before reissue — server-supplied credentials must not be used.
@@ -40,13 +53,14 @@ import java.util.Locale
  *
  * | Status | Allowed method | Action |
  * | --- | --- | --- |
- * | 301, 302 | GET, HEAD (configurable) | Follow with original method |
+ * | 301, 302 | GET, HEAD (configurable) | Follow with original method **and body**; body must be replayable. |
  * | 303      | any | `follow303 = true` → reissue as GET, drop body and `Content-*`. Else: do not follow. |
  * | 307, 308 | any allowed method | Follow with original method **and body**; body must be replayable. |
  * | anything else | — | Do not follow. |
  *
- * A 307/308 redirect of a request with a non-replayable body throws
- * [IllegalStateException] — the body cannot be safely re-sent.
+ * Any method-preserving redirect (301/302/307/308) re-sends the original body, so the body
+ * must be replayable; otherwise [IllegalStateException] is thrown — the body cannot be safely
+ * re-sent. (303 drops the body, so it is exempt.)
  *
  * ## Loop detection
  *
@@ -105,7 +119,10 @@ public open class DefaultRedirectStep
             while (attempts < options.maxHops) {
                 if (!isRedirectStatus(current.status.code)) return current
 
-                val condition = HttpRedirectCondition(current, attempts, seenUris)
+                // Defensive copy: HttpRedirectCondition.redirectedUris is documented as a
+                // snapshot, so a user predicate must not be able to mutate the live cycle-
+                // detection set through it.
+                val condition = HttpRedirectCondition(current, attempts, LinkedHashSet(seenUris))
                 val shouldRedirect =
                     options.shouldRedirect?.shouldRedirect(condition)
                         ?: defaultShouldRedirect(condition)
@@ -164,7 +181,7 @@ public open class DefaultRedirectStep
          * empty, or malformed — the caller treats null as "don't redirect, return the
          * current response". Throws [IllegalStateException] when the redirect would downgrade
          * the scheme from HTTPS to HTTP and [HttpRedirectOptions.allowSchemeDowngrade] is
-         * false, or when a 307/308 redirect carries a non-replayable body.
+         * false, or when a method-preserving redirect carries a non-replayable body.
          */
         @Throws(IOException::class)
         private fun recreateRedirectRequest(response: Response): Request? {
@@ -176,36 +193,41 @@ public open class DefaultRedirectStep
 
             enforceSchemeDowngradePolicy(originalRequest.url, resolvedUrl)
 
+            val crossOrigin = CrossOriginRedirectMarker.isCrossOrigin(originalRequest.url, resolvedUrl)
             val code = response.status.code
             // 303 with follow303=true: reissue as GET, drop body and Content-* headers.
             if (code == SC_SEE_OTHER && options.follow303) {
-                return buildGetRedirect(originalRequest, resolvedUrl)
+                return buildGetRedirect(originalRequest, resolvedUrl, crossOrigin)
             }
 
-            // 307/308: original method AND body preserved. Replayability is required.
-            if (code == SC_TEMPORARY_REDIRECT || code == SC_PERMANENT_REDIRECT) {
-                val body = originalRequest.body
-                check(body == null || body.isReplayable()) {
-                    "Redirect requires replayable body for 307/308; call Request.body.toReplayable() before send."
-                }
+            // Any method-preserving redirect retains the original body. 307/308 always preserve
+            // the method; 301/302 preserve it too when the caller widened allowedMethods beyond
+            // GET/HEAD. In every such case the body is re-sent, so it must be replayable.
+            val body = originalRequest.body
+            check(body == null || body.isReplayable()) {
+                "Redirect requires replayable body when method and body are preserved; " +
+                    "call Request.body.toReplayable() before send."
             }
 
             return originalRequest.newBuilder()
                 .url(resolvedUrl)
-                .removeHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName)
+                .headers(stripCredentialHeaders(originalRequest.headers, crossOrigin))
                 .build()
         }
 
         /**
          * Builds a fresh GET request that targets [resolvedUrl] and copies non-body, non-
          * content metadata from [original]. The `Authorization` header and every `Content-*`
-         * header are stripped — the latter because the body is being dropped.
+         * header are stripped — the latter because the body is being dropped. On a cross-origin
+         * redirect [Cookie] and [Proxy-Authorization] are stripped too and the request is
+         * marked so the AUTH stage does not re-stamp a credential for the foreign host.
          */
         private fun buildGetRedirect(
             original: Request,
             resolvedUrl: URL,
+            crossOrigin: Boolean,
         ): Request {
-            val strippedHeaders = stripContentAndAuthHeaders(original.headers)
+            val strippedHeaders = stripContentAndAuthHeaders(original.headers, crossOrigin)
             return Request.builder()
                 .method(Method.GET)
                 .url(resolvedUrl)
@@ -213,9 +235,11 @@ public open class DefaultRedirectStep
                 .build()
         }
 
-        private fun stripContentAndAuthHeaders(headers: Headers): Headers {
-            val builder = headers.newBuilder()
-            builder.remove(HttpHeaderName.AUTHORIZATION)
+        private fun stripContentAndAuthHeaders(
+            headers: Headers,
+            crossOrigin: Boolean,
+        ): Headers {
+            val builder = stripCredentialHeaders(headers, crossOrigin).newBuilder()
             // Strip every header whose name starts with "content-" (case-insensitive). The
             // underlying store may return names in mixed case (`Content-Type`), so lower-case
             // before the prefix test. Iterate a snapshot of the keys to avoid concurrent
@@ -225,6 +249,29 @@ public open class DefaultRedirectStep
                 if (name.lowercase(Locale.US).startsWith("content-")) toRemove.add(name)
             }
             for (name in toRemove) builder.remove(name)
+            return builder.build()
+        }
+
+        /**
+         * Drops `Authorization` unconditionally (re-stamping a known origin is the AUTH stage's
+         * job). On a cross-origin redirect also drops the origin-scoped `Cookie` and
+         * `Proxy-Authorization` credentials and tags the request with the internal cross-origin
+         * marker so the AUTH stage skips re-stamping for the foreign host.
+         */
+        private fun stripCredentialHeaders(
+            headers: Headers,
+            crossOrigin: Boolean,
+        ): Headers {
+            val builder = headers.newBuilder()
+            builder.remove(HttpHeaderName.AUTHORIZATION)
+            // Clear any caller-supplied marker first so it can never be forged into an auth
+            // bypass; the redirect step is the only legitimate source of the marker.
+            builder.remove(CrossOriginRedirectMarker.MARKER_HEADER)
+            if (crossOrigin) {
+                builder.remove(HttpHeaderName.COOKIE)
+                builder.remove(HttpHeaderName.PROXY_AUTHORIZATION)
+                builder.set(CrossOriginRedirectMarker.MARKER_HEADER, CrossOriginRedirectMarker.MARKER_VALUE)
+            }
             return builder.build()
         }
 

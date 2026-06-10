@@ -10,59 +10,78 @@ package org.dexpace.sdk.core.http.context
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Process-wide registry mapping a call's trace id to its current [CallContext]. Each
- * promotion in the context chain ([DispatchContext.toRequestContext],
- * [RequestContext.toExchangeContext]) overwrites the entry so the latest snapshot is
- * visible to downstream observers keyed by trace id.
+ * Process-wide registry mapping a call's [callKey][CallContext.callKey] to its current
+ * [CallContext]. Each promotion in the context chain ([DispatchContext.toRequestContext],
+ * [RequestContext.toExchangeContext]) overwrites the entry under the **same** call key so
+ * the latest snapshot is visible to downstream observers.
+ *
+ * The key is per call, not per trace: the trace id is not call-unique (the no-op
+ * instrumentation context shares one constant trace id, and an inbound W3C trace shares a
+ * trace id across spans), so keying by it would let concurrent calls collide. See
+ * [CallContext] for the full rationale.
  *
  * Entries are removed by [CallContext.close] when callers honour the close contract.
  *
  * ## Thread-safety
  *
  * Thread-safe. The backing map is a [ConcurrentHashMap] so concurrent calls with distinct
- * trace ids do not need external synchronisation. [put] uses CAS-style `putIfAbsent` so two
- * threads racing to register the same trace id deterministically reject the second one.
+ * call keys do not need external synchronisation. [put] uses CAS-style `putIfAbsent` so two
+ * threads racing to register the same key deterministically reject the second one, and
+ * [remove] supports identity-conditional eviction so an earlier link in a promotion chain
+ * never evicts the live child that replaced it.
  */
 public object ContextStore {
     private val contexts: ConcurrentHashMap<String, CallContext> = ConcurrentHashMap()
 
-    /** Returns the context registered under [runId], or `null` if none is present. */
-    public fun get(runId: String): CallContext? = contexts[runId]
+    /** Returns the context registered under [callKey], or `null` if none is present. */
+    public fun get(callKey: String): CallContext? = contexts[callKey]
 
     /**
-     * Registers [context] under [runId]; rejects duplicate ids with [IllegalArgumentException].
-     * Uses CAS semantics via `putIfAbsent` so concurrent registrations with the same id
-     * deterministically fail the loser. Use [set] when overwrite semantics are intended
-     * (e.g. context promotion).
+     * Registers [context] under [callKey]; rejects a duplicate key with
+     * [IllegalArgumentException]. Uses CAS semantics via `putIfAbsent` so concurrent
+     * registrations with the same key deterministically fail the loser. Use [set] when
+     * overwrite semantics are intended (e.g. context promotion).
      */
     @Throws(IllegalArgumentException::class)
     public fun put(
-        runId: String,
+        callKey: String,
         context: CallContext,
     ) {
-        val previous = contexts.putIfAbsent(runId, context)
-        require(previous == null) { "Pipeline run id duplicated: $runId" }
+        val previous = contexts.putIfAbsent(callKey, context)
+        require(previous == null) { "Call context key already registered: $callKey" }
     }
 
     /**
-     * Unconditionally stores [context] under [runId], replacing any prior entry. No-throw
+     * Unconditionally stores [context] under [callKey], replacing any prior entry. No-throw
      * if no entry exists yet — used by the context promotion chain, where the first
      * promotion installs the entry and later promotions overwrite it.
      */
     public fun set(
-        runId: String,
+        callKey: String,
         context: CallContext,
     ) {
-        contexts[runId] = context
+        contexts[callKey] = context
     }
 
     /**
-     * Removes the entry under [traceId]. No-op if no such entry exists — callers that close
-     * a context twice (or close one that was never registered) get well-defined behaviour
-     * rather than a thrown exception, which made the close contract awkward to honour from
-     * cleanup paths.
+     * Removes the entry under [callKey]. No-op (does not throw) if no such entry exists, so
+     * callers that close a context twice — or close one that was never registered — get
+     * well-defined behaviour rather than an exception, which made the close contract awkward
+     * to honour from cleanup paths.
      */
-    public fun remove(traceId: String) {
-        contexts.remove(traceId)
+    public fun remove(callKey: String) {
+        contexts.remove(callKey)
     }
+
+    /**
+     * Removes the entry under [callKey] **only if** it currently maps to [expected]
+     * (identity-conditional eviction via [ConcurrentHashMap.remove]). No-op (does not
+     * throw) when the slot is absent or has already been replaced by a promoted successor,
+     * so closing an earlier link in a promotion chain never deletes the live child that
+     * took over the slot. Returns `true` when an entry was removed.
+     */
+    public fun remove(
+        callKey: String,
+        expected: CallContext,
+    ): Boolean = contexts.remove(callKey, expected)
 }

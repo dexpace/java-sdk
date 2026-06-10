@@ -75,8 +75,12 @@ internal class OkioBufferedSource private constructor(
     ): Long {
         checkOpen()
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
-        if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
+        // Hoisted ABOVE the OkioBuffer fast path: Okio's BufferedSource.read returns -1 on an
+        // exhausted source even when byteCount == 0, which violates the Source contract (a
+        // zero-byte read must return 0, never EOF). Checking here keeps the fast path and slow
+        // path in agreement.
         if (byteCount == 0L) return 0L
+        if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
         if (delegate.exhausted()) return -1L
         // Force Okio to pull at least one segment from the transport so we can move bytes
         // in bulk; without this the staging buffer can sit at 0 and we'd degrade to a

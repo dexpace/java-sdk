@@ -225,6 +225,54 @@ class HttpPipelineTest {
     }
 
     @Test
+    fun `insertAfter rejects a cross-stage step instead of silently relocating it`() {
+        // The anchor is in PRE_AUTH; the inserted step declares POST_AUTH. Because the storage
+        // re-buckets by Stage on every edit, an unchecked insert would silently land the step
+        // wherever POST_AUTH falls — not "after the anchor". The builder must reject it.
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val anchor = TaggingStep(Stage.PRE_AUTH, "anchor", order)
+        val crossStage = TaggingStep(Stage.POST_AUTH, "cross", order)
+
+        val base = HttpPipelineBuilder(client).append(anchor).build()
+
+        val ex =
+            assertFailsWith<IllegalArgumentException> {
+                HttpPipelineBuilder.from(base).insertAfter<TaggingStep>(crossStage)
+            }
+        assertTrue(ex.message!!.contains("PRE_AUTH"), "message names the anchor stage: ${ex.message}")
+        assertTrue(ex.message!!.contains("POST_AUTH"), "message names the step stage: ${ex.message}")
+    }
+
+    @Test
+    fun `insertBefore rejects a cross-stage step`() {
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val anchor = TaggingStep(Stage.PRE_AUTH, "anchor", order)
+        val crossStage = TaggingStep(Stage.POST_AUTH, "cross", order)
+
+        val base = HttpPipelineBuilder(client).append(anchor).build()
+
+        assertFailsWith<IllegalArgumentException> {
+            HttpPipelineBuilder.from(base).insertBefore<TaggingStep>(crossStage)
+        }
+    }
+
+    @Test
+    fun `replace rejects a cross-stage replacement`() {
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val original = TaggingStep(Stage.PRE_AUTH, "original", order)
+        val crossStage = TaggingStep(Stage.POST_AUTH, "cross", order)
+
+        val base = HttpPipelineBuilder(client).append(original).build()
+
+        assertFailsWith<IllegalArgumentException> {
+            HttpPipelineBuilder.from(base).replace<TaggingStep>(crossStage)
+        }
+    }
+
+    @Test
     fun `insertAfter throws when no instance of type present`() {
         val client = RecordingHttpClient()
         val builder = HttpPipelineBuilder(client)

@@ -9,16 +9,15 @@ package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.pipeline.PipelineNext
+import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.pipeline.step.retry.RetryAfterParser
 import org.dexpace.sdk.core.util.Clock
-import org.dexpace.sdk.core.util.DateTimeRfc1123
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.time.Duration
-import java.time.Instant
-import java.time.format.DateTimeParseException
 import java.util.concurrent.ThreadLocalRandom
 
 /**
@@ -35,13 +34,24 @@ import java.util.concurrent.ThreadLocalRandom
  *  2. Classifies the outcome via [HttpRetryOptions.shouldRetryCondition] (responses) or
  *     [HttpRetryOptions.shouldRetryException] (exceptions). Predicates that throw abort
  *     the loop with an [IllegalStateException].
- *  3. Closes a retryable response before sleeping (releases the body's resources).
+ *  3. Closes a retryable response BEFORE sleeping (the delay is computed first while the body
+ *     is still open, then the body's resources are released so the socket/buffer is not pinned
+ *     across the backoff window).
  *  4. Sleeps via [Clock.sleep]; an interrupt during sleep throws [InterruptedIOException]
  *     with the original [InterruptedException] and any accumulated prior failures attached
  *     as suppressed — retries are NOT resumed after an interrupt.
  *  5. Caps `tryCount` at [MAX_SHIFT_TRY_COUNT] before computing `1L shl tryCount` so the
  *     left-shift can never overflow (the resulting delay is clamped to [HttpRetryOptions.maxDelay]
  *     anyway, so the cap is invisible to callers).
+ *
+ * ## Body replayability
+ *
+ * A request whose method is non-idempotent (e.g. POST/PATCH) and whose body is **not**
+ * replayable is never retried — the loop runs exactly one attempt and returns the response
+ * (or rethrows the exception) as-is. Re-sending such a body would trip the body's consume-once
+ * guard and surface as a confusing wrapped [IllegalStateException]. Idempotent methods, and
+ * any method with no body or a replayable body, are retried normally. This mirrors
+ * `pipeline.step.retry.RetryStep.canRetry`.
  *
  * ## Delay precedence (highest to lowest)
  *
@@ -61,7 +71,10 @@ import java.util.concurrent.ThreadLocalRandom
  *
  * [InterruptedIOException] from the downstream transport is not classified as retryable.
  * The thread interrupt status is restored and the exception is rethrown immediately with
- * any accumulated prior failures attached as suppressed.
+ * any accumulated prior failures attached as suppressed. A bare [InterruptedException]
+ * (a downstream blocking call that did not wrap the interrupt) is handled identically: the
+ * flag is restored and it is surfaced as [InterruptedIOException] (so the `@Throws(IOException)`
+ * contract holds) with the prior failures attached.
  *
  * On non-retryable exception, every prior attempt's exception is attached to the
  * final exception via [Throwable.addSuppressed] before rethrow.
@@ -105,9 +118,10 @@ import java.util.concurrent.ThreadLocalRandom
  * - May return `null` to fall through to the default backoff; must not throw.
  * - If it returns a non-null [Duration], that value is used verbatim — it should be
  *   non-negative.
- * **Default behaviour:** walks [HttpRetryOptions.retryAfterHeaders] in order; parses the
- * first parseable value as seconds, RFC 1123 date, or milliseconds depending on the
- * header name.
+ * **Default behaviour:** walks [HttpRetryOptions.retryAfterHeaders] in order and delegates
+ * each value to `RetryAfterParser.parseHeaderValue`, which parses it as seconds, RFC 1123
+ * date, milliseconds, or a jittered Unix-epoch reset depending on the header name. The first
+ * parseable value wins.
  * **When to override:** to support additional server-specific pacing headers beyond those
  * in [HttpRetryOptions.retryAfterHeaders].
  */
@@ -152,6 +166,12 @@ public open class DefaultRetryStep
             // Lazily allocated on first failure so the success path never pays for the list.
             var suppressed: MutableList<Throwable>? = null
 
+            // A request whose body is single-use and whose method is non-idempotent cannot be
+            // safely re-sent: the second writeTo would trip the body's consume-once guard. When
+            // that holds, the loop runs exactly one attempt and never retries — mirroring the
+            // pipeline-primitives RetryStep.canRetry() invariant.
+            val retrySafe = isRetrySafe(request)
+
             // The retry loop has distinct continue / return paths per attempt outcome
             // (success-retryable / success-final / exception-retryable / exception-final).
             // Flattening to one exit would require duplicating the exception classification.
@@ -162,10 +182,10 @@ public open class DefaultRetryStep
                 if (attemptResult.isSuccess) {
                     val response = attemptResult.getOrThrow()
                     val shouldRetry =
-                        tryCount < options.maxRetries &&
+                        retrySafe &&
+                            tryCount < options.maxRetries &&
                             decideRetryResponse(response, tryCount, suppressed, retrySequenceStartNanos)
                     if (shouldRetry) {
-                        closeQuietly(response)
                         tryCount++
                         continue
                     }
@@ -180,13 +200,18 @@ public open class DefaultRetryStep
                 val exception = err as Exception
                 // Interrupts are explicitly not retryable per the SDK-wide cancellation
                 // convention. Re-interrupt the thread (the catch may have cleared it) and
-                // rethrow so the caller's loop can observe cancellation immediately.
-                if (exception is InterruptedIOException) {
+                // rethrow so the caller's loop can observe cancellation immediately. Both an
+                // already-wrapped InterruptedIOException and a bare InterruptedException (from a
+                // downstream blocking call that did not wrap the interrupt) are handled here:
+                // the flag is restored and cancellation is surfaced as InterruptedIOException so
+                // the @Throws(IOException) contract holds, with prior failures attached.
+                if (exception is InterruptedIOException || exception is InterruptedException) {
                     Thread.currentThread().interrupt()
-                    suppressed?.forEach(exception::addSuppressed)
-                    throw exception
+                    val ioe = asInterruptedIo(exception)
+                    suppressed?.forEach(ioe::addSuppressed)
+                    throw ioe
                 }
-                if (tryCount < options.maxRetries) {
+                if (retrySafe && tryCount < options.maxRetries) {
                     val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
                     if (decideRetryException(exception, tryCount, accumulator, retrySequenceStartNanos)) {
                         tryCount++
@@ -217,6 +242,31 @@ public open class DefaultRetryStep
         }
 
         /**
+         * Returns `true` when [request] may be re-sent. A request whose method is idempotent is
+         * always retry-safe; otherwise it is safe only when it has no body or a replayable one.
+         * A non-idempotent method (POST/PATCH) carrying a single-use body cannot be retried —
+         * the second `RequestBody.writeTo` would trip the body's consume-once guard. Mirrors
+         * `pipeline.step.retry.RetryStep.canRetry`.
+         */
+        private fun isRetrySafe(request: Request): Boolean {
+            if (request.method in IDEMPOTENT_METHODS) return true
+            val body = request.body ?: return true
+            return body.isReplayable()
+        }
+
+        /**
+         * Normalises an interrupt-signalling exception to [InterruptedIOException]. An
+         * [InterruptedIOException] is returned as-is; a bare [InterruptedException] is wrapped
+         * (with the original attached as cause) so the loop can satisfy its `@Throws(IOException)`
+         * contract while preserving the cancellation signal.
+         */
+        private fun asInterruptedIo(exception: Exception): InterruptedIOException =
+            when (exception) {
+                is InterruptedIOException -> exception
+                else -> InterruptedIOException("retry interrupted").apply { initCause(exception) }
+            }
+
+        /**
          * Executes a single pipeline attempt and returns the result (success or exception)
          * wrapped in a [Result]. Errors ([Error] subclasses) are NOT caught here — they
          * propagate immediately per the SDK cancellation / error-handling contract.
@@ -225,10 +275,13 @@ public open class DefaultRetryStep
 
         /**
          * Decides whether to retry after a successful (but retryable-status) response.
-         * If retry is warranted, sleeps for the computed delay and returns `true`.
-         * Returns `false` when the response should be returned to the caller as-is.
+         * If retry is warranted, the response is closed, then the loop sleeps for the computed
+         * delay and `true` is returned. Returns `false` when the response should be returned to
+         * the caller as-is — in which case the response is left OPEN for the caller to consume.
          *
-         * The response is NOT closed here; the caller closes it after this method returns `true`.
+         * The retryable response is closed BEFORE the backoff sleep so its body's resources
+         * (socket / buffer) are not pinned open across a potentially long `Thread.sleep`. The
+         * delay is computed from the response headers first, while the response is still open.
          */
         private fun decideRetryResponse(
             response: Response,
@@ -238,9 +291,12 @@ public open class DefaultRetryStep
         ): Boolean {
             val condition = HttpRetryCondition(response, null, tryCount, suppressed.orEmpty())
             if (!invokeShouldRetryResponse(condition)) return false
+            // Compute the delay (may read Retry-After from the response) while the response is
+            // still open, then release the response body's resources BEFORE we sleep so the
+            // socket/buffer is not held open across the backoff window.
             val delay = computeResponseDelay(condition)
             logRetry(tryCount, delay, response.status.code, cause = null, retrySequenceStartNanos)
-            // Release the failed-response body's resources before we sleep.
+            closeQuietly(response)
             sleepOrAbort(delay, suppressed)
             return true
         }
@@ -411,92 +467,20 @@ public open class DefaultRetryStep
          * delay value. Parse failures, negative values, or empty values fall through to the
          * next header; if every header is missing or unparseable, returns null and the caller
          * falls back to the default delay.
+         *
+         * Each header value is parsed by [RetryAfterParser.parseHeaderValue] — the single,
+         * fully-guarded source of truth shared with the recovery-aware `RetryStep`. That parser
+         * dispatches on the header name (`Retry-After` → seconds-or-date, the `*-ms` variants →
+         * milliseconds, `X-RateLimit-Reset` → jittered Unix epoch, anything else → milliseconds)
+         * and is total: out-of-range or malformed values yield `null` rather than throwing.
          */
         protected open fun retryAfterFromHeaders(response: Response): Duration? {
+            val now = clock.now()
             for (name in options.retryAfterHeaders) {
                 val raw = response.headers.get(name) ?: continue
-                parseRetryAfterValue(name, raw)?.let { return it }
+                RetryAfterParser.parseHeaderValue(name, raw, now)?.let { return it }
             }
             return null
-        }
-
-        /**
-         * Parses a single `Retry-After` header value. The standard `Retry-After` form accepts
-         * integer seconds OR an RFC 1123 date; the `*-ms` variants accept integer milliseconds.
-         */
-        private fun parseRetryAfterValue(
-            name: HttpHeaderName,
-            raw: String,
-        ): Duration? {
-            val value = raw.trim()
-            if (value.isEmpty()) return null
-            return when (name) {
-                HttpHeaderName.RETRY_AFTER -> parseSecondsOrDate(value)
-                HttpHeaderName.RETRY_AFTER_MS, HttpHeaderName.X_MS_RETRY_AFTER_MS -> parseMillis(value)
-                else -> parseMillis(value)
-            }
-        }
-
-        /**
-         * Parses [value] as either a non-negative integer count of seconds OR an RFC 1123
-         * date-time. A zero result is permitted (immediate retry); negative numeric values
-         * and unparseable inputs return null. Very large values are respected but logged at
-         * verbose so a misbehaving server is easy to spot.
-         */
-        private fun parseSecondsOrDate(value: String): Duration? {
-            val asLong = tryParseLong(value)
-            if (asLong != null) {
-                if (asLong < 0L) return null
-                return secondsDurationOrWarn(asLong)
-            }
-            return try {
-                val target = DateTimeRfc1123.parse(value)
-                val now = clock.now()
-                // If the server's "retry-after-date" is in the past, treat as immediate retry.
-                if (target.isBefore(now)) Duration.ZERO else durationBetween(now, target)
-            } catch (_: DateTimeParseException) {
-                null
-            }
-        }
-
-        private fun parseMillis(value: String): Duration? {
-            val ms = tryParseLong(value) ?: return null
-            if (ms < 0L) return null
-            return Duration.ofMillis(ms)
-        }
-
-        private fun tryParseLong(value: String): Long? =
-            try {
-                value.toLong()
-            } catch (_: NumberFormatException) {
-                null
-            }
-
-        /**
-         * [Duration.between] preserves nanosecond precision; the warn-on-large hook reads the
-         * coarser seconds component so a misbehaving upstream (multi-hour `Retry-After`) shows
-         * up in logs without losing fractional precision in the returned duration.
-         */
-        private fun durationBetween(
-            from: Instant,
-            to: Instant,
-        ): Duration {
-            val delta = Duration.between(from, to)
-            warnIfLargeRetryAfter(delta.seconds)
-            return delta
-        }
-
-        private fun secondsDurationOrWarn(seconds: Long): Duration {
-            warnIfLargeRetryAfter(seconds)
-            return Duration.ofSeconds(seconds)
-        }
-
-        private fun warnIfLargeRetryAfter(seconds: Long) {
-            if (seconds <= LARGE_RETRY_AFTER_SECONDS) return
-            logger.atVerbose()
-                .event("http.retry.large_retry_after")
-                .field("retry_after.seconds", seconds)
-                .log()
         }
 
         // --------------- Sleep + interrupt handling ---------------
@@ -587,13 +571,6 @@ public open class DefaultRetryStep
              */
             public const val MAX_SHIFT_TRY_COUNT: Int = 30
 
-            /**
-             * Threshold above which a `Retry-After` value triggers a verbose log. Values larger
-             * than this almost always indicate either a misbehaving upstream or a long
-             * maintenance window — callers may want to override via [HttpRetryOptions.delayFromCondition].
-             */
-            public const val LARGE_RETRY_AFTER_SECONDS: Long = 60L * 60L
-
             // Jitter is ±5% of the computed delay; expressed as the divisor (nanos / 20) to
             // avoid an extra multiplication on the hot path. See [applyJitter].
             private const val JITTER_DIVISOR = 20L
@@ -601,5 +578,11 @@ public open class DefaultRetryStep
             // Nanoseconds in one millisecond — used to convert monotonic-clock deltas to ms
             // for retry log events.
             private const val NANOS_PER_MILLI = 1_000_000L
+
+            // Methods safe to re-send regardless of body replayability (idempotent per RFC 9110).
+            // A request using one of these may always be retried; others require a replayable
+            // body. Mirrors RetrySettings.DEFAULT_RETRYABLE_METHODS.
+            private val IDEMPOTENT_METHODS: Set<Method> =
+                setOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE)
         }
     }
