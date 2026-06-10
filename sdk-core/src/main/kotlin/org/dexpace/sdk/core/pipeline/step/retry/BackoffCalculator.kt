@@ -106,10 +106,12 @@ public object BackoffCalculator {
         attempt: Int,
         settings: RetrySettings,
     ): Long {
-        val initialNanos = settings.initialDelay.toNanos().toDouble()
+        // Saturating conversion: an out-of-range delay (which the builder already rejects)
+        // saturates to Long.MAX_VALUE here instead of overflowing toNanos() and throwing.
+        val initialNanos = settings.initialDelay.toNanosSaturating().toDouble()
         // attempt is 1-indexed; the first retry uses initialDelay * multiplier^0 = initialDelay.
         val scaled = initialNanos * settings.delayMultiplier.pow(attempt - 1)
-        val maxNanos = settings.maxDelay.toNanos()
+        val maxNanos = settings.maxDelay.toNanosSaturating()
         return when {
             scaled.isNaN() -> 0L
             scaled.isInfinite() -> maxNanos
@@ -162,3 +164,16 @@ public object BackoffCalculator {
         return if (delay > remaining) remaining else delay
     }
 }
+
+/**
+ * Converts to nanoseconds, saturating to [Long.MAX_VALUE] instead of throwing [ArithmeticException]
+ * when the duration is too large to represent. [RetrySettings]'s builder rejects such values up
+ * front, so this is defence-in-depth: it keeps [BackoffCalculator] total even for a settings object
+ * constructed by some other path. The conversion is exact for any in-range duration.
+ */
+internal fun Duration.toNanosSaturating(): Long =
+    try {
+        toNanos()
+    } catch (ignored: ArithmeticException) {
+        Long.MAX_VALUE
+    }

@@ -187,6 +187,28 @@ class BackoffCalculatorTest {
 
     // endregion
 
+    // region -- saturating nanos conversion (defense-in-depth) --
+
+    @Test
+    fun `toNanosSaturating returns the exact nanos for an in-range duration`() {
+        assertEquals(1_500_000_000L, Duration.ofMillis(1500).toNanosSaturating())
+    }
+
+    @Test
+    fun `toNanosSaturating accepts the Long MAX_VALUE nanos boundary`() {
+        assertEquals(Long.MAX_VALUE, Duration.ofNanos(Long.MAX_VALUE).toNanosSaturating())
+    }
+
+    @Test
+    fun `toNanosSaturating saturates instead of throwing when the duration overflows nanos`() {
+        // Duration.ofSeconds(Long.MAX_VALUE).toNanos() throws ArithmeticException; the saturating
+        // variant returns Long.MAX_VALUE so the backoff math stays total even for an out-of-range
+        // settings object built outside the (now-guarded) builder.
+        assertEquals(Long.MAX_VALUE, Duration.ofSeconds(Long.MAX_VALUE).toNanosSaturating())
+    }
+
+    // endregion
+
     private companion object {
         // Schedule constants.
         private const val BASE_DELAY_MS = 100L
