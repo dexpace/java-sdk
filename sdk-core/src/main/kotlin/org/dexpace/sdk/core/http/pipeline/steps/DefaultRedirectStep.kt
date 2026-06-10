@@ -34,13 +34,16 @@ import java.util.Locale
  *
  * Because the AUTH stage runs *inside* the redirect loop, it would otherwise re-stamp the
  * caller's credential onto whatever host the redirect targets. To prevent a credential leak
- * to a server-chosen foreign origin, a **cross-origin** re-issue (scheme, host, or port
- * differs from the originating request) is tagged with an internal marker (see
+ * to a server-chosen foreign origin, a **cross-origin** re-issue — one whose scheme, host, or
+ * port differs from the **original** request's origin — is tagged with an internal marker (see
  * [CrossOriginRedirectMarker]); the shipped [AuthStep] implementations skip stamping when
- * the marker is present and strip it before the request reaches the wire. The concrete
- * guarantee: with the shipped [BearerTokenAuthStep] / [KeyCredentialAuthStep], a cross-origin
- * redirect never carries the caller's bearer/key credential to the foreign host. A custom
- * AUTH step that ignores the marker does not inherit this guarantee.
+ * the marker is present and strip it before the request reaches the wire. The comparison is
+ * against the original origin, not the immediately preceding hop, so every hop of a multi-hop
+ * chain that has left the caller's origin stays credential-free — including a same-origin
+ * sub-redirect on the foreign host. The concrete guarantee: with the shipped
+ * [BearerTokenAuthStep] / [KeyCredentialAuthStep], a cross-origin redirect never carries the
+ * caller's bearer/key credential to the foreign host. A custom AUTH step that ignores the
+ * marker does not inherit this guarantee.
  *
  * On a cross-origin redirect the `Cookie` and `Proxy-Authorization` headers are also
  * stripped, matching browser / OkHttp / JDK behaviour — they are origin-scoped credentials
@@ -130,7 +133,10 @@ public open class DefaultRedirectStep
 
                 val nextRequest =
                     try {
-                        recreateRedirectRequest(current)
+                        // Cross-origin is judged against the seed (request.url), not the current
+                        // hop, so a foreign host can't launder the credential back via a same-
+                        // origin sub-redirect.
+                        recreateRedirectRequest(current, request.url)
                     } catch (t: Throwable) {
                         current.close()
                         throw t
@@ -184,16 +190,24 @@ public open class DefaultRedirectStep
          * false, or when a method-preserving redirect carries a non-replayable body.
          */
         @Throws(IOException::class)
-        private fun recreateRedirectRequest(response: Response): Request? {
+        private fun recreateRedirectRequest(
+            response: Response,
+            originUrl: URL,
+        ): Request? {
             val rawLocation = response.headers.get(options.locationHeader)
             if (rawLocation.isNullOrEmpty()) return null
 
             val originalRequest = response.request
+            // A relative Location is resolved against the CURRENT hop's URL (RFC 3986), and the
+            // HTTPS->HTTP downgrade check looks at this single hop's transition. The cross-origin
+            // credential decision, however, is made against [originUrl] — the original seed origin
+            // — so that a same-origin sub-redirect on a foreign host does not re-expose the
+            // credential. These three comparisons use deliberately different baselines.
             val resolvedUrl = resolveLocation(originalRequest.url, rawLocation) ?: return null
 
             enforceSchemeDowngradePolicy(originalRequest.url, resolvedUrl)
 
-            val crossOrigin = CrossOriginRedirectMarker.isCrossOrigin(originalRequest.url, resolvedUrl)
+            val crossOrigin = CrossOriginRedirectMarker.isCrossOrigin(originUrl, resolvedUrl)
             val code = response.status.code
             // 303 with follow303=true: reissue as GET, drop body and Content-* headers.
             if (code == SC_SEE_OTHER && options.follow303) {
