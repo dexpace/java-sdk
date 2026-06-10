@@ -63,11 +63,11 @@ public class DigestChallengeHandler
          * when that same nonce is reused, so a single shared counter would emit `nc>1`
          * on the first request against a new server (or after a `stale=true` rotation).
          *
-         * The map is bounded to [MAX_TRACKED_NONCES] entries: once full, the
-         * least-recently-inserted nonce is evicted before a new one is admitted, so
-         * memory stays bounded even against a server that rotates nonces aggressively.
-         * Evicting a still-live nonce only resets its `nc` to `1` on the next reuse —
-         * harmless, since a fresh nonce legitimately starts at `1` anyway.
+         * The map is bounded to [MAX_TRACKED_NONCES] entries: after a nonce is admitted the
+         * map is drained back under that cap, so memory stays bounded even against a server
+         * that rotates nonces aggressively. Evicting a still-live nonce only resets its `nc`
+         * to `1` on the next reuse — harmless, since a fresh nonce legitimately starts at `1`
+         * anyway.
          */
         private val nonceCounters = ConcurrentHashMap<String, AtomicLong>()
 
@@ -280,17 +280,21 @@ public class DigestChallengeHandler
          * Returns the next `nc` value for [nonce], starting at 1 for a nonce seen for the
          * first time and incrementing on each reuse (RFC 7616 §3.4).
          *
-         * The map is bounded: when it is at capacity and [nonce] is not already tracked,
-         * the oldest entry is evicted before the new counter is admitted. `computeIfAbsent`
-         * installs the per-nonce [AtomicLong] atomically, and the counter itself is the
-         * single source of truth for the increment, so concurrent reuse of one nonce stays
-         * correct.
+         * `computeIfAbsent` installs the per-nonce [AtomicLong] atomically, and the counter
+         * itself is the single source of truth for the increment, so concurrent reuse of one
+         * nonce stays correct. After admitting a (possibly new) nonce the map is drained back
+         * under [MAX_TRACKED_NONCES] with a loop rather than a single pre-insert eviction: the
+         * old check-then-evict-then-insert was a non-atomic race, and a burst of concurrent
+         * distinct-nonce inserts could overshoot the cap and then stay there permanently (each
+         * later insert evicting one and adding one). Draining after the insert keeps the map
+         * converging back to the cap.
          */
         private fun nextNonceCount(nonce: String): Long {
-            if (!nonceCounters.containsKey(nonce) && nonceCounters.size >= MAX_TRACKED_NONCES) {
+            val count = nonceCounters.computeIfAbsent(nonce) { AtomicLong(0) }.incrementAndGet()
+            while (nonceCounters.size > MAX_TRACKED_NONCES) {
                 evictOldestNonce()
             }
-            return nonceCounters.computeIfAbsent(nonce) { AtomicLong(0) }.incrementAndGet()
+            return count
         }
 
         /**
