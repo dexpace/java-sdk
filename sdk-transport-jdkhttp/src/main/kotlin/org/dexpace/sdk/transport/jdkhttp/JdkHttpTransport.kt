@@ -15,6 +15,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.transport.jdkhttp.internal.RequestAdapter
 import org.dexpace.sdk.transport.jdkhttp.internal.ResponseAdapter
+import org.dexpace.sdk.transport.jdkhttp.internal.bridgeAsyncResponse
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
@@ -128,15 +129,17 @@ public class JdkHttpTransport private constructor(
      * the [Response] on success or completes exceptionally with the transport failure on
      * error.
      *
-     * Cancelling the future propagates to the underlying JDK exchange via the JDK's own
-     * `CompletableFuture.cancel(true)` -> exchange-abort wiring (introduced in JDK 11; no
-     * additional adapter hook required). Consumers should still call `Response.close()` on
-     * success-path completions to release the body's connection back to the pool.
+     * Cancelling the returned future cancels the underlying JDK exchange, and a response that
+     * arrives in the cancellation race window is closed so its connection is not leaked (see
+     * [bridgeAsyncResponse]). The intermediate `thenApply`-style future the JDK hands back does
+     * not propagate cancellation to the `sendAsync` exchange on its own, so the bridge wires that
+     * through explicitly. Consumers should still call `Response.close()` on success-path
+     * completions to release the body's connection back to the pool.
      */
     override fun executeAsync(request: Request): CompletableFuture<Response> {
         val jdkRequest = requestAdapter.adapt(request, responseTimeout)
-        return client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
-            .thenApply { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
+        val inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
+        return bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
     }
 
     /**
