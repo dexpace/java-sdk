@@ -166,6 +166,34 @@ class ContextStoreTest {
     }
 
     @Test
+    fun `identity-conditional remove does not evict a structurally-equal sibling`() {
+        // Contexts are data classes, so two distinct instances with identical fields are
+        // `equals`. Conditional eviction must key on reference IDENTITY, not value equality:
+        // closing a stale context must not delete a structurally-equal live twin that currently
+        // owns the slot. (ConcurrentHashMap.remove(k, v) matches by `equals`, which would.)
+        val id = owned("equal-sibling")
+        val instr = FakeInstrumentationContext(TraceId(id), SpanId("0000000000000099"))
+        val live = DispatchContext(instr, id)
+        val staleTwin = DispatchContext(instr, id)
+
+        // Equal by value, distinct by identity — the precondition that makes this case real.
+        assertEquals(live, staleTwin)
+        assertTrue(live !== staleTwin)
+
+        ContextStore.set(id, live)
+        assertEquals(
+            false,
+            ContextStore.remove(id, staleTwin),
+            "an equal-but-distinct context must not evict the owner",
+        )
+        assertSame(live, ContextStore.get(id))
+
+        // The live owner can still evict itself by identity.
+        assertEquals(true, ContextStore.remove(id, live))
+        assertNull(ContextStore.get(id))
+    }
+
+    @Test
     fun `concurrent untraced calls keep independent entries`() {
         // Two concurrent default()/NOOP-trace calls share a constant trace+span id, but each
         // mints a unique call key, so neither overwrites nor evicts the other's live entry.

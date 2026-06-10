@@ -74,14 +74,30 @@ public object ContextStore {
     }
 
     /**
-     * Removes the entry under [callKey] **only if** it currently maps to [expected]
-     * (identity-conditional eviction via [ConcurrentHashMap.remove]). No-op (does not
-     * throw) when the slot is absent or has already been replaced by a promoted successor,
-     * so closing an earlier link in a promotion chain never deletes the live child that
-     * took over the slot. Returns `true` when an entry was removed.
+     * Removes the entry under [callKey] **only if** it currently maps to [expected] **by
+     * reference identity**. No-op (does not throw) when the slot is absent or has already been
+     * replaced by a promoted successor, so closing an earlier link in a promotion chain never
+     * deletes the live child that took over the slot. Returns `true` when an entry was removed.
+     *
+     * Identity, not value equality: the [CallContext] implementations are data classes, so two
+     * distinct instances of the same chain link compare `equals`. [ConcurrentHashMap.remove]
+     * with a value argument matches by `equals`, which would let a stale context evict a
+     * structurally-equal live sibling; [ConcurrentHashMap.computeIfPresent] with a `===` check
+     * compares the actual occupant by reference instead, atomically.
      */
     public fun remove(
         callKey: String,
         expected: CallContext,
-    ): Boolean = contexts.remove(callKey, expected)
+    ): Boolean {
+        var removed = false
+        contexts.computeIfPresent(callKey) { _, current ->
+            if (current === expected) {
+                removed = true
+                null // returning null removes the mapping
+            } else {
+                current
+            }
+        }
+        return removed
+    }
 }
