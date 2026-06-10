@@ -13,8 +13,9 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CompletionException
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 
 /**
@@ -56,9 +57,10 @@ import java.util.concurrent.Executor
  * - `HttpClient.asAsync(executor)` wraps a blocking transport in an async facade by submitting
  *   each `execute(...)` call to the given [Executor]. Pair with a virtual-thread executor on
  *   JDK 21+ for cheap concurrency.
- * - `AsyncHttpClient.asBlocking()` returns a sync [HttpClient] that calls
- *   `executeAsync(...).join()` and unwraps the [CompletionException] so callers see the
- *   original [Exception] / [Response] semantics.
+ * - `AsyncHttpClient.asBlocking()` returns a sync [HttpClient] that blocks on
+ *   `executeAsync(...).get()` and unwraps the [ExecutionException] so callers see the
+ *   original [Exception] / [Response] semantics. The blocking wait honours
+ *   `Thread.interrupt()`.
  */
 public fun interface AsyncHttpClient : AutoCloseable {
     /**
@@ -102,23 +104,37 @@ public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
     }
 
 /**
- * Wraps an [AsyncHttpClient] as a blocking [HttpClient] by calling `executeAsync(...).join()`
- * and unwrapping the [CompletionException] so callers see the original exception. The current
+ * Wraps an [AsyncHttpClient] as a blocking [HttpClient] by blocking on `executeAsync(...).get()`
+ * and unwrapping the [ExecutionException] so callers see the original exception. The current
  * thread blocks until the future completes — pair with virtual threads (JDK 21+) to keep
  * carrier threads available.
+ *
+ * The blocking wait honours `Thread.interrupt()`: interrupting the calling thread restores the
+ * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException] (an
+ * [IOException] subtype, so the `@Throws(IOException::class)` contract holds).
  *
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
 @Throws(IOException::class)
 public fun AsyncHttpClient.asBlocking(): HttpClient =
     HttpClient { request ->
+        val future = executeAsync(request)
         try {
-            executeAsync(request).join()
-        } catch (ce: CompletionException) {
-            // `join()` wraps every exceptional completion in CompletionException; unwrap so
+            future.get()
+        } catch (ie: InterruptedException) {
+            // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
+            // the in-flight exchange, and surface an InterruptedIOException so callers' I/O
+            // error handling terminates cleanly. See RetryStep.awaitDelay for the same pattern.
+            Thread.currentThread().interrupt()
+            future.cancel(true)
+            val ioe = InterruptedIOException("Interrupted while waiting for response")
+            ioe.initCause(ie)
+            throw ioe
+        } catch (ee: ExecutionException) {
+            // `get()` wraps every exceptional completion in ExecutionException; unwrap so
             // callers' `catch (IOException)` blocks see the original failure rather than the
             // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
-            // is a RuntimeException, not a CompletionException, so it propagates as-is.
-            throw Futures.unwrap(ce)
+            // is a RuntimeException, not an ExecutionException, so it propagates as-is.
+            throw Futures.unwrap(ee)
         }
     }

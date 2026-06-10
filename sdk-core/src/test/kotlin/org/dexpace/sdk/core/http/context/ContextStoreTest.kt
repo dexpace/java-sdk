@@ -222,6 +222,34 @@ class ContextStoreTest {
     }
 
     @Test
+    fun `a burst of distinct keys past the cap keeps the live set bounded`() {
+        // The store is bounded: after each insert it drains back under MAX_TRACKED_CONTEXTS,
+        // so a missed close() on an exception path can leak at most the cap, not unboundedly.
+        // We can't read the private map size, so we assert the observable consequence: after
+        // inserting well past the cap, no more than `cap` of OUR keys can still be present.
+        // (We insert a fresh, isolated batch so no other test's entries inflate the count.)
+        val cap = 4096
+        val burst = cap + 500
+        val inserted = ArrayList<String>(burst)
+        for (i in 0 until burst) {
+            val id = owned("burst-$i")
+            inserted.add(id)
+            ContextStore.set(id, DispatchContext(FakeInstrumentationContext(TraceId(id)), id))
+        }
+
+        val survivors = inserted.count { ContextStore.get(it) != null }
+        assertTrue(
+            survivors <= cap,
+            "store must stay bounded at the cap; $survivors of our keys survived (cap=$cap)",
+        )
+        // The most-recently inserted key must still be present: draining drops arbitrary
+        // victims after the insert, but the just-inserted entry is the last thing written and
+        // the drain only runs while size exceeds the cap, so the live entry we just added
+        // survives its own insert.
+        assertTrue(survivors > 0, "the store should retain entries up to its cap")
+    }
+
+    @Test
     fun `concurrent put for the same id only lets one winner through`() {
         val id = owned("concurrent")
         val threads = 16

@@ -13,7 +13,9 @@ import org.dexpace.sdk.core.http.context.DispatchContext
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.pipeline.step.RequestPipelineStep
 import org.dexpace.sdk.core.pipeline.step.ResponsePipelineStep
 import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Covers WU-1 acceptance criteria for the recovery-aware response pipeline. Tests are
@@ -81,6 +84,34 @@ class ResponsePipelineTest {
             .protocol(Protocol.HTTP_1_1)
             .status(Status.OK)
             .build()
+
+    /**
+     * A response whose body increments [closeCount] each time it is closed. Lets a test assert
+     * that a throwing step released the in-hand transport connection.
+     */
+    private fun closeRecordingResponseFor(
+        request: Request,
+        closeCount: AtomicInteger,
+    ): Response {
+        val body =
+            object : ResponseBody() {
+                override fun mediaType() = null
+
+                override fun contentLength() = -1L
+
+                override fun source(): BufferedSource = throw UnsupportedOperationException("not needed for close test")
+
+                override fun close() {
+                    closeCount.incrementAndGet()
+                }
+            }
+        return Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.OK)
+            .body(body)
+            .build()
+    }
 
     private fun ctx(): DispatchContext = DispatchContext.default()
 
@@ -215,6 +246,49 @@ class ResponsePipelineTest {
         assertSame(transportResponse, out)
         assertNotNull(recoverySawError, "Recovery step should have observed the response-step exception")
         assertSame(responseStepError, recoverySawError)
+    }
+
+    @Test
+    fun `response step that throws closes the in-hand response`() {
+        val req = request()
+        val closeCount = AtomicInteger(0)
+        val inHand = closeRecordingResponseFor(req, closeCount)
+
+        val responseStepError = RuntimeException("response step failed")
+        val failingResponseStep =
+            ResponsePipelineStep { _, _ ->
+                throw responseStepError
+            }
+
+        val pipeline = ResponsePipeline(responseSteps = listOf(failingResponseStep))
+
+        val out = pipeline.apply(ResponseOutcome.Success(inHand), ctx())
+
+        // No recovery step rescues it, so the throwable surfaces as a Failure.
+        assertTrue(out is ResponseOutcome.Failure)
+        assertSame(responseStepError, (out as ResponseOutcome.Failure).error)
+        assertEquals(1, closeCount.get(), "the in-hand response must be closed exactly once when a step throws")
+    }
+
+    @Test
+    fun `recovery step that throws on a Success closes the in-hand response`() {
+        val req = request()
+        val closeCount = AtomicInteger(0)
+        val inHand = closeRecordingResponseFor(req, closeCount)
+
+        val recoveryError = RuntimeException("recovery step failed")
+        val failingRecoveryStep =
+            ResponseRecoveryStep { _ ->
+                throw recoveryError
+            }
+
+        val pipeline = ResponsePipeline(recoverySteps = listOf(failingRecoveryStep))
+
+        val out = pipeline.apply(ResponseOutcome.Success(inHand), ctx())
+
+        assertTrue(out is ResponseOutcome.Failure)
+        assertSame(recoveryError, (out as ResponseOutcome.Failure).error)
+        assertEquals(1, closeCount.get(), "the in-hand Success response must be closed when a recovery step throws")
     }
 
     @Test

@@ -13,14 +13,19 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.URL
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertTrue
 
 class AsyncHttpClientTest {
     private val executor = Executors.newSingleThreadExecutor()
@@ -52,7 +57,7 @@ class AsyncHttpClientTest {
     }
 
     @Test
-    fun `asBlocking returns a sync client that unwraps the CompletionException`() {
+    fun `asBlocking returns a sync client that completes normally`() {
         val asyncClient =
             AsyncHttpClient { request ->
                 CompletableFuture.completedFuture(mockResponse(request, 204))
@@ -63,7 +68,7 @@ class AsyncHttpClientTest {
     }
 
     @Test
-    fun `asBlocking surfaces the original exception, not the CompletionException wrapper`() {
+    fun `asBlocking surfaces the original exception, not the ExecutionException wrapper`() {
         val sentinel = IOException("network")
         val asyncClient =
             AsyncHttpClient {
@@ -73,6 +78,40 @@ class AsyncHttpClientTest {
         val syncClient = asyncClient.asBlocking()
         val thrown = assertFails { syncClient.execute(getRequest()) }
         assertEquals(sentinel.message, thrown.message)
+    }
+
+    @Test
+    fun `asBlocking honours interruption, throwing InterruptedIOException with the flag set`() {
+        // A future that never completes, so asBlocking parks in get() until interrupted.
+        val never = CompletableFuture<Response>()
+        val asyncClient = AsyncHttpClient { never }
+        val syncClient = asyncClient.asBlocking()
+
+        val started = CountDownLatch(1)
+        val thrown = AtomicReference<Throwable?>()
+        val flagSet = AtomicBoolean(false)
+        val worker =
+            Thread {
+                started.countDown()
+                try {
+                    syncClient.execute(getRequest())
+                } catch (t: Throwable) {
+                    thrown.set(t)
+                    flagSet.set(Thread.currentThread().isInterrupted)
+                }
+            }
+        worker.start()
+        // Wait for the worker to reach the blocking call, then interrupt it.
+        assertTrue(started.await(2, TimeUnit.SECONDS))
+        // Give it a moment to park in get() before interrupting.
+        Thread.sleep(50)
+        worker.interrupt()
+        worker.join(2_000)
+
+        val failure = thrown.get()
+        assertTrue(failure is InterruptedIOException, "expected InterruptedIOException, got $failure")
+        assertTrue(flagSet.get(), "interrupt flag must be restored on the calling thread")
+        assertTrue(never.isCancelled, "the in-flight future must be cancelled on interruption")
     }
 
     @Test

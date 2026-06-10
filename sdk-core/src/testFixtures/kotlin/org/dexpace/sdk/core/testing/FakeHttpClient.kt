@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.testing
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import java.io.InterruptedIOException
 import java.time.Duration
 
 /**
@@ -56,6 +57,10 @@ class FakeHttpClient : HttpClient {
      * Records [request], pops the next canned [MockResponse], honors its simulated delay
      * with `Thread.sleep`, and returns the materialized [Response].
      *
+     * If the simulating sleep is interrupted, the interrupt flag is restored and the wait is
+     * surfaced as an [InterruptedIOException] — matching the [HttpClient.execute] cancellation
+     * contract rather than letting the raw [InterruptedException] escape.
+     *
      * Throws [IllegalStateException] if no response is enqueued.
      */
     override fun execute(request: Request): Response {
@@ -66,7 +71,14 @@ class FakeHttpClient : HttpClient {
                     "FakeHttpClient: no response enqueued for request to ${request.url}",
                 )
         if (mock.delay > Duration.ZERO) {
-            Thread.sleep(mock.delay.toMillis())
+            try {
+                Thread.sleep(mock.delay.toMillis())
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                val ioe = InterruptedIOException("FakeHttpClient: interrupted while simulating response delay")
+                ioe.initCause(e)
+                throw ioe
+            }
         }
         return mock.toResponse(request)
     }

@@ -40,14 +40,26 @@ import java.nio.charset.Charset
  * The result is one encoding step plus two segment-level operations, regardless of payload
  * size. The previous implementation encoded each string twice and allocated a fresh
  * `ByteArray` per `writeAll` chunk.
+ *
+ * ## Tap cap
+ *
+ * [tapLimit] bounds how many bytes are mirrored into [tap]. Once that many bytes have been
+ * tapped, further writes stop copying into [tap] entirely while still forwarding the **full**
+ * payload to [primary] — the wire body is never truncated. The default [tapLimit] is
+ * [Long.MAX_VALUE] (unbounded mirroring). `LoggableRequestBody` caps this so a multi-GB upload
+ * mirrors only a bounded preview into the tap while streaming zero-copy to the transport.
  */
 internal class TeeSink(
     private val primary: BufferedSink,
     private val tap: Buffer,
     private val provider: IoProvider,
+    private val tapLimit: Long = Long.MAX_VALUE,
 ) : BufferedSink {
     /** Reusable staging area — keeps every typed write to a single encode + segment-move. */
     private val scratch: Buffer = provider.buffer()
+
+    /** Bytes mirrored into [tap] so far; mirroring stops once this reaches [tapLimit]. */
+    private var mirrored: Long = 0L
 
     /**
      * Direct buffer access is unsupported on a `TeeSink`: writes into the buffer would only
@@ -65,9 +77,27 @@ internal class TeeSink(
         source: Buffer,
         byteCount: Long,
     ) {
-        // Mirror the prefix into tap (non-destructive), then drain into primary (destructive).
-        source.copyTo(tap, 0, byteCount)
+        // Mirror up to the remaining tap budget (non-destructive), then drain the FULL count into
+        // primary (destructive) — the wire body is never truncated.
+        mirrorPrefix(source, byteCount)
         primary.write(source, byteCount)
+    }
+
+    /**
+     * Copies the leading bytes of [source] into [tap] up to the remaining [tapLimit] budget,
+     * advancing [mirrored]. Once the budget is exhausted this is a no-op. [source] itself is
+     * left intact for the subsequent destructive drain into [primary].
+     */
+    @Throws(IOException::class)
+    private fun mirrorPrefix(
+        source: Buffer,
+        byteCount: Long,
+    ) {
+        val allowed = (tapLimit - mirrored).coerceAtLeast(0L)
+        if (allowed == 0L) return
+        val copy = if (byteCount < allowed) byteCount else allowed
+        source.copyTo(tap, 0, copy)
+        mirrored += copy
     }
 
     @Throws(IOException::class)
@@ -151,10 +181,13 @@ internal class TeeSink(
         val tapStream = tap.outputStream()
         return object : OutputStream() {
             override fun write(b: Int) {
-                // Mirror into the tap FIRST, then forward to the primary — same ordering as the
-                // typed-write path's `drainScratch`. If the primary side throws mid-write, the
-                // attempted byte is still captured in the tap snapshot for body logging.
-                tapStream.write(b)
+                // Mirror into the tap FIRST (within the budget), then forward the byte to the
+                // primary — same ordering as the typed-write path's `drainScratch`. If the primary
+                // side throws mid-write, the attempted byte is still captured in the tap snapshot.
+                if (mirrored < tapLimit) {
+                    tapStream.write(b)
+                    mirrored += 1L
+                }
                 primaryStream.write(b)
             }
 
@@ -163,9 +196,15 @@ internal class TeeSink(
                 off: Int,
                 len: Int,
             ) {
-                // Tap first, primary second (see single-byte overload): a primary-side failure
-                // leaves the failing chunk captured in the tap.
-                tapStream.write(b, off, len)
+                // Tap first (within the budget), primary second (see single-byte overload): a
+                // primary-side failure leaves the failing chunk captured in the tap. The FULL
+                // chunk is always forwarded to the primary so the wire body is never truncated.
+                val allowed = (tapLimit - mirrored).coerceAtLeast(0L)
+                if (allowed > 0L) {
+                    val copy = if (len.toLong() < allowed) len else allowed.toInt()
+                    tapStream.write(b, off, copy)
+                    mirrored += copy.toLong()
+                }
                 primaryStream.write(b, off, len)
             }
 
@@ -201,7 +240,7 @@ internal class TeeSink(
         val staged = scratch.size
         if (staged == 0L) return
         try {
-            scratch.copyTo(tap, 0, staged)
+            mirrorPrefix(scratch, staged)
             primary.write(scratch, staged)
         } finally {
             // Ensure scratch is empty even if the copy/write threw, otherwise the next

@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.pipeline
 
 import org.dexpace.sdk.core.http.context.DispatchContext
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.pipeline.step.ResponsePipelineStep
 import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
 import java.util.Collections
@@ -90,14 +91,21 @@ public class ResponsePipeline
             var current = outcome
             for (step in responseSteps) {
                 current =
-                    when (current) {
-                        is ResponseOutcome.Success ->
+                    when (val inbound = current) {
+                        is ResponseOutcome.Success -> {
+                            // Capture the in-hand response before the step runs so the catch can
+                            // release it. A throwing step would otherwise strand the open transport
+                            // connection — mirrors the close-before-propagate discipline in
+                            // DefaultRedirectStep / AuthStep.
+                            val inResponse = inbound.response
                             try {
-                                ResponseOutcome.Success(step.execute(current.response, context))
+                                ResponseOutcome.Success(step.execute(inResponse, context))
                             } catch (t: Throwable) {
+                                closeQuietly(inResponse, t)
                                 handleStepThrowable(t)
                             }
-                        is ResponseOutcome.Failure -> return current
+                        }
+                        is ResponseOutcome.Failure -> return inbound
                     }
             }
             return current
@@ -114,6 +122,11 @@ public class ResponsePipeline
             try {
                 step.invoke(outcome)
             } catch (t: Throwable) {
+                // A recovery step that throws on a Success outcome strands the in-hand response:
+                // close it before wrapping the throwable so the open connection is released.
+                if (outcome is ResponseOutcome.Success) {
+                    closeQuietly(outcome.response, t)
+                }
                 handleStepThrowable(t)
             }
 
@@ -126,5 +139,20 @@ public class ResponsePipeline
                 Thread.currentThread().interrupt()
             }
             return ResponseOutcome.Failure(t)
+        }
+
+        /**
+         * Closes [response], swallowing any close error so it never masks [primary]. A failure to
+         * close is attached to [primary] as a suppressed throwable for diagnostics.
+         */
+        private fun closeQuietly(
+            response: Response,
+            primary: Throwable,
+        ) {
+            try {
+                response.close()
+            } catch (closeError: Throwable) {
+                primary.addSuppressed(closeError)
+            }
         }
     }

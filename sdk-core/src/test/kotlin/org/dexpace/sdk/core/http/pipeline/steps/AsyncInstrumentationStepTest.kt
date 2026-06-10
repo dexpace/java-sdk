@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.http.response.LoggableResponseBody
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
@@ -34,6 +35,7 @@ import org.dexpace.sdk.core.instrumentation.installBasicMdcAdapter
 import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
 import org.dexpace.sdk.core.instrumentation.metrics.LongCounter
 import org.dexpace.sdk.core.instrumentation.metrics.Meter
+import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FakeHttpClient
 import org.dexpace.sdk.core.testing.FixedClock
@@ -126,6 +128,81 @@ class AsyncInstrumentationStepTest {
         assertTrue(body is LoggableResponseBody, "response body should be wrapped in LoggableResponseBody")
         // snapshot returns the cached bytes from the eager drain.
         assertEquals("hello async body", body.snapshot().toString(Charsets.UTF_8))
+        response.close()
+    }
+
+    @Test
+    fun `known-length response body is wrapped and bounded to the preview cap`() {
+        // A known-length body larger than bodyPreviewMaxBytes is wrapped: the capture is bounded
+        // to the cap, while the caller still streams the full body via source().
+        val payload = "y".repeat(100)
+        val fakeAsync =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(okResponseWithBody(request, 200, payload))
+            }
+        val pipeline =
+            AsyncHttpPipelineBuilder(fakeAsync)
+                .append(
+                    DefaultAsyncInstrumentationStep(
+                        options =
+                            HttpInstrumentationOptions(
+                                logLevel = HttpLogLevel.BODY_AND_HEADERS,
+                                bodyPreviewMaxBytes = 10,
+                            ),
+                    ),
+                )
+                .build()
+
+        val response = pipeline.sendAsync(getRequest("https://api.example.com/data")).join()
+        val body = response.body ?: fail("expected non-null body")
+        assertTrue(body is LoggableResponseBody, "known-length body must be wrapped")
+        assertEquals(10, body.snapshot().size, "capture must be bounded to bodyPreviewMaxBytes")
+        assertEquals(payload, body.source().readUtf8(), "caller must still stream the full body")
+        response.close()
+    }
+
+    @Test
+    fun `unknown-length response body is NOT wrapped in the async step`() {
+        // The async drain runs on the completion thread; an unknown-length (streaming) body
+        // (contentLength() < 0) is left unwrapped so a slow producer never blocks that thread.
+        val streamingBody =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+                override fun contentLength(): Long = -1L
+
+                override fun source(): BufferedSource = Io.provider.source("streamed".toByteArray())
+
+                override fun close() { /* no-op */ }
+            }
+        val fakeAsync =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.OK)
+                        .body(streamingBody)
+                        .build(),
+                )
+            }
+        val pipeline =
+            AsyncHttpPipelineBuilder(fakeAsync)
+                .append(
+                    DefaultAsyncInstrumentationStep(
+                        options = HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                    ),
+                )
+                .build()
+
+        val response = pipeline.sendAsync(getRequest("https://api.example.com/stream")).join()
+        val body = response.body ?: fail("expected non-null body")
+        assertFalse(
+            body is LoggableResponseBody,
+            "unknown-length body must NOT be wrapped (no eager drain on the completion thread)",
+        )
+        // The original streaming body is passed through untouched.
+        assertEquals("streamed", body.source().readUtf8())
         response.close()
     }
 

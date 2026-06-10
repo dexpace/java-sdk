@@ -24,6 +24,7 @@ import org.dexpace.sdk.core.instrumentation.UrlRedactor
 import org.dexpace.sdk.core.instrumentation.makeCurrentWithLoggingContext
 import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
 import org.dexpace.sdk.core.instrumentation.metrics.LongCounter
+import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
@@ -48,7 +49,11 @@ import java.util.concurrent.CompletionException
  *
  * ## Body capture / failure semantics
  *
- * Identical to the sync step — see its KDoc.
+ * Mostly identical to the sync step — see its KDoc. One difference: the response-body drain
+ * runs on the future-completion thread here, so an **unknown-length** (streaming) response
+ * body (`contentLength() < 0`) is left unwrapped — draining it could block the completion
+ * thread on a slow/idle producer. Known-length bodies are wrapped and bounded to the preview
+ * size as in the sync step.
  *
  * ## Thread-safety
  *
@@ -153,7 +158,9 @@ public class DefaultAsyncInstrumentationStep
             val requestBody = request.body
             val wrappedRequestBody =
                 if (shouldCaptureBody() && requestBody != null) {
-                    LoggableRequestBody(requestBody)
+                    // Cap the request-side tap so a multi-GB upload only mirrors a bounded preview
+                    // into memory while still streaming the full payload to the transport.
+                    LoggableRequestBody.bounded(requestBody, Io.provider, options.bodyPreviewMaxBytes.toLong())
                 } else {
                     null
                 }
@@ -234,7 +241,15 @@ public class DefaultAsyncInstrumentationStep
         private fun wrapResponseForLogging(response: Response): Response {
             val responseBody = response.body
             if (!shouldCaptureBody() || responseBody == null) return response
-            val wrapped = LoggableResponseBody(responseBody)
+            // The bounded drain below runs on the future-completion thread. For an unknown-length
+            // (streaming) body the read could block on a slow/idle producer and stall the
+            // completion thread, so we skip body capture entirely for contentLength() < 0 — the
+            // body streams to the caller unwrapped with no preview. Known-length bodies are safe
+            // to drain up to the bounded preview size.
+            if (responseBody.contentLength() < 0L) return response
+            // Bound the in-memory capture to the preview size. The full body still streams to the
+            // caller via the wrapper's live tail; only a preview prefix is buffered.
+            val wrapped = LoggableResponseBody.bounded(responseBody, Io.provider, options.bodyPreviewMaxBytes.toLong())
             // Force drain so we have bytes to log. Done here (not in the event emit) so a logging
             // failure can't mask the drain error from the caller — they still get the wrapped body
             // with the cached exception surfaced on source().

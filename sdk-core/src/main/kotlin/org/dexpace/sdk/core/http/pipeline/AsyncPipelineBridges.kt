@@ -12,8 +12,9 @@ package org.dexpace.sdk.core.http.pipeline
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
+import java.io.InterruptedIOException
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CompletionException
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
 
@@ -112,17 +113,32 @@ private fun sendInterruptibly(
 
 /**
  * Adapts an [AsyncHttpPipeline] into a synchronous [HttpPipeline] by blocking on
- * `sendAsync(request).join()` for each `send(...)` call. The current thread blocks until the
+ * `sendAsync(request).get()` for each `send(...)` call. The current thread blocks until the
  * future completes; pair with virtual threads (JDK 21+) on the caller side to keep carrier
  * threads available.
+ *
+ * The blocking wait honours `Thread.interrupt()`: interrupting the calling thread restores the
+ * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException].
  */
 public fun AsyncHttpPipeline.toBlocking(): HttpPipeline {
     val async = this
     return HttpPipeline.of { request ->
+        val future = async.sendAsync(request)
         try {
-            async.sendAsync(request).join()
-        } catch (ce: CompletionException) {
-            throw Futures.unwrap(ce)
+            future.get()
+        } catch (ie: InterruptedException) {
+            // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
+            // the in-flight send, and surface an InterruptedIOException so the caller's I/O
+            // error handling terminates cleanly.
+            Thread.currentThread().interrupt()
+            future.cancel(true)
+            val ioe = InterruptedIOException("Interrupted while waiting for response")
+            ioe.initCause(ie)
+            throw ioe
+        } catch (ee: ExecutionException) {
+            // `get()` wraps exceptional completion in ExecutionException; unwrap so callers'
+            // `catch (IOException)` sees the original failure rather than the JDK wrapper.
+            throw Futures.unwrap(ee)
         }
     }
 }

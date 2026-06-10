@@ -26,17 +26,26 @@ import org.dexpace.sdk.core.instrumentation.metrics.NoopMeter
  *
  * ## WARNING — [HttpLogLevel.BODY_AND_HEADERS] and streaming
  *
- * When [logLevel] is [HttpLogLevel.BODY_AND_HEADERS] the response body is **fully drained
- * into memory** before the caller ever sees it (the drain happens eagerly inside the
- * instrumentation step). This is fundamentally incompatible with streaming responses:
+ * When [logLevel] is [HttpLogLevel.BODY_AND_HEADERS] both the request and response bodies are
+ * captured for logging, but the capture is **bounded to [bodyPreviewMaxBytes]** — only a preview
+ * prefix is held in memory, not the whole body:
  *
- *  - The entire response is buffered — large or unbounded payloads can exhaust the heap.
- *  - Backpressure is lost — the transport cannot pause the producer once the body is read.
- *  - First-byte latency for the caller approaches end-of-stream latency.
+ *  - **Response body**: at most [bodyPreviewMaxBytes] bytes are buffered. A body within the cap
+ *    is fully captured and stays repeatable; a larger body still streams in full to the caller
+ *    (the wrapper replays the captured prefix then continues from the live tail) while only the
+ *    preview occupies the heap. In the **sync** step the bounded drain happens eagerly inside
+ *    the step. In the **async** step the bounded drain runs on the future-completion thread, so
+ *    it is **skipped for unknown-length (streaming) bodies** (`contentLength() < 0`) — those
+ *    stream to the caller unwrapped with no body preview, so a slow/idle producer never blocks
+ *    the completion thread.
+ *  - **Request body**: the request-side tap is likewise capped at [bodyPreviewMaxBytes], so a
+ *    large (e.g. multi-GB file) upload mirrors only a bounded preview into memory while the full
+ *    payload streams zero-copy to the transport.
  *
- * Use [HttpLogLevel.HEADERS] (or [HttpLogLevel.NONE]) for endpoints that return large
- * downloads, server-sent events, gRPC, or chunked encodings whose size is unknown ahead
- * of time. [HttpLogLevel.BODY_AND_HEADERS] is intended for diagnostic builds against
+ * Even with the cap, [HttpLogLevel.BODY_AND_HEADERS] wraps known-length response bodies in a
+ * draining wrapper. Prefer [HttpLogLevel.HEADERS] (or [HttpLogLevel.NONE]) for endpoints that
+ * return large downloads, server-sent events, gRPC, or chunked encodings whose size is unknown
+ * ahead of time. [HttpLogLevel.BODY_AND_HEADERS] is intended for diagnostic builds against
  * small JSON/text payloads.
  */
 public class HttpInstrumentationOptions

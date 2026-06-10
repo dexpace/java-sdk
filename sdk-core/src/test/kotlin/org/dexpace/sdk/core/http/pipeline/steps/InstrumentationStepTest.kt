@@ -389,8 +389,10 @@ class InstrumentationStepTest {
     }
 
     @Test
-    fun `bodyPreviewMaxBytes truncates the response body preview to the configured cap`() {
-        // Cover the snapshot(maxBytes) path with maxBytes < body size.
+    fun `bodyPreviewMaxBytes bounds the captured preview while the caller still streams the full body`() {
+        // With BODY_AND_HEADERS the response is wrapped with the in-memory capture bounded to
+        // bodyPreviewMaxBytes. The log preview is bounded, but the caller still receives the
+        // entire body via source() (captured prefix + live tail).
         val payload = "x".repeat(100)
         val fake = FakeHttpClient().enqueue { status(200).body(payload, MediaType.parse("text/plain")) }
         val pipeline =
@@ -407,13 +409,12 @@ class InstrumentationStepTest {
 
         val response = pipeline.send(getRequest("https://api.example.com/x"))
         val body = response.body ?: fail("body must be present")
-        // The wrapped body still exposes the full bytes via snapshot() — only the log preview
-        // is truncated. Caller-facing API stays intact.
         assertTrue(body is LoggableResponseBody)
-        val full = body.snapshot()
-        assertEquals(100, full.size, "wrapper must retain full body for the caller")
-        val truncated = body.snapshot(10)
-        assertEquals(10, truncated.size, "snapshot(10) must return only the cap")
+        // The in-memory capture is bounded to the preview cap.
+        assertEquals(10, body.snapshot().size, "capture must be bounded to bodyPreviewMaxBytes")
+        assertEquals(10, body.snapshot(10).size, "snapshot(10) must return only the cap")
+        // But the caller still streams the FULL body via source() (prefix + live tail).
+        assertEquals(payload, body.source().readUtf8(), "caller must receive the full body")
         response.close()
     }
 

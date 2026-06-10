@@ -18,16 +18,23 @@ import java.util.regex.Pattern
  * Runtime carrier for HTTP proxy configuration.
  *
  * Holds the proxy [Type] and [address], an optional list of [nonProxyHosts] glob patterns,
- * and either inline [username] / [password] credentials or a pluggable [challengeHandler] for
- * Digest proxy authentication. [nonProxyHosts] are compiled once at construction so per-request
- * [bypassesProxy] lookups don't re-compile.
+ * inline [username] / [password] credentials, and a [challengeHandler] slot. [nonProxyHosts]
+ * are compiled once at construction so per-request [bypassesProxy] lookups don't re-compile.
  *
  * Instances are immutable. Construct directly for explicit configuration, or use
  * [fromConfiguration] to pull settings from JVM system properties and standard environment
  * variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`).
  *
- * When both [username] / [password] and [challengeHandler] are supplied, [challengeHandler]
- * wins — it is strictly more flexible (Digest support).
+ * ## Proxy authentication
+ *
+ * Proxy auth is driven by [username] / [password]. The shipped transports apply them as follows:
+ * - OkHttp transport: sets up **Basic** proxy authentication from [username] / [password].
+ * - JDK transport: passes [username] / [password] to the `java.net.http` stack, which negotiates
+ *   **Basic** or **Digest** with the proxy itself.
+ *
+ * [challengeHandler] is **currently not honoured by any shipped transport** — it is reserved for
+ * a future pluggable proxy-auth mechanism. Setting it has no effect today (the transports ignore
+ * it and log a warning), so supply [username] / [password] for proxy authentication.
  *
  * ## Bypass-all semantics (breaking change from pre-v2 API)
  *

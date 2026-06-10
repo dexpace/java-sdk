@@ -22,6 +22,25 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Entries are removed by [CallContext.close] when callers honour the close contract.
  *
+ * ## Lifecycle and leaks
+ *
+ * Eviction is **primarily close-only**: the normal path is that [CallContext.close] removes
+ * the entry. Only the **terminal** promotion context (the [ExchangeContext] that ends the
+ * chain) should be closed — closing an earlier link uses identity-conditional [remove] so it
+ * cannot evict the live successor that replaced it. A caller that fails to close on an
+ * exception path drops an entry that **pins the full Request + Response graph** — possibly an
+ * unread response body holding a transport connection open.
+ *
+ * To stop a missed close from leaking unboundedly, the backing map is **bounded** to
+ * [MAX_TRACKED_CONTEXTS] entries: after each insert ([set] / [put]) the map is drained back
+ * under the cap, mirroring the proven bound in
+ * [DigestChallengeHandler][org.dexpace.sdk.core.http.auth.DigestChallengeHandler]'s nonce
+ * counters. The bound is a backstop, not a substitute for closing — it caps memory but a
+ * leaked entry still holds its graph alive until evicted, and eviction is by arbitrary victim
+ * (see [drainToCap]), so a still-live call could lose its registry entry under heavy leak
+ * pressure. The store is the only strong reference on the live path, so a [java.lang.ref.WeakReference]
+ * cannot be used here: it would let an in-flight context be collected mid-call.
+ *
  * ## Thread-safety
  *
  * Thread-safe. The backing map is a [ConcurrentHashMap] so concurrent calls with distinct
@@ -49,6 +68,7 @@ public object ContextStore {
     ) {
         val previous = contexts.putIfAbsent(callKey, context)
         require(previous == null) { "Call context key already registered: $callKey" }
+        drainToCap()
     }
 
     /**
@@ -61,6 +81,7 @@ public object ContextStore {
         context: CallContext,
     ) {
         contexts[callKey] = context
+        drainToCap()
     }
 
     /**
@@ -100,4 +121,29 @@ public object ContextStore {
         }
         return removed
     }
+
+    /**
+     * Drains the backing map back under [MAX_TRACKED_CONTEXTS] after an insert. Mirrors
+     * [DigestChallengeHandler][org.dexpace.sdk.core.http.auth.DigestChallengeHandler]'s
+     * post-insert drain loop: rather than a single check-then-evict-then-insert (a non-atomic
+     * race that a burst of concurrent inserts can overshoot and then sit at the cap forever),
+     * each insert drains until the map is back under the cap, so the map converges to the
+     * bound. `ConcurrentHashMap` has no insertion order, so any single key is an acceptable
+     * victim — the first the iterator yields is dropped.
+     */
+    private fun drainToCap() {
+        while (contexts.size > MAX_TRACKED_CONTEXTS) {
+            val iterator = contexts.keys.iterator()
+            if (!iterator.hasNext()) break
+            contexts.remove(iterator.next())
+        }
+    }
+
+    // Upper bound on call contexts tracked at once. The store is normally drained by
+    // close(), so this is a backstop against a missed close on an exception path leaking an
+    // entry that pins a full Request + Response graph. 4096 is large enough to never bite a
+    // realistic in-flight concurrency level (each entry is one live or recently-finished
+    // call), yet small enough to cap worst-case retained memory at a few thousand graphs.
+    // Matches the bounded-map style of DigestChallengeHandler.MAX_TRACKED_NONCES.
+    private const val MAX_TRACKED_CONTEXTS = 4096
 }

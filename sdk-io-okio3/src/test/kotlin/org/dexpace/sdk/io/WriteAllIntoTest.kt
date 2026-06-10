@@ -13,11 +13,13 @@ import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.io.Source
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.nio.charset.Charset
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -26,7 +28,7 @@ import kotlin.test.assertTrue
  *
  * The Okio-fast paths are already covered by `OkioIoProviderTest`. Here we focus on the
  * `else` branch that does a pump loop through an intermediate `OkioBuffer`, and on the
- * `read <= 0` guard against a foreign Source that returns 0.
+ * contract guard that rejects a foreign Source returning 0 for a non-zero byteCount.
  */
 class WriteAllIntoTest {
     @BeforeTest
@@ -76,7 +78,7 @@ class WriteAllIntoTest {
         ): BufferedSource = throw UnsupportedOperationException()
     }
 
-    /** Foreign Source that returns 0 on first read — ensures the slow path's guard short-circuits. */
+    /** Foreign Source that returns 0 on first read — ensures the slow path's guard rejects it. */
     private class ZeroSource : Source {
         override fun read(
             sink: Buffer,
@@ -98,13 +100,10 @@ class WriteAllIntoTest {
     }
 
     @Test
-    fun `writeAll terminates on a Source that returns zero`() {
+    fun `writeAll rejects a Source that returns zero for a non-zero byteCount`() {
         val out = ByteArrayOutputStream()
         val sink: BufferedSink = OkioIoProvider.sink(out)
-        val n = sink.writeAll(ZeroSource())
-        sink.flush()
-        assertEquals(0L, n)
-        assertContentEquals(ByteArray(0), out.toByteArray())
+        assertFailsWith<IOException> { sink.writeAll(ZeroSource()) }
     }
 
     @Test

@@ -11,11 +11,14 @@ import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import java.net.MalformedURLException
 import java.net.URL
+import java.net.URLStreamHandler
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class RequestTest {
     @Test
@@ -214,5 +217,93 @@ class RequestTest {
                 Request.builder().method(Method.GET).build()
             }
         assertEquals("URL is required.", ex.message)
+    }
+
+    // ---------------------------------------------------------------------
+    // Equality — compares url by external form, never resolving DNS.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `requests with different hosts are not equal`() {
+        val a =
+            Request.builder()
+                .url("https://host-a.example/path")
+                .method(Method.GET)
+                .build()
+        val b =
+            Request.builder()
+                .url("https://host-b.example/path")
+                .method(Method.GET)
+                .build()
+
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun `equal requests stay equal with consistent hashCode`() {
+        val a =
+            Request.builder()
+                .url("https://api.example.test/path")
+                .method(Method.POST)
+                .addHeader("X-A", "1")
+                .build()
+        val b =
+            Request.builder()
+                .url("https://api.example.test/path")
+                .method(Method.POST)
+                .addHeader("X-A", "1")
+                .build()
+
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        // Stable across repeated invocations.
+        assertEquals(a.hashCode(), a.hashCode())
+    }
+
+    @Test
+    fun `requests differing only by url path are not equal`() {
+        val a =
+            Request.builder()
+                .url("https://api.example.test/one")
+                .method(Method.GET)
+                .build()
+        val b =
+            Request.builder()
+                .url("https://api.example.test/two")
+                .method(Method.GET)
+                .build()
+
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun `equals and hashCode perform no network IO`() {
+        // A URLStreamHandler whose equals/hashCode/getHostAddress throw if the JDK URL machinery
+        // ever tries to resolve the host. java.net.URL.equals/hashCode delegate to the handler and
+        // would trip these; Request must compare via toExternalForm() and never touch them.
+        val exploding =
+            object : URLStreamHandler() {
+                override fun openConnection(u: URL) =
+                    throw AssertionError("openConnection must not be called during equality")
+
+                override fun equals(
+                    u1: URL?,
+                    u2: URL?,
+                ): Boolean = throw AssertionError("URLStreamHandler.equals (DNS) must not be called")
+
+                override fun hashCode(u: URL): Int =
+                    throw AssertionError("URLStreamHandler.hashCode (DNS) must not be called")
+            }
+
+        val urlA = URL("https", "host-a.example", -1, "/path", exploding)
+        val urlB = URL("https", "host-a.example", -1, "/path", exploding)
+
+        val a = Request.builder().url(urlA).method(Method.GET).build()
+        val b = Request.builder().url(urlB).method(Method.GET).build()
+
+        // These calls would throw AssertionError if Request delegated to URL.equals/hashCode.
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertTrue(a == b)
     }
 }

@@ -31,7 +31,7 @@ import java.io.InputStream
  *
  * Instances are **not** thread-safe. The stream returned by [byteStream] should be read
  * from a single thread only. For concurrent access, wrap with
- * [LoggableResponseBody][org.dexpace.sdk.core.http.logging.LoggableResponseBody] which
+ * [LoggableResponseBody] which
  * buffers the content and provides thread-safe, repeatable reads.
  *
  * ## Single-use contract
@@ -40,7 +40,7 @@ import java.io.InputStream
  * every call, and once consumed, the bytes are gone. Use [bytes] or [string] for a
  * one-shot read, or wrap with `LoggableResponseBody` for repeatable access.
  *
- * @see org.dexpace.sdk.core.http.logging.LoggableResponseBody for a buffered wrapper that
+ * @see LoggableResponseBody for a buffered wrapper that
  *      supports repeatable reads and non-destructive logging.
  */
 public abstract class ResponseBody : Closeable {

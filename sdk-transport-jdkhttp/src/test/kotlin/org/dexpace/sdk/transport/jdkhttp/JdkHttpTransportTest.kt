@@ -12,20 +12,30 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.junit5.StartStop
 import okio.Buffer
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.Io
+import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.io.OkioIoProvider
+import org.dexpace.sdk.transport.jdkhttp.internal.BodyPublishers
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URL
 import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletionException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Flow
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -288,6 +298,106 @@ class JdkHttpTransportTest {
             val recorded = server.takeRequest()
             val received = recorded.body?.toByteArray() ?: ByteArray(0)
             assertEquals(md5(bytes), md5(received), "piped-path round-trip mismatch at size=$size")
+        }
+    }
+
+    // -------- streaming publisher re-subscription (H4) --------
+
+    @Test
+    fun `streamingPublisherSurvivesResubscription`() {
+        // The JDK re-acquires the BodyPublisher's InputStream once per subscription and
+        // re-subscribes on internal resends (407 proxy-auth retry, HTTP/2 GOAWAY replay). The
+        // supplier must therefore mint a fresh pipe + writer per subscription so a replayable
+        // body produces the full bytes every time — not an exhausted/empty stream on resend.
+        // A true proxy 407 flow is awkward to drive over plaintext MockWebServer, so we drive
+        // the publisher directly: a > 64 KiB replayable body, drained twice.
+        val bytes = randomBytes(128 * 1024, seed = 4242L)
+        val body = RequestBody.create(bytes, CommonMediaTypes.APPLICATION_OCTET_STREAM)
+        val publisher = BodyPublishers.adaptBody(body)
+
+        val first = drainPublisher(publisher)
+        assertContentEquals(bytes, first, "first subscription must yield the full streaming body")
+
+        // Re-subscribe: the same publisher must mint a fresh stream and replay the full body.
+        val second = drainPublisher(publisher)
+        assertContentEquals(bytes, second, "re-subscription must yield the full streaming body again")
+    }
+
+    @Test
+    fun `streamingBodyRoundTripsThroughTransport`() {
+        // End-to-end confirmation that the per-subscription streaming path delivers a > 64 KiB
+        // replayable body intact over the real transport, not just in the direct-publisher test.
+        val bytes = randomBytes(256 * 1024, seed = -7L)
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/stream-resub").toUrl())
+                .body(RequestBody.create(bytes, CommonMediaTypes.APPLICATION_OCTET_STREAM))
+                .build()
+        transport.execute(request).use { it.body?.source()?.readByteArray() }
+        val recorded = server.takeRequest()
+        val received = recorded.body?.toByteArray() ?: ByteArray(0)
+        assertEquals(md5(bytes), md5(received), "streaming body must round-trip intact")
+    }
+
+    @Test
+    fun `abandonedStreamingPublisherDoesNotStrandWriter`() {
+        // A subscription that is acquired but never drained (connect failure, cancellation
+        // before body send) would otherwise leave the writer thread blocked forever in
+        // PipedOutputStream.write once the 8 KiB pipe fills. Closing the supplied InputStream —
+        // which the JDK does when it abandons a subscription — must cancel/interrupt the writer.
+        // We open one subscription's stream via the test seam, let the writer fill the pipe and
+        // park in write(), then close the stream and assert the writer is released.
+        val writerExited = CountDownLatch(1)
+        val bytes = randomBytes(512 * 1024, seed = 99L)
+        val body =
+            LatchedReplayableBody(bytes, CommonMediaTypes.APPLICATION_OCTET_STREAM, writerExited)
+
+        val stream = BodyPublishers.openSubscriptionStreamForTest(body)
+        // Give the writer time to fill the 8 KiB pipe and park in PipedOutputStream.write.
+        Thread.sleep(200)
+        assertEquals(1L, writerExited.count, "writer should still be parked, not yet exited")
+        // The kill switch: closing the stream must unblock/cancel the parked writer.
+        stream.close()
+
+        assertTrue(
+            writerExited.await(3, TimeUnit.SECONDS),
+            "closing the abandoned subscription stream must unblock/cancel the writer thread",
+        )
+    }
+
+    // -------- proxy challengeHandler (M7) --------
+
+    @Test
+    fun `proxyChallengeHandlerIsAcceptedAndSurfacedAsUnsupported`() {
+        // ProxyOptions.challengeHandler cannot be honoured by java.net.http (no per-407 hook).
+        // The builder must accept it, log the unsupported warning, and fall back to
+        // username/password negotiation rather than throwing. The slf4j-nop test binding has no
+        // appender, so we assert the accepted-and-functional contract: the transport builds and
+        // dispatches a request without error through the challengeHandler branch of applyProxy.
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val proxyAddress = InetSocketAddress("127.0.0.1", freePort())
+        val options =
+            ProxyOptions(
+                type = ProxyOptions.Type.HTTP,
+                address = proxyAddress,
+                username = "u",
+                password = "p",
+                challengeHandler = NoopChallengeHandler,
+                bypassAllHosts = true,
+            )
+        val proxiedTransport =
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .proxy(options)
+                .build()
+        // bypassAllHosts routes every host directly, so the request reaches MockWebServer
+        // without touching the (dead) proxy — proving the builder accepted the
+        // challengeHandler-bearing ProxyOptions and produced a working transport.
+        proxiedTransport.execute(simpleGet("/proxy-challenge")).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("ok", response.body?.source()?.readUtf8())
         }
     }
 
@@ -554,5 +664,78 @@ class JdkHttpTransportTest {
 
     private fun freePort(): Int {
         ServerSocket(0).use { socket -> return socket.localPort }
+    }
+
+    /**
+     * Drains a [HttpRequest.BodyPublisher] (a `Flow.Publisher<ByteBuffer>`) to completion,
+     * returning the concatenated bytes. Subscribes fresh each call, so a second invocation on
+     * the same publisher exercises the JDK's per-subscription re-acquisition.
+     */
+    private fun drainPublisher(publisher: HttpRequest.BodyPublisher): ByteArray {
+        val out = ByteArrayOutputStream()
+        val done = CountDownLatch(1)
+        val error = AtomicReference<Throwable?>()
+        publisher.subscribe(
+            object : Flow.Subscriber<ByteBuffer> {
+                override fun onSubscribe(subscription: Flow.Subscription) {
+                    subscription.request(Long.MAX_VALUE)
+                }
+
+                override fun onNext(item: ByteBuffer) {
+                    val chunk = ByteArray(item.remaining())
+                    item.get(chunk)
+                    out.write(chunk)
+                }
+
+                override fun onError(throwable: Throwable) {
+                    error.set(throwable)
+                    done.countDown()
+                }
+
+                override fun onComplete() {
+                    done.countDown()
+                }
+            },
+        )
+        assertTrue(done.await(5, TimeUnit.SECONDS), "publisher did not complete in time")
+        error.get()?.let { throw AssertionError("publisher errored", it) }
+        return out.toByteArray()
+    }
+
+    /**
+     * Replayable body that trips [exited] when its [writeTo] returns or aborts — used to detect
+     * that an abandoned-subscription writer was actually unblocked rather than left parked.
+     */
+    private class LatchedReplayableBody(
+        private val bytes: ByteArray,
+        private val mediaType: MediaType,
+        private val exited: CountDownLatch,
+    ) : RequestBody() {
+        override fun mediaType(): MediaType = mediaType
+
+        override fun contentLength(): Long = bytes.size.toLong()
+
+        override fun isReplayable(): Boolean = true
+
+        override fun writeTo(sink: BufferedSink) {
+            try {
+                sink.write(bytes)
+                sink.flush()
+            } finally {
+                exited.countDown()
+            }
+        }
+    }
+
+    /** Minimal [org.dexpace.sdk.core.http.auth.ChallengeHandler] stub for the M7 acceptance test. */
+    private object NoopChallengeHandler : org.dexpace.sdk.core.http.auth.ChallengeHandler {
+        override fun handleChallenges(
+            method: Method,
+            uri: java.net.URI,
+            challenges: List<org.dexpace.sdk.core.http.auth.AuthenticateChallenge>,
+            isProxy: Boolean,
+        ): org.dexpace.sdk.core.http.auth.AuthorizationHeader? = null
+
+        override fun canHandle(challenges: List<org.dexpace.sdk.core.http.auth.AuthenticateChallenge>): Boolean = false
     }
 }

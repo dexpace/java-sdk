@@ -21,6 +21,7 @@ import org.dexpace.sdk.core.instrumentation.UrlRedactor
 import org.dexpace.sdk.core.instrumentation.makeCurrentWithLoggingContext
 import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
 import org.dexpace.sdk.core.instrumentation.metrics.LongCounter
+import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.Clock
 import java.io.IOException
 
@@ -34,11 +35,15 @@ import java.io.IOException
  * ## Body capture semantics
  *
  * - **Request body**: wrapped before send; bytes are captured during the transport's `writeTo`
- *   via a `TeeSink`. After send returns, the captured snapshot is emitted in the
- *   `http.response` event.
- * - **Response body**: wrapped after send. The wrapper drains lazily on first `source()` /
- *   `snapshot()`; this step calls `snapshot(bodyPreviewMaxBytes)` to force the drain and log
- *   a bounded preview. Subsequent caller reads see the cached buffer — no double-drain.
+ *   via a `TeeSink`. The tap is capped at `bodyPreviewMaxBytes`, so a large upload mirrors only
+ *   a bounded preview into memory while the full payload streams to the transport. After send
+ *   returns, the captured snapshot is emitted in the `http.response` event.
+ * - **Response body**: wrapped after send with the in-memory capture bounded to
+ *   `bodyPreviewMaxBytes`. The wrapper drains lazily on first `source()` / `snapshot()`; this
+ *   step calls `snapshot(bodyPreviewMaxBytes)` to force the bounded drain and log a preview.
+ *   A body larger than the cap still streams in full to the caller (the wrapper replays the
+ *   captured prefix then continues from the live tail); a body within the cap stays fully
+ *   repeatable.
  *
  * ## Failure handling
  *
@@ -101,7 +106,9 @@ public class DefaultInstrumentationStep
             val requestBody = request.body
             val wrappedRequestBody =
                 if (shouldCaptureBody() && requestBody != null) {
-                    LoggableRequestBody(requestBody)
+                    // Cap the request-side tap so a multi-GB upload only mirrors a bounded preview
+                    // into memory while still streaming the full payload to the transport.
+                    LoggableRequestBody.bounded(requestBody, Io.provider, options.bodyPreviewMaxBytes.toLong())
                 } else {
                     null
                 }
@@ -144,7 +151,9 @@ public class DefaultInstrumentationStep
         private fun wrapResponseForLogging(response: Response): Response {
             val responseBody = response.body
             if (!shouldCaptureBody() || responseBody == null) return response
-            val wrapped = LoggableResponseBody(responseBody)
+            // Bound the in-memory capture to the preview size. The full body still streams to the
+            // caller via the wrapper's live tail; only a preview prefix is buffered.
+            val wrapped = LoggableResponseBody.bounded(responseBody, Io.provider, options.bodyPreviewMaxBytes.toLong())
             // Force drain so we have bytes to log. Done here (not in the event emit) so a logging
             // failure can't mask the drain error from the caller — they still get the wrapped body
             // with the cached exception surfaced on source().

@@ -12,21 +12,31 @@ import org.dexpace.sdk.core.io.Buffer
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.io.IoProvider
+import org.dexpace.sdk.core.io.Source
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * Wraps a [ResponseBody] to provide repeatable reads.
+ * Wraps a [ResponseBody] to provide repeatable reads of a bounded capture prefix.
  *
- * On the first call to [source], [snapshot], or [captureException], the wrapped body is
- * drained into an internal [Buffer] using a single `writeAll` (segment-transferring on
- * Okio-backed providers). Subsequent calls to [source] return a fresh non-consuming view of
- * the same bytes, and [snapshot] returns the captured bytes for logging.
+ * On the first call to [source], [snapshot], or [captureException], up to `maxCaptureBytes`
+ * bytes of the wrapped body are drained into an internal [Buffer]. Two regimes follow:
  *
- * The wrapped body is closed after draining (success or failure). [close] on this wrapper
- * is idempotent and stops further drains; the captured buffer survives close so post-mortem
- * snapshots remain available.
+ * - **Body fits within the cap** (the default, unlimited path): the whole body is captured,
+ *   the delegate is closed, and every subsequent [source] call returns a fresh non-consuming
+ *   view (`peek()`) of the same bytes — fully repeatable, exactly as before.
+ * - **Body exceeds the cap**: only the prefix is buffered and the delegate is **left open**.
+ *   [source] then returns a **one-shot** stream that first replays the captured prefix and
+ *   then continues from the still-live delegate tail, so the caller receives the complete
+ *   body. Because the tail can be read only once, calling [source] a second time on an
+ *   over-cap body throws [IllegalStateException].
+ *
+ * The default `maxCaptureBytes` is [Long.MAX_VALUE], so the unlimited (fully-repeatable)
+ * behavior is preserved for callers that construct the wrapper directly. The instrumentation
+ * steps construct a [bounded] wrapper capped at the configured body-preview size so logging
+ * never buffers more than a preview into memory.
  *
  * ## Failure semantics
  *
@@ -42,28 +52,39 @@ import kotlin.concurrent.withLock
  *
  * ## Memory
  *
- * The whole body is buffered in memory. Only suitable for bodies that fit comfortably in
- * RAM. For multi-MB bodies whose only consumer is logging, prefer [snapshot] with a
- * `maxBytes` cap.
+ * At most `maxCaptureBytes` bytes are buffered in memory. The default unlimited cap buffers
+ * the whole body, so the default path is only suitable for bodies that fit comfortably in
+ * RAM. For multi-MB or streaming bodies whose only consumer is logging, use [bounded] (the
+ * instrumentation steps do) so memory stays bounded while the caller still streams the rest.
  *
  * ## Thread safety
  *
  * The drain itself is single-fire — concurrent first calls to [source]/[snapshot] are
- * serialized on an internal lock so the upstream is read exactly once. After drain, the
+ * serialized on an internal lock so the upstream is read exactly once. After a full drain the
  * captured buffer is read-only from this wrapper's perspective; concurrent readers each
  * receive a separate `peek()` view, which is safe as long as no external code mutates the
- * captured buffer.
+ * captured buffer. The one-shot over-cap [source] is single-consumer by contract.
  *
  * @param delegate Body whose bytes will be captured and re-served.
  * @param provider I/O provider used to allocate the capture [Buffer]. Defaults to the
  *   globally installed provider.
  */
 public class LoggableResponseBody
-    @JvmOverloads
-    constructor(
+    internal constructor(
         private val delegate: ResponseBody,
-        private val provider: IoProvider = Io.provider,
+        private val provider: IoProvider,
+        private val maxCaptureBytes: Long,
     ) : ResponseBody() {
+        /**
+         * Public surface: an unbounded wrapper that captures the entire body (fully repeatable).
+         * Equivalent to `bounded(delegate, provider, Long.MAX_VALUE)`.
+         */
+        @JvmOverloads
+        public constructor(
+            delegate: ResponseBody,
+            provider: IoProvider = Io.provider,
+        ) : this(delegate, provider, Long.MAX_VALUE)
+
         private val lock = ReentrantLock()
 
         @Volatile
@@ -75,31 +96,61 @@ public class LoggableResponseBody
         @Volatile
         private var closed = false
 
-        // Set after a successful drain: the drain path closes the source via `.use {}`, so a
-        // subsequent close() must not close the delegate again — some sockets / streams throw
-        // on double-close.
+        // True once the whole body fit within the cap and was drained into [captured]; the drain
+        // path closes the source via `.use {}` in that case, so [source] can hand out repeatable
+        // peek() views and close() must not double-close the delegate.
+        @Volatile
+        private var fullyCaptured = false
+
+        // Set when the cap was hit with bytes still pending: the live delegate source is retained
+        // so the one-shot [source] can replay the captured prefix then continue from this tail.
+        @Volatile
+        private var liveTail: BufferedSource? = null
+
+        // Guards the single-consumer contract for the over-cap one-shot source.
+        private val tailHandedOut = AtomicBoolean(false)
+
+        // Set after the delegate (and, by ownership, its source) has been closed, so a subsequent
+        // close() must not close it again — some sockets / streams throw on double-close.
         @Volatile
         private var delegateClosed = false
 
         override fun mediaType(): MediaType? = delegate.mediaType()
 
-        override fun contentLength(): Long = captured?.size ?: delegate.contentLength()
+        /**
+         * Returns the captured size only when the body was fully captured within the cap;
+         * otherwise the delegate's reported length (the true length), since the capture is just
+         * a bounded prefix.
+         */
+        override fun contentLength(): Long =
+            if (fullyCaptured) captured?.size ?: delegate.contentLength() else delegate.contentLength()
 
         /**
-         * Returns a fresh non-consuming view of the captured body. Drains the wrapped body on
-         * first call. If the drain failed (partial capture), this method re-throws the captured
-         * exception every time — callers see the failure rather than a silent empty source.
+         * Returns a view of the captured body. Drains (up to the cap) on first call. If the drain
+         * failed (partial capture), this method re-throws the captured exception every time —
+         * callers see the failure rather than a silent empty source.
+         *
+         * When the body fit within the cap the returned source is a fresh non-consuming `peek()`
+         * view and may be requested repeatedly. When the body exceeded the cap the returned source
+         * is a **one-shot** stream that replays the captured prefix then continues from the live
+         * delegate tail; a second call on an over-cap body throws [IllegalStateException].
          */
         override fun source(): BufferedSource {
             val buf = ensureCaptured()
             drainError?.let { throw it.asIOException() }
-            return buf.peek()
+            if (fullyCaptured) return buf.peek()
+            check(tailHandedOut.compareAndSet(false, true)) {
+                "LoggableResponseBody capture exceeded maxCaptureBytes; source() over the live tail " +
+                    "is single-use and was already consumed."
+            }
+            val tail = liveTail ?: return buf.peek()
+            return provider.bufferedSource(PrefixThenTailSource(buf.peek(), tail))
         }
 
         /**
-         * Returns the captured body bytes. Returns whatever was read before any drain failure —
-         * a drain error does not prevent this method from returning the partial capture. Use
-         * [captureException] alongside this method when you need to know whether the capture
+         * Returns the captured (bounded) body bytes. Returns whatever was read before any drain
+         * failure — a drain error does not prevent this method from returning the partial capture.
+         * Use [captureException] alongside this method when you need to know whether the capture
          * was complete.
          *
          * @throws IllegalStateException if the captured body exceeds [Buffer.MAX_BYTE_ARRAY_SIZE].
@@ -108,7 +159,7 @@ public class LoggableResponseBody
         public fun snapshot(): ByteArray = ensureCaptured().snapshot()
 
         /**
-         * Returns up to [maxBytes] bytes of the captured body. Use for log previews of large
+         * Returns up to [maxBytes] bytes of the captured prefix. Use for log previews of large
          * bodies — avoids materializing the entire body as a `ByteArray`. The captured buffer
          * itself remains intact. Returns the partial prefix on failure (does not throw).
          *
@@ -134,9 +185,11 @@ public class LoggableResponseBody
             lock.withLock {
                 if (closed) return
                 closed = true
-                // The drain path closes the underlying source via `.use {}` on success; in that
-                // case we must not close the delegate again — some sockets / streams throw on
-                // double-close.
+                // The drain path closes the underlying source on a full capture; in that case we
+                // must not close the delegate again — some sockets / streams throw on double-close.
+                // On an over-cap capture the delegate is still open and must be closed here; the
+                // delegate owns the live-tail source, so closing the delegate releases it too (we
+                // must NOT close the live tail separately, or the source would be closed twice).
                 if (!delegateClosed) {
                     delegate.close()
                     delegateClosed = true
@@ -158,17 +211,22 @@ public class LoggableResponseBody
         }
 
         /**
-         * Drains the delegate body into an in-memory [Buffer] and caches the result.
+         * Drains at most [maxCaptureBytes] bytes of the delegate body into an in-memory [Buffer]
+         * and caches the result.
          *
-         * The capture buffer is allocated inside the try block so that a provider failure
-         * is also caught and cached in [drainError]. When `delegate.source()` throws before
-         * `.use {}` is entered the source was never obtained, so the delegate remains open
-         * and a subsequent [close] will still close it — `delegateClosed` is only set to
-         * `true` when we know the source ownership chain has already been closed via `.use {}`.
+         * The capture buffer is allocated inside the try block so that a provider failure is also
+         * caught and cached in [drainError]. When `delegate.source()` throws before the read loop
+         * the source was never obtained, so the delegate remains open and a subsequent [close]
+         * will still close it.
          *
-         * If `provider.buffer()` throws (rare; would indicate a misconfigured provider),
-         * the error is cached in [drainError] and an empty buffer is used as the fallback
-         * capture so [captured] is never left null.
+         * If EOF is reached within the cap the body is fully captured: the source is closed and
+         * [fullyCaptured] is set, preserving the fully-repeatable behavior. If the cap is hit with
+         * bytes still pending the delegate is **left open** and retained as [liveTail] so the
+         * consumer still receives the rest of the body via [source].
+         *
+         * If `provider.buffer()` throws (rare; would indicate a misconfigured provider), the error
+         * is cached in [drainError] and an empty buffer is used as the fallback capture so
+         * [captured] is never left null.
          */
         private fun drainAndCache(): Buffer {
             var buf: Buffer? = null
@@ -176,14 +234,42 @@ public class LoggableResponseBody
             try {
                 buf = provider.buffer()
                 src = delegate.source() // may throw — if it does, delegate is NOT yet closed
-                src.use { buf.writeAll(it) } // closes src (and via ownership the delegate) on exit
-                delegateClosed = true
+                val capturedSource = src
+                var remaining = maxCaptureBytes
+                while (remaining > 0L) {
+                    val chunk = if (remaining < READ_CHUNK_BYTES) remaining else READ_CHUNK_BYTES
+                    val n = capturedSource.read(buf, chunk)
+                    if (n == -1L) {
+                        // EOF within the cap — fully captured.
+                        fullyCaptured = true
+                        break
+                    }
+                    remaining -= n
+                }
+                if (fullyCaptured) {
+                    // Whole body captured: close the source (and via ownership the delegate).
+                    capturedSource.close()
+                    delegateClosed = true
+                } else {
+                    // The cap was hit (or maxCaptureBytes was <= 0) with bytes still pending: retain
+                    // the live tail so the consumer still gets them. Do NOT close the delegate.
+                    liveTail = capturedSource
+                }
             } catch (t: Throwable) {
                 // Keep whatever was read before the failure so logging can still inspect partial bytes.
                 drainError = t
-                // If src was obtained, .use{} already closed it (and the delegate via ownership).
-                // If src is null, delegate.source() threw — delegate stays open; close() will close it.
-                if (src != null) delegateClosed = true
+                // If the source was obtained but a read failed, close it here so the network
+                // resource is not leaked, and mark the delegate closed so a later close() does not
+                // double-close. If `delegate.source()` itself threw, `src` is null and the delegate
+                // remains the caller's to close via close().
+                if (src != null) {
+                    try {
+                        src.close()
+                    } catch (_: Throwable) {
+                        // Best-effort: the drain already failed; a close failure must not mask it.
+                    }
+                    delegateClosed = true
+                }
             }
             // Ensure captured is always non-null even when buf allocation itself failed.
             // The second provider.buffer() call here is only reached when the first one threw
@@ -196,4 +282,44 @@ public class LoggableResponseBody
 
         private fun Throwable.asIOException(): IOException =
             if (this is IOException) this else IOException("Body capture failed", this)
+
+        /**
+         * A one-shot [Source] that yields the captured [prefix] bytes first, then continues from
+         * the live [tail]. Used only on the over-cap path; closing it closes the tail.
+         */
+        private class PrefixThenTailSource(
+            private val prefix: BufferedSource,
+            private val tail: BufferedSource,
+        ) : Source {
+            @Throws(IOException::class)
+            override fun read(
+                sink: Buffer,
+                byteCount: Long,
+            ): Long {
+                if (!prefix.exhausted()) return prefix.read(sink, byteCount)
+                return tail.read(sink, byteCount)
+            }
+
+            @Throws(IOException::class)
+            override fun close() {
+                try {
+                    prefix.close()
+                } finally {
+                    tail.close()
+                }
+            }
+        }
+
+        internal companion object {
+            /** Per-read pump size for the bounded drain — matches Okio's segment size. */
+            private const val READ_CHUNK_BYTES: Long = 8 * 1024
+
+            /** Internal seam: a wrapper that caps in-memory capture at [maxCaptureBytes] bytes. */
+            @JvmSynthetic
+            internal fun bounded(
+                delegate: ResponseBody,
+                provider: IoProvider,
+                maxCaptureBytes: Long,
+            ): LoggableResponseBody = LoggableResponseBody(delegate, provider, maxCaptureBytes)
+        }
     }

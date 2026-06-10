@@ -30,7 +30,9 @@ import org.dexpace.sdk.core.testing.FixedClock
 import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.DateTimeRfc1123
 import org.dexpace.sdk.io.OkioIoProvider
+import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.InterruptedIOException
 import java.time.Duration
 import java.time.Instant
@@ -684,13 +686,15 @@ class RetryStepTest {
     }
 
     @Test
-    fun `non-replayable PUT body IS retried because PUT is idempotent`() {
-        // The gate keys on method idempotency too: PUT is idempotent, so even a non-replayable
-        // body is retried (the body axis only blocks non-idempotent methods).
+    fun `non-replayable PUT body is NOT retried even though PUT is idempotent`() {
+        // Both gates are required: PUT is idempotent, but a non-replayable body physically
+        // cannot be re-sent, so the request is NOT retry-safe. The 503 is returned as-is rather
+        // than re-dispatched (which would trip the body's consume-once guard on the second
+        // writeTo). Method idempotency alone does not widen eligibility for a body-bearing
+        // request.
         val fake =
             FakeHttpClient()
                 .enqueue { status(503) }
-                .enqueue { status(200) }
 
         val pipeline =
             HttpPipelineBuilder(fake)
@@ -705,8 +709,76 @@ class RetryStepTest {
                 .build()
 
         val response = pipeline.send(request)
+        assertEquals(503, response.status.code)
+        assertEquals(1, fake.callCount, "non-replayable PUT must not be retried")
+    }
+
+    @Test
+    fun `replayable PUT body IS retried`() {
+        // Control for the gate: a replayable body on an idempotent PUT is safe to re-send, so
+        // retry proceeds normally.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url("https://api.example.com/x")
+                .body(org.dexpace.sdk.core.http.request.RequestBody.create("payload".toByteArray()))
+                .build()
+
+        val response = pipeline.send(request)
         assertEquals(200, response.status.code)
-        assertEquals(2, fake.callCount, "idempotent PUT must retry regardless of body replayability")
+        assertEquals(2, fake.callCount, "replayable PUT must retry")
+    }
+
+    @Test
+    fun `real guarded one-shot PUT body surfaces the original 503 with no IllegalStateException`() {
+        // End-to-end proof of the gate using a REAL consume-once body (RequestBody.create over a
+        // non-markable InputStream → OneShotInputStreamRequestBody). The transport actually
+        // drains the body on every call, so a buggy gate that retried a PUT on method-idempotency
+        // alone would invoke writeTo a SECOND time and trip the consume-once CAS guard, surfacing
+        // an IllegalStateException that masks the real failure. With both gates required the body
+        // is written exactly once and the original 503 is returned verbatim.
+        val writes = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    // Drain the body exactly as a real transport would — this exercises the
+                    // consume-once guard.
+                    request.body?.writeTo(Io.provider.buffer())
+                    writes.incrementAndGet()
+                    return Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(503))
+                        .headers(Headers.Builder().build())
+                        .build()
+                }
+            }
+
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url("https://api.example.com/x")
+                .body(oneShotBody())
+                .build()
+
+        val response = pipeline.send(request)
+        assertEquals(503, response.status.code, "original 503 must be surfaced, not an IllegalStateException")
+        assertEquals(1, writes.get(), "the one-shot body must be written exactly once — no replay")
     }
 
     // ----------------- Accumulated suppressed exceptions -----------------
@@ -900,6 +972,70 @@ class RetryStepTest {
         val ex = assertFailsWith<IllegalStateException> { pipeline.send(getRequest()) }
         assertTrue(ex.message?.contains("shouldRetry predicate threw") == true)
         assertTrue(ex.cause?.message == "predicate boom")
+    }
+
+    @Test
+    fun `throwing shouldRetryCondition closes the retryable response before propagating`() {
+        // M6: the should-retry predicate runs while the retryable response is still open. If it
+        // throws, the response must be closed before the exception propagates — otherwise the
+        // 5xx response's socket/buffer leaks. Assert both the close() is observed and the
+        // exception still surfaces.
+        val closes = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response =
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(503))
+                        .headers(Headers.Builder().build())
+                        .body(CountingClosableBody(closes))
+                        .build()
+            }
+        val opts =
+            HttpRetryOptions(
+                shouldRetryCondition = { throw RuntimeException("predicate boom") },
+            )
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val ex = assertFailsWith<IllegalStateException> { pipeline.send(getRequest()) }
+        assertTrue(ex.message?.contains("shouldRetry predicate threw") == true)
+        assertTrue(closes.get() >= 1, "retryable response must be closed when the predicate throws")
+    }
+
+    @Test
+    fun `throwing computeResponseDelay override closes the retryable response before propagating`() {
+        // M6: a subclass override of computeResponseDelay runs after the predicate approves the
+        // retry, while the response is still open. If it throws, the response must be closed
+        // before the exception propagates.
+        val closes = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response =
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(503))
+                        .headers(Headers.Builder().build())
+                        .body(CountingClosableBody(closes))
+                        .build()
+            }
+        val step =
+            object : DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()) {
+                override fun computeResponseDelay(condition: HttpRetryCondition): Duration =
+                    error("delay override boom")
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(step)
+                .build()
+
+        val ex = assertFailsWith<IllegalStateException> { pipeline.send(getRequest()) }
+        assertEquals("delay override boom", ex.message)
+        assertTrue(closes.get() >= 1, "retryable response must be closed when the delay override throws")
     }
 
     // ----------------- Error propagation -----------------
@@ -1598,6 +1734,23 @@ class RetryStepTest {
             .url("https://api.example.com/x")
             .body(NonReplayableRequestBody())
             .build()
+
+    /**
+     * A REAL guarded one-shot body: `RequestBody.create(InputStream, length)` over a
+     * non-markable stream yields a `OneShotInputStreamRequestBody` whose [writeTo] enforces a
+     * consume-once CAS guard — a second write throws [IllegalStateException]. Used to prove a
+     * non-replayable PUT body is never re-sent.
+     */
+    private fun oneShotBody(): org.dexpace.sdk.core.http.request.RequestBody {
+        val backing = ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        val nonMarkable =
+            object : InputStream() {
+                override fun read(): Int = backing.read()
+
+                override fun markSupported(): Boolean = false
+            }
+        return org.dexpace.sdk.core.http.request.RequestBody.create(nonMarkable, 3L)
+    }
 
     /** Single-use request body: [isReplayable] is false and [writeTo] streams fixed bytes. */
     private class NonReplayableRequestBody : org.dexpace.sdk.core.http.request.RequestBody() {

@@ -100,7 +100,8 @@ public class PagedIterable<T>
          * **Page ownership.** Each yielded [PagedResponse] is owned by the consumer; this method
          * does not close them. Consumers MUST `close()` each page after use (or wrap iteration
          * in `use {}` / try-with-resources) to release the underlying response body. The
-         * flattening [iterator] path closes pages automatically — only direct callers of
+         * flattening [iterator] path closes pages automatically — each page is closed eagerly,
+         * as soon as its (already fully-materialized) items are taken — so only direct callers of
          * [byPage] need to manage page lifecycle.
          *
          * [maxPages] defaults to `Long.MAX_VALUE`. **Production callers should set a finite
@@ -132,8 +133,11 @@ public class PagedIterable<T>
          * Flattens all pages into an iterator of items. Each call starts a fresh iteration
          * (re-invokes [firstPage]).
          *
-         * The iterator owns the pages it pulls through [byPage] and closes each one once its
-         * items are exhausted — callers don't need to manage page lifecycle when iterating by
+         * The iterator owns the pages it pulls through [byPage] and closes each one eagerly,
+         * as soon as its items iterator is taken. Because [PagedResponse.value] is a
+         * fully-materialized list, the items survive the close, so a partial consume
+         * (`first()` / `take(n)` / `stream().findFirst()`) never strands an open response body
+         * or pooled connection. Callers don't need to manage page lifecycle when iterating by
          * item.
          *
          * **Error propagation.** If `pages.next()` throws, the exception propagates immediately
@@ -146,7 +150,6 @@ public class PagedIterable<T>
             object : AbstractIterator<T>() {
                 private val pages = byPage().iterator()
                 private var currentItems: Iterator<T>? = null
-                private var currentPage: PagedResponse<T>? = null
 
                 override fun computeNext() {
                     // Advance through pages until we find one with items left, or pages are exhausted.
@@ -156,8 +159,6 @@ public class PagedIterable<T>
                             setNext(items.next())
                             return
                         }
-                        currentPage?.close()
-                        currentPage = null
                         currentItems = null
                         if (!pages.hasNext()) {
                             done()
@@ -167,8 +168,12 @@ public class PagedIterable<T>
                         // AbstractIterator transitions to FAILED state, so further hasNext() calls
                         // raise IllegalArgumentException — this is the correct fail-fast behavior.
                         val next = pages.next()
-                        currentPage = next
+                        // PagedResponse.value is a fully-materialized list, so we can take the items
+                        // iterator and close the page immediately. Closing eagerly means a partial
+                        // consume (first()/take(n)) never abandons an open response body or pooled
+                        // connection waiting for a later computeNext() that may never run.
                         currentItems = next.value.iterator()
+                        next.close()
                     }
                 }
             }

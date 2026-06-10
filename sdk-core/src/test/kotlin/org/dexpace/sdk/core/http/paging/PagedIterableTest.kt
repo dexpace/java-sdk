@@ -47,6 +47,32 @@ class PagedIterableTest {
             .status(Status.OK)
             .build()
 
+    /**
+     * Builds a [Response] whose body increments [closeCount] on each close, so a test can assert
+     * that the iterator released the page (response body + pooled connection).
+     */
+    private fun closeRecordingResponse(closeCount: AtomicInteger): Response {
+        val body =
+            object : org.dexpace.sdk.core.http.response.ResponseBody() {
+                override fun mediaType() = null
+
+                override fun contentLength() = -1L
+
+                override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+                    throw UnsupportedOperationException("not needed for close test")
+
+                override fun close() {
+                    closeCount.incrementAndGet()
+                }
+            }
+        return Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.OK)
+            .body(body)
+            .build()
+    }
+
     private fun <T> page(
         value: List<T>,
         nextLink: String? = null,
@@ -492,6 +518,68 @@ class PagedIterableTest {
 
         paged.close()
         assertEquals(1, closed.get(), "underlying body.close() should have been called once")
+    }
+
+    @Test
+    fun `partial consume via first closes the fetched page`() {
+        val closeCount = AtomicInteger(0)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2, 3), response = closeRecordingResponse(closeCount)) },
+            )
+
+        val firstItem = iterable.iterator().next()
+
+        assertEquals(1, firstItem)
+        assertEquals(1, closeCount.get(), "the fetched page must be closed eagerly once its items are taken")
+    }
+
+    @Test
+    fun `take(1) closes the fetched page without abandoning an open response`() {
+        val closeCount = AtomicInteger(0)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(10, 20), response = closeRecordingResponse(closeCount)) },
+            )
+
+        val taken = iterable.take(1).toList()
+
+        assertEquals(listOf(10), taken)
+        assertEquals(1, closeCount.get(), "a single-item consume must still close the page it materialized")
+    }
+
+    @Test
+    fun `stream findFirst closes the fetched page`() {
+        val closeCount = AtomicInteger(0)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(7, 8, 9), response = closeRecordingResponse(closeCount)) },
+            )
+
+        val found = iterable.stream().findFirst()
+
+        assertTrue(found.isPresent)
+        assertEquals(7, found.get())
+        assertEquals(1, closeCount.get(), "short-circuiting via stream().findFirst() must not strand the page")
+    }
+
+    @Test
+    fun `full iteration closes every page exactly once`() {
+        val firstClose = AtomicInteger(0)
+        val secondClose = AtomicInteger(0)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = {
+                    page(listOf(1, 2), nextLink = "p2", response = closeRecordingResponse(firstClose))
+                },
+                nextPage = { _, _ ->
+                    page(listOf(3, 4), response = closeRecordingResponse(secondClose))
+                },
+            )
+
+        assertEquals(listOf(1, 2, 3, 4), iterable.toList())
+        assertEquals(1, firstClose.get(), "first page closed exactly once on full iteration")
+        assertEquals(1, secondClose.get(), "second page closed exactly once on full iteration")
     }
 
     // ---------------------------------------------------------------------

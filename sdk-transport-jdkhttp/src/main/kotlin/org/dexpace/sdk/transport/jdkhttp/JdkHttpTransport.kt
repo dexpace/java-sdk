@@ -265,6 +265,7 @@ public class JdkHttpTransport private constructor(
      *  - `httpVersion`: [HttpVersion.HTTP_2].
      */
     public class Builder internal constructor() : SdkBuilder<JdkHttpTransport> {
+        private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.jdkhttp.JdkHttpTransport.Builder")
         private var connectTimeout: Duration? = null
         private var responseTimeout: Duration? = Duration.ofSeconds(DEFAULT_RESPONSE_TIMEOUT_SECONDS)
         private var proxy: ProxyOptions? = null
@@ -364,12 +365,29 @@ public class JdkHttpTransport private constructor(
          *     configured proxy, returning `null` for origin-server (401) challenges so the
          *     proxy credentials never leak to an origin host.
          *
+         * A configured [ProxyOptions.challengeHandler] is **not** honoured by this transport:
+         * `java.net.http.HttpClient` exposes no per-407 hook through which a custom
+         * `ChallengeHandler` (e.g. Digest) could be invoked, so the handler is dropped with a
+         * loud warning rather than silently ignored. Proxy authentication falls back to the
+         * JDK's own username/password negotiation via [ProxyAuthenticator]. Consumers needing
+         * Digest proxy auth should use the OkHttp transport.
+         *
          * Credentials are deliberately never logged.
          */
         private fun applyProxy(
             clientBuilder: java.net.http.HttpClient.Builder,
             options: ProxyOptions,
         ) {
+            if (options.challengeHandler != null) {
+                log.atWarning()
+                    .event("proxy.auth.challenge_handler.unsupported")
+                    .log(
+                        "ProxyOptions.challengeHandler is set but the JDK transport cannot invoke a " +
+                            "custom ChallengeHandler: java.net.http.HttpClient exposes no per-407 hook. " +
+                            "The handler is ignored; proxy auth falls back to username/password via the " +
+                            "JDK's own auth negotiation. Use the OkHttp transport for Digest proxy auth.",
+                    )
+            }
             if (options.type != ProxyOptions.Type.HTTP) {
                 // SOCKS via the JDK client builder is not supported; silently return without
                 // applying. See KDoc above for the system-wide workaround.

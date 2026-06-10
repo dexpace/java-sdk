@@ -939,6 +939,31 @@ class RedirectStepTest {
         assertEquals("api.example.com", reissued.url.host)
     }
 
+    @Test
+    fun `stripping userinfo preserves percent-encoding in path and query`() {
+        // L3: clearing the userinfo must not re-encode the Location. A path segment carrying
+        // %2F and a query value carrying %26 must survive verbatim — rebuilding via URI's
+        // decoded multi-arg constructor would turn %2F into '/' and %26 into '&', silently
+        // changing the path/query structure of the reissued request.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://user:pass@api.example.com/a%2Fb?x=%26") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .build()
+
+        pipeline.send(getRequest("https://api.example.com/v1"))
+
+        val reissued = fake.requests[1]
+        assertNull(reissued.url.userInfo, "userinfo must be stripped")
+        val target = reissued.url.toString()
+        assertTrue(target.contains("/a%2Fb"), "encoded path segment %2F must be preserved: $target")
+        assertTrue(target.contains("x=%26"), "encoded query value %26 must be preserved: $target")
+    }
+
     // ----------------- Other non-3xx status codes don't trigger redirect -----------------
 
     @Test

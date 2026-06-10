@@ -8,6 +8,7 @@
 package org.dexpace.sdk.io.internal
 
 import org.dexpace.sdk.core.io.Source
+import java.io.IOException
 
 /**
  * Shared `writeAll` implementation used by both [OkioBufferedSink] and the buffer-side
@@ -15,11 +16,15 @@ import org.dexpace.sdk.core.io.Source
  * known to be Okio-backed; otherwise falls back to a pump loop through an intermediate
  * [okio.Buffer].
  *
- * `LoggableResponseBody.drainAndCache()` is the main beneficiary of the fast path: it does
- * `buf.writeAll(src)` to suck a wrapped response body into an in-memory cache; when `src` is
- * an [OkioBufferedSource] (the common case), Okio moves segments by ownership transfer
- * rather than copying bytes.
+ * Source-to-sink body bridging is the main beneficiary of the fast path: when `source` is an
+ * [OkioBufferedSource] (the common case), Okio moves segments by ownership transfer rather
+ * than copying bytes.
+ *
+ * On the fallback path a `read` of `0` for a non-zero `byteCount` violates the
+ * [Source.read] contract and is **rejected** with an [IOException] rather than tolerated as
+ * a silent EOF — mirroring `TeeSink.writeAll`. Only a `read` of `-1` terminates the loop.
  */
+@Throws(IOException::class)
 internal fun writeAllInto(
     sink: okio.BufferedSink,
     source: Source,
@@ -32,14 +37,16 @@ internal fun writeAllInto(
             var total = 0L
             while (true) {
                 val read = source.read(tmp, SEGMENT_SIZE)
-                // The Source contract forbids returning 0 for a non-zero byteCount in blocking
-                // mode. We treat 0 as exhaustion conservatively to avoid an infinite loop.
-                // A well-behaved blocking Source should return -1 (EOF) instead of 0; the
-                // defensive break here exists to handle misbehaving foreign implementations
-                // without spinning forever.
-                if (read <= 0L) break
-                sink.write(tmp.delegate, tmp.delegate.size)
-                total += read
+                when {
+                    read == -1L -> break // EOF — normal termination
+                    read == 0L -> throw IOException(
+                        "Source returned 0 for byteCount=$SEGMENT_SIZE which violates the Source.read contract",
+                    )
+                    else -> {
+                        sink.write(tmp.delegate, tmp.delegate.size)
+                        total += read
+                    }
+                }
             }
             total
         }

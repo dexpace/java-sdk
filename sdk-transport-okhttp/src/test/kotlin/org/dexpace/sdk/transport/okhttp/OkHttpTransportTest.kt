@@ -13,13 +13,17 @@ import mockwebserver3.junit5.StartStop
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okio.Buffer
+import org.dexpace.sdk.core.http.auth.BasicChallengeHandler
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.io.Io
+import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.transport.okhttp.internal.SdkRequestBodyAdapter
 import org.junit.jupiter.api.io.TempDir
@@ -32,6 +36,7 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletionException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -361,6 +366,127 @@ class OkHttpTransportTest {
         Thread.sleep(900)
     }
 
+    @Test
+    fun asyncResponseThatLosesTheRaceIsClosed() {
+        // L1: the consumer can complete/cancel the returned future in the window *between* OkHttp
+        // finishing the exchange and Callback.onResponse adapting it. In that race
+        // `future.complete(adapted)` returns false and nothing else will ever close `adapted` — a
+        // live connection — so the transport must close it. We reproduce the race deterministically
+        // without tripping OkHttp's own cancel handling (which, once the call is canceled, routes a
+        // completed exchange to onFailure rather than onResponse): a BYO interceptor parks the
+        // already-received response on the dispatcher thread while the test completes the future
+        // with a decoy value. When the interceptor is released, onResponse runs, observes a
+        // future it cannot complete, and must close the adapted response.
+        val responseReady = CountDownLatch(1)
+        val releaseInterceptor = CountDownLatch(1)
+        val racingClient =
+            OkHttpClient.Builder()
+                .followRedirects(false)
+                .retryOnConnectionFailure(false)
+                .addInterceptor(
+                    Interceptor { chain ->
+                        val response = chain.proceed(chain.request())
+                        // The exchange is complete; signal the test, then block on the dispatcher
+                        // thread so the future is already settled by the time onResponse adapts.
+                        responseReady.countDown()
+                        releaseInterceptor.await(2, TimeUnit.SECONDS)
+                        response
+                    },
+                )
+                .build()
+        val racingTransport = OkHttpTransport.create(racingClient)
+
+        server.enqueue(MockResponse.Builder().code(200).body("dropped").build())
+        val future = racingTransport.executeAsync(simpleGet("/race"))
+
+        assertTrue(responseReady.await(2, TimeUnit.SECONDS), "interceptor should have received the response")
+        // Settle the future from the test thread so the in-flight onResponse will lose the
+        // `future.complete(adapted)` race. Completing (rather than cancelling) avoids triggering
+        // `call.cancel()`, which would otherwise re-route the completed exchange to onFailure.
+        val decoy =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/decoy").toUrl())
+                .build()
+                .let { req ->
+                    Response.builder()
+                        .request(req)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.OK)
+                        .build()
+                }
+        assertTrue(future.complete(decoy), "test must win the race so onResponse is the loser")
+        // Release the parked interceptor; onResponse now adapts and must close the response it
+        // cannot publish. get() returns the decoy immediately and does not wait for onResponse.
+        releaseInterceptor.countDown()
+        future.get(2, TimeUnit.SECONDS).close()
+
+        // onResponse runs on the dispatcher thread; wait until its closeQuietly has returned the
+        // connection to the pool (it becomes idle) before issuing the follow-up. A leaked response
+        // would never produce an idle connection here.
+        assertTrue(
+            awaitCondition { racingClient.connectionPool.idleConnectionCount() >= 1 },
+            "the dropped response's connection must be released back to the pool",
+        )
+
+        // Proof the connection was released cleanly: the follow-up reuses the same physical
+        // connection rather than opening a fresh one.
+        server.enqueue(MockResponse.Builder().code(200).body("reused").build())
+        val firstIndex = server.takeRequest().connectionIndex
+        val followUp = racingTransport.executeAsync(simpleGet("/after-race")).get(5, TimeUnit.SECONDS)
+        followUp.use { assertEquals(200, it.status.code) }
+        val secondIndex = server.takeRequest().connectionIndex
+        assertEquals(
+            firstIndex,
+            secondIndex,
+            "the dropped response's connection must be released so the follow-up reuses it",
+        )
+    }
+
+    // -------- proxy: unsupported challenge handler --------
+
+    @Test
+    fun proxyChallengeHandlerIsAcceptedAndIgnored() {
+        // M7: ProxyOptions.challengeHandler is not honoured by the OkHttp transport. Building a
+        // transport with one set must be accepted (it logs a loud WARNING and falls back to Basic
+        // auth from username/password) rather than throwing. We point the proxy at the
+        // MockWebServer so the built transport still routes a normal request through it, proving
+        // the proxy wiring survived the challenge-handler branch in applyProxy.
+        val proxyOptions =
+            ProxyOptions(
+                type = ProxyOptions.Type.HTTP,
+                address = server.socketAddress,
+                username = "proxy-user",
+                password = "proxy-pass",
+                challengeHandler = BasicChallengeHandler("ignored-user", "ignored-pass"),
+            )
+        val proxiedTransport =
+            OkHttpTransport.builder()
+                .proxy(proxyOptions)
+                .build()
+
+        server.enqueue(MockResponse.Builder().code(200).body("via-proxy").build())
+        // An HTTP forward proxy receives the request directly; MockWebServer records it.
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://downstream.example/resource"))
+                .build()
+        proxiedTransport.execute(request).use { response ->
+            assertEquals(200, response.status.code, "request routed through the configured proxy must succeed")
+            assertEquals("via-proxy", response.body?.source()?.readUtf8())
+        }
+        val recorded = server.takeRequest()
+        // An HTTP forward proxy receives the absolute-form request target; its presence proves the
+        // request was routed through the configured proxy (so the proxy wiring survived the
+        // challenge-handler branch).
+        assertEquals(
+            "http://downstream.example/resource",
+            recorded.target,
+            "request must have been forwarded via the proxy in absolute form",
+        )
+    }
+
     // -------- redirect behaviour --------
 
     @Test
@@ -590,5 +716,24 @@ class OkHttpTransportTest {
 
     private fun freePort(): Int {
         ServerSocket(0).use { socket -> return socket.localPort }
+    }
+
+    /**
+     * Polls [condition] until it is `true` or [timeoutMillis] elapses. Returns whether the
+     * condition was met. Used to wait deterministically for asynchronous dispatcher-thread work
+     * (e.g. a connection being returned to the pool) without a fixed sleep.
+     */
+    private fun awaitCondition(
+        timeoutMillis: Long = 2_000,
+        condition: () -> Boolean,
+    ): Boolean {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        while (System.nanoTime() < deadline) {
+            if (condition()) {
+                return true
+            }
+            Thread.sleep(10)
+        }
+        return condition()
     }
 }

@@ -269,6 +269,79 @@ class LoggableResponseBodyTest {
         )
     }
 
+    // ----- H1: bounded capture + live-tail behavior -----
+
+    @Test
+    fun `over-cap body returns the full bytes to the consumer while snapshot is bounded`() {
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes
+        val wrapper = LoggableResponseBody.bounded(bodyFromText(payload), Io.provider, 10L)
+
+        // The in-memory capture is bounded to 10 bytes.
+        assertEquals(10, wrapper.snapshot().size, "capture must be bounded to maxCaptureBytes")
+        assertContentEquals("abcdefghij".toByteArray(Charsets.UTF_8), wrapper.snapshot())
+
+        // But the consumer still receives the FULL body via source() (prefix + live tail).
+        assertEquals(payload, wrapper.source().readUtf8(), "consumer must receive the full body")
+        wrapper.close()
+    }
+
+    @Test
+    fun `second source() on an over-cap body throws IllegalStateException`() {
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes > cap
+        val wrapper = LoggableResponseBody.bounded(bodyFromText(payload), Io.provider, 5L)
+
+        // First source() hands out the one-shot prefix+tail stream.
+        val first = wrapper.source()
+        assertNotNull(first)
+
+        // The live tail is single-use; a second source() must be rejected.
+        val ex = assertFailsWith<IllegalStateException> { wrapper.source() }
+        assertNotNull(ex.message)
+        assertTrue(
+            ex.message!!.contains("single-use", ignoreCase = true) ||
+                ex.message!!.contains("maxCaptureBytes", ignoreCase = true),
+            "Expected an over-cap one-shot message, got: ${ex.message}",
+        )
+        wrapper.close()
+    }
+
+    @Test
+    fun `body within the cap stays fully repeatable`() {
+        val payload = "small" // 5 bytes <= cap
+        val wrapper = LoggableResponseBody.bounded(bodyFromText(payload), Io.provider, 64L)
+
+        // Within the cap: source() yields a fresh repeatable view each time.
+        assertEquals(payload, wrapper.source().readUtf8())
+        assertEquals(payload, wrapper.source().readUtf8(), "within-cap body must be repeatable")
+        // contentLength reflects the fully-captured size.
+        assertEquals(payload.toByteArray(Charsets.UTF_8).size.toLong(), wrapper.contentLength())
+        wrapper.close()
+    }
+
+    @Test
+    fun `over-cap body reports the delegate content length not the captured prefix`() {
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes
+        val delegateLength = payload.toByteArray(Charsets.UTF_8).size.toLong()
+        val wrapper = LoggableResponseBody.bounded(bodyFromText(payload), Io.provider, 4L)
+
+        // Trigger the bounded drain.
+        wrapper.snapshot()
+        // Over-cap: contentLength is the delegate's true length, not the 4-byte prefix.
+        assertEquals(delegateLength, wrapper.contentLength())
+        wrapper.close()
+    }
+
+    @Test
+    fun `default constructor captures the whole body unbounded and repeatable`() {
+        // The public (unlimited) path is unchanged: full capture, repeatable source().
+        val payload = "x".repeat(50_000)
+        val wrapper = LoggableResponseBody(bodyFromText(payload))
+        assertEquals(payload, wrapper.source().readUtf8())
+        assertEquals(payload, wrapper.source().readUtf8(), "default path must be fully repeatable")
+        assertEquals(payload.toByteArray(Charsets.UTF_8).size, wrapper.snapshot().size)
+        wrapper.close()
+    }
+
     @Test
     fun `concurrent source() calls serialize drain and both callers get a view`() {
         val payload = "shared"
