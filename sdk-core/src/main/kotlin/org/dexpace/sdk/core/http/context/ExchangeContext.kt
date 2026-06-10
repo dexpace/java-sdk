@@ -14,10 +14,17 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
 /**
  * Terminal link in the context promotion chain. Bundles the [Request] / [Response] pair
  * with the call's [InstrumentationContext] so post-exchange observers (metrics, log
- * sinks, span finalizers) can correlate every artifact of a completed call.
+ * sinks, span finalizers) can correlate every artifact of a completed call. Inherits the
+ * chain's [callKey] from the [RequestContext] it was promoted from.
+ *
+ * As the terminal link this is the context whose [close] should be called to evict the
+ * chain's [ContextStore] entry. The [callKey] defaults to the trace/span derivation when
+ * constructed directly; in the normal flow it is supplied by
+ * [RequestContext.toExchangeContext].
  */
 public data class ExchangeContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
     val response: Response,
+    override val callKey: String = DispatchContext.deriveCallKey(instrumentationContext),
 ) : CallContext

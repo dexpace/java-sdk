@@ -18,6 +18,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val log = ClientLogger("org.dexpace.sdk.async.virtualthreads.VirtualThreads")
 
@@ -62,16 +63,27 @@ public fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
  *
  * Closing the executor does NOT cancel in-flight requests — virtual threads are
  * non-interruptible by default; the executor's `close()` waits for tasks to finish.
+ *
+ * [close] is idempotent: only the first call shuts the executor down and emits the
+ * `executor.closed` lifecycle event; subsequent calls are a true no-op (no log, no second
+ * `executor.close()`).
  */
 public class VirtualThreadAsyncHttpClient internal constructor(
     private val delegate: AsyncHttpClient,
     private val executor: ExecutorService,
 ) : AsyncHttpClient, AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
     override fun executeAsync(request: Request): CompletableFuture<Response> = delegate.executeAsync(request)
 
-    /** Shuts down the virtual-thread executor and waits for in-flight tasks to complete. */
+    /**
+     * Shuts down the virtual-thread executor and waits for in-flight tasks to complete.
+     * Idempotent: a second (or later) call returns immediately without touching the executor
+     * or logging again.
+     */
     override fun close() {
-        log.atInfo()
+        if (!closed.compareAndSet(false, true)) return
+        log.atVerbose()
             .event("executor.closed")
             .field("adapter.type", "virtualthreads")
             .log()

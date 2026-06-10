@@ -16,8 +16,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  * shared [StagedSteps] helper.
  */
 public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
-    @PublishedApi
-    internal val steps: StagedSteps<AsyncHttpStep> =
+    private val steps: StagedSteps<AsyncHttpStep> =
         StagedSteps(
             stageOf = AsyncHttpStep::stage,
             onPillarReplaced = { stage, prev, next ->
@@ -43,52 +42,59 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     /** Prepends every step in [batch] via [prepend], preserving iteration order (final order is reversed). */
     public fun prependAll(batch: Iterable<AsyncHttpStep>): AsyncHttpPipelineBuilder = apply { batch.forEach(::prepend) }
 
-    /** Insert [step] immediately after the first instance of [T] in the pipeline. */
+    /**
+     * Insert [step] immediately after the first instance of [T] in the pipeline.
+     *
+     * Placement is **within [T]'s stage only**: [step] must declare the same [Stage] as the
+     * matched anchor. A cross-stage insert throws [IllegalArgumentException] rather than
+     * silently relocating [step] to wherever its own stage falls. Route a different-stage step
+     * with [append] / [prepend] instead.
+     */
     public inline fun <reified T : AsyncHttpStep> insertAfter(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
-        spliceAt<T>(step) { idx, flat ->
-            ArrayList<AsyncHttpStep>(flat.size + 1).apply {
-                addAll(flat.subList(0, idx + 1))
-                add(step)
-                addAll(flat.subList(idx + 1, flat.size))
-            }
-        }
+        insertAfter(T::class.java, step)
 
-    /** Insert [step] immediately before the first instance of [T] in the pipeline. */
+    /**
+     * Insert [step] immediately before the first instance of [T] in the pipeline. Same
+     * within-stage-only constraint as [insertAfter] — see its KDoc.
+     */
     public inline fun <reified T : AsyncHttpStep> insertBefore(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
-        spliceAt<T>(step) { idx, flat ->
-            ArrayList<AsyncHttpStep>(flat.size + 1).apply {
-                addAll(flat.subList(0, idx))
-                add(step)
-                addAll(flat.subList(idx, flat.size))
-            }
-        }
+        insertBefore(T::class.java, step)
 
-    /** Replace the first instance of [T] with [step]. */
+    /**
+     * Replace the first instance of [T] with [step]. [step] must declare the same [Stage] as
+     * the replaced step; a cross-stage replacement throws [IllegalArgumentException].
+     */
     public inline fun <reified T : AsyncHttpStep> replace(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
-        spliceAt<T>(step) { idx, flat ->
-            ArrayList<AsyncHttpStep>(flat.size).apply {
-                addAll(flat)
-                set(idx, step)
-            }
-        }
+        replace(T::class.java, step)
 
     /** Remove every instance of [T] from the pipeline. No-op if none exist. */
-    public inline fun <reified T : AsyncHttpStep> remove(): AsyncHttpPipelineBuilder {
-        steps.reload(steps.flatten().filter { it !is T })
-        return this
-    }
+    public inline fun <reified T : AsyncHttpStep> remove(): AsyncHttpPipelineBuilder = remove(T::class.java)
 
+    /** Non-inline body for [insertAfter]; keeps [StagedSteps] off the public API surface. */
     @PublishedApi
-    internal inline fun <reified T : AsyncHttpStep> spliceAt(
-        @Suppress("UNUSED_PARAMETER") step: AsyncHttpStep,
-        transform: (Int, List<AsyncHttpStep>) -> List<AsyncHttpStep>,
-    ): AsyncHttpPipelineBuilder {
-        val flat = steps.flatten()
-        val idx = flat.indexOfFirst { it is T }
-        require(idx >= 0) { "No ${T::class.simpleName} in pipeline" }
-        steps.reload(transform(idx, flat))
-        return this
-    }
+    internal fun insertAfter(
+        anchorType: Class<out AsyncHttpStep>,
+        step: AsyncHttpStep,
+    ): AsyncHttpPipelineBuilder = apply { steps.insertRelativeToFirst(anchorType, step, InsertPosition.AFTER) }
+
+    /** Non-inline body for [insertBefore]; keeps [StagedSteps] off the public API surface. */
+    @PublishedApi
+    internal fun insertBefore(
+        anchorType: Class<out AsyncHttpStep>,
+        step: AsyncHttpStep,
+    ): AsyncHttpPipelineBuilder = apply { steps.insertRelativeToFirst(anchorType, step, InsertPosition.BEFORE) }
+
+    /** Non-inline body for [replace]; keeps [StagedSteps] off the public API surface. */
+    @PublishedApi
+    internal fun replace(
+        anchorType: Class<out AsyncHttpStep>,
+        step: AsyncHttpStep,
+    ): AsyncHttpPipelineBuilder = apply { steps.replaceFirst(anchorType, step) }
+
+    /** Non-inline body for [remove]; keeps [StagedSteps] off the public API surface. */
+    @PublishedApi
+    internal fun remove(anchorType: Class<out AsyncHttpStep>): AsyncHttpPipelineBuilder =
+        apply { steps.removeMatching(anchorType) }
 
     /** Builds an immutable [AsyncHttpPipeline]. */
     public fun build(): AsyncHttpPipeline {

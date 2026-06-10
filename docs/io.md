@@ -76,6 +76,7 @@ interface BufferedSource : Source {
     fun peek(): BufferedSource
     fun inputStream(): InputStream
     fun skip(byteCount: Long)
+    fun slice(offset: Long, byteCount: Long): BufferedSource
 }
 
 interface BufferedSink : Sink {
@@ -93,7 +94,10 @@ interface BufferedSink : Sink {
 
 The surface is intentionally small — fluent chains return `BufferedSink`, reads are
 exception-on-EOF for typed forms (`readByte`, `readUtf8(byteCount)`) and null-on-EOF for
-line reads, matching the Okio convention so adapters can pass through cheaply.
+line reads, matching the Okio convention so adapters can pass through cheaply. `peek()` and
+`slice(offset, byteCount)` both return non-consuming views — `peek()` over the whole
+remaining source, `slice` over a length-bounded window — so logging and signing can read
+the same bytes without advancing the primary cursor.
 
 ### Buffer
 
@@ -104,7 +108,7 @@ interface Buffer : BufferedSource, BufferedSink {
     val size: Long
     fun snapshot(): ByteArray            // immutable copy
     fun clear()
-    fun copyTo(out: Buffer, offset: Long = 0, byteCount: Long = size): Buffer
+    fun copyTo(out: Buffer, offset: Long = 0, byteCount: Long = size - offset): Buffer
     override val buffer: Buffer get() = this
 }
 ```
@@ -134,9 +138,8 @@ explicit installation, no global magic.
 
 ```kotlin
 object Io {
-    val provider: IoProvider               // throws if not installed
+    val provider: IoProvider                          // throws if not installed
     fun installProvider(provider: IoProvider)
-    fun <T> withProvider(provider: IoProvider, block: () -> T): T   // test seam
 }
 ```
 
@@ -145,8 +148,13 @@ installation, every call site that needs a stream reads `Io.provider`. Failure m
 loud: `Io.provider` throws an `IllegalStateException` with the install instruction when
 no provider has been installed.
 
-`withProvider` swaps the installed provider for the duration of a block — used by tests
-to inject fakes without disturbing global state.
+`installProvider` is idempotent for the same instance: re-installing the provider that is
+already installed is a no-op, while installing a *different* provider over an existing one
+throws `IllegalStateException` rather than silently overwriting. For scoped overrides — the
+test pattern of swapping in a fake for the duration of a block — use
+`org.dexpace.sdk.core.testing.withProvider`, shipped in the `sdk-core` test-fixtures
+artifact. It saves the current provider, installs the fake, runs the block, and restores
+the original even on exception, all over the same `internal` swap seam.
 
 ## Replayability
 
@@ -198,8 +206,9 @@ remain safe at any body size because they cap the materialized byte array.
 Body implementations call typed write methods (`writeUtf8`, `write(byteArray)`, `writeAll`)
 on the sink — they never touch the provider directly. The transport layer constructs the
 sink via `Io.provider.sink(outputStream)` and passes it in. The form-body factory
-(`RequestBody.create(formData, charset, provider = Io.provider)`) builds its underlying
-source through the provider; pass an explicit provider for testing.
+(`RequestBody.create(formData, charset)`) percent-encodes the payload into a byte array
+once at construction, so the resulting body is replayable and needs no provider lookup at
+send time.
 
 **Response side.** `ResponseBody.source(): BufferedSource` is the integration point. The
 transport layer wraps the response `InputStream` via `Io.provider.source(inputStream)`
@@ -262,8 +271,8 @@ The HTTP integration code is built to use these fast paths:
   into a reused scratch buffer, then `copyTo(tap)` (segment-share) plus
   `primary.write(scratch, n)` (segment-move). One encoding step plus two
   segment-level operations, regardless of payload size.
-- `RequestBody.create(formData, …)` accepts an explicit `IoProvider` to skip the global
-  getter when the caller already has a reference.
+- `RequestBody.create(formData, …)` percent-encodes the payload into a byte array at
+  construction, so the send path is a plain `write(bytes)` with no provider lookup at all.
 
 ### Bounded snapshots
 
@@ -304,7 +313,7 @@ problems:
 3. **Tests can't swap.** No standard way to install a fake without crafting class-loader
    tricks.
 
-`Io.installProvider(...)` plus `Io.withProvider(...)` solves all three.
+`Io.installProvider(...)` plus the test-fixtures `withProvider(...)` helper solves all three.
 
 ### Single IoProvider over separate source/sink factories
 

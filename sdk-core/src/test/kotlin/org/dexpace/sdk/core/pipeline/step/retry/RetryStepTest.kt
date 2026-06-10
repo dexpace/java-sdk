@@ -253,6 +253,58 @@ class RetryStepTest {
         assertTrue(client.calls.isEmpty())
     }
 
+    @Test
+    fun `reused RetryStep retries correctly on a second top-level call`() {
+        // C-3: the step holds no per-call state on the instance, so invoking it a second time
+        // after the first call exhausted its attempt budget must start from a fresh budget and
+        // retry again — not silently abort because a stale attempt count was carried over.
+        val client =
+            FakeClient(
+                listOf(
+                    // First invoke(): one retry then success (attempt budget = 3 → 2 retries
+                    // available, success on the first retry).
+                    Canned.Ok(response(SC_OK)),
+                    // Second invoke(): the retry must fire again from a clean budget.
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+
+        val first = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(first is ResponseOutcome.Success, "First call should recover via retry")
+        assertEquals(1, client.calls.size)
+
+        val second = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(second is ResponseOutcome.Success, "Second call must retry again from a fresh budget")
+        assertEquals(2, client.calls.size, "Reused step must dispatch a retry on the second call too")
+    }
+
+    @Test
+    fun `reused RetryStep exhausts the full attempt budget on each call`() {
+        // Each top-level invoke() gets maxAttempts-1 retries; reuse must not shrink the budget.
+        val client =
+            FakeClient(
+                listOf(
+                    // First invoke(): two retries (both 503), then propagate.
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    // Second invoke(): two more retries, then propagate.
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                ),
+            )
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+
+        val first = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(first is ResponseOutcome.Failure)
+        assertEquals(DEFAULT_MAX_ATTEMPTS - 1, client.calls.size)
+
+        val second = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(second is ResponseOutcome.Failure)
+        // The second call must again dispatch maxAttempts-1 retries (4 total across both calls).
+        assertEquals((DEFAULT_MAX_ATTEMPTS - 1) * 2, client.calls.size)
+    }
+
     // endregion
 
     // region -- Retry-After header observed by scheduler --
@@ -277,23 +329,44 @@ class RetryStepTest {
         assertEquals(TimeUnit.SECONDS.toNanos(2), scheduler.scheduledDelaysNanos[0])
     }
 
+    @Test
+    fun `extreme X-RateLimit-Reset header does not mask the upstream failure`() {
+        // P-1: a hostile/out-of-range pacing header must never throw out of the retry loop.
+        // Long.MAX_VALUE makes RetryAfterParser return null (no usable hint); the loop falls
+        // back to its exponential schedule and still completes the retry to success.
+        val ok = response(SC_OK)
+        val client = FakeClient(listOf(Canned.Ok(ok)))
+        val headers = Headers.builder().set("X-RateLimit-Reset", Long.MAX_VALUE.toString()).build()
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+
+        val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE, headers)))
+
+        assertTrue(out is ResponseOutcome.Success, "Retry must complete despite the out-of-range pacing header")
+        assertEquals(1, client.calls.size)
+    }
+
     // endregion
 
     // region -- totalTimeout exceeded mid-retry --
 
     @Test
     fun `totalTimeout exceeded mid-retry propagates the last failure`() {
-        // Construct a clock that jumps far ahead AFTER the first attempt, so the deadline
-        // check inside prepareNextAttempt aborts before any further call goes through.
+        // The retry budget starts when invoke() is entered (per-call AttemptState captures the
+        // start instant on its first clock read). A clock that jumps past the deadline on its
+        // SECOND read therefore exhausts the budget inside prepareNextAttempt before any call
+        // goes through — exactly the "deadline already exhausted" abort path.
         val now = Instant.parse("2024-06-01T12:00:00Z")
-        val advanced = AtomicReference<Instant>(now)
+        val reads = java.util.concurrent.atomic.AtomicInteger(0)
         val testClock: Clock =
             object : Clock() {
                 override fun getZone() = ZoneOffset.UTC
 
                 override fun withZone(zone: java.time.ZoneId): Clock = this
 
-                override fun instant(): Instant = advanced.get()
+                // First read (AttemptState start) = now; subsequent reads jump 2s past the
+                // 1s deadline so the elapsed check aborts the very first retry.
+                override fun instant(): Instant =
+                    if (reads.getAndIncrement() == 0) now else now.plus(Duration.ofSeconds(2))
             }
         val client = FakeClient() // no canned responses — must not be called
         val settings =
@@ -307,8 +380,6 @@ class RetryStepTest {
                 .scheduler(InstantScheduler())
                 .build()
         val step = RetryStep(client, settings, requestGet(), clock = testClock)
-        // Move the clock past the deadline before RetryStep evaluates it.
-        advanced.set(now.plus(Duration.ofSeconds(2)))
         val failure = httpException(SC_SERVICE_UNAVAILABLE)
         val outcome = ResponseOutcome.Failure(failure)
         val out = step.invoke(outcome)
@@ -471,16 +542,14 @@ class RetryStepTest {
     }
 
     @Test
-    fun `HttpException with retryable=false is pass-through even on a retryable status`() {
-        // Synthesise an HttpException whose `retryable` is false but status is 503.
-        // The factory always produces retryable=true for 503; we use a custom subclass to
-        // simulate a caller-overridden classifier.
+    fun `HttpException with a non-retryable status is pass-through`() {
+        // A non-retryable status (501) yields retryable=false (derived from RetryUtils),
+        // so the step must pass the failure through without retrying.
         val nonRetryable =
             object : HttpException(
-                status = Status.SERVICE_UNAVAILABLE,
+                status = Status.NOT_IMPLEMENTED,
                 headers = Headers.builder().build(),
                 body = null,
-                retryable = false,
             ) {}
         val client = FakeClient()
         val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())

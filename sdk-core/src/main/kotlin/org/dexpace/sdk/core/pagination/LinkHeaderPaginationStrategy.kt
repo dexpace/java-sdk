@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import java.net.MalformedURLException
 import java.net.URL
 
 /**
@@ -23,6 +24,12 @@ import java.net.URL
  * - Page-N response: `Link: <https://api.example.com/things?page=N+1>; rel="next", <...>; rel="last"`.
  * - End of stream: response either omits the `Link` header entirely or omits the
  *   `rel="next"` segment.
+ *
+ * Per RFC 8288 a `rel="next"` target may be a relative reference (e.g.
+ * `</things?page=2>; rel="next"`). The strategy resolves such targets against the
+ * originating page's response URL, so both absolute and relative `next` links paginate
+ * correctly. A target that cannot be resolved into a valid URL is treated as end-of-stream
+ * rather than aborting iteration.
  *
  * The parser implements the subset of RFC 5988 that REST APIs actually use:
  *
@@ -53,15 +60,48 @@ public class LinkHeaderPaginationStrategy<T>
             val combined: String =
                 if (linkValues.isEmpty()) "" else linkValues.joinToString(separator = ",")
             val nextUrlString: String? = if (combined.isEmpty()) null else extractNextUrl(combined)
-            val hasNext: Boolean = !nextUrlString.isNullOrEmpty()
+            // Resolve the (possibly relative) next-link target against the originating page's
+            // URL. A target that cannot be parsed into a valid URL ends the stream instead of
+            // aborting the whole iteration with a MalformedURLException.
+            val nextUrl: URL? =
+                if (nextUrlString.isNullOrEmpty()) null else resolveNextUrl(response, nextUrlString)
+            val hasNext: Boolean = nextUrl != null
             val nextRequest: Request? =
-                if (hasNext) {
-                    RequestRebuilder.withUrl(initialRequest, URL(nextUrlString))
+                if (nextUrl != null) {
+                    RequestRebuilder.withUrl(initialRequest, nextUrl)
                 } else {
                     null
                 }
             return SimplePage(items = items, hasNext = hasNext, nextRequest = nextRequest)
         }
+
+        /**
+         * Resolves [nextUrlString] (which may be an absolute or relative reference per
+         * RFC 8288) against the originating page's response URL. Returns `null` — signalling
+         * end-of-stream — when the target cannot be resolved into a valid URL.
+         */
+        private fun resolveNextUrl(
+            response: Response,
+            nextUrlString: String,
+        ): URL? =
+            try {
+                val base = response.request.url
+                val ref = nextUrlString.trim()
+                if (ref.startsWith("?")) {
+                    // RFC 3986 query-only reference: keep the base's FULL path and replace only the
+                    // query. Both URL(base, ref) and URI.resolve follow the older RFC 2396 here and
+                    // drop the base's last path segment (".../repo/?page=2" instead of
+                    // ".../repo/issues?page=2"), pointing the next page at the wrong resource. Splice
+                    // the already-encoded base components directly so nothing is re-encoded.
+                    URL("${base.protocol}://${base.authority}${base.path}$ref")
+                } else {
+                    URL(base, nextUrlString)
+                }
+            } catch (ignored: MalformedURLException) {
+                // Unresolvable next link (e.g. unknown scheme): stop paginating rather than letting
+                // the exception abort iteration.
+                null
+            }
 
         /**
          * Parses an RFC 5988 `Link` header value (possibly the concatenation of multiple

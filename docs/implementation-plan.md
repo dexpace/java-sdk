@@ -4,6 +4,11 @@ Drives the [refs-comparison](refs-comparison.md) backlog. Optimized for parallel
 execution: each work unit (WU) is sized so a single subagent can land it independently, with
 explicit dependencies, file scopes, and conflict surfaces.
 
+**Status: all ten work units have shipped.** Phases 0 and 1 landed as designed; Phase 2 (auth)
+landed in `sdk-core` rather than a standalone `sdk-auth` module — see WU-10 for where the code
+actually lives and how the shape differs from the original sketch. Each WU below carries a
+**Status** line so the plan doubles as the as-built record. Tier 3 remains the live backlog.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -21,7 +26,7 @@ explicit dependencies, file scopes, and conflict surfaces.
   - [WU-8: sdk-serde-jackson adapter module](#wu-8-sdk-serde-jackson-adapter-module)
   - [WU-9: Pagination primitives](#wu-9-pagination-primitives)
 - [Phase 2 — Auth (1 WU)](#phase-2--auth-1-wu)
-  - [WU-10: sdk-auth module](#wu-10-sdk-auth-module)
+  - [WU-10: auth](#wu-10-auth-shipped-in-sdk-core-not-a-separate-module)
 - [Tier 3 (deferred)](#tier-3-deferred)
 - [Execution Protocol](#execution-protocol)
 - [Subagent Briefing Template](#subagent-briefing-template)
@@ -84,11 +89,14 @@ don't trip over each other.
 | `sdk-core/pipeline/ResponsePipeline.kt` and step contracts | WU-1 only | WU-3 reads the contract WU-1 produces but does not modify pipeline types. |
 | `sdk-core/http/response/Status.kt` | WU-2 only | New exception package alongside, but Status itself only WU-2. |
 | `sdk-transport-okhttp/`, `sdk-transport-jdkhttp/` | WU-4 only (lifecycle) | Other WUs don't touch transport modules. |
-| `settings.gradle.kts` | WU-8 (sdk-serde-jackson), WU-10 (sdk-auth) | Different phases, no conflict. |
+| `settings.gradle.kts` | WU-8 (sdk-serde-jackson) | WU-10's auth landed in `sdk-core`, so no second `settings.gradle.kts` edit materialized. |
 
 ## Phase 0 — Foundational (2 parallel WUs)
 
 ### WU-1: AfterError pipeline upgrade
+
+**Status: shipped.** `ResponseOutcome` (sealed `Success`/`Failure`), `ResponseRecoveryStep`, the
+recovery-aware `ResponsePipeline`, and `ExecutionPipeline` are all in `sdk-core/.../pipeline`.
 
 **Goal.** Replace the empty `ResponsePipeline` placeholder with Airbyte-style recovery
 semantics. Add a third step type that takes `Either<Response, Throwable>` and can rescue or
@@ -119,30 +127,37 @@ where `BeforeRequest` throws bypass `AfterError`).
 
 ### WU-2: Typed HttpException hierarchy
 
-**Goal.** Mirror gax's `ApiException` taxonomy in HTTP terms: a base `HttpException` plus
-status-keyed subclasses, with a `retryable: Boolean` baked in at construction time.
+**Status: shipped.** The hierarchy lives in `sdk-core/.../http/response/exception` — `HttpException`,
+the per-status subclasses in `HttpExceptions.kt`, `NetworkException`, and `HttpExceptionFactory`.
+One change from the original sketch: `retryable` is **derived**, not hand-set per subclass. The
+base class computes `retryable = RetryUtils.isRetryable(status.code)` once at construction, so the
+flag can never drift from the live retry policy. That single source of truth also fixes two codes
+the original per-subclass table got wrong: **408 is retryable** (it has its own
+`RequestTimeoutException`) and **501 / 505 are not**.
 
 **Dependencies:** none.
 
 **Files (create):**
-- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response/exception/HttpException.kt` — abstract base. Fields: `status: Status`, `headers: Headers`, `body: ResponseBody?`, `retryable: Boolean`, `cause: Throwable?`.
-- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response/exception/HttpExceptions.kt` — concrete subclasses, one per common status:
-  - `BadRequestException` (400, !retryable)
-  - `UnauthorizedException` (401, !retryable)
-  - `ForbiddenException` (403, !retryable)
-  - `NotFoundException` (404, !retryable)
-  - `MethodNotAllowedException` (405, !retryable)
-  - `ConflictException` (409, !retryable)
-  - `GoneException` (410, !retryable)
-  - `PayloadTooLargeException` (413, !retryable)
-  - `UnsupportedMediaTypeException` (415, !retryable)
-  - `UnprocessableEntityException` (422, !retryable)
+- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response/exception/HttpException.kt` — abstract base. Fields: `status: Status`, `headers: Headers`, `body: ResponseBody?`, `retryable: Boolean` (derived from `RetryUtils.isRetryable(status.code)`), `cause: Throwable?`.
+- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response/exception/HttpExceptions.kt` — concrete subclasses, one per common status (none sets its own `retryable`; the base derives it):
+  - `BadRequestException` (400)
+  - `UnauthorizedException` (401)
+  - `ForbiddenException` (403)
+  - `NotFoundException` (404)
+  - `MethodNotAllowedException` (405)
+  - `RequestTimeoutException` (408, retryable)
+  - `ConflictException` (409)
+  - `GoneException` (410)
+  - `PayloadTooLargeException` (413)
+  - `UnsupportedMediaTypeException` (415)
+  - `UnprocessableEntityException` (422)
   - `TooManyRequestsException` (429, retryable)
   - `InternalServerErrorException` (500, retryable)
   - `BadGatewayException` (502, retryable)
   - `ServiceUnavailableException` (503, retryable)
   - `GatewayTimeoutException` (504, retryable)
-  - `NetworkException` (no status; for connect/read failures; retryable=true)
+  - `ClientErrorException` / `ServerErrorException` — generic 4xx / 5xx fallbacks.
+- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response/exception/NetworkException.kt` — sibling type (no status; for connect/read failures; always retryable).
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/http/response/exception/HttpExceptionFactory.kt` — `fun fromResponse(response): HttpException` switch.
 
 **Files (modify):**
@@ -151,7 +166,7 @@ status-keyed subclasses, with a `retryable: Boolean` baked in at construction ti
 **Acceptance criteria:**
 - `HttpExceptionFactory.fromResponse(response)` returns the correct subclass for each canonical status.
 - Unknown status falls back to either `ClientErrorException` (4xx) or `ServerErrorException` (5xx) generic class.
-- `retryable` is read-only and set at construction; matches the canonical retryable status set.
+- `retryable` is read-only and derived at construction from `RetryUtils.isRetryable(status.code)`, so it always mirrors the live retry policy.
 - Body is exposed as `ResponseBody?` (lazy stream), **not** eagerly buffered into a string.
 - `@JvmOverloads` on public constructors.
 - Unit tests for factory dispatch + retryable flag values.
@@ -161,6 +176,9 @@ status-keyed subclasses, with a `retryable: Boolean` baked in at construction ti
 ## Phase 1 — Features & Adapters (7 parallel WUs)
 
 ### WU-3: Retry pipeline step
+
+**Status: shipped.** `RetrySettings`, `RetryStep`, `BackoffCalculator`, and `RetryAfterParser`
+are all in `sdk-core/.../pipeline/step/retry`.
 
 **Goal.** Build the best-in-class retry step combining Square's `Retry-After` /
 `X-RateLimit-Reset` parsing with gax's per-attempt shrinking deadline algorithm.
@@ -198,6 +216,10 @@ status-keyed subclasses, with a `retryable: Boolean` baked in at construction ti
 
 ### WU-4: HttpClient.close() lifecycle
 
+**Status: shipped.** `HttpClient` and `AsyncHttpClient` extend `AutoCloseable` with default no-op
+`close()`; `OkHttpTransport` and `JdkHttpTransport` override it to release SDK-managed resources
+(BYO clients are never closed).
+
 **Goal.** Add `AutoCloseable` to `HttpClient` + `AsyncHttpClient`, plus close-on-error /
 close-from-builder lifecycle. Wire transports to release their pools.
 
@@ -206,8 +228,8 @@ close-from-builder lifecycle. Wire transports to release their pools.
 **Files (modify):**
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/client/HttpClient.kt` — extend `AutoCloseable`. Default no-op `close()`.
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/client/AsyncHttpClient.kt` — same.
-- `sdk-transport-okhttp/src/main/kotlin/.../OkHttpHttpClient.kt` and `.../OkHttpAsyncHttpClient.kt` — implement `close()`: shutdown `Dispatcher.executorService()`, `ConnectionPool.evictAll()`.
-- `sdk-transport-jdkhttp/src/main/kotlin/.../JdkHttpClient.kt` and the async variant — implement `close()`: shutdown executor (if owned).
+- `sdk-transport-okhttp/src/main/kotlin/.../OkHttpTransport.kt` — implement `close()`: shutdown `Dispatcher.executorService()`, `ConnectionPool.evictAll()`.
+- `sdk-transport-jdkhttp/src/main/kotlin/.../JdkHttpTransport.kt` — implement `close()`: shutdown executor (if owned).
 
 **Acceptance criteria:**
 - Closing an `HttpClient` releases its resources (verified by checking the executor's `isShutdown()` for OkHttp; JDK's HttpClient is GC'd).
@@ -221,6 +243,8 @@ close-from-builder lifecycle. Wire transports to release their pools.
 ---
 
 ### WU-5: Idempotency-Key step
+
+**Status: shipped.** `IdempotencyKeyStep` is in `sdk-core/.../pipeline/step`.
 
 **Goal.** Auto-inject `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH` if the
 header isn't already set. Allow caller override + custom UUID strategy.
@@ -247,6 +271,9 @@ header isn't already set. Allow caller override + custom UUID strategy.
 
 ### WU-6: Client identity header step
 
+**Status: shipped.** `ClientIdentityStep` is in `sdk-core/.../pipeline/step`; `SdkInfo` is in
+`sdk-core/.../util`.
+
 **Goal.** Adopt gax's composite token line. `User-Agent` and/or `X-Dexpace-Client` carrying
 `dexpace-sdk/<sdkver> jvm/<javaver> <transport>/<ver>`.
 
@@ -270,6 +297,10 @@ header isn't already set. Allow caller override + custom UUID strategy.
 ---
 
 ### WU-7: Tracer event vocabulary
+
+**Status: shipped.** `HttpTracer`, `NoopHttpTracer`, and `HttpTracerFactory` (whose default impl
+is `NoopHttpTracerFactory`) are in `sdk-core/.../instrumentation`; `InstrumentationContext` carries
+an `httpTracerFactory` slot defaulting to the no-op factory.
 
 **Goal.** Extend `InstrumentationContext` with named, RPC-shape-aware events. Mirror gax's
 `ApiTracer` vocabulary scaled to HTTP. Keep defaults no-op so the change is non-breaking.
@@ -306,6 +337,10 @@ header isn't already set. Allow caller override + custom UUID strategy.
 
 ### WU-8: sdk-serde-jackson adapter module
 
+**Status: shipped.** The `sdk-serde-jackson` module is in `settings.gradle.kts`; it ships
+`JacksonSerde`, `JacksonObjectMappers`, and `TristateModule`. The `Tristate<T>` type itself lives
+in `sdk-core/.../serde` (it is part of the abstract surface, as planned).
+
 **Goal.** New module providing a Jackson-backed `Serde` implementation with the right SDK
 defaults (per Square: `FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`,
 `Jdk8Module`, `JavaTimeModule`). Plus a `Tristate<T>` sealed class for PATCH semantics.
@@ -337,6 +372,12 @@ defaults (per Square: `FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMEST
 
 ### WU-9: Pagination primitives
 
+**Status: shipped.** `Page`, `Paginator`, `PaginationStrategy`, and the four strategies
+(`Cursor` / `PageNumber` / `LinkHeader` / `Token`) are in `sdk-core/.../pagination`, alongside
+helper types `SimplePage` and `RequestRebuilder`. `Paginator` gained a `maxPages` safety cap
+(default `Long.MAX_VALUE`) beyond the original sketch, to bound runaway iteration against servers
+that never advance their cursor.
+
 **Goal.** Add a generic pagination primitive set sized to cover the common cursor / page-number /
 link-header strategies without over-engineering. Sync first; async adapter follow-up.
 
@@ -363,11 +404,27 @@ link-header strategies without over-engineering. Sync first; async adapter follo
 
 ## Phase 2 — Auth (1 WU)
 
-### WU-10: sdk-auth module
+### WU-10: auth (shipped in `sdk-core`, not a separate module)
 
-**Goal.** New module providing pluggable authentication. Pipeline-step-based, supports
-per-call override via `RequestContext`, coalesces concurrent token refreshes, evicts cached
-tokens on 401.
+**Status: shipped, but not as the `sdk-auth` module this WU sketched.** Auth landed inside
+`sdk-core` rather than a standalone module, and the type names differ from the sketch below — the
+abstractions are credential-and-challenge-shaped instead of `AuthProvider`-shaped:
+
+- **Credentials** (`sdk-core/.../http/auth`): a sealed `Credential` interface with `BearerToken`
+  (plus `BearerTokenProvider` for rotation) and `KeyCredential` / `NamedKeyCredential`. No
+  `AuthProvider` / `BasicAuthProvider` / `OAuth2ClientCredentialsProvider` types — the planned
+  OAuth client-credentials flow did **not** ship.
+- **Challenge handling** (RFC 7235): `AuthChallengeParser` + `AuthenticateChallenge`, with
+  `BasicChallengeHandler`, `DigestChallengeHandler`, and `CompositeChallengeHandler`.
+- **Pipeline steps** (`sdk-core/.../http/pipeline/steps`): an abstract `AuthStep` pillar at
+  `Stage.AUTH`, with concrete `BearerTokenAuthStep` and `KeyCredentialAuthStep`. The challenge
+  retry hook lives on `AuthStep` itself rather than in a separate `UnauthorizedRecoveryStep`.
+
+The remaining body of this WU is the original sketch, kept for the design rationale; the type
+names and module layout above are authoritative.
+
+**Goal.** Pluggable authentication. Pipeline-step-based, supports per-call override via
+`RequestContext`, coalesces concurrent token refreshes, evicts cached tokens on 401.
 
 **Dependencies:** WU-1 (uses `ResponseRecoveryStep` for 401-handling), WU-2 (uses
 `UnauthorizedException`), WU-3 (uses retry semantics for OAuth token-fetch).
@@ -404,12 +461,12 @@ tokens on 401.
 
 ## Tier 3 (deferred)
 
-Out of scope for this plan; queue for a later phase:
+Out of scope for the phases above. Two of the original four have since shipped:
 
-- **WU-11: sdk-webhooks module** — HMAC-SHA256/SHA1 verifier with constant-time compare + replay protection (Square's `WebhooksHelper` done right).
-- **WU-12: MetricsRecorder seam** — histograms + counters distinct from tracing.
-- **Configuration Settings → Context resolution split** — gax's `StubSettings` → `ClientSettings` → `ClientContext` pattern adapted.
-- **Streaming responses (SSE)** — `ResponseObserver`-style with explicit `request(n)` backpressure.
+- **WU-11: webhook-signature verification** — HMAC-SHA256/SHA1 verifier with constant-time compare + replay protection (Square's `WebhooksHelper` done right). **Still unbuilt.**
+- **WU-12: metrics seam** — **shipped** in `sdk-core/.../instrumentation/metrics` (`Meter`, `LongCounter`, `DoubleHistogram`, `NoopMeter`), distinct from the tracing vocabulary.
+- **Configuration Settings → Context resolution split** — gax's `StubSettings` → `ClientSettings` → `ClientContext` pattern adapted. **Still unbuilt.**
+- **Streaming responses (SSE)** — **shipped** as the `sdk-core/.../http/sse` package (`ServerSentEvent`, `ServerSentEventReader`, `ServerSentEventListener`); the Reactor adapter exposes the SSE → `Flux` backpressure path.
 
 ## Execution Protocol
 

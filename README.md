@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.3.21-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 ![JDK](https://img.shields.io/badge/JDK-8%2B-437291.svg?logo=openjdk&logoColor=white)
-![Coverage](https://img.shields.io/badge/coverage-93.3%25-success.svg)
+![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25-success.svg)
 
 A toolkit for building HTTP client libraries on the JVM. Dexpace is not an HTTP client: it is the machinery a client is made of. Immutable request and response models, a staged pipeline runtime, resilience steps, and seams for transport, I/O, serialization, and async runtimes.
 
@@ -239,14 +239,18 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 |---|---|
 | `client` | `HttpClient`, `AsyncHttpClient` — the two transport SPIs (sync and async). |
 | `http.request` | `Request`, `RequestBody`, `FileRequestBody`, `LoggableRequestBody`, `Method`. |
-| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status`, `HttpResponseException`. |
+| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status` (a value-carrying class with a total `fromCode`), `HttpResponseException`. |
+| `http.response.exception` | Typed `HttpException` hierarchy (`BadRequestException`, `RequestTimeoutException`, `TooManyRequestsException`, `ServiceUnavailableException`, …) with `retryable` derived from `RetryUtils.isRetryable`, plus `NetworkException` and `HttpExceptionFactory`. |
 | `http.common` | `Headers`, `HttpHeaderName` (interned), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
 | `http.context` | `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext` chain, `ContextStore`. |
 | `http.pipeline` | Sync (`HttpStep` / `HttpPipeline` / `HttpPipelineBuilder` / `PipelineNext` / `Stage`) and async (`AsyncHttpStep` / `AsyncHttpPipeline` / `AsyncHttpPipelineBuilder` / `AsyncPipelineNext`) pipeline machinery, plus `AsyncPipelineBridges`. |
 | `http.pipeline.steps` | Concrete steps: `RetryStep`, `RedirectStep`, `AuthStep`, `KeyCredentialAuthStep`, `BearerTokenAuthStep`, `InstrumentationStep`, `SetDateStep`, and their `*Options` / `*Condition` types. |
-| `http.auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, `AuthMetadata`, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler`. |
+| `http.auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, `AuthMetadata`, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler`, `CompositeChallengeHandler`. |
 | `http.sse` | `ServerSentEventReader` (WHATWG spec), `ServerSentEvent`, `ServerSentEventListener`, `BufferedSource.readServerSentEvents()`. |
 | `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` and `stream()` accessors. |
+| `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / token / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. |
+| `pipeline` | Recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline` over a sealed `ResponseOutcome`, with steps (`pipeline.step`, `pipeline.step.retry`) like `RetryStep`, `ResponseRecoveryStep`, `IdempotencyKeyStep`, `ClientIdentityStep`. |
+| `serde` | `Serde`, `Serializer`, `Deserializer` abstractions and `Tristate<T>` (absent / null / present). |
 | `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |
 | `instrumentation` | `ClientLogger` (zero-alloc disabled path), `LoggingEvent`, `UrlRedactor`, `Tracer` / `NoopTracer`, `Span` / `NoopSpan`, `InstrumentationContext`. |
 | `instrumentation.metrics` | `Meter`, `LongCounter`, `DoubleHistogram`, `NoopMeter`. |
@@ -258,13 +262,13 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 
 ```bash
 ./gradlew build                # build every module
-./gradlew test                 # run all tests (1,496 tests across modules)
+./gradlew test                 # run all tests across modules
 ./gradlew koverHtmlReport      # aggregate coverage report at build/reports/kover/html/
 ./gradlew apiCheck             # binary-compatibility check against committed .api snapshots
 ./gradlew apiDump              # regenerate .api snapshots after intentional API changes
 ```
 
-Coverage at HEAD: 93.3% line, 87.6% branch (1,496 tests, 0 failures).
+Aggregate line coverage sits comfortably above the 80% floor; run `koverHtmlReport` for the current numbers.
 
 ### Quality gates
 
@@ -272,7 +276,7 @@ All of these break the build:
 
 - `explicitApi = ExplicitApiMode.Strict` on every Kotlin module: every public declaration states its visibility and return type.
 - `allWarningsAsErrors = true` for every Kotlin compile task.
-- ktlint and detekt with `ignoreFailures = false`. Detekt is skipped on `sdk-async-virtualthreads` pending a release that supports JDK 25; the module's build script links the upstream issue and the re-enable conditions.
+- ktlint and detekt with `ignoreFailures = false`. Detekt is skipped on `sdk-async-virtualthreads` and `sdk-transport-jdkhttp`, whose JDK 21 / JDK 11 toolchains run analysis on a JDK 25 system JVM that detekt 1.23.x cannot parse; both build scripts link the upstream issue and the re-enable conditions. It runs everywhere else, including the JDK 8 transports.
 - `kotlinx-binary-compatibility-validator` gates the public API surface against committed `.api` snapshots.
 - Aggregate Kover line coverage has an 80% floor.
 

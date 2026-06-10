@@ -546,6 +546,44 @@ class LoggingEventTest {
         assertEquals(1, traceIdEntries, "expected exactly one trace.id entry; duplicate would mean Fix 2 regressed")
     }
 
+    @Test
+    fun `key set in both globalContext and MDC is emitted exactly once`() {
+        // A key carried by both the logger's globalContext (emitted unconditionally) and the
+        // allow-listed MDC must NOT be folded twice. Two KeyValuePair entries with the same
+        // key serialise to invalid duplicate-key JSON in JSON appenders.
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "mdc-trace")
+        val (logger, fake) = enabledLogger(mapOf("trace.id" to "global-trace"))
+        logger.atInfo().event("test.event").log("hello")
+
+        val rec = fake.records.single()
+        val traceIdEntries = rec.keyValues.filter { it.key == "trace.id" }
+        assertEquals(
+            1,
+            traceIdEntries.size,
+            "expected exactly one trace.id entry; a second from MDC would be a duplicate KeyValuePair",
+        )
+        // globalContext is emitted first and wins — the MDC value must not be folded over it.
+        assertEquals("global-trace", traceIdEntries.single().value)
+    }
+
+    @Test
+    fun `MDC keys absent from globalContext are still folded`() {
+        // Guard the collision fix against over-skipping: an MDC key NOT present in
+        // globalContext must continue to be folded into the event.
+        installBasicMdcAdapter()
+        MDC.put("trace.id", "mdc-trace")
+        MDC.put("span.id", "mdc-span")
+        val (logger, fake) = enabledLogger(mapOf("trace.id" to "global-trace"))
+        logger.atInfo().event("test.event").log("hello")
+
+        val kv = fake.records.single().keyValues.toMap()
+        // trace.id is supplied by globalContext (collision → global wins, MDC skipped).
+        assertEquals("global-trace", kv["trace.id"])
+        // span.id is only in MDC and must still be folded.
+        assertEquals("mdc-span", kv["span.id"])
+    }
+
     // -- renderThrowable simpleName-null fallback --------------------------------------------
 
     @Test

@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
+import org.dexpace.sdk.core.util.RetryUtils
 import org.dexpace.sdk.io.OkioIoProvider
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
@@ -48,7 +49,7 @@ class HttpExceptionFactoryTest {
             assertEquals(
                 expectedClass,
                 ex.javaClass,
-                "factory must dispatch status ${status.code} (${status.name}) to ${expectedClass.simpleName}",
+                "factory must dispatch status ${status.code} (${status.statusName}) to ${expectedClass.simpleName}",
             )
             assertEquals(expectedRetryable, ex.retryable, "${status.code} retryable flag mismatch")
             assertEquals(status, ex.status)
@@ -71,14 +72,68 @@ class HttpExceptionFactoryTest {
     }
 
     @Test
-    fun `unknown 5xx status maps to ServerErrorException`() {
+    fun `unknown 5xx status maps to ServerErrorException with RetryUtils-derived retryable`() {
+        // 501 and 505 dispatch to the 5xx fallback, but their baked retryable flag must mirror
+        // RetryUtils (which excludes 501/505) — NOT the old blanket "5xx is retryable" rule.
         val notImpl = HttpExceptionFactory.fromResponse(response(Status.NOT_IMPLEMENTED))
         assertTrue(notImpl is ServerErrorException, "501 should be ServerErrorException")
-        assertEquals(true, notImpl.retryable)
+        assertEquals(false, notImpl.retryable, "501 must not be retryable (RetryUtils excludes it)")
+        assertEquals(RetryUtils.isRetryable(Status.NOT_IMPLEMENTED.code), notImpl.retryable)
 
         val versionBad = HttpExceptionFactory.fromResponse(response(Status.HTTP_VERSION_NOT_SUPPORTED))
         assertTrue(versionBad is ServerErrorException, "505 should be ServerErrorException")
-        assertEquals(true, versionBad.retryable)
+        assertEquals(false, versionBad.retryable, "505 must not be retryable (RetryUtils excludes it)")
+        assertEquals(RetryUtils.isRetryable(Status.HTTP_VERSION_NOT_SUPPORTED.code), versionBad.retryable)
+    }
+
+    @Test
+    fun `408 maps to RequestTimeoutException and is retryable`() {
+        val ex = HttpExceptionFactory.fromResponse(response(Status.REQUEST_TIMEOUT))
+        assertTrue(ex is RequestTimeoutException, "408 should map to RequestTimeoutException, not the 4xx fallback")
+        assertEquals(true, ex.retryable, "408 must be retryable per RetryUtils")
+        assertEquals(RetryUtils.isRetryable(Status.REQUEST_TIMEOUT.code), ex.retryable)
+        assertEquals(Status.REQUEST_TIMEOUT, ex.status)
+    }
+
+    @Test
+    fun `baked retryable flag equals RetryUtils for a representative status sweep`() {
+        // The whole point of the unification: the flag the exception carries must never
+        // disagree with the live policy for any status the factory can produce.
+        val sweep =
+            listOf(
+                // 400
+                Status.BAD_REQUEST,
+                // 401
+                Status.UNAUTHORIZED,
+                // 404
+                Status.NOT_FOUND,
+                // 408 — retryable
+                Status.REQUEST_TIMEOUT,
+                // 418 — unknown 4xx fallback
+                Status.IM_A_TEAPOT,
+                // 429 — retryable
+                Status.TOO_MANY_REQUESTS,
+                // 500 — retryable
+                Status.INTERNAL_SERVER_ERROR,
+                // 501 — NOT retryable
+                Status.NOT_IMPLEMENTED,
+                // 502 — retryable
+                Status.BAD_GATEWAY,
+                // 503 — retryable
+                Status.SERVICE_UNAVAILABLE,
+                // 504 — retryable
+                Status.GATEWAY_TIMEOUT,
+                // 505 — NOT retryable
+                Status.HTTP_VERSION_NOT_SUPPORTED,
+            )
+        for (status in sweep) {
+            val ex = HttpExceptionFactory.fromResponse(response(status))
+            assertEquals(
+                RetryUtils.isRetryable(status.code),
+                ex.retryable,
+                "baked retryable for ${status.code} (${status.statusName}) must equal RetryUtils.isRetryable",
+            )
+        }
     }
 
     // ---- 3. Non-error statuses must throw -----------------------------------------------
@@ -117,13 +172,18 @@ class HttpExceptionFactoryTest {
         assertEquals(false, UnprocessableEntityException(response(Status.UNPROCESSABLE_ENTITY)).retryable)
         assertEquals(false, ClientErrorException(response(Status.IM_A_TEAPOT)).retryable)
 
-        // 429 + 5xx — retryable.
+        // 408 + 429 + the retryable 5xx codes — retryable.
+        assertEquals(true, RequestTimeoutException(response(Status.REQUEST_TIMEOUT)).retryable)
         assertEquals(true, TooManyRequestsException(response(Status.TOO_MANY_REQUESTS)).retryable)
         assertEquals(true, InternalServerErrorException(response(Status.INTERNAL_SERVER_ERROR)).retryable)
         assertEquals(true, BadGatewayException(response(Status.BAD_GATEWAY)).retryable)
         assertEquals(true, ServiceUnavailableException(response(Status.SERVICE_UNAVAILABLE)).retryable)
         assertEquals(true, GatewayTimeoutException(response(Status.GATEWAY_TIMEOUT)).retryable)
-        assertEquals(true, ServerErrorException(response(Status.NOT_IMPLEMENTED)).retryable)
+
+        // 501 routes through the 5xx fallback but is NOT retryable — the baked flag now
+        // mirrors RetryUtils instead of the old blanket 5xx rule.
+        assertEquals(false, ServerErrorException(response(Status.NOT_IMPLEMENTED)).retryable)
+        assertEquals(false, ServerErrorException(response(Status.HTTP_VERSION_NOT_SUPPORTED)).retryable)
     }
 
     @Test
@@ -315,6 +375,7 @@ class HttpExceptionFactoryTest {
             DispatchCase(Status.FORBIDDEN, ForbiddenException::class.java, false),
             DispatchCase(Status.NOT_FOUND, NotFoundException::class.java, false),
             DispatchCase(Status.METHOD_NOT_ALLOWED, MethodNotAllowedException::class.java, false),
+            DispatchCase(Status.REQUEST_TIMEOUT, RequestTimeoutException::class.java, true),
             DispatchCase(Status.CONFLICT, ConflictException::class.java, false),
             DispatchCase(Status.GONE, GoneException::class.java, false),
             DispatchCase(Status.PAYLOAD_TOO_LARGE, PayloadTooLargeException::class.java, false),

@@ -220,6 +220,101 @@ class RedirectStepTest {
         assertEquals("Bearer secret-token", request.headers.get(HttpHeaderName.AUTHORIZATION))
     }
 
+    // ----------------- Security: Cookie / Proxy-Authorization stripping (S-2) -----------------
+
+    @Test
+    fun `strips Cookie and Proxy-Authorization on a cross-origin redirect`() {
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://other.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/x")
+                .addHeader("Authorization", "Bearer secret-token")
+                .addHeader("Cookie", "session=abc123")
+                .addHeader("Proxy-Authorization", "Basic cHJveHk=")
+                .build()
+
+        pipeline.send(request)
+
+        val reissued = fake.requests[1]
+        assertNull(reissued.headers.get(HttpHeaderName.AUTHORIZATION), "Authorization must be stripped")
+        assertNull(reissued.headers.get(HttpHeaderName.COOKIE), "Cookie must be stripped cross-origin")
+        assertNull(
+            reissued.headers.get(HttpHeaderName.PROXY_AUTHORIZATION),
+            "Proxy-Authorization must be stripped cross-origin",
+        )
+    }
+
+    @Test
+    fun `retains Cookie on a same-origin redirect`() {
+        // Cookie is origin-scoped — it may legitimately follow a same-origin redirect.
+        // (Authorization is still stripped; re-stamping is the AuthStep's job.)
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://api.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://api.example.com/x")
+                .addHeader("Cookie", "session=abc123")
+                .build()
+
+        pipeline.send(request)
+
+        val reissued = fake.requests[1]
+        assertEquals("session=abc123", reissued.headers.get(HttpHeaderName.COOKIE))
+    }
+
+    @Test
+    fun `strips Cookie and Proxy-Authorization on a 303 cross-origin redirect`() {
+        // The 303 GET-rebuild path must also drop origin-scoped credentials cross-origin.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(303).header("Location", "https://other.example.com/done") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep(HttpRedirectOptions(follow303 = true)))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/submit")
+                .addHeader("Cookie", "session=abc123")
+                .addHeader("Proxy-Authorization", "Basic cHJveHk=")
+                .addHeader("Authorization", "Bearer secret")
+                .body(RequestBody.create("{}".toByteArray()))
+                .build()
+
+        pipeline.send(request)
+
+        val reissued = fake.requests[1]
+        assertNull(reissued.headers.get(HttpHeaderName.COOKIE), "Cookie stripped on 303 cross-origin")
+        assertNull(
+            reissued.headers.get(HttpHeaderName.PROXY_AUTHORIZATION),
+            "Proxy-Authorization stripped on 303 cross-origin",
+        )
+        assertNull(reissued.headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
     @Test
     fun `strips Authorization even on same-origin redirect`() {
         // Defensive: auth re-stamping is the AuthStep's job, not ours.
@@ -682,6 +777,108 @@ class RedirectStepTest {
             ex.message?.contains("replayable") == true,
             "expected 'replayable' in message but was: ${ex.message}",
         )
+    }
+
+    // ----------------- 301/302 method-preserving body replay check (R-4) -----------------
+
+    @Test
+    fun `301 POST with non-replayable body throws IllegalStateException when POST is allowed`() {
+        // R-4: when a caller widens allowedMethods to include POST, a 301/302 preserves the
+        // method AND body — so the same replayability check the 307/308 path enforces must
+        // apply, producing a clean IllegalStateException rather than a corrupt re-send.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(301).header("Location", "https://api.example.com/v2") }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultRedirectStep(
+                        HttpRedirectOptions(allowedMethods = EnumSet.allOf(Method::class.java)),
+                    ),
+                )
+                .build()
+
+        val nonReplayable =
+            object : RequestBody() {
+                override fun mediaType() = MediaType.parse("text/plain")
+
+                override fun contentLength(): Long = 5
+
+                override fun isReplayable(): Boolean = false
+
+                override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {
+                    sink.write("hello".toByteArray(Charsets.UTF_8))
+                }
+            }
+
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/v1")
+                .body(nonReplayable)
+                .build()
+
+        val ex =
+            assertFailsWith<IllegalStateException> {
+                pipeline.send(request)
+            }
+        assertTrue(
+            ex.message?.contains("replayable") == true,
+            "expected 'replayable' in message but was: ${ex.message}",
+        )
+        // The redirect was never followed — only the original call happened.
+        assertEquals(1, fake.callCount)
+    }
+
+    @Test
+    fun `302 PUT with replayable body is followed when PUT is allowed`() {
+        // Counterpart to the throwing case: a replayable body on a method-preserving 302
+        // follows cleanly with the body re-sent.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://api.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultRedirectStep(
+                        HttpRedirectOptions(allowedMethods = EnumSet.allOf(Method::class.java)),
+                    ),
+                )
+                .build()
+
+        val body = RequestBody.create("doc".toByteArray(Charsets.UTF_8))
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url("https://api.example.com/v1")
+                .body(body)
+                .build()
+
+        val response = pipeline.send(request)
+        assertEquals(200, response.status.code)
+        assertEquals(Method.PUT, fake.requests[1].method)
+        assertNotNull(fake.requests[1].body)
+    }
+
+    // ----------------- Defensive copy of allowedMethods (I-4) -----------------
+
+    @Test
+    fun `allowedMethods is an immutable defensive copy decoupled from the caller's EnumSet`() {
+        val mutable = EnumSet.of(Method.GET, Method.HEAD)
+        val options = HttpRedirectOptions(allowedMethods = mutable)
+
+        // Mutating the caller's set after construction must not change the stored policy.
+        mutable.add(Method.POST)
+        assertFalse(options.allowedMethods.contains(Method.POST), "stored set must be decoupled from caller's set")
+
+        // The exposed set must itself reject mutation.
+        assertFailsWith<UnsupportedOperationException> {
+            @Suppress("UNCHECKED_CAST")
+            (options.allowedMethods as MutableSet<Method>).add(Method.POST)
+        }
     }
 
     // ----------------- Integration: full pipeline -----------------

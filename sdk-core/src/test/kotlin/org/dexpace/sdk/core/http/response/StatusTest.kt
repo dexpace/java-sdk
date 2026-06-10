@@ -9,9 +9,10 @@ package org.dexpace.sdk.core.http.response
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class StatusTest {
@@ -25,9 +26,29 @@ class StatusTest {
     }
 
     @Test
-    fun `fromCode throws IllegalArgumentException for an unknown code`() {
-        val ex = assertFailsWith<IllegalArgumentException> { Status.fromCode(999) }
-        assertEquals("Invalid status code: 999", ex.message)
+    fun `fromCode returns canonical singletons for known codes`() {
+        // Known codes resolve to the exact canonical constant, not a fresh instance.
+        assertSame(Status.OK, Status.fromCode(200))
+        assertSame(Status.GONE, Status.fromCode(410))
+    }
+
+    @Test
+    fun `fromCode returns a total Status with null statusName for an unknown code`() {
+        // 999 is not in the canonical set: fromCode no longer throws, it surfaces the code.
+        val unknown = Status.fromCode(999)
+        assertEquals(999, unknown.code)
+        assertNull(unknown.statusName)
+    }
+
+    @Test
+    fun `fromCode surfaces real vendor codes without throwing`() {
+        // nginx 499 and Cloudflare 520-526/530 are real wire values the SDK must not reject.
+        for (vendorCode in intArrayOf(499, 520, 521, 522, 523, 524, 525, 526, 530)) {
+            val status = Status.fromCode(vendorCode)
+            assertEquals(vendorCode, status.code)
+            assertNull(status.statusName, "vendor code $vendorCode must not be treated as canonical")
+            assertFalse(status.isSuccess)
+        }
     }
 
     @Test
@@ -45,7 +66,7 @@ class StatusTest {
 
     @Test
     fun `isSuccess is true for every 2xx status`() {
-        for (s in Status.entries) {
+        for (s in Status.canonicalStatuses) {
             if (s.code in 200..299) {
                 assertTrue(s.isSuccess, "$s should be considered successful")
             }
@@ -71,13 +92,50 @@ class StatusTest {
     }
 
     @Test
-    fun `every Status code is uniquely recoverable via fromCode`() {
-        for (s in Status.entries) {
+    fun `isSuccess honours the 2xx range for unknown codes too`() {
+        assertTrue(Status.fromCode(299).isSuccess)
+        assertFalse(Status.fromCode(300).isSuccess)
+        assertFalse(Status.fromCode(199).isSuccess)
+    }
+
+    @Test
+    fun `every canonical Status code is uniquely recoverable via fromCode`() {
+        for (s in Status.canonicalStatuses) {
             assertEquals(s, Status.fromCode(s.code), "round trip failed for $s")
         }
     }
 
-    // ---- LOOKUP map coverage (M2) -----------------------------------------------
+    // ---- value semantics -------------------------------------------------------
+
+    @Test
+    fun `equality and hashCode are driven by code`() {
+        assertEquals(Status.OK, Status.fromCode(200))
+        assertEquals(Status.OK.hashCode(), Status.fromCode(200).hashCode())
+
+        // Two unknown statuses with the same code are equal.
+        assertEquals(Status.fromCode(599), Status.fromCode(599))
+        assertEquals(Status.fromCode(599).hashCode(), Status.fromCode(599).hashCode())
+
+        assertNotEquals(Status.OK, Status.NOT_FOUND)
+        assertNotEquals<Any?>(Status.OK, null)
+        assertNotEquals<Any?>(Status.OK, 200)
+    }
+
+    @Test
+    fun `toString names canonical codes and falls back for unknown codes`() {
+        assertEquals("OK(200)", Status.OK.toString())
+        assertEquals("NOT_FOUND(404)", Status.NOT_FOUND.toString())
+        assertEquals("HTTP 520", Status.fromCode(520).toString())
+        assertEquals("HTTP 499", Status.fromCode(499).toString())
+    }
+
+    @Test
+    fun `canonical constants expose a statusName`() {
+        assertEquals("OK", Status.OK.statusName)
+        assertEquals("INTERNAL_SERVER_ERROR", Status.INTERNAL_SERVER_ERROR.statusName)
+    }
+
+    // ---- LOOKUP map coverage ---------------------------------------------------
 
     @Test
     fun `fromCode returns correct entries for representative codes`() {
@@ -104,10 +162,17 @@ class StatusTest {
     }
 
     @Test
-    fun `fromCode throws for non-existent codes with correct message`() {
-        val ex1 = assertFailsWith<IllegalArgumentException> { Status.fromCode(1) }
-        assertEquals("Invalid status code: 1", ex1.message)
-        val ex2 = assertFailsWith<IllegalArgumentException> { Status.fromCode(600) }
-        assertEquals("Invalid status code: 600", ex2.message)
+    fun `fromCode is total for non-existent codes`() {
+        val s1 = Status.fromCode(1)
+        assertEquals(1, s1.code)
+        assertNull(s1.statusName)
+
+        val s2 = Status.fromCode(600)
+        assertEquals(600, s2.code)
+        assertNull(s2.statusName)
+
+        val sMax = Status.fromCode(Integer.MAX_VALUE)
+        assertEquals(Integer.MAX_VALUE, sMax.code)
+        assertNull(sMax.statusName)
     }
 }

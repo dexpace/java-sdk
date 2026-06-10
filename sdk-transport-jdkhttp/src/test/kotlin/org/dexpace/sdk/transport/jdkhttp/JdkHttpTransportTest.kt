@@ -173,11 +173,12 @@ class JdkHttpTransportTest {
     @Test
     fun `restrictedHeadersAreDropped`() {
         server.enqueue(MockResponse.Builder().code(200).body("ok").build())
-        // The four restricted headers — Content-Length, Host, Transfer-Encoding, Connection.
-        // The JDK client throws IllegalArgumentException at `HttpRequest.Builder.header(...)`
-        // if any of these are set; verifying that this transport's adaptation step builds
-        // a valid request (i.e. no exception leaks out) is the primary assertion. The
-        // server-side checks confirm the values were not used.
+        // A representative slice of the restricted headers — Content-Length, Host,
+        // Transfer-Encoding, Connection. The JDK client throws IllegalArgumentException at
+        // `HttpRequest.Builder.header(...)` if any of these are set; verifying that this
+        // transport's adaptation step builds a valid request (i.e. no exception leaks out) is
+        // the primary assertion. The server-side checks confirm the values were not used.
+        // (Expect/Upgrade are covered separately in `expectHeaderDoesNotCrashTheRequest`.)
         val request =
             Request.builder()
                 .method(Method.POST)
@@ -201,6 +202,46 @@ class JdkHttpTransportTest {
         assertTrue(!host.contains("bogus.example"), "Host should be recomputed from URL, was $host")
         // Pass-through header still reaches the server.
         assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun `expectHeaderDoesNotCrashTheRequest`() {
+        // `Expect` is in the JDK's disallowed-header set — setting it directly on
+        // HttpRequest.Builder throws IllegalArgumentException. The adapter must pre-drop it
+        // (RestrictedHeaders) so a user-set `Expect: 100-continue` never reaches the builder
+        // and the request completes normally.
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/expect").toUrl())
+                .body(RequestBody.create("payload", CommonMediaTypes.TEXT_PLAIN))
+                .addHeader("Expect", "100-continue")
+                .addHeader("Upgrade", "h2c")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code, "Expect/Upgrade must be dropped, not crash the request")
+            assertEquals("ok", response.body?.source()?.readUtf8())
+        }
+        val recorded = server.takeRequest()
+        // The dropped headers must not appear on the wire; the pass-through header must.
+        assertTrue(recorded.headers["Expect"] == null, "Expect must have been dropped before dispatch")
+        assertTrue(recorded.headers["Upgrade"] == null, "Upgrade must have been dropped before dispatch")
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun `vendorStatusCode520IsSurfacedAndNotLeaked`() {
+        // Cloudflare 520 is outside the named-status enum. `Status.fromCode` is total, so the
+        // adapter surfaces it as a plain Status(520) instead of throwing before the body is
+        // wrapped — the response (and its body) must round-trip and close cleanly.
+        server.enqueue(MockResponse.Builder().code(520).body("origin-error").build())
+        val request = simpleGet("/vendor-520")
+        transport.execute(request).use { response ->
+            assertEquals(520, response.status.code, "vendor status 520 must surface, not fail the response")
+            assertEquals("origin-error", response.body?.source()?.readUtf8())
+        }
     }
 
     // -------- request body streaming --------

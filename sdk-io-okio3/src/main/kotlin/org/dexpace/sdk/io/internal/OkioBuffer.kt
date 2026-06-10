@@ -79,8 +79,11 @@ internal class OkioBuffer(internal val delegate: okio.Buffer = okio.Buffer()) : 
         byteCount: Long,
     ): Long {
         require(byteCount >= 0) { "byteCount must be non-negative (got $byteCount)" }
-        if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
+        // Hoisted ABOVE the OkioBuffer fast path: Okio's Buffer.read returns -1 on an exhausted
+        // buffer even when byteCount == 0, which violates the Source contract (a zero-byte read
+        // must return 0, never EOF). Checking here keeps the fast path and slow path in agreement.
         if (byteCount == 0L) return 0L
+        if (sink is OkioBuffer) return delegate.read(sink.delegate, byteCount)
         if (delegate.exhausted()) return -1L
         val available = minOf(byteCount, delegate.size)
         sink.write(delegate.readByteArray(available))

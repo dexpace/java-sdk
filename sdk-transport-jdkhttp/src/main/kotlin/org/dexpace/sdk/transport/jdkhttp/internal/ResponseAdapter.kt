@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.io.Io
+import java.io.IOException
 import java.io.InputStream
 import java.net.http.HttpClient
 import java.net.http.HttpResponse
@@ -22,7 +23,8 @@ import org.dexpace.sdk.core.http.response.ResponseBody as SdkResponseBody
 /**
  * Adapts a JDK [HttpResponse]&lt;[InputStream]&gt; into the SDK's [SdkResponse], preserving:
  *
- *  - status (via [Status.fromCode]).
+ *  - status (via [Status.fromCode], which is total — unknown/vendor codes such as nginx 499
+ *    or Cloudflare 520 surface as an unnamed [Status] rather than throwing).
  *  - protocol (mapped through [toSdkProtocol]).
  *  - headers (each name/value pair copied from `HttpResponse.headers().map()`, multi-value
  *    semantics preserved by re-adding each value individually).
@@ -35,35 +37,59 @@ import org.dexpace.sdk.core.http.response.ResponseBody as SdkResponseBody
  * silently downgraded to `null` (the SDK contract allows `mediaType()` to be `null`).
  *
  * The JDK response carries no reason phrase (HTTP/2 dropped it, and the JDK normalises away
- * the HTTP/1.1 form too), so the SDK `message` field stays unset. Callers wanting a reason
- * string should look up [Status.name] instead.
+ * the HTTP/1.1 form too), so the SDK `message` field stays unset. Callers wanting a canonical
+ * reason string can read [Status.statusName], which is non-null for known status codes and
+ * `null` for unknown/vendor ones.
+ *
+ * If adaptation throws anywhere between acquiring the body and building the [SdkResponse], the
+ * live response [InputStream] is closed before the throwable propagates so the connection is
+ * never leaked — both the synchronous `execute` and asynchronous `sendAsync().thenApply`
+ * paths route through this method, so both inherit the guard.
  */
 internal class ResponseAdapter {
     fun adapt(
         sdkRequest: SdkRequest,
         jdkResponse: HttpResponse<InputStream>,
     ): SdkResponse {
-        val headersBuilder = Headers.Builder()
-        // HttpResponse.headers().map() returns a Map<String, List<String>> with case-insensitive
-        // key lookup but case-preserved keys; the SDK Headers builder normalises names itself
-        // on `add(...)`, so we can pass the keys through verbatim.
-        jdkResponse.headers().map().forEach { (name, values) ->
-            for (value in values) {
-                headersBuilder.add(name, value)
+        // Wrap body acquisition through Response construction in a try/catch that closes the
+        // live response InputStream on any throw. Without this, a failure between obtaining the
+        // body and building the SDK Response (e.g. Io.provider not installed, or an OOM while
+        // wrapping) would orphan the InputStream and leak the underlying connection back-pressure
+        // slot. The body's own InputStream is the only native resource to release here; closing
+        // it returns the connection to the JDK client's pool. Mirrors the OkHttp transport's
+        // close-on-throw guard for cross-transport parity. `Status.fromCode` is total and never
+        // throws, but the body-wrap and builder calls still can.
+        val body: InputStream = jdkResponse.body()
+        return try {
+            val headersBuilder = Headers.Builder()
+            // HttpResponse.headers().map() returns a Map<String, List<String>> with case-insensitive
+            // key lookup but case-preserved keys; the SDK Headers builder normalises names itself
+            // on `add(...)`, so we can pass the keys through verbatim.
+            jdkResponse.headers().map().forEach { (name, values) ->
+                for (value in values) {
+                    headersBuilder.add(name, value)
+                }
             }
+            val headers = headersBuilder.build()
+            val mediaType = parseContentType(headers.get("Content-Type"))
+            val contentLength = parseContentLength(headers.get("Content-Length"))
+            val bufferedSource = Io.provider.source(body)
+            val sdkBody: SdkResponseBody = SdkResponseBody.create(bufferedSource, mediaType, contentLength)
+            SdkResponse.builder()
+                .request(sdkRequest)
+                .protocol(toSdkProtocol(jdkResponse.version()))
+                .status(Status.fromCode(jdkResponse.statusCode()))
+                .headers(headers)
+                .body(sdkBody)
+                .build()
+        } catch (t: Throwable) {
+            try {
+                body.close()
+            } catch (_: IOException) {
+                // Suppress close failures — the original throwable is the meaningful signal.
+            }
+            throw t
         }
-        val headers = headersBuilder.build()
-        val mediaType = parseContentType(headers.get("Content-Type"))
-        val contentLength = parseContentLength(headers.get("Content-Length"))
-        val bufferedSource = Io.provider.source(jdkResponse.body())
-        val sdkBody: SdkResponseBody = SdkResponseBody.create(bufferedSource, mediaType, contentLength)
-        return SdkResponse.builder()
-            .request(sdkRequest)
-            .protocol(toSdkProtocol(jdkResponse.version()))
-            .status(Status.fromCode(jdkResponse.statusCode()))
-            .headers(headers)
-            .body(sdkBody)
-            .build()
     }
 
     /**

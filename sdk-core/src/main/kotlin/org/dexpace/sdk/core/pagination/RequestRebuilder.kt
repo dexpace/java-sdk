@@ -11,7 +11,6 @@ import org.dexpace.sdk.core.http.request.Request
 import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Internal helpers for building the next-page [Request] from an initial [Request] plus a
@@ -164,8 +163,4 @@ internal object RequestRebuilder {
         }
         return URL(sb.toString())
     }
-
-    /** Convenience UTF-8 form-urlencoded encode. */
-    @Suppress("unused")
-    fun formEncode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
 }

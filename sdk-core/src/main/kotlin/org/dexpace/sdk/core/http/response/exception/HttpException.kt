@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.io.Buffer
+import org.dexpace.sdk.core.util.RetryUtils
 import java.io.IOException
 
 /**
@@ -26,10 +27,12 @@ import java.io.IOException
  *
  * ## Retryability
  *
- * [retryable] is a `val` baked at construction time. Each concrete subclass hardcodes its
- * own retryable flag based on canonical HTTP semantics (4xx are not retryable; the common
- * 5xx codes plus 429 are; transport-level [NetworkException] always is). A downstream retry
- * policy is expected to query this field rather than maintaining a parallel predicate map.
+ * [retryable] is a `val` derived at construction time from [RetryUtils.isRetryable] applied
+ * to [status]'s code — it is *not* hardcoded per subclass. This guarantees the baked flag can
+ * never disagree with the live retry policy: 408 / 429 and the 5xx range (except 501 and 505)
+ * are retryable, every other status is not. A downstream retry policy is expected to query
+ * this field rather than maintaining a parallel predicate map. Transport-level
+ * [NetworkException] is a sibling type and always retryable.
  *
  * ## Body access
  *
@@ -48,8 +51,9 @@ import java.io.IOException
  * @property status Parsed HTTP status from the originating response.
  * @property headers Response headers as received on the wire.
  * @property body Lazy response body, or `null` when the response carries no payload.
- * @property retryable Whether the exception represents a retryable condition. Set once at
- *   construction; subclasses choose the value based on canonical HTTP semantics.
+ * @property retryable Whether the exception represents a retryable condition. Derived once at
+ *   construction from [RetryUtils.isRetryable] over [status]'s code, so it always mirrors the
+ *   live retry policy rather than a per-subclass constant.
  */
 public abstract class HttpException
     @JvmOverloads
@@ -57,10 +61,16 @@ public abstract class HttpException
         public val status: Status,
         public val headers: Headers,
         public val body: ResponseBody?,
-        public val retryable: Boolean,
         message: String? = null,
         cause: Throwable? = null,
     ) : RuntimeException(message ?: defaultMessage(status), cause) {
+        /**
+         * Whether this exception represents a retryable condition. Derived from
+         * [RetryUtils.isRetryable] over [status]'s code so it can never disagree with the
+         * live retry policy.
+         */
+        public val retryable: Boolean = RetryUtils.isRetryable(status.code)
+
         /**
          * Returns a non-consuming preview of the body bytes, capped at [maxBytes].
          *
@@ -112,6 +122,7 @@ public abstract class HttpException
              */
             public const val DEFAULT_SNAPSHOT_BYTES: Int = 4096
 
-            private fun defaultMessage(status: Status): String = "HTTP ${status.code} ${status.name}"
+            private fun defaultMessage(status: Status): String =
+                status.statusName?.let { "HTTP ${status.code} $it" } ?: "HTTP ${status.code}"
         }
     }

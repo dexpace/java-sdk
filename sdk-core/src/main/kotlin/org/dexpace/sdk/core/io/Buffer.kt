@@ -28,7 +28,8 @@ public interface Buffer : BufferedSource, BufferedSink {
     public val size: Long
 
     /**
-     * Returns an immutable byte-array copy of the buffer's contents. Buffer is unchanged.
+     * Returns a fresh, independent byte-array copy of the buffer's contents. The buffer is
+     * unchanged, and mutating the returned array does not affect the buffer.
      *
      * Throws [IllegalStateException] when [size] exceeds [MAX_BYTE_ARRAY_SIZE]. For larger
      * buffers, callers should stream via [BufferedSource.inputStream] or [copyTo] instead.

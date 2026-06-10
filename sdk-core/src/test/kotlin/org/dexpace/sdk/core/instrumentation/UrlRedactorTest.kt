@@ -132,6 +132,41 @@ class UrlRedactorTest {
     }
 
     @Test
+    fun `question mark only in fragment does not insert a spurious query separator`() {
+        // http://h/p#a?b=c has url.query == null — the only '?' lives inside the fragment.
+        // The redacted output must NOT gain a stray '?' before the '#' (which the old
+        // whole-string raw.indexOf('?') scan produced, corrupting it to http://h/p?#a?b=c).
+        val url = URL("http://h/p#a?b=c")
+        val out = UrlRedactor.redact(url)
+        // No query component exists, so there must be no '?' before the fragment marker.
+        val hashIndex = out.indexOf('#')
+        assertTrue(hashIndex >= 0, "fragment marker should be present: $out")
+        assertTrue(
+            !out.substring(0, hashIndex).contains('?'),
+            "no spurious '?' must appear before the fragment: $out",
+        )
+        // Path is preserved and the fragment is carried through (its 'b' value is redacted
+        // because it is a key=value token under the allow-list).
+        assertTrue(out.startsWith("http://h/p#"), "path/fragment boundary corrupted: $out")
+    }
+
+    @Test
+    fun `fragment-only question mark with userinfo still redacts without stray separator`() {
+        // Combine the fragment-only '?' case with userinfo to ensure the rebuild path (not the
+        // identity fast path) also avoids the spurious query separator.
+        val url = URL("http://user:pass@h/p#a?b=c")
+        val out = UrlRedactor.redact(url)
+        assertTrue(out.contains("***:***@"), "userinfo should be redacted: $out")
+        assertTrue(!out.contains("pass"), "raw password leaked: $out")
+        val hashIndex = out.indexOf('#')
+        assertTrue(hashIndex >= 0, "fragment marker should be present: $out")
+        assertTrue(
+            !out.substring(0, hashIndex).contains('?'),
+            "no spurious '?' must appear before the fragment: $out",
+        )
+    }
+
+    @Test
     fun `fragment with trailing ampersand drops the trailing separator`() {
         // A fragment like "token=secret&" has a trailing '&' that produces an empty final
         // pair. appendRedactedQuery intentionally drops this empty pair — the output contains

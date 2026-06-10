@@ -27,6 +27,13 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  * derived from the SDK body's [org.dexpace.sdk.core.http.common.MediaType] via
  * `toString()` → `okhttp3.MediaType` parse; an unparseable string returns `null` and OkHttp
  * falls back to no `Content-Type`.
+ *
+ * [isOneShot] mirrors the SDK body's replayability: it returns `true` for a non-replayable
+ * body so OkHttp will not re-write it on a connection-failure or auth (401/407) follow-up.
+ * A second [writeTo] on a single-use SDK body trips its consume-guard and throws
+ * `IllegalStateException`; reporting the body as one-shot lets OkHttp fail the call cleanly
+ * instead, leaving retry/replay decisions to the SDK pipeline. Replayable bodies report
+ * `false`, so OkHttp may safely retransmit them.
  */
 internal class SdkRequestBodyAdapter(
     private val sdkBody: SdkRequestBody,
@@ -34,6 +41,8 @@ internal class SdkRequestBodyAdapter(
     override fun contentType(): okhttp3.MediaType? = sdkBody.mediaType()?.toString()?.toMediaTypeOrNull()
 
     override fun contentLength(): Long = sdkBody.contentLength()
+
+    override fun isOneShot(): Boolean = !sdkBody.isReplayable()
 
     override fun writeTo(sink: BufferedSink) {
         // The outer .use closes the OkHttp-supplied okio sink wrapper only — OkHttp itself

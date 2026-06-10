@@ -151,6 +151,77 @@ class ClientIdentityStepTest {
     }
 
     @Test
+    fun `newBuilder round-trips an instance's tokens, header, and mode`() {
+        // A-6: a held step can be tweak-copied via newBuilder() without re-stating fields.
+        val original =
+            ClientIdentityStep.builder()
+                .tokens(listOf("foo/1", "bar/2"))
+                .headerName("X-Dexpace-Client")
+                .mode(ClientIdentityStep.Mode.Replace)
+                .build()
+
+        // An unchanged round-trip reproduces identical emitted output.
+        val copy = original.newBuilder().build()
+        val seeded =
+            baseRequest()
+                .newBuilder()
+                .setHeader("X-Dexpace-Client", "Existing/9")
+                .build()
+        val originalValue = original.apply(seeded).headers.get("X-Dexpace-Client")
+        val copyValue = copy.apply(seeded).headers.get("X-Dexpace-Client")
+        assertEquals(originalValue, copyValue)
+        // Replace mode preserved: existing value overwritten with the copied token line.
+        assertEquals("foo/1 bar/2", copyValue)
+    }
+
+    @Test
+    fun `newBuilder preserves the original when a derived field is changed`() {
+        val original =
+            ClientIdentityStep.builder()
+                .tokens(listOf("foo/1"))
+                .headerName("X-Client")
+                .mode(ClientIdentityStep.Mode.Append)
+                .build()
+
+        // Derive a copy that flips to Replace; the original must be unaffected.
+        val derived = original.newBuilder().mode(ClientIdentityStep.Mode.Replace).build()
+        val request =
+            baseRequest()
+                .newBuilder()
+                .setHeader("X-Client", "Caller/2")
+                .build()
+
+        assertEquals("Caller/2 foo/1", original.apply(request).headers.get("X-Client"), "Original keeps Append mode")
+        assertEquals("foo/1", derived.apply(request).headers.get("X-Client"), "Derived uses Replace mode")
+    }
+
+    @Test
+    fun `newBuilder treats copied tokens as caller-owned so addToken appends`() {
+        val original = ClientIdentityStep.builder().tokens(listOf("foo/1")).build()
+
+        // addToken on a newBuilder() copy must append (no default seed to discard).
+        val derived = original.newBuilder().addToken("bar", "2").build()
+
+        assertEquals("foo/1 bar/2", derived.apply(baseRequest()).headers.get("User-Agent"))
+    }
+
+    @Test
+    fun `newBuilder round-trips the default-seeded tokens`() {
+        // A default step round-trips to the same dexpace-sdk + jvm token line.
+        val original = ClientIdentityStep()
+        val copy = original.newBuilder().build()
+
+        assertEquals(
+            original.apply(baseRequest()).headers.get("User-Agent"),
+            copy.apply(baseRequest()).headers.get("User-Agent"),
+        )
+        assertEquals(
+            "dexpace-sdk/${SdkInfo.sdkVersion} jvm/${SdkInfo.javaVersion}",
+            copy.apply(baseRequest()).headers.get("User-Agent"),
+        )
+    }
+
+    @Test
     fun `case-insensitive existing User-Agent header is still detected for Append`() {
         // Headers normalise names to lower case; setting `user-agent` and reading `User-Agent`
         // must round-trip so the step's existing-value check picks up the caller's value.

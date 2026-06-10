@@ -126,6 +126,25 @@ class BackoffCalculatorTest {
         assertEquals(Duration.ZERO, delay)
     }
 
+    @Test
+    fun `huge retryAfterHint is clamped instead of overflowing toNanos`() {
+        // Duration.ofSeconds(Long.MAX_VALUE).toNanos() throws ArithmeticException; computeDelay
+        // must clamp the hint to its 365-day ceiling rather than propagate the overflow.
+        val hugeHint = Duration.ofSeconds(Long.MAX_VALUE)
+        // totalTimeout = ZERO disables the deadline cap, so the clamped hint is returned as-is.
+        val delay = BackoffCalculator.computeDelay(1, noJitterSettings, hugeHint)
+        assertEquals(Duration.ofDays(MAX_HINT_DAYS), delay, "Huge hint must clamp to the 365-day ceiling")
+    }
+
+    @Test
+    fun `huge retryAfterHint does not throw even with a deadline cap`() {
+        val settings = noJitterSettings.newBuilder().totalTimeout(Duration.ofSeconds(5)).build()
+        val hugeHint = Duration.ofSeconds(Long.MAX_VALUE)
+        // The clamp keeps toNanos() in range; the deadline cap then shrinks it to the budget.
+        val delay = BackoffCalculator.computeDelay(1, settings, hugeHint)
+        assertEquals(Duration.ofSeconds(5), delay)
+    }
+
     // endregion
 
     // region -- deadline cap --
@@ -168,6 +187,28 @@ class BackoffCalculatorTest {
 
     // endregion
 
+    // region -- saturating nanos conversion (defense-in-depth) --
+
+    @Test
+    fun `toNanosSaturating returns the exact nanos for an in-range duration`() {
+        assertEquals(1_500_000_000L, Duration.ofMillis(1500).toNanosSaturating())
+    }
+
+    @Test
+    fun `toNanosSaturating accepts the Long MAX_VALUE nanos boundary`() {
+        assertEquals(Long.MAX_VALUE, Duration.ofNanos(Long.MAX_VALUE).toNanosSaturating())
+    }
+
+    @Test
+    fun `toNanosSaturating saturates instead of throwing when the duration overflows nanos`() {
+        // Duration.ofSeconds(Long.MAX_VALUE).toNanos() throws ArithmeticException; the saturating
+        // variant returns Long.MAX_VALUE so the backoff math stays total even for an out-of-range
+        // settings object built outside the (now-guarded) builder.
+        assertEquals(Long.MAX_VALUE, Duration.ofSeconds(Long.MAX_VALUE).toNanosSaturating())
+    }
+
+    // endregion
+
     private companion object {
         // Schedule constants.
         private const val BASE_DELAY_MS = 100L
@@ -183,5 +224,8 @@ class BackoffCalculatorTest {
         // Deadline constants.
         private const val BUDGET_MS_TIGHT = 100L
         private const val ELAPSED_MS = 20L
+
+        // Hint-clamp ceiling (must match BackoffCalculator.MAX_HINT).
+        private const val MAX_HINT_DAYS = 365L
     }
 }

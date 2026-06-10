@@ -34,6 +34,15 @@ import java.io.IOException
  * (no further challenge handling — one retry only). The default implementation returns
  * `null`; subclasses override to implement token-refresh / step-up auth flows.
  *
+ * ## Cross-origin redirects
+ *
+ * The AUTH stage runs *inside* the REDIRECT stage, so a redirect re-issue flows back
+ * through [process]. When [DefaultRedirectStep] follows a **cross-origin** redirect it
+ * marks the re-issued request (see [CrossOriginRedirectMarker]); this step then skips
+ * credential stamping so the caller's bearer/key credential is never re-applied to a
+ * server-chosen foreign host. The marker is stripped here so it never reaches the wire.
+ * A same-origin redirect is *not* marked and is re-stamped as normal.
+ *
  * ## Thread-safety
  *
  * The stage is locked at the type level via `final override`. Concrete subclasses must
@@ -54,7 +63,17 @@ public abstract class AuthStep : HttpStep {
                 "(URL scheme: $scheme)"
         }
 
-        val authorized = authorizeRequest(request)
+        // A cross-origin redirect re-issue is marked by DefaultRedirectStep; do NOT re-stamp
+        // the caller's credential onto a server-chosen foreign host. The marker is stripped so
+        // it never reaches the wire whether or not it suppressed stamping.
+        val authorized =
+            if (CrossOriginRedirectMarker.isMarked(request)) {
+                request.newBuilder()
+                    .headers(CrossOriginRedirectMarker.strip(request.headers))
+                    .build()
+            } else {
+                authorizeRequest(request)
+            }
         val response = next.copy().process(authorized)
 
         if (response.status.code != SC_UNAUTHORIZED) return response

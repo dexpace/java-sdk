@@ -8,12 +8,13 @@
 package org.dexpace.sdk.core.http.auth
 
 import org.dexpace.sdk.core.http.request.Method
-import org.dexpace.sdk.core.util.Uuids
 import java.net.URI
 import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
+import java.security.SecureRandom
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -30,9 +31,15 @@ import java.util.concurrent.atomic.AtomicLong
  * [preferredAlgorithms] — by default modern SHA-256 variants are preferred over
  * legacy MD5.
  *
- * Thread-safety: safe across concurrent requests. The nonce counter is an
- * [AtomicLong]; `MessageDigest` is not thread-safe and is therefore instantiated
- * per call (microsecond cost, acceptable per spec).
+ * Thread-safety: safe across concurrent requests. The nonce counter is tracked
+ * per server nonce in a bounded [ConcurrentHashMap] of [AtomicLong]s (RFC 7616
+ * §3.4 requires `nc` to start at `00000001` for each fresh nonce and increment
+ * only on reuse of that same nonce); `MessageDigest` is not thread-safe and is
+ * therefore instantiated per call (microsecond cost, acceptable per spec).
+ *
+ * The client nonce (`cnonce`) is drawn from a process-wide
+ * [java.security.SecureRandom] (RFC 7616 §3.4.6 relies on an unpredictable client
+ * nonce to defend the password hash against precomputation attacks).
  *
  * If the JVM lacks `MD5` or `SHA-256` (should never happen), the handler throws
  * `IllegalStateException` wrapping the underlying `NoSuchAlgorithmException`.
@@ -50,7 +57,19 @@ public class DigestChallengeHandler
             require(preferredAlgorithms.isNotEmpty()) { "preferredAlgorithms must not be empty" }
         }
 
-        private val nonceCount = AtomicLong(0)
+        /**
+         * Per-server-nonce request counters. RFC 7616 §3.4 requires `nc` to be
+         * `00000001` for the first request against a given nonce and to increment only
+         * when that same nonce is reused, so a single shared counter would emit `nc>1`
+         * on the first request against a new server (or after a `stale=true` rotation).
+         *
+         * The map is bounded to [MAX_TRACKED_NONCES] entries: after a nonce is admitted the
+         * map is drained back under that cap, so memory stays bounded even against a server
+         * that rotates nonces aggressively. Evicting a still-live nonce only resets its `nc`
+         * to `1` on the next reuse — harmless, since a fresh nonce legitimately starts at `1`
+         * anyway.
+         */
+        private val nonceCounters = ConcurrentHashMap<String, AtomicLong>()
 
         override fun canHandle(challenges: List<AuthenticateChallenge>): Boolean = pickChallenge(challenges) != null
 
@@ -130,7 +149,7 @@ public class DigestChallengeHandler
             val opaque = challenge.parameters["opaque"]
             val qop = pickQopToken(challenge.parameters["qop"])
             val uriValue = digestUri(uri)
-            val nc = ncHex(nonceCount.incrementAndGet())
+            val nc = ncHex(nextNonceCount(nonce))
             val cnonce = generateCnonce()
             val charset = resolveCharset(challenge.parameters["charset"])
 
@@ -257,16 +276,49 @@ public class DigestChallengeHandler
          */
         private fun ncHex(count: Long): String = String.format(Locale.US, "%08x", count and U32_MASK)
 
-        /** Non-blocking cnonce: 16 hex chars (high 64 bits of a fresh type-4 UUID). */
-        private fun generateCnonce(): String {
-            val msb = Uuids.random().mostSignificantBits
-            val sb = StringBuilder(CNONCE_HEX_CHARS)
-            // Render as 16 lower-case hex chars; preserve leading zeros.
-            for (i in (CNONCE_HEX_CHARS - 1) downTo 0) {
-                val nibble = ((msb ushr (i * NIBBLE_BITS)) and 0xfL).toInt()
-                sb.append(HEX_DIGITS[nibble])
+        /**
+         * Returns the next `nc` value for [nonce], starting at 1 for a nonce seen for the
+         * first time and incrementing on each reuse (RFC 7616 §3.4).
+         *
+         * `computeIfAbsent` installs the per-nonce [AtomicLong] atomically, and the counter
+         * itself is the single source of truth for the increment, so concurrent reuse of one
+         * nonce stays correct. After admitting a (possibly new) nonce the map is drained back
+         * under [MAX_TRACKED_NONCES] with a loop rather than a single pre-insert eviction: the
+         * old check-then-evict-then-insert was a non-atomic race, and a burst of concurrent
+         * distinct-nonce inserts could overshoot the cap and then stay there permanently (each
+         * later insert evicting one and adding one). Draining after the insert keeps the map
+         * converging back to the cap.
+         */
+        private fun nextNonceCount(nonce: String): Long {
+            val count = nonceCounters.computeIfAbsent(nonce) { AtomicLong(0) }.incrementAndGet()
+            while (nonceCounters.size > MAX_TRACKED_NONCES) {
+                evictOldestNonce()
             }
-            return sb.toString()
+            return count
+        }
+
+        /**
+         * Evicts one entry to keep [nonceCounters] bounded. `ConcurrentHashMap` has no
+         * insertion order, so any single key is an acceptable victim; we drop the first
+         * the iterator yields. Re-admitting an evicted-but-still-live nonce simply restarts
+         * its `nc` at 1, which is spec-legal for a fresh nonce.
+         */
+        private fun evictOldestNonce() {
+            val iterator = nonceCounters.keys.iterator()
+            if (iterator.hasNext()) {
+                nonceCounters.remove(iterator.next())
+            }
+        }
+
+        /**
+         * Cryptographically-strong cnonce: [CNONCE_RANDOM_BYTES] bytes (≥128 bits) drawn
+         * from a process-wide [SecureRandom], hex-encoded. RFC 7616 §3.4.6 requires the
+         * client nonce to be unpredictable so it cannot be precomputed by an attacker.
+         */
+        private fun generateCnonce(): String {
+            val bytes = ByteArray(CNONCE_RANDOM_BYTES)
+            SECURE_RANDOM.nextBytes(bytes)
+            return toHex(bytes)
         }
 
         public companion object {
@@ -280,13 +332,27 @@ public class DigestChallengeHandler
 
             private val HEX_DIGITS: CharArray = "0123456789abcdef".toCharArray()
 
+            /**
+             * Process-wide CSPRNG for the Digest client nonce (`cnonce`). A single shared
+             * instance is the documented JDK pattern: `SecureRandom` is thread-safe, and
+             * sharing one avoids per-handler seeding cost while still drawing from a
+             * cryptographically-strong source (RFC 7616 §3.4.6, S-3).
+             */
+            private val SECURE_RANDOM: SecureRandom = SecureRandom()
+
             // Initial capacity for the assembled `Authorization: Digest …` header. 256 chars
             // comfortably covers RFC 7616 fields (realm, nonce, cnonce, response hex …)
             // without resize.
             private const val AUTH_HEADER_INITIAL_CAP = 256
 
-            // Number of hex characters in a Digest cnonce (16 hex chars = 64 random bits).
-            private const val CNONCE_HEX_CHARS = 16
+            // Random bytes drawn for each cnonce. 16 bytes = 128 bits of entropy, the floor
+            // RFC 7616 §3.4.6 expects from an unpredictable client nonce.
+            private const val CNONCE_RANDOM_BYTES = 16
+
+            // Upper bound on distinct server nonces tracked for per-nonce `nc` counting.
+            // Beyond this the least-recently-admitted nonce is evicted, keeping memory
+            // bounded against a server that rotates nonces aggressively (RFC 7616 §3.4, S-5).
+            private const val MAX_TRACKED_NONCES = 1024
 
             // Bits per hex nibble.
             private const val NIBBLE_BITS = 4

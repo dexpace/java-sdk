@@ -65,12 +65,13 @@ class ExchangeContextTest {
     }
 
     @Test
-    fun `close evicts entry keyed by trace id`() {
+    fun `close evicts entry keyed by call key`() {
         val id = owned("close")
         val instr = FakeInstrumentationContext(TraceId(id))
         val ctx = ExchangeContext(instr, request(), response())
-        ContextStore.set(id, ctx)
+        ownedIds.add(ctx.callKey)
+        ContextStore.set(ctx.callKey, ctx)
         ctx.close()
-        assertNull(ContextStore.get(id))
+        assertNull(ContextStore.get(ctx.callKey))
     }
 }

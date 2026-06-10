@@ -17,13 +17,17 @@ import org.dexpace.sdk.core.http.response.Status
 import java.io.IOException
 import java.net.URL
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -161,6 +165,77 @@ class AsyncHttpPipelineTest {
     }
 
     @Test
+    fun `toAsync future cancel(true) interrupts the in-flight sync send`() {
+        // A blocking transport awaits an (interruptible) latch. Cancelling the async future with
+        // mayInterruptIfRunning=true must interrupt the worker thread so the blocking send aborts
+        // — matching native transports' executeAsync cancellation semantics.
+        val started = CountDownLatch(1)
+        val interrupted = AtomicBoolean(false)
+        val released = CountDownLatch(1)
+        val neverFires = CountDownLatch(1)
+
+        val blockingClient =
+            HttpClient { request ->
+                started.countDown()
+                try {
+                    // Blocks until interrupted (the latch is never counted down).
+                    neverFires.await()
+                    mockResponse(request, 200)
+                } catch (e: InterruptedException) {
+                    interrupted.set(true)
+                    Thread.currentThread().interrupt()
+                    released.countDown()
+                    throw IOException("interrupted", e)
+                }
+            }
+
+        val async = HttpPipelineBuilder(blockingClient).build().toAsync(executor)
+        val future = async.sendAsync(getRequest())
+
+        assertTrue(started.await(2, TimeUnit.SECONDS), "send should have started")
+        future.cancel(true)
+
+        assertTrue(released.await(2, TimeUnit.SECONDS), "worker must observe the interrupt")
+        assertTrue(interrupted.get(), "the in-flight sync send was interrupted")
+        assertTrue(future.isCancelled, "the returned future reports cancelled")
+    }
+
+    @Test
+    fun `toAsync future cancel(false) does not interrupt the worker`() {
+        // cancel(false) cancels the future without interrupting the worker; a blocking send that
+        // ignores interrupts therefore runs to completion in the background.
+        val started = CountDownLatch(1)
+        val cancelObserved = CountDownLatch(1)
+        val proceed = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val sawInterrupt = AtomicBoolean(false)
+
+        val client =
+            HttpClient { request ->
+                started.countDown()
+                // Block until the test has issued cancel(false), then sample the interrupt flag.
+                cancelObserved.await(2, TimeUnit.SECONDS)
+                proceed.await(2, TimeUnit.SECONDS)
+                sawInterrupt.set(Thread.currentThread().isInterrupted)
+                finished.countDown()
+                mockResponse(request, 200)
+            }
+
+        val async = HttpPipelineBuilder(client).build().toAsync(executor)
+        val future = async.sendAsync(getRequest())
+
+        assertTrue(started.await(2, TimeUnit.SECONDS), "send should have started")
+        future.cancel(false)
+        cancelObserved.countDown()
+        // Let the worker run to completion on its own terms.
+        proceed.countDown()
+
+        assertTrue(finished.await(2, TimeUnit.SECONDS), "worker should run to completion")
+        assertTrue(future.isCancelled, "the future reports cancelled")
+        assertFalse(sawInterrupt.get(), "cancel(false) must not interrupt the worker")
+    }
+
+    @Test
     fun `AsyncHttpPipeline_toBlocking unwraps CompletionException to the original cause`() {
         val async =
             AsyncHttpPipelineBuilder(
@@ -191,6 +266,31 @@ class AsyncHttpPipelineTest {
                 .insertAfter<TestStep>(TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() })
                 .build()
         assertEquals(2, pipeline.steps.size)
+    }
+
+    @Test
+    fun `builder insertAfter rejects a cross-stage step`() {
+        // The anchor is in PRE_AUTH; the inserted step declares POST_AUTH. An unchecked insert
+        // would silently relocate it to the POST_AUTH slot rather than "after the anchor", so
+        // the builder must reject the cross-stage edit.
+        val anchor = TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() }
+        val crossStage = TestStep(Stage.POST_AUTH) { _, next -> next.processAsync() }
+        val base = AsyncHttpPipelineBuilder(constantClient(200)).append(anchor).build()
+
+        assertFails {
+            AsyncHttpPipelineBuilder.from(base).insertAfter<TestStep>(crossStage)
+        }
+    }
+
+    @Test
+    fun `builder replace rejects a cross-stage replacement`() {
+        val original = TestStep(Stage.PRE_AUTH) { _, next -> next.processAsync() }
+        val crossStage = TestStep(Stage.POST_AUTH) { _, next -> next.processAsync() }
+        val base = AsyncHttpPipelineBuilder(constantClient(200)).append(original).build()
+
+        assertFails {
+            AsyncHttpPipelineBuilder.from(base).replace<TestStep>(crossStage)
+        }
     }
 
     @Test

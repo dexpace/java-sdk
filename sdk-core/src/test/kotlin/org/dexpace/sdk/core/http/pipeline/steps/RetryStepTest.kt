@@ -563,6 +563,152 @@ class RetryStepTest {
         Thread.interrupted()
     }
 
+    @Test
+    fun `bare InterruptedException from downstream restores the flag and surfaces as InterruptedIOException`() {
+        // C-6: a raw java.lang.InterruptedException (not wrapped as InterruptedIOException) must
+        // be treated as cancellation — the interrupt flag is restored and it is surfaced as
+        // InterruptedIOException so the @Throws(IOException) contract holds. Without the fix it
+        // would fall through to the terminal path, be wrapped as a plain IOException, and the
+        // interrupt signal would be swallowed.
+        val attempts = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    attempts.incrementAndGet()
+                    throw InterruptedException("downstream interrupted")
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val ex = assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
+        assertTrue(ex.cause is InterruptedException, "original InterruptedException must be the cause")
+        assertTrue(Thread.currentThread().isInterrupted, "interrupt status must be restored")
+        assertEquals(1, attempts.get(), "InterruptedException must NOT be retried")
+        Thread.interrupted()
+    }
+
+    @Test
+    fun `bare InterruptedException attaches prior failures as suppressed`() {
+        // After a prior retryable failure, a bare InterruptedException on the next attempt must
+        // surface as InterruptedIOException carrying the earlier failure as suppressed.
+        val attempts = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n == 1) throw IOException("transient first")
+                    throw InterruptedException("interrupted on retry")
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val ex = assertFailsWith<InterruptedIOException> { pipeline.send(getRequest()) }
+        assertTrue(
+            ex.suppressed.any { it.message == "transient first" },
+            "prior failure must be attached as suppressed, got: ${ex.suppressed.toList()}",
+        )
+        Thread.interrupted()
+    }
+
+    // ----------------- Body replayability gate (R-1) -----------------
+
+    @Test
+    fun `non-replayable POST body is NOT retried on a retryable response`() {
+        // R-1: a non-idempotent method (POST) with a single-use body must not be retried — the
+        // second writeTo would trip the consume-once guard. The 503 is returned as-is.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(nonReplayablePost())
+        assertEquals(503, response.status.code)
+        assertEquals(1, fake.callCount, "non-replayable POST must not be retried")
+    }
+
+    @Test
+    fun `non-replayable POST body is NOT retried on a retryable exception`() {
+        // Same gate on the exception path: a transient IOException on a non-replayable POST is
+        // rethrown without a second attempt (and without IllegalStateException masking).
+        val attempts = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    attempts.incrementAndGet()
+                    throw IOException("transient")
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val ex = assertFailsWith<IOException> { pipeline.send(nonReplayablePost()) }
+        assertEquals("transient", ex.message, "the real IOException must surface, not a wrapped one")
+        assertEquals(1, attempts.get(), "non-replayable POST must not be retried on exception")
+    }
+
+    @Test
+    fun `replayable POST body IS retried on a retryable response`() {
+        // Control: a replayable body on a POST is safe to re-send, so retry proceeds normally.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/x")
+                .body(org.dexpace.sdk.core.http.request.RequestBody.create("payload".toByteArray()))
+                .build()
+
+        val response = pipeline.send(request)
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount, "replayable POST must retry")
+    }
+
+    @Test
+    fun `non-replayable PUT body IS retried because PUT is idempotent`() {
+        // The gate keys on method idempotency too: PUT is idempotent, so even a non-replayable
+        // body is retried (the body axis only blocks non-idempotent methods).
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url("https://api.example.com/x")
+                .body(NonReplayableRequestBody())
+                .build()
+
+        val response = pipeline.send(request)
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount, "idempotent PUT must retry regardless of body replayability")
+    }
+
     // ----------------- Accumulated suppressed exceptions -----------------
 
     @Test
@@ -925,10 +1071,10 @@ class RetryStepTest {
     }
 
     @Test
-    fun `Retry-After very large value triggers the warn-if-large branch and is respected`() {
-        // Per the docs, large values are honored — the SDK logs at verbose but does
-        // not clamp. LARGE_RETRY_AFTER_SECONDS = 3600; passing 3601 forces
-        // seconds > threshold, exercising the warning branch in warnIfLargeRetryAfter.
+    fun `Retry-After very large value below the clamp ceiling is respected`() {
+        // Numeric `Retry-After` values below the parser's 365-day clamp ceiling are honored
+        // verbatim. 3601 seconds is just over an hour — well under the ceiling — so the full
+        // delay is applied with no clamping.
         val clock = FixedClock()
         val fake =
             FakeHttpClient()
@@ -1290,9 +1436,10 @@ class RetryStepTest {
     }
 
     @Test
-    fun `retryAfterHeaders with non-default unknown name uses parseMillis branch`() {
-        // The `else -> parseMillis(value)` branch in parseRetryAfterValue. Passing a non-
-        // built-in HttpHeaderName forces the fall-through.
+    fun `retryAfterHeaders with non-default unknown name uses the millisecond fallback`() {
+        // A header name that is neither `Retry-After` nor `X-RateLimit-Reset` falls through to
+        // RetryAfterParser's millisecond default. Passing a non-built-in HttpHeaderName forces
+        // that branch.
         val clock = FixedClock()
         val unknown = HttpHeaderName.fromString("X-Custom-Retry-After-Ms")
         val opts =
@@ -1443,6 +1590,27 @@ class RetryStepTest {
             .method(Method.GET)
             .url("https://api.example.com/x")
             .build()
+
+    /** A POST request carrying a single-use (non-replayable) body. */
+    private fun nonReplayablePost(): Request =
+        Request.builder()
+            .method(Method.POST)
+            .url("https://api.example.com/x")
+            .body(NonReplayableRequestBody())
+            .build()
+
+    /** Single-use request body: [isReplayable] is false and [writeTo] streams fixed bytes. */
+    private class NonReplayableRequestBody : org.dexpace.sdk.core.http.request.RequestBody() {
+        override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+        override fun contentLength(): Long = 5
+
+        override fun isReplayable(): Boolean = false
+
+        override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {
+            sink.write("hello".toByteArray(Charsets.UTF_8))
+        }
+    }
 
     private fun retryPipeline(client: HttpClient): org.dexpace.sdk.core.http.pipeline.HttpPipeline =
         HttpPipelineBuilder(client)

@@ -731,6 +731,183 @@ class AuthStepTest {
         assertEquals(2, fetches.get(), "token should refresh once we cross the 100-10 = 90s mark")
     }
 
+    // ----------------- Cross-origin redirect credential leak (S-1) -----------------
+
+    @Test
+    fun `cross-origin redirect does NOT re-stamp the bearer credential on the foreign host`() {
+        // REDIRECT wraps AUTH: the 302 to a different host is re-issued through AUTH, which
+        // must NOT re-stamp the caller's bearer token onto the foreign origin.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("super-secret", null) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://evil.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        // First hop (same origin) carries the token.
+        assertEquals("Bearer super-secret", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        // Second hop (foreign origin) must NOT carry the token — and must not leak the internal marker.
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "bearer credential must not follow a cross-origin redirect",
+        )
+        assertNull(
+            fake.requests[1].headers.get(CrossOriginRedirectMarker.MARKER_HEADER),
+            "internal cross-origin marker must be stripped before the wire",
+        )
+        assertEquals("https://evil.example.com/v2", fake.requests[1].url.toString())
+    }
+
+    @Test
+    fun `cross-origin redirect does NOT re-stamp the key credential on the foreign host`() {
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://evil.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        assertEquals("secret-key", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "key credential must not follow a cross-origin redirect",
+        )
+        assertNull(fake.requests[1].headers.get(CrossOriginRedirectMarker.MARKER_HEADER))
+    }
+
+    @Test
+    fun `same-origin redirect DOES re-stamp the credential on the original host`() {
+        // A same-origin redirect is not marked; the AUTH stage re-stamps as normal.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("tk", null) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://api.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        // Both hops are same-origin → the token is (re-)stamped on each.
+        assertEquals("Bearer tk", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        assertEquals(
+            "Bearer tk",
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "same-origin redirect must re-stamp the credential",
+        )
+    }
+
+    @Test
+    fun `cross-origin redirect differing only by port is treated as cross-origin`() {
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://api.example.com:8443/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "a port-only origin difference must still suppress credential re-stamping",
+        )
+    }
+
+    @Test
+    fun `bearer credential does not re-stamp on a same-origin sub-hop of a foreign host`() {
+        // Multi-hop chain: api (seed) -> evil/a -> evil/b. The first hop leaves the seed
+        // origin and is correctly suppressed. The second hop is same-origin *relative to the
+        // previous hop* (evil -> evil) but still foreign *relative to the seed*. The cross-
+        // origin decision must be made against the seed origin, not the immediately preceding
+        // hop, or the credential leaks onto the foreign host on the second hop.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("super-secret", null) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://evil.example.com/a") }
+                .enqueue { status(302).header("Location", "https://evil.example.com/b") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        // Hop 0 — the seed origin legitimately carries the token.
+        assertEquals("Bearer super-secret", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        // Hop 1 — first foreign hop, credential suppressed.
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "credential must not follow the first cross-origin hop",
+        )
+        // Hop 2 — same origin as hop 1, but still foreign vs the seed: must stay credential-free.
+        assertNull(
+            fake.requests[2].headers.get(HttpHeaderName.AUTHORIZATION),
+            "credential must not be re-stamped on a same-origin sub-hop of a foreign host",
+        )
+        assertNull(
+            fake.requests[2].headers.get(CrossOriginRedirectMarker.MARKER_HEADER),
+            "internal cross-origin marker must be stripped before the wire",
+        )
+        assertEquals("https://evil.example.com/b", fake.requests[2].url.toString())
+    }
+
+    @Test
+    fun `key credential is re-stamped when a foreign chain bounces back to the seed origin`() {
+        // api (seed) -> evil (foreign, suppressed) -> api (back to seed). The final hop targets
+        // the seed origin again, so re-stamping the credential there is correct — the seed is the
+        // credential's intended origin. Guards against an over-broad "once foreign, always
+        // foreign" fix that would wrongly withhold the credential from the seed host.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "https://evil.example.com/a") }
+                .enqueue { status(302).header("Location", "https://api.example.com/back") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .append(KeyCredentialAuthStep(KeyCredential("secret-key")))
+                .build()
+
+        pipeline.send(getHttpsRequest())
+
+        assertEquals("secret-key", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "credential must not follow the cross-origin hop",
+        )
+        assertEquals(
+            "secret-key",
+            fake.requests[2].headers.get(HttpHeaderName.AUTHORIZATION),
+            "credential must be re-stamped when the chain returns to the seed origin",
+        )
+    }
+
     // ----------------- Helpers -----------------
 
     private fun getHttpsRequest(): Request =

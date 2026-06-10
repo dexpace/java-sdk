@@ -9,14 +9,18 @@ package org.dexpace.sdk.serde.jackson
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.core.type.TypeReference
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import org.dexpace.sdk.core.serde.Tristate
+import org.dexpace.sdk.core.serde.deserialize
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import java.util.Optional
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -68,15 +72,108 @@ class JacksonSerdeTest {
     }
 
     @Test
-    fun `serialize to ByteArray buffer fits when sized correctly`() {
+    fun `serialize to ByteArray buffer returns written length and fills the prefix`() {
         val serde = JacksonSerde.withDefaults()
         val payload = Inner("z", 9)
         val expected = serde.serializer.serializeToByteArray(payload)
         val buffer = ByteArray(expected.size + 16)
-        serde.serializer.serialize(payload, buffer)
-        // First N bytes match the canonical bytes.
-        val prefix = buffer.copyOfRange(0, expected.size)
+        val written = serde.serializer.serialize(payload, buffer)
+        // The overload now reports the byte count so the caller can slice the valid prefix.
+        assertEquals(expected.size, written, "serialize(buffer) must return the bytes written")
+        val prefix = buffer.copyOfRange(0, written)
         assertTrue(prefix.contentEquals(expected))
+    }
+
+    @Test
+    fun `serialize to ByteArray buffer honours a non-zero offset`() {
+        val serde = JacksonSerde.withDefaults()
+        val payload = Inner("z", 9)
+        val expected = serde.serializer.serializeToByteArray(payload)
+        val offset = 8
+        val buffer = ByteArray(offset + expected.size + 4)
+        val written = serde.serializer.serialize(payload, buffer, offset)
+        assertEquals(expected.size, written)
+        val region = buffer.copyOfRange(offset, offset + written)
+        assertTrue(region.contentEquals(expected), "encoding must land at the requested offset")
+        // Bytes before the offset are untouched (still zero).
+        assertTrue(buffer.copyOfRange(0, offset).all { it == 0.toByte() })
+    }
+
+    @Test
+    fun `serialize to ByteArray buffer throws when payload overflows remaining space`() {
+        val serde = JacksonSerde.withDefaults()
+        val payload = Inner("overflow-me", 1234)
+        val expected = serde.serializer.serializeToByteArray(payload)
+        // One byte short of what is needed.
+        val buffer = ByteArray(expected.size - 1)
+        assertFailsWith<IndexOutOfBoundsException> {
+            serde.serializer.serialize(payload, buffer)
+        }
+    }
+
+    @Test
+    fun `serialize to ByteArray buffer throws on out-of-range offset`() {
+        val serde = JacksonSerde.withDefaults()
+        val buffer = ByteArray(64)
+        assertFailsWith<IndexOutOfBoundsException> {
+            serde.serializer.serialize(Inner("a", 1), buffer, -1)
+        }
+        assertFailsWith<IndexOutOfBoundsException> {
+            serde.serializer.serialize(Inner("a", 1), buffer, buffer.size + 1)
+        }
+    }
+
+    @Test
+    fun `deserialize with Class token returns the concrete DTO type, not a map`() {
+        val serde = JacksonSerde.withDefaults()
+        val json = """{"tag":"t","score":99}"""
+        // Class<T> token path: no unchecked cast, real type materialized.
+        val dto: Inner = serde.deserializer.deserialize(json, Inner::class.java)
+        assertEquals(Inner("t", 99), dto)
+        // Field access on the typed result must not throw ClassCastException (heap pollution guard).
+        assertEquals("t", dto.tag)
+        assertEquals(99, dto.score)
+    }
+
+    @Test
+    fun `reified deserialize extension forwards the type token`() {
+        val serde = JacksonSerde.withDefaults()
+        val json = """{"tag":"r","score":7}"""
+        // The ergonomic reified extension forwards T::class.java to the SPI.
+        val dto = serde.deserializer.deserialize<Inner>(json)
+        assertEquals(Inner("r", 7), dto)
+    }
+
+    @Test
+    fun `deserialize with Class token from byte array and input stream`() {
+        val serde = JacksonSerde.withDefaults()
+        val json = """{"tag":"b","score":3}"""
+        val fromBytes: Inner = serde.deserializer.deserialize(json.toByteArray(), Inner::class.java)
+        assertEquals(Inner("b", 3), fromBytes)
+        val fromStream: Inner =
+            serde.deserializer.deserialize(java.io.ByteArrayInputStream(json.toByteArray()), Inner::class.java)
+        assertEquals(Inner("b", 3), fromStream)
+    }
+
+    @Test
+    fun `from plain mapper leaves the caller OutputStream open on serialize`() {
+        // A mapper with AUTO_CLOSE_TARGET still enabled (the default). The from() path must not
+        // close the caller's stream regardless.
+        val serde = JacksonSerde.from(ObjectMapper().registerKotlinModule())
+        val tracker = TrackingOutputStream(ByteArrayOutputStream())
+        serde.serializer.serialize(Inner("open", 1), tracker)
+        assertTrue(tracker.bytesWritten > 0)
+        assertEquals(0, tracker.closeCount, "from(plain mapper) must not close the caller OutputStream")
+    }
+
+    @Test
+    fun `from plain mapper leaves the caller InputStream open on deserialize`() {
+        val serde = JacksonSerde.from(ObjectMapper().registerKotlinModule())
+        val json = """{"tag":"s","score":5}"""
+        val tracker = TrackingInputStream(java.io.ByteArrayInputStream(json.toByteArray()))
+        val dto: Inner = serde.deserializer.deserialize(tracker, Inner::class.java)
+        assertEquals(Inner("s", 5), dto)
+        assertEquals(0, tracker.closeCount, "from(plain mapper) must not close the caller InputStream")
     }
 
     // Java-style builder-pattern class. Jackson's @JsonDeserialize(builder = ...) + @JsonPOJOBuilder
@@ -155,6 +252,26 @@ class JacksonSerdeTest {
         override fun close() {
             closeCount += 1
             super.close()
+        }
+    }
+
+    private class TrackingInputStream(private val delegate: java.io.InputStream) : java.io.InputStream() {
+        var closeCount: Int = 0
+            private set
+
+        override fun read(): Int = delegate.read()
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int = delegate.read(b, off, len)
+
+        override fun available(): Int = delegate.available()
+
+        override fun close() {
+            closeCount += 1
+            delegate.close()
         }
     }
 }

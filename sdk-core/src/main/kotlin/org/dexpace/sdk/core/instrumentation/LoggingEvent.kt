@@ -178,20 +178,22 @@ public class LoggingEvent internal constructor(
         // enclosing TracingScope reaches log backends as structured fields. Only keys
         // in the logger's mdcKeys allow-list are folded (default: "trace.id", "span.id").
         // Pass mdcKeys = null on ClientLogger to fold everything (backwards-compat).
-        // Per-event fields (added below) take precedence: any MDC key whose name is
-        // already in the per-event `fields` map is skipped here so the event list does
-        // not carry duplicate KeyValuePair entries (which JSON appenders would emit as
-        // invalid duplicate-key JSON). The map lookup is O(1).
+        // A key emitted from MDC is skipped if it is ALREADY emitted by this event, whether
+        // via a per-event `field(...)` (added below) or via the logger's globalContext
+        // (emitted above). Folding such a key again would put a second KeyValuePair on the
+        // event with the same name, which JSON appenders render as invalid duplicate-key
+        // JSON — exactly the failure this guard prevents. Both lookups are O(1).
         val mdcMap = MDC.getCopyOfContextMap()
         if (mdcMap != null) {
             val perEventKeys = fields
             val allowedMdcKeys = logger.mdcKeys
             for ((k, v) in mdcMap) {
-                if (v != null && perEventKeys?.containsKey(k) != true) {
-                    // null allow-list means "all keys" (unfiltered); non-null is an explicit set.
-                    if (allowedMdcKeys == null || allowedMdcKeys.contains(k)) {
-                        builder.addKeyValue(k, v)
-                    }
+                if (v == null) continue
+                // Skip keys already emitted via the per-event fields or the global context
+                // (duplicate-key JSON guard). A null allow-list means "all keys" (unfiltered).
+                val alreadyEmitted = perEventKeys?.containsKey(k) == true || gc.containsKey(k)
+                if (!alreadyEmitted && (allowedMdcKeys == null || allowedMdcKeys.contains(k))) {
+                    builder.addKeyValue(k, v)
                 }
             }
         }

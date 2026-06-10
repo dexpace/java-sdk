@@ -151,8 +151,11 @@ internal class TeeSink(
         val tapStream = tap.outputStream()
         return object : OutputStream() {
             override fun write(b: Int) {
-                primaryStream.write(b)
+                // Mirror into the tap FIRST, then forward to the primary — same ordering as the
+                // typed-write path's `drainScratch`. If the primary side throws mid-write, the
+                // attempted byte is still captured in the tap snapshot for body logging.
                 tapStream.write(b)
+                primaryStream.write(b)
             }
 
             override fun write(
@@ -160,8 +163,10 @@ internal class TeeSink(
                 off: Int,
                 len: Int,
             ) {
-                primaryStream.write(b, off, len)
+                // Tap first, primary second (see single-byte overload): a primary-side failure
+                // leaves the failing chunk captured in the tap.
                 tapStream.write(b, off, len)
+                primaryStream.write(b, off, len)
             }
 
             override fun flush() {

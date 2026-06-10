@@ -103,17 +103,15 @@ public class ServerSentEventReader(private val source: BufferedSource) {
 
             when (field) {
                 "id" -> {
-                    // Per spec: null bytes (U+0000) in the id are invalid. Substituting
-                    // the Unicode replacement character keeps the field visible to the
-                    // caller (so they can detect / log the bad data) without producing
-                    // a string that downstream JSON or logging code might mishandle.
-                    id =
-                        if (NULL_CHAR in rawValue) {
-                            rawValue.replace(NULL_CHAR, REPLACEMENT_CHAR)
-                        } else {
-                            rawValue
-                        }
-                    hasField = true
+                    // Per WHATWG SSE §9.2.6: "If the field value does not contain U+0000
+                    // NULL, then set the last event ID buffer to the field value. Otherwise,
+                    // ignore the field." A value with an embedded NUL leaves the id unset and
+                    // does not count as a field, so it cannot revive an otherwise-empty event
+                    // or overwrite a previously-seen valid id within the same block.
+                    if (NULL_CHAR !in rawValue) {
+                        id = rawValue
+                        hasField = true
+                    }
                 }
                 "event" -> {
                     event = rawValue
@@ -218,7 +216,6 @@ public class ServerSentEventReader(private val source: BufferedSource) {
         private const val LF: Byte = 0x0A
         private const val CR: Byte = 0x0D
         private const val NULL_CHAR: Char = '\u0000'
-        private const val REPLACEMENT_CHAR: Char = '\uFFFD'
         private val BOM_BYTES: ByteArray = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
 
         // Initial capacity for the per-event `data` line accumulator. SSE servers tend to

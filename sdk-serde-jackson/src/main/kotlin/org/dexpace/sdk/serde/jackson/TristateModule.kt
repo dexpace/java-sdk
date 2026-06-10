@@ -194,8 +194,9 @@ internal class TristateSerializer internal constructor() : JsonSerializer<Trista
         serializers: SerializerProvider,
     ) {
         if (inner == null) {
-            // Defensive — Present(null) is technically allowed by Kotlin nullability; treat as
-            // a JSON null. The Tristate KDoc notes callers should prefer Null in this case.
+            // Defensive only — Tristate.Present is now bounded `T : Any`, so a Present(null) cannot
+            // be constructed through the public API. This branch survives as a belt-and-suspenders
+            // guard against a value smuggled in via raw/erased generics; a Null is the right shape.
             gen.writeNull()
             return
         }

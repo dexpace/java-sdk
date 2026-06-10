@@ -9,13 +9,12 @@ and the concurrency decisions behind them.
 - [HTTP Body Abstractions](#http-body-abstractions)
     - [RequestBody](#requestbody)
     - [ResponseBody](#responsebody)
-    - [Why Not Okio](#why-not-okio)
+    - [The I/O Seam](#the-io-seam)
 - [Body Logging System](#body-logging-system)
     - [Architecture](#architecture)
-    - [BodySnapshot — Full Capture](#bodysnapshot--full-capture)
     - [LoggableRequestBody — Tee-Write Strategy](#loggablerequestbody--tee-write-strategy)
-    - [LoggableResponseBody — Eager Buffering Strategy](#loggableresponsebody--eager-buffering-strategy)
-    - [Segmented Streaming](#segmented-streaming)
+    - [LoggableResponseBody — Drain-Once Strategy](#loggableresponsebody--drain-once-strategy)
+    - [Reading a Snapshot](#reading-a-snapshot)
 - [Internal Stream Utilities](#internal-stream-utilities)
 - [Concurrency Design](#concurrency-design)
     - [Why ReentrantLock Over synchronized](#why-reentrantlock-over-synchronized)
@@ -29,24 +28,27 @@ and the concurrency decisions behind them.
 
 ## Overview
 
-The SDK provides a zero-dependency HTTP body abstraction layer built entirely on `java.io`
-APIs. It targets **JDK 8+** compatibility while being safe to use from platform threads,
-virtual threads (Project Loom), Kotlin coroutines, and reactive streams.
+The SDK's HTTP bodies are built on its own Okio-inspired I/O abstraction rather than directly
+on `java.io`. `sdk-core` defines the interfaces — `Source`/`Sink`, `BufferedSource`/`BufferedSink`,
+`Buffer`, `TeeSink` — and carries zero runtime dependencies; a concrete implementation plugs in
+through a single `IoProvider` seam. The reference provider is `OkioIoProvider` in `sdk-io-okio3`,
+backed by Okio 3.x. Because `sdk-core` codes against the abstraction, the body layer keeps the
+**JDK 8+** target while staying safe to use from platform threads, virtual threads (Project
+Loom), Kotlin coroutines, and reactive streams.
 
 The body logging system wraps request and response bodies to capture their content for
-diagnostics without consuming the underlying streams or altering the HTTP data flow.
+diagnostics without consuming the underlying data or altering the HTTP data flow.
 
 ### Key source files
 
-| File                      | Package         | Purpose                                                      |
-|---------------------------|-----------------|--------------------------------------------------------------|
-| `RequestBody.kt`          | `http.request`  | Abstract request body with factory methods                   |
-| `ResponseBody.kt`         | `http.response` | Abstract response body with `bytes()`/`string()`             |
-| `LoggableRequestBody.kt`  | `http.logging`  | Tee-write wrapper + internal stream utilities                |
-| `LoggableResponseBody.kt` | `http.logging`  | Eager-buffering wrapper with thread-safe init                |
-| `BodySnapshot.kt`         | `http.logging`  | Immutable captured content with text detection               |
-| `BodySegment.kt`          | `http.logging`  | Segment data class + handler interface                       |
-| `io/*.kt`                 | `io`            | Segment-based memory stream system (see [I/O Module](io.md)) |
+| File                      | Package         | Purpose                                                          |
+|---------------------------|-----------------|------------------------------------------------------------------|
+| `RequestBody.kt`          | `http.request`  | Abstract request body with factory methods (`writeTo(BufferedSink)`) |
+| `ResponseBody.kt`         | `http.response` | Abstract response body exposing `source(): BufferedSource`       |
+| `LoggableRequestBody.kt`  | `http.request`  | Tee-write wrapper that taps request bytes into a `Buffer`        |
+| `LoggableResponseBody.kt` | `http.response` | Drain-once wrapper with thread-safe init and repeatable reads    |
+| `TeeSink.kt`              | `io`            | `BufferedSink` that mirrors each write into a tap `Buffer`       |
+| `io/*.kt`                 | `io`            | Buffer-centric memory stream system (see [I/O Module](io.md))    |
 
 ---
 
@@ -57,63 +59,63 @@ diagnostics without consuming the underlying streams or altering the HTTP data f
 `RequestBody` is an abstract class with a single core method:
 
 ```kotlin
-abstract fun writeTo(stream: OutputStream)
+abstract fun writeTo(sink: BufferedSink)
 ```
 
-**Design decision: `OutputStream` over Okio's `BufferedSink`.**
+**Design decision: `BufferedSink` over a raw `OutputStream`.**
 
-The `writeTo` contract pushes bytes to an `OutputStream` provided by the HTTP transport.
-This is the standard JDK abstraction for byte output, understood by every HTTP client
-implementation (HttpURLConnection, Apache HC, Jetty, etc.).
+The `writeTo` contract pushes bytes to a `BufferedSink` provided by the transport. The sink is
+one of the SDK's own I/O interfaces, so typed writes (`writeUtf8`, `writeString`, `write(ByteArray)`,
+`writeAll(source)`) and buffer-to-buffer segment moves are available without forcing every body
+to think in terms of a byte-at-a-time stream. Transports translate the sink to their native
+output once, at the boundary.
 
-Factory methods produce two variants:
+Factory methods cover the common body shapes:
 
-| Factory                    | Reusable        | Backing                                        |
-|----------------------------|-----------------|------------------------------------------------|
-| `create(inputStream, ...)` | No (single-use) | `InputStream` consumed and closed via `use {}` |
-| `create(bytes, ...)`       | Yes             | `ByteArray` written directly                   |
-| `create(content, ...)`     | Yes             | Delegates to `ByteArray` factory               |
-| `create(formData, ...)`    | Yes             | URL-encoded, delegates to `ByteArray` factory  |
+| Factory                        | Replayable                | Backing                                                        |
+|--------------------------------|---------------------------|---------------------------------------------------------------|
+| `create(source: BufferedSource, …)` | No (single-use)      | `BufferedSource` drained and closed by `writeTo`              |
+| `create(buffer: Buffer, …)`    | Yes                       | In-memory `Buffer`, read via non-consuming `peek()`           |
+| `create(bytes: ByteArray, …)`  | Yes                       | `ByteArray` written directly                                  |
+| `create(content: String, …)`   | Yes                       | Encoded to a `ByteArray` at construction                      |
+| `create(input: InputStream, length, …)` | Conditional         | Replayable when the stream supports `mark/reset` and `length` fits in a mark `readLimit`; otherwise single-use |
+| `create(file: Path, …)`        | Yes                       | `FileRequestBody`; transports may dispatch a zero-copy `sendfile(2)` |
+| `create(formData: Map, …)`     | Yes                       | URL-encoded once, delegates to the `ByteArray` shape          |
 
-The `InputStream`-based factory uses a manual 8 KB buffer copy loop instead of
-`InputStream.transferTo()` because `transferTo` is a Java 9+ API and the SDK targets
-JDK 8. The 8 KB buffer size matches what `transferTo` uses internally.
+Single-use bodies (`BufferedSource`-backed, non-resettable `InputStream`-backed) guard against
+a second `writeTo` with an `AtomicBoolean` and throw `IllegalStateException` rather than silently
+emitting zero bytes. `isReplayable()` reports whether `writeTo` is safe to call again, and
+`toReplayable(provider)` drains a single-use body once into an in-memory `Buffer` and returns a
+buffer-backed replayable equivalent — call it **before** `writeTo` when retries may be needed.
 
 ### ResponseBody
 
-`ResponseBody` is an abstract `Closeable` class:
+`ResponseBody` is an abstract `Closeable` class with a single read entry point:
 
 ```kotlin
-abstract fun byteStream(): InputStream
-fun bytes(): ByteArray      // reads all + closes
-fun string(charset): String // reads all + closes
+abstract fun source(): BufferedSource
 ```
 
-**Design decision: `InputStream` over Okio's `BufferedSource`.**
+**Design decision: `BufferedSource` over a raw `InputStream`.**
 
-The response body exposes a `BufferedInputStream` for efficient reads. The `bytes()` and
-`string()` convenience methods drain the stream and close the body in one call, following
-the same pattern as OkHttp's `ResponseBody`.
+The response body exposes a `BufferedSource` for efficient reads. A `BufferedSource` can be
+adapted to a `java.io.InputStream` (`source().inputStream()`) when a caller needs the JDK type,
+so nothing is lost by speaking the SDK's I/O abstraction at the contract.
 
-**Single-use contract**: `byteStream()` returns the same stream instance. Once consumed,
-the bytes are gone. For repeatable access, use `LoggableResponseBody`.
+**Single-use contract**: `source()` returns the same source instance, and once consumed the
+bytes are gone. The body **must be closed** after use to release the underlying connection —
+prefer `use {}`. For repeatable access, wrap with `LoggableResponseBody`.
 
-### Why Not Okio
+### The I/O Seam
 
-The original implementation used Okio 3.x (`BufferedSink`, `BufferedSource`, `ByteString`,
-`Source`). It was removed for the following reasons:
-
-1. **Dependency cost**: Okio pulls in Kotlin stdlib multiplatform artifacts and adds ~300 KB
-   to the SDK. For a core HTTP abstraction, this is unnecessary weight.
-
-2. **JDK sufficiency**: Java's `InputStream`, `OutputStream`, `BufferedInputStream`, and
-   `ByteArrayOutputStream` provide equivalent buffering and performance. The 8 KB copy loop
-   matches Okio's internal buffer size.
-
-3. **Interoperability**: Every JVM HTTP client speaks `InputStream`/`OutputStream`. Okio
-   types require adaptation at integration boundaries, adding friction for SDK consumers.
-
-4. **JDK 8 compatibility**: The replacement uses only `java.io` APIs available since JDK 1.0.
+Both bodies are written against `sdk-core`'s I/O interfaces, never a concrete implementation.
+The single `IoProvider` is wired once at startup via `Io.installProvider(provider)`; touching
+`Io.provider` before a provider is installed throws `IllegalStateException` with the install
+instruction. Production code installs the provider in the application startup path; tests use
+the test-fixtures helper `org.dexpace.sdk.core.testing.withProvider` for scoped overrides. The
+only shipping implementation today is `OkioIoProvider` (`sdk-io-okio3`), backed by Okio 3.x.
+This is what keeps `sdk-core` dependency-free: the Okio dependency lives entirely in the adapter
+module. See the [I/O Module](io.md) document for the segment model behind `Buffer`.
 
 ---
 
@@ -121,59 +123,40 @@ The original implementation used Okio 3.x (`BufferedSink`, `BufferedSource`, `By
 
 ### Architecture
 
-The logging system provides **non-destructive observation** of HTTP body content through
-two complementary strategies:
+The logging system provides **non-destructive observation** of HTTP body content. Requests and
+responses use complementary strategies, but both funnel captured bytes into a `Buffer` and
+expose them through `snapshot()`:
 
-```
-                        ┌─────────────────────────────────────────────┐
-                        │           Observation Strategies            │
-                        ├──────────────────────┬──────────────────────┤
-                        │   Snapshot Mode      │   Segment Mode       │
-                        │   (full capture)     │   (streaming chunks) │
-                        ├──────────────────────┼──────────────────────┤
-                        │ Memory: full body    │ Memory: 1 segment    │
-                        │ Access: after write  │ Access: during write │
-                        │ Output: BodySnapshot │ Output: callbacks    │
-                        └──────────────────────┴──────────────────────┘
-```
+- **`LoggableRequestBody`** taps bytes as they stream to the transport (tee-write), so observation
+  is a side effect of the normal write and never doubles a single-use body.
+- **`LoggableResponseBody`** drains the response once into a `Buffer` and serves every subsequent
+  read from that buffer, turning a single-use body into a repeatable one.
 
-Both strategies can be active simultaneously on the same body.
-
-### BodySnapshot — Full Capture
-
-`BodySnapshot` is an immutable container for captured body bytes. It provides:
-
-- **Text detection** via media type analysis (`text/*`, `application/json`, `+json`, `+xml`,
-  `x-www-form-urlencoded`)
-- **Charset-aware decoding** using the media type's `charset` parameter, falling back to UTF-8
-- **Preview generation** that produces human-readable log output:
-    - `[empty]` for empty bodies
-    - `[binary 1024 bytes]` for non-text content
-    - Decoded and optionally truncated text for textual content
+In both cases the captured bytes are surfaced as a raw `ByteArray` via `snapshot()` /
+`snapshot(maxBytes)`. The wrappers do not interpret the bytes — charset resolution and text
+detection are the caller's job (the request/response `MediaType` exposes `charset` for that).
 
 ### LoggableRequestBody — Tee-Write Strategy
 
-**Problem**: Capture request body bytes for logging without consuming the body or altering
-the write to the HTTP transport.
+**Problem**: Capture request body bytes for logging without consuming the body or altering the
+write to the HTTP transport.
 
-**Solution**: Tee-write. When `writeTo(stream)` is called, bytes flow through a
-`TeeOutputStream` that writes to both the real output stream and a capture branch
-simultaneously:
+**Solution**: Tee-write. When `writeTo(sink)` is called, the wrapper clears its tap buffer and
+then drives the delegate's `writeTo` through a `TeeSink`, which mirrors every write into both the
+transport sink and an internal tap `Buffer`:
 
 ```
 delegate.writeTo(...)
       │
       ▼
-TeeOutputStream
+   TeeSink
       │                    │
-      ▼ primary            ▼ branch
-  Real OutputStream    Buffer.outputStream()
-  (HTTP transport)         │
-                           ▼
-                    Buffer (segment-based)
-                     ├─► snapshot()          → BodySnapshot (full body)
-                     ├─► emitBodySegments()  → BodySegmentHandler (if configured)
-                     └─► clear()             → recycle segments
+      ▼ primary            ▼ tap
+  Transport BufferedSink   Buffer (segment-based)
+  (HTTP transport)              │
+                                ▼
+                         snapshot()         → ByteArray (full captured body)
+                         snapshot(maxBytes) → ByteArray (bounded prefix)
 ```
 
 **Why tee-write over pre-buffering?**
@@ -181,106 +164,105 @@ TeeOutputStream
 An alternative approach would buffer the entire body first, then write from the buffer.
 Tee-write is superior because:
 
-1. It preserves single-use semantics — `InputStream`-backed bodies work correctly.
+1. It preserves single-use semantics — `BufferedSource`-backed bodies work correctly.
 2. It doesn't double the write cost for reusable bodies.
-3. Bytes reach the transport in real-time, preserving streaming behavior.
+3. Bytes reach the transport as they are produced, preserving streaming behavior.
 4. The capture is a side effect of the write, not a prerequisite.
 
-### LoggableResponseBody — Eager Buffering Strategy
+**Multi-attempt safety**: each `writeTo` clears the tap before capturing, so a retry against a
+replayable delegate keeps the snapshot in lock-step with the most recent attempt rather than
+accumulating doubled bytes. If the delegate's `writeTo` throws partway, `snapshot()` returns the
+bytes tee'd up to the failure point — useful for diagnosing a failed request. The wrapper mirrors
+the delegate's replayability: `isReplayable()` delegates, and `toReplayable()` returns a new
+`LoggableRequestBody` wrapping the delegate's replayable form.
+
+### LoggableResponseBody — Drain-Once Strategy
 
 **Problem**: Log response body content without consuming the stream that the caller needs.
 
-**Solution**: Eager buffering. On first access, the entire delegate body is drained into
-a segment-based `Buffer` and the delegate is closed. All subsequent reads are served from
-the buffer:
+**Solution**: Drain once. On first access, the entire delegate body is drained into an internal
+`Buffer` with a single `writeAll` (a segment transfer on Okio-backed providers) and the delegate
+is closed. All subsequent reads are served from the captured buffer:
 
 ```
-First access (byteStream / bytes / string / snapshot):
-  delegate.byteStream() ──read──► Buffer.readFrom(inputStream) ──► buffer: Buffer
-  delegate.close()                (drains into pooled segments)       │
-                                                                     ▼
-Subsequent access:                                         buffer.readOnlyInputStream()
-  Non-consuming InputStream with independent cursor        (no copy, no consumption)
+First access (source / snapshot / captureException):
+  delegate.source() ──writeAll──► Buffer            (drains into pooled segments,
+  delegate closed via use {}                          then closes the source)
+                                       │
+                                       ▼
+Subsequent access:               captured.peek()
+  source() returns a fresh non-consuming view        (no copy, no consumption)
 ```
 
-**Why eager buffering over tee-read?**
+**Why drain-once over tee-read?**
 
-For responses, a tee-read (wrapping the InputStream) would require the consumer to read
-the body to trigger the observation — if the consumer never reads, nothing is logged.
-Eager buffering ensures the body is always available for logging regardless of whether
-the consumer reads it.
+For responses, a tee-read (wrapping the source) would require the consumer to read the body to
+trigger observation — if the consumer never reads, nothing is logged. Draining ensures the body
+is always available for logging regardless of whether the consumer reads it.
 
 **Trade-off**: The full response is held in memory. This is acceptable for API responses
-(typically JSON, < 1 MB) but not suitable for streaming large downloads. The class
-documents this constraint.
+(typically JSON, < 1 MB) but not suitable for streaming large downloads. The class documents
+this constraint and offers `snapshot(maxBytes)` for capturing only a bounded preview prefix.
 
-**Why `byteStream()` returns a new read-only `InputStream` each time:**
+**Why `source()` returns a new non-consuming view each time:**
 
-Each call returns an independent, non-consuming `InputStream` over the buffer's segments
-(via `Buffer.readOnlyInputStream()`). This turns a single-use body into a repeatable one —
-the caller can read the body multiple times without re-fetching or copying.
+Each call returns an independent, non-consuming `BufferedSource` over the captured buffer (via
+`Buffer.peek()`). This turns a single-use body into a repeatable one — the caller can read the
+body multiple times without re-fetching or copying.
 
-### Segmented Streaming
+**Failure semantics**: a network error during the drain does not silently truncate. The wrapper
+retains whatever bytes were read before the failure and caches the exception:
 
-For streaming the body to external systems (telemetry, audit logs) with bounded memory
-per chunk, a `BodySegmentHandler` callback processes the body in fixed-size segments
-(default 8 KB). Each segment carries metadata for reconstruction:
+- `source()` **re-throws** the cached exception every time, so callers see the failure
+  deterministically (no silent zero-byte body).
+- `snapshot()` / `snapshot(maxBytes)` **always return** the partial bytes — useful for
+  post-mortem logging that records "what we got" alongside the exception.
+- `captureException` surfaces the cached exception (or `null`) without triggering a drain.
+
+### Reading a Snapshot
+
+The only logging output is a raw `ByteArray`:
 
 ```kotlin
-class BodySegment(
-    val data: ByteArray,  // segment bytes (final segment may be shorter)
-    val offset: Long,     // byte offset within the full body
-    val index: Int,       // 0-based segment index
-    val isLast: Boolean   // true for the final segment
-)
+fun snapshot(): ByteArray            // the full captured body
+fun snapshot(maxBytes: Int): ByteArray   // a bounded prefix, leaving the capture intact
 ```
 
-**Memory model**: Only one segment exists in memory at a time. After the handler returns,
-the segment buffer is reset. Total memory usage for observation is bounded to `segmentSize`
-bytes regardless of body size.
-
-**Error isolation**: Handler exceptions are caught and suppressed. A failing observer
-(e.g., a logger that loses its disk connection) never disrupts the HTTP data flow.
-
-**Segment mode coexists with snapshot mode**: The snapshot captures the full body for
-quick log lines via `preview()`; the segment handler streams every byte to an external
-system with bounded per-segment memory.
+`snapshot()` throws `IllegalStateException` if the captured size exceeds
+`Buffer.MAX_BYTE_ARRAY_SIZE` (a single `ByteArray` can't hold it); reach for `snapshot(maxBytes)`
+whenever the body may be unbounded. `maxBytes` is silently clamped to `MAX_BYTE_ARRAY_SIZE`, so
+passing `Int.MAX_VALUE` on a multi-gigabyte body still yields a safely bounded array. Decoding
+the bytes to text for a log line is left to the caller, who can consult the body's `MediaType.charset`.
 
 ---
 
 ## Internal Stream Utilities
 
-The write pipeline uses two internal `OutputStream` implementations plus the `Buffer`-based
-I/O system (see [I/O Module](io.md)):
+The request-logging write path is built on `TeeSink` plus the `Buffer`-based I/O system (see
+[I/O Module](io.md)).
 
-### TeeOutputStream
+### TeeSink
 
-Duplicates every write to a `primary` and a `branch` stream. Closing flushes both but
-**does not close either** — each stream's lifecycle is managed by its owner.
+`TeeSink` (package `io`) is a `BufferedSink` that mirrors every write into a tap `Buffer` while
+forwarding to a primary sink. Typed writes (`writeUtf8`, `writeString`, `write(ByteArray)`) are
+encoded **once** into a reused scratch buffer, then copied non-destructively into the tap and
+drained destructively into the primary. On an Okio-backed `Buffer` both moves are segment-level
+operations, so the cost is one encode plus two segment moves regardless of payload size.
 
-**Design decision**: The tee doesn't close its streams because:
-
-- The primary stream is owned by the HTTP transport.
-- The branch stream is owned by the logging wrapper.
-- Premature close of the primary would corrupt the HTTP connection.
+`TeeSink.close()` closes the primary sink; the tap is owned by `LoggableRequestBody` and is not a
+network resource. Direct buffer access (`tee.buffer`) is unsupported and throws — writing into the
+backing buffer would reach only the tap, silently corrupting the wire body. Callers must use the
+typed `write*` methods so bytes reach both sinks.
 
 ### Buffer-Based Capture
 
-`LoggableRequestBody` uses `Buffer.outputStream()` as the branch stream of the
-`TeeOutputStream`, capturing the entire body into pooled segments. After the write
-completes:
+`LoggableRequestBody` allocates its tap `Buffer` lazily (only on first write or snapshot) from
+the installed `IoProvider`. The delegate's `writeTo` runs through the `TeeSink`, after which
+`snapshot()` / `snapshot(maxBytes)` read the captured bytes out of the tap. The tap is cleared at
+the start of each `writeTo` so retries don't accumulate stale bytes.
 
-1. `Buffer.snapshot()` creates a `BodySnapshot` with the full body
-2. If a segment handler is configured, `emitBodySegments(buffer, handler, segmentSize)`
-   iterates the buffer's segments and emits them as `BodySegment` callbacks
-3. `buffer.clear()` recycles all segments back to the pool
-
-### Segment Emission
-
-The `emitBodySegments()` function in `BodySegment.kt` iterates a `Buffer`'s segments via
-`buffer.forEach()` and re-chunks them into `BodySegment` callbacks. Chunks are bounded by
-both the configured segment size and the buffer's internal 8 KiB segment boundaries.
-Handler exceptions are caught and suppressed to protect the primary data flow.
+`LoggableResponseBody` drains the delegate into a captured `Buffer` once, behind a
+double-checked-locking guard, and serves repeatable reads via `Buffer.peek()`.
 
 ---
 
@@ -288,14 +270,14 @@ Handler exceptions are caught and suppressed to protect the primary data flow.
 
 ### Why ReentrantLock Over synchronized
 
-`LoggableResponseBody` uses `ReentrantLock` to guard the one-time buffering of the
-delegate body. This was chosen over `synchronized` for virtual thread compatibility:
+`LoggableResponseBody` uses `ReentrantLock` to guard the one-time draining of the delegate body.
+This was chosen over `synchronized` for virtual thread compatibility:
 
 | Aspect                  | `synchronized`                                    | `ReentrantLock`                                  |
 |-------------------------|---------------------------------------------------|--------------------------------------------------|
 | Platform threads        | Monitor lock                                      | `AbstractQueuedSynchronizer`                     |
 | Virtual thread behavior | **Pins** the virtual thread to its carrier thread | Virtual thread **unmounts**, freeing the carrier |
-| JDK availability        | JDK 1.0+                                          | JDK 5+ (within JDK 8 target)                     |
+| JDK availability        | JDK 1.0+                                           | JDK 5+ (within JDK 8 target)                     |
 | Kotlin idiom            | `synchronized(lock) { }`                          | `lock.withLock { }`                              |
 
 **Carrier pinning explained**: When a virtual thread enters a `synchronized` block, the
@@ -306,55 +288,55 @@ thread unmounts, and the carrier is free to run other virtual threads.
 
 ### Double-Checked Locking with Volatile
 
-The buffering initialization uses double-checked locking:
+The drain initialization uses double-checked locking:
 
 ```kotlin
 @Volatile
-private var buffer: Buffer? = null
+private var captured: Buffer? = null
 
-private fun ensureBuffered() {
-    if (buffer != null) return         // Fast path: no lock, volatile read
-    lock.withLock {
-        if (buffer != null) return     // Re-check under lock
-        try {
-            delegate.use { buffer = drain(it.byteStream()) }
-        } catch (e: Throwable) {
-            closed = true              // Delegate closed by use{}; prevent confusing retry
-            throw e
-        }
+private fun ensureCaptured(): Buffer {
+    captured?.let { return it }        // Fast path: no lock, volatile read
+    return lock.withLock {
+        captured?.let { return it }    // Re-check under lock
+        check(!closed) { "LoggableResponseBody was closed before the body was read; nothing to capture." }
+        drainAndCache()                // closes the delegate via use {}; caches partial bytes + error on failure
     }
 }
 ```
 
 **Why this pattern?**
 
-1. **Fast path**: After initialization, `buffer != null` is a single volatile read with
-   no locking. This is the common case — the body is read once, then accessed many times.
-2. **Safety**: The `@Volatile` annotation ensures the buffer reference and the array
-   contents are visible to all threads after the lock is released (happens-before via
-   volatile write).
-3. **Single initialization**: The re-check inside `withLock` prevents duplicate drains
-   when two threads race on the first access.
+1. **Fast path**: After draining, `captured != null` is a single volatile read with no locking.
+   This is the common case — the body is drained once, then read many times.
+2. **Safety**: The `@Volatile` annotation ensures the captured buffer reference (and the bytes it
+   holds) is visible to all threads after the lock is released (happens-before via the volatile
+   write).
+3. **Single initialization**: The re-check inside `withLock` prevents duplicate drains when two
+   threads race on the first access.
+
+A drain failure is recorded rather than retried: `drainAndCache` caches the partial buffer and the
+thrown exception in `@Volatile` fields, so `source()` re-throws deterministically and `snapshot()`
+returns the partial bytes.
 
 ### Per-Concurrency-Model Guidance
 
-The core HTTP body classes use blocking `java.io` streams. No lock or concurrency primitive
-can make `InputStream.read()` non-blocking. The lock choice affects only the initialization
-guard, not the I/O itself.
+The captured `Buffer` is in-memory, but the **drain** reads the delegate's `BufferedSource`, which
+performs blocking I/O. No lock or concurrency primitive can make that read non-blocking. The lock
+choice affects only the one-time drain guard, not the I/O itself.
 
 #### Platform threads
 
 Both `synchronized` and `ReentrantLock` work correctly. The lock is held only during the
-one-time initialization; subsequent accesses are lock-free via the volatile fast path.
+one-time drain; subsequent accesses are lock-free via the volatile fast path.
 
 #### Virtual threads (Project Loom, JDK 21+)
 
-`ReentrantLock` is the correct choice. During the one-time buffer initialization:
+`ReentrantLock` is the correct choice. During the one-time drain:
 
 1. The lock acquisition uses `LockSupport.park()` — if contended, the virtual thread
    unmounts from its carrier, freeing it for other virtual threads.
-2. The `InputStream.read()` calls within `drain()` also unmount (JDK 21+ recognizes I/O
-   operations on `java.io` streams as yield points).
+2. The blocking reads inside the drain also unmount (JDK 21+ recognizes blocking I/O as a
+   yield point).
 
 With `synchronized`, both the lock and the I/O would pin the carrier thread.
 
@@ -364,10 +346,13 @@ The SDK core module intentionally does **not** depend on `kotlinx-coroutines`. C
 using coroutines should:
 
 - Dispatch body reads to `Dispatchers.IO` (or a `limitedParallelism` dispatcher).
-- Both the lock and the `InputStream` I/O will block the dispatcher thread, which is
-  expected behavior on `Dispatchers.IO`.
+- Both the lock and the underlying I/O will block the dispatcher thread, which is expected
+  behavior on `Dispatchers.IO`.
 - If running coroutines on virtual thread dispatchers (JDK 21+), `ReentrantLock` avoids
   carrier pinning.
+
+A coroutine-native surface ships separately in `sdk-async-coroutines` (`suspend` extensions, MDC
+propagation), keeping the core blocking-friendly for the widest compatibility.
 
 #### Reactive streams (Project Reactor, RxJava)
 
@@ -375,25 +360,16 @@ Callers should wrap body access in a blocking-compatible scheduler:
 
 ```java
 // Project Reactor
-Mono.fromCallable(() ->loggable.
-
-snapshot())
-        .
-
-subscribeOn(Schedulers.boundedElastic())
+Mono.fromCallable(() -> loggable.snapshot())
+    .subscribeOn(Schedulers.boundedElastic());
 
 // RxJava
-        Single.
-
-fromCallable(() ->loggable.
-
-snapshot())
-        .
-
-subscribeOn(Schedulers.io())
+Single.fromCallable(() -> loggable.snapshot())
+    .subscribeOn(Schedulers.io());
 ```
 
-The blocking is inherent to `InputStream` — no lock choice can eliminate it.
+The blocking is inherent to the drain — no lock choice can eliminate it. A Reactor-native surface
+(`Mono`/`Flux`, including SSE → `Flux`) ships in `sdk-async-reactor`.
 
 ### Why Not Coroutine Mutex or Reactive Operators
 
@@ -402,36 +378,31 @@ for coroutine callers. However:
 
 1. Adding `kotlinx-coroutines` as a dependency to the core SDK module would force it on
    all consumers, including pure Java projects that don't use coroutines.
-2. `Mutex` requires a `suspend` function context. Changing `byteStream()` and `snapshot()`
-   to `suspend fun` would break the `ResponseBody` contract and make the class unusable
-   from Java.
+2. `Mutex` requires a `suspend` function context. Changing `source()` and `snapshot()` to
+   `suspend fun` would break the `ResponseBody` contract and make the class unusable from Java.
 
-The recommended pattern for coroutine-native APIs is a separate `sdk-coroutines` extension
-module that wraps the core classes with `suspend` functions and `Flow` types. The core
-module remains blocking-friendly for the widest compatibility.
-
-**Reactive types** (`Mono`, `Flux`, `Single`, `Observable`) follow the same reasoning —
-they belong in optional extension modules (`sdk-reactor`, `sdk-rxjava`), not the core.
+The chosen pattern keeps the core blocking-friendly and pushes coroutine and reactive ergonomics
+into the dedicated adapter modules (`sdk-async-coroutines`, `sdk-async-reactor`,
+`sdk-async-netty`, `sdk-async-virtualthreads`).
 
 ---
 
 ## Edge Cases and Safety
 
-| Edge Case                               | Handling                                                                         |
-|-----------------------------------------|----------------------------------------------------------------------------------|
-| Empty body                              | `BodySnapshot.isEmpty` returns `true`; `preview()` returns `"[empty]"`           |
-| Null media type                         | `BodySnapshot.isTextual` returns `false`; charset defaults to UTF-8              |
-| Unknown charset in media type           | `MediaType.charset` returns `null`; falls back to UTF-8                          |
-| Binary content                          | `preview()` returns `"[binary N bytes]"` instead of garbled text                 |
-| Large body                              | Full body captured into pooled segments; `preview()` truncates for display only  |
-| Double `close()`                        | Idempotent — `LoggableResponseBody.close()` checks `closed` flag under lock      |
-| `close()` before read                   | Delegate is closed, releasing the connection                                     |
-| `close()` after read                    | Buffer segments recycled via `clear()`; delegate already closed during buffering |
-| Concurrent first access                 | `ReentrantLock` ensures exactly one thread drains the delegate                   |
-| Segment handler throws                  | Exception caught and suppressed; primary data flow unaffected                    |
-| `close()` then `byteStream()`           | `ensureBuffered()` throws `IllegalStateException("closed")`                      |
-| `writeTo()` on single-use `RequestBody` | `InputStream` is consumed and closed via `use {}`; second call fails             |
-| `writeTo()` on reusable `RequestBody`   | `ByteArray`-backed; safe to call multiple times                                  |
+| Edge Case                               | Handling                                                                              |
+|-----------------------------------------|---------------------------------------------------------------------------------------|
+| Empty body                              | `snapshot()` returns an empty `ByteArray`; the tap/captured buffer holds zero bytes   |
+| Null media type                         | Body bytes are still captured; charset resolution is the caller's concern             |
+| Large body                              | Full body captured into pooled segments; use `snapshot(maxBytes)` for a bounded preview |
+| Snapshot exceeds `MAX_BYTE_ARRAY_SIZE`  | `snapshot()` throws `IllegalStateException`; use `snapshot(maxBytes)` instead          |
+| Double `close()`                        | Idempotent — `LoggableResponseBody.close()` checks the `closed` flag under lock        |
+| `close()` before read                   | Delegate is closed, releasing the connection; the captured buffer was never allocated  |
+| `close()` after read                    | Delegate already closed during the drain; the captured buffer survives close           |
+| Concurrent first access                 | `ReentrantLock` ensures exactly one thread drains the delegate                         |
+| Drain fails mid-read                    | Partial bytes retained; `source()` re-throws, `snapshot()` returns the partial capture |
+| `close()` then `source()`               | `ensureCaptured()` throws `IllegalStateException` ("closed before the body was read")  |
+| `writeTo()` on single-use `RequestBody` | The underlying source is consumed and closed; a second call throws `IllegalStateException` |
+| `writeTo()` on reusable `RequestBody`   | `ByteArray`/`Buffer`-backed; safe to call multiple times                               |
 
 ---
 
@@ -443,12 +414,12 @@ they belong in optional extension modules (`sdk-reactor`, `sdk-rxjava`), not the
 val body = RequestBody.create("""{"name": "test"}""", MediaType.parse("application/json"))
 val loggable = LoggableRequestBody(body)
 
-// Pass to HTTP client — writeTo is called internally
-loggable.writeTo(connection.outputStream)
+// Pass to the transport — writeTo is called internally with the transport's BufferedSink
+loggable.writeTo(transportSink)
 
 // Log after write
-val snapshot = loggable.snapshot()
-logger.debug("Request body: {}", snapshot?.preview())
+val captured = loggable.snapshot()
+logger.debug("Request body: {}", String(captured, Charsets.UTF_8))
 // Output: Request body: {"name": "test"}
 ```
 
@@ -457,87 +428,44 @@ logger.debug("Request body: {}", snapshot?.preview())
 ```kotlin
 val loggable = LoggableResponseBody(response.body!!)
 
-// Log the response
-logger.debug("Response: {}", loggable.snapshot().preview())
+// Log the response (drains once, in memory)
+logger.debug("Response: {}", String(loggable.snapshot(), Charsets.UTF_8))
 
 // Body is still fully available (repeatable reads)
-val data = loggable.bytes()
+val data = loggable.source().readByteArray()
 ```
 
-### Segment handler for large payloads
+### Bounded preview for large payloads
 
 ```kotlin
-val handler = BodySegmentHandler { segment ->
-    auditLog.write(segment.data)
-    if (segment.isLast) {
-        auditLog.flush()
-        logger.info(
-            "Body fully logged: {} segments, {} bytes",
-            segment.index + 1, segment.offset + segment.size
-        )
-    }
-}
+val loggable = LoggableResponseBody(response.body!!)
 
-// Request — segments emitted during writeTo
-val loggable = LoggableRequestBody(body, segmentHandler = handler)
-loggable.writeTo(outputStream)
+// Capture at most 4 KiB for the log line; the full body stays available for parsing
+val preview = loggable.snapshot(maxBytes = 4 * 1024)
+logger.debug("Response preview: {}", String(preview, Charsets.UTF_8))
 
-// Response — segments emitted during buffering
-val loggable = LoggableResponseBody(responseBody, segmentHandler = handler)
-val json = loggable.string()
-```
-
-### Snapshot + segments together
-
-```kotlin
-val handler = BodySegmentHandler { segment ->
-    telemetry.recordBodyChunk(traceId, segment.index, segment.data)
-}
-
-val loggable = LoggableResponseBody(
-    delegate = response.body!!,
-    segmentHandler = handler,          // full body streamed to telemetry
-    segmentSize = 16 * 1024            // 16 KB segments
-)
-
-// Quick preview in application log
-logger.debug("Response preview: {}", loggable.snapshot().preview())
-
-// Full body available for parsing
-val result = deserializer.deserialize(loggable.byteStream(), MyType::class.java)
+val result = serde.deserializer.deserialize(loggable.source().inputStream(), MyType::class.java)
 ```
 
 ### Coroutine context
 
 ```kotlin
-// Dispatch to IO because body I/O is blocking
+// Dispatch to IO because the drain is blocking
 val result = withContext(Dispatchers.IO) {
     val loggable = LoggableResponseBody(response.body!!)
-    logger.debug("Response: {}", loggable.snapshot().preview())
-    loggable.string()
+    logger.debug("Response: {}", String(loggable.snapshot(), Charsets.UTF_8))
+    loggable.source().readByteArray()
 }
 ```
 
 ### Reactive context (Project Reactor)
 
 ```java
-Mono.fromCallable(() ->{
-LoggableResponseBody loggable = new LoggableResponseBody(response.body());
-    logger.
-
-debug("Response: {}",loggable.snapshot().
-
-preview());
-        return loggable.
-
-string();
-})
-        .
-
-subscribeOn(Schedulers.boundedElastic())
-        .
-
-subscribe(result ->
-
-process(result));
+Mono.fromCallable(() -> {
+        LoggableResponseBody loggable = new LoggableResponseBody(response.body());
+        logger.debug("Response: {}", new String(loggable.snapshot(), StandardCharsets.UTF_8));
+        return loggable.source().readByteArray();
+    })
+    .subscribeOn(Schedulers.boundedElastic())
+    .subscribe(result -> process(result));
 ```

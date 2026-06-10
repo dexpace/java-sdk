@@ -140,6 +140,88 @@ class ContextStoreTest {
     }
 
     @Test
+    fun `identity-conditional remove only evicts when the registered context matches`() {
+        val id = owned("cond-remove")
+        val first = DispatchContext(FakeInstrumentationContext(TraceId(id)), id)
+        val replacement = RequestContext(FakeInstrumentationContext(TraceId(id)), request(), id)
+
+        ContextStore.set(id, first)
+        // A replacement has taken over the slot; closing the original (which still believes
+        // it owns the slot) must not delete the replacement.
+        ContextStore.set(id, replacement)
+        assertEquals(false, ContextStore.remove(id, first))
+        assertSame(replacement, ContextStore.get(id))
+
+        // Removing with the matching value succeeds.
+        assertEquals(true, ContextStore.remove(id, replacement))
+        assertNull(ContextStore.get(id))
+    }
+
+    @Test
+    fun `identity-conditional remove is a no-op when no entry exists`() {
+        val id = owned("cond-remove-missing")
+        val ctx = DispatchContext(FakeInstrumentationContext(TraceId(id)), id)
+        assertEquals(false, ContextStore.remove(id, ctx))
+        assertNull(ContextStore.get(id))
+    }
+
+    @Test
+    fun `identity-conditional remove does not evict a structurally-equal sibling`() {
+        // Contexts are data classes, so two distinct instances with identical fields are
+        // `equals`. Conditional eviction must key on reference IDENTITY, not value equality:
+        // closing a stale context must not delete a structurally-equal live twin that currently
+        // owns the slot. (ConcurrentHashMap.remove(k, v) matches by `equals`, which would.)
+        val id = owned("equal-sibling")
+        val instr = FakeInstrumentationContext(TraceId(id), SpanId("0000000000000099"))
+        val live = DispatchContext(instr, id)
+        val staleTwin = DispatchContext(instr, id)
+
+        // Equal by value, distinct by identity — the precondition that makes this case real.
+        assertEquals(live, staleTwin)
+        assertTrue(live !== staleTwin)
+
+        ContextStore.set(id, live)
+        assertEquals(
+            false,
+            ContextStore.remove(id, staleTwin),
+            "an equal-but-distinct context must not evict the owner",
+        )
+        assertSame(live, ContextStore.get(id))
+
+        // The live owner can still evict itself by identity.
+        assertEquals(true, ContextStore.remove(id, live))
+        assertNull(ContextStore.get(id))
+    }
+
+    @Test
+    fun `concurrent untraced calls keep independent entries`() {
+        // Two concurrent default()/NOOP-trace calls share a constant trace+span id, but each
+        // mints a unique call key, so neither overwrites nor evicts the other's live entry.
+        val calls = 16
+        val barrier = CountDownLatch(1)
+        val keys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val survivors = AtomicInteger(0)
+
+        val ts =
+            (1..calls).map {
+                Thread {
+                    barrier.await()
+                    val dispatch = DispatchContext.default()
+                    keys.add(dispatch.callKey)
+                    ownedIds.add(dispatch.callKey)
+                    ContextStore.set(dispatch.callKey, dispatch)
+                    // Each call's own entry is still present after registration.
+                    if (ContextStore.get(dispatch.callKey) === dispatch) survivors.incrementAndGet()
+                }.also { it.start() }
+            }
+        barrier.countDown()
+        for (t in ts) t.join()
+
+        assertEquals(calls, keys.size, "every concurrent call should mint a distinct key")
+        assertEquals(calls, survivors.get(), "no call should have its entry overwritten by another")
+    }
+
+    @Test
     fun `concurrent put for the same id only lets one winner through`() {
         val id = owned("concurrent")
         val threads = 16

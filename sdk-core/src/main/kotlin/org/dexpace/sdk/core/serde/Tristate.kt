@@ -39,7 +39,10 @@ public sealed class Tristate<out T> {
      * Distinct from [Null] — [Absent] tells a `PATCH` server "leave this property unchanged",
      * whereas [Null] tells it "clear this property".
      */
-    public object Absent : Tristate<Nothing>()
+    public object Absent : Tristate<Nothing>() {
+        /** Stable, identity-free rendering so logs / assertions don't leak an identity hash. */
+        override fun toString(): String = "Absent"
+    }
 
     /**
      * Sentinel meaning "the field was present and explicitly null".
@@ -47,13 +50,17 @@ public sealed class Tristate<out T> {
      * The serializer must emit `"field": null`, not omit the field entirely. Consumers can read
      * this as an explicit clear request in `PATCH` semantics.
      */
-    public object Null : Tristate<Nothing>()
+    public object Null : Tristate<Nothing>() {
+        /** Stable, identity-free rendering so logs / assertions don't leak an identity hash. */
+        override fun toString(): String = "Null"
+    }
 
     /**
-     * Present value carrier. [value] is the deserialized payload — never `null`; use [Null] for
-     * the explicit-null case.
+     * Present value carrier. [value] is the deserialized payload — bounded to `T : Any` so a
+     * `Present(null)` (the illegal fourth state) cannot be constructed; use [Null] for the
+     * explicit-null case.
      */
-    public data class Present<out T>(public val value: T) : Tristate<T>()
+    public data class Present<out T : Any>(public val value: T) : Tristate<T>()
 
     /** Returns `true` if this is [Absent]. */
     public val isAbsent: Boolean
@@ -110,9 +117,13 @@ public sealed class Tristate<out T> {
         @JvmName("nullValue")
         public fun <T> nullValue(): Tristate<T> = Null
 
-        /** Wraps [value] in a [Present]. */
+        /**
+         * Wraps a non-null [value] in a [Present]. Bounded to `T : Any`: a `Present(null)` would
+         * be an illegal fourth state, indistinguishable from [Null] in PATCH semantics. Use [Null]
+         * for the explicit-null case, or [ofNullable] to route a nullable value to [Present]/[Null].
+         */
         @JvmStatic
-        public fun <T> present(value: T): Tristate<T> = Present(value)
+        public fun <T : Any> present(value: T): Tristate<T> = Present(value)
 
         /**
          * Convenience: maps a nullable [value] to either [Present] (non-null) or [Null] (null).

@@ -197,6 +197,75 @@ class DigestChallengeHandlerTest {
     }
 
     @Test
+    fun `nc starts at 1 for each distinct server nonce`() {
+        // S-5: nc is tracked per server nonce, so the first request against any fresh
+        // nonce must be nc=00000001 regardless of how many other nonces were used before.
+        val handler = DigestChallengeHandler("u", "p")
+
+        fun challengeFor(nonce: String) =
+            AuthenticateChallenge("Digest", mapOf("realm" to "r", "nonce" to nonce, "qop" to "auth"))
+
+        // Exercise nonce A twice so its counter reaches 2.
+        val a1 = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challengeFor("nonce-A")))!!.value)
+        val a2 = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challengeFor("nonce-A")))!!.value)
+        assertEquals("00000001", a1["nc"])
+        assertEquals("00000002", a2["nc"])
+
+        // A brand-new nonce B must restart at 1, not continue from A's counter.
+        val b1 = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challengeFor("nonce-B")))!!.value)
+        assertEquals("00000001", b1["nc"], "fresh nonce must start at nc=1")
+
+        // Returning to nonce A continues its own sequence (3), independent of B.
+        val a3 = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challengeFor("nonce-A")))!!.value)
+        assertEquals("00000003", a3["nc"], "reused nonce continues its own counter")
+    }
+
+    @Test
+    fun `nc reflects stale=true nonce rotation by restarting at 1`() {
+        // S-5: after the server rotates its nonce (stale=true), the new nonce is a fresh
+        // counter — the client must send nc=1, not a continuation of the old counter.
+        val handler = DigestChallengeHandler("u", "p")
+        val oldNonce =
+            AuthenticateChallenge("Digest", mapOf("realm" to "r", "nonce" to "old", "qop" to "auth"))
+        parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(oldNonce))!!.value)
+        parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(oldNonce))!!.value)
+
+        val rotated =
+            AuthenticateChallenge(
+                "Digest",
+                mapOf("realm" to "r", "nonce" to "rotated", "qop" to "auth", "stale" to "true"),
+            )
+        val afterRotation =
+            parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(rotated))!!.value)
+        assertEquals("00000001", afterRotation["nc"], "rotated nonce must restart nc at 1")
+    }
+
+    @Test
+    fun `per-nonce counter map is bounded by eviction`() {
+        // S-5: tracking nc per nonce must not grow without bound. Drive far more distinct
+        // nonces than the cap and assert the map stays at or below MAX_TRACKED_NONCES.
+        val handler = DigestChallengeHandler("u", "p")
+        val cap =
+            DigestChallengeHandler::class.java
+                .getDeclaredField("MAX_TRACKED_NONCES")
+                .apply { isAccessible = true }
+                .getInt(null)
+
+        repeat(cap + 500) { i ->
+            val challenge =
+                AuthenticateChallenge("Digest", mapOf("realm" to "r", "nonce" to "n-$i", "qop" to "auth"))
+            handler.handleChallenges(Method.GET, uri, listOf(challenge))
+        }
+
+        val counters =
+            DigestChallengeHandler::class.java
+                .getDeclaredField("nonceCounters")
+                .apply { isAccessible = true }
+                .get(handler) as Map<*, *>
+        assertTrue(counters.size <= cap, "nonce map must stay bounded by MAX_TRACKED_NONCES, was ${counters.size}")
+    }
+
+    @Test
     fun `cnonce differs between calls`() {
         val handler = DigestChallengeHandler("u", "p")
         val challenge =
@@ -210,7 +279,8 @@ class DigestChallengeHandlerTest {
     }
 
     @Test
-    fun `cnonce is 16 hex chars`() {
+    fun `cnonce is 32 hex chars carrying 128 bits of entropy`() {
+        // S-3: the cnonce is drawn from SecureRandom as 16 bytes (128 bits) → 32 hex chars.
         val handler = DigestChallengeHandler("u", "p")
         val challenge =
             AuthenticateChallenge(
@@ -220,8 +290,49 @@ class DigestChallengeHandlerTest {
         val parsed = parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)
         val cnonce = parsed["cnonce"]
         assertNotNull(cnonce)
-        assertEquals(16, cnonce.length, "cnonce length")
+        assertEquals(32, cnonce.length, "cnonce length (128-bit hex)")
         assertTrue(cnonce.all { it in '0'..'9' || it in 'a'..'f' }, "cnonce must be lower-case hex")
+    }
+
+    @Test
+    fun `cnonce is high-entropy and distinct across many calls`() {
+        // S-3: a non-cryptographic / low-entropy source would collide or expose structure.
+        // Assert all cnonces over many calls are distinct, full-length, and that the
+        // aggregate nibble distribution is not degenerate (every hex digit observed).
+        val handler = DigestChallengeHandler("u", "p")
+        val challenge =
+            AuthenticateChallenge(
+                "Digest",
+                mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+            )
+        val sampleCount = 256
+        val cnonces = HashSet<String>(sampleCount * 2)
+        val nibbles = HashSet<Char>()
+        repeat(sampleCount) {
+            val cnonce =
+                parseDigestHeader(handler.handleChallenges(Method.GET, uri, listOf(challenge))!!.value)["cnonce"]!!
+            assertEquals(32, cnonce.length, "cnonce length")
+            cnonces.add(cnonce)
+            nibbles.addAll(cnonce.toList())
+        }
+        assertEquals(sampleCount, cnonces.size, "every cnonce must be unique")
+        assertEquals(16, nibbles.size, "all 16 hex digits should appear across a 256-sample set")
+    }
+
+    @Test
+    fun `cnonce is sourced from SecureRandom`() {
+        // S-3: the handler must hold a java.security.SecureRandom as its cnonce source,
+        // never a ThreadLocalRandom / Uuids-derived value. Verify the static field's type.
+        val secureRandomField =
+            DigestChallengeHandler::class.java
+                .getDeclaredField("SECURE_RANDOM")
+                .apply { isAccessible = true }
+        val value = secureRandomField.get(null)
+        assertNotNull(value)
+        assertTrue(
+            value is java.security.SecureRandom,
+            "cnonce source must be a java.security.SecureRandom, was ${value::class.java.name}",
+        )
     }
 
     // ---- algorithm-specific behaviour ------------------------------------------
@@ -635,7 +746,8 @@ class DigestChallengeHandlerTest {
 
     @Test
     fun `concurrent nc increments produce monotonic, non-repeating sequence`() {
-        // Verify thread safety of the AtomicLong-backed nc.
+        // Verify thread safety of the per-nonce AtomicLong-backed nc: all calls below
+        // reuse a single nonce, so they share one counter and must produce 1..N uniquely.
         val handler = DigestChallengeHandler("u", "p")
         val challenge =
             AuthenticateChallenge(
@@ -680,23 +792,29 @@ class DigestChallengeHandlerTest {
 
     @Test
     fun `nc counter past Int MAX_VALUE stays positive and well-formed`() {
-        // Verify that using AtomicLong prevents the counter from wrapping to negative
-        // after surpassing Int.MAX_VALUE. We seed the counter via reflection so the test
-        // completes in microseconds rather than performing 2^31 actual calls.
+        // Verify that using AtomicLong prevents the per-nonce counter from wrapping to
+        // negative after surpassing Int.MAX_VALUE. We prime the per-nonce counter via
+        // reflection so the test completes in microseconds rather than performing 2^31
+        // actual calls.
         val handler = DigestChallengeHandler("u", "p")
-        val nonceCountField =
-            DigestChallengeHandler::class.java
-                .getDeclaredField("nonceCount")
-        nonceCountField.isAccessible = true
-        val atomicLong = nonceCountField.get(handler) as java.util.concurrent.atomic.AtomicLong
-        // Seed to just below Int.MAX_VALUE so the next increment crosses the boundary.
-        atomicLong.set(Int.MAX_VALUE.toLong())
-
+        val nonce = "n"
+        // First call registers the per-nonce AtomicLong (nc=1).
         val challenge =
             AuthenticateChallenge(
                 "Digest",
-                mapOf("realm" to "r", "nonce" to "n", "qop" to "auth"),
+                mapOf("realm" to "r", "nonce" to nonce, "qop" to "auth"),
             )
+        handler.handleChallenges(Method.GET, uri, listOf(challenge))
+
+        @Suppress("UNCHECKED_CAST")
+        val counters =
+            DigestChallengeHandler::class.java
+                .getDeclaredField("nonceCounters")
+                .apply { isAccessible = true }
+                .get(handler) as java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>
+        // Seed to just below Int.MAX_VALUE so the next increment crosses the boundary.
+        counters[nonce]!!.set(Int.MAX_VALUE.toLong())
+
         val (_, value) = handler.handleChallenges(Method.GET, uri, listOf(challenge))!!
         val parsed = parseDigestHeader(value)
         val ncStr = parsed["nc"]!!

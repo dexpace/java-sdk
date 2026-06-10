@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.instrumentation.TraceId
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 
@@ -33,18 +34,21 @@ class DispatchContextTest {
     }
 
     @Test
-    fun `toRequestContext returns a RequestContext with the same trace id and request`() {
+    fun `toRequestContext returns a RequestContext with the same trace id, call key, and request`() {
         val id = owned("promote")
         val instr = FakeInstrumentationContext(TraceId(id))
         val dispatch = DispatchContext(instr)
         val req = request()
+        ownedIds.add(dispatch.callKey)
 
         val promoted = dispatch.toRequestContext(req)
 
         assertSame(instr, promoted.instrumentationContext)
         assertSame(req, promoted.request)
-        // Promotion registers the new context under the trace id.
-        assertSame(promoted, ContextStore.get(id))
+        // Promotion carries the dispatch context's call key forward unchanged.
+        assertEquals(dispatch.callKey, promoted.callKey)
+        // Promotion registers the new context under the chain's call key.
+        assertSame(promoted, ContextStore.get(promoted.callKey))
     }
 
     @Test
@@ -66,14 +70,57 @@ class DispatchContextTest {
     }
 
     @Test
-    fun `close evicts entry keyed by trace id`() {
+    fun `close evicts entry keyed by call key`() {
         val id = owned("close")
         val instr = FakeInstrumentationContext(TraceId(id))
         val dispatch = DispatchContext(instr)
+        ownedIds.add(dispatch.callKey)
         // Put the context into the store first via `set` so close has something to evict.
-        ContextStore.set(id, dispatch)
-        assertNotNull(ContextStore.get(id))
+        ContextStore.set(dispatch.callKey, dispatch)
+        assertNotNull(ContextStore.get(dispatch.callKey))
         dispatch.close()
-        assertEquals(null, ContextStore.get(id))
+        assertEquals(null, ContextStore.get(dispatch.callKey))
+    }
+
+    @Test
+    fun `default mints a unique call key per invocation so concurrent untraced calls stay independent`() {
+        val a = DispatchContext.default()
+        val b = DispatchContext.default()
+        ownedIds.add(a.callKey)
+        ownedIds.add(b.callKey)
+
+        // Both use the shared no-op instrumentation context, but their store keys differ.
+        assertSame(a.instrumentationContext, b.instrumentationContext)
+        assertNotEquals(a.callKey, b.callKey)
+
+        ContextStore.set(a.callKey, a)
+        ContextStore.set(b.callKey, b)
+        assertSame(a, ContextStore.get(a.callKey))
+        assertSame(b, ContextStore.get(b.callKey))
+
+        // Closing one leaves the other's entry intact — no cross-call eviction.
+        a.close()
+        assertEquals(null, ContextStore.get(a.callKey))
+        assertSame(b, ContextStore.get(b.callKey))
+    }
+
+    @Test
+    fun `closing a promoted-from dispatch context does not evict the live child`() {
+        val id = owned("ownership")
+        val instr = FakeInstrumentationContext(TraceId(id))
+        val dispatch = DispatchContext(instr)
+        ownedIds.add(dispatch.callKey)
+
+        val child = dispatch.toRequestContext(request())
+        assertSame(child, ContextStore.get(dispatch.callKey))
+
+        // The parent is now an intermediate link; closing it must not delete the child,
+        // which took over the (shared) call-key slot.
+        dispatch.close()
+        assertSame(child, ContextStore.get(dispatch.callKey))
+
+        // Closing the terminal child evicts the chain.
+        child.close()
+        assertEquals(null, ContextStore.get(dispatch.callKey))
     }
 }

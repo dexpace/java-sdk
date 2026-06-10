@@ -16,14 +16,13 @@ package org.dexpace.sdk.core.util
  * ## Resolution
  *
  * - [sdkVersion] is read from the JAR manifest's `Implementation-Version` attribute
- *   (i.e. [Package.getImplementationVersion]). When the SDK is run from a JAR with a
- *   properly populated manifest — which is the case for every published artifact, since
- *   the root build wires the version into the Jar task — this returns the Gradle project
- *   version. When the SDK is loaded from classes-on-disk (e.g. during local unit tests
- *   where there is no enclosing JAR), [Package.getImplementationVersion] returns `null`
- *   and this property falls back to the literal string `"unknown"`. The fallback is
- *   intentional: identity tokens must always render a non-blank value so that
- *   downstream `joinToString(" ")` cannot produce a malformed `User-Agent`.
+ *   (i.e. [Package.getImplementationVersion]). The build stamps this attribute into every
+ *   module's Jar manifest from the project version, so a JAR-packaged SDK resolves a concrete
+ *   version. It falls back to `"unknown"` only when the SDK is loaded from classes-on-disk
+ *   (e.g. during local unit tests where there is no enclosing JAR) and
+ *   [Package.getImplementationVersion] returns `null`. The fallback is intentional:
+ *   identity tokens must always render a non-blank value so that downstream
+ *   `joinToString(" ")` cannot produce a malformed `User-Agent`.
  * - [javaVersion], [javaVendor], [osName] are read from `System.getProperty(...)`. The
  *   same `"unknown"` fallback applies if a property is unset (uncommon but possible in
  *   stripped-down embedded JVMs).

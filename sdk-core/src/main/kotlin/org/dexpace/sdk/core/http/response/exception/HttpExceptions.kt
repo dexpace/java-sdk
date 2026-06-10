@@ -18,14 +18,11 @@ import org.dexpace.sdk.core.http.response.Response
 // that stamps a deserialized error payload — see `docs/refs-comparison.md` Error Model §,
 // action item 3.
 //
-// Retryable flags are hardcoded at construction time to match canonical HTTP semantics:
-//
-//   * 4xx — not retryable (client mistake; the same request will fail the same way).
-//   * 429 — retryable (rate limited; the caller should back off and try again).
-//   * 5xx in the common set — retryable (transient server-side condition).
-//
-// Statuses outside this hardcoded list dispatch to the 4xx / 5xx fallback subclasses, which
-// inherit the same blanket retryable policy for their range.
+// None of these subclasses sets its own retryable flag: `HttpException.retryable` is derived
+// from `RetryUtils.isRetryable(status.code)` (the single source of truth), so the baked flag
+// always mirrors the live retry policy — 408 / 429 and the 5xx range except 501 / 505 are
+// retryable, everything else is not. Fallback subclasses (`ClientErrorException`,
+// `ServerErrorException`) get the same per-code classification for free.
 
 /**
  * `400 Bad Request`. The server cannot process the request because of a client error
@@ -42,7 +39,6 @@ public open class BadRequestException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -62,7 +58,6 @@ public open class UnauthorizedException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -82,7 +77,6 @@ public open class ForbiddenException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -101,7 +95,6 @@ public open class NotFoundException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -120,7 +113,25 @@ public open class MethodNotAllowedException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
+            message = message,
+            cause = cause,
+        )
+
+/**
+ * `408 Request Timeout`. The server timed out waiting for the request. **Retryable** — the
+ * server explicitly invites the client to repeat the request without modification (RFC 7231
+ * §6.5.7), so the baked `retryable` flag is `true` for this code.
+ */
+public open class RequestTimeoutException
+    @JvmOverloads
+    constructor(
+        response: Response,
+        message: String? = null,
+        cause: Throwable? = null,
+    ) : HttpException(
+            status = response.status,
+            headers = response.headers,
+            body = response.body,
             message = message,
             cause = cause,
         )
@@ -140,7 +151,6 @@ public open class ConflictException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -159,7 +169,6 @@ public open class GoneException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -178,7 +187,6 @@ public open class PayloadTooLargeException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -197,7 +205,6 @@ public open class UnsupportedMediaTypeException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -217,7 +224,6 @@ public open class UnprocessableEntityException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
@@ -237,7 +243,6 @@ public open class TooManyRequestsException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = true,
             message = message,
             cause = cause,
         )
@@ -257,7 +262,6 @@ public open class InternalServerErrorException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = true,
             message = message,
             cause = cause,
         )
@@ -276,7 +280,6 @@ public open class BadGatewayException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = true,
             message = message,
             cause = cause,
         )
@@ -296,7 +299,6 @@ public open class ServiceUnavailableException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = true,
             message = message,
             cause = cause,
         )
@@ -315,15 +317,16 @@ public open class GatewayTimeoutException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = true,
             message = message,
             cause = cause,
         )
 
 /**
  * Fallback for 4xx statuses without a dedicated subclass (402, 406, 411, 414, 416, 417, 418,
- * 421, 423–428, 431, 451). Not retryable, matching the canonical 4xx policy: client errors
- * are not transient.
+ * 421, 423–428, 431, 451). The baked `retryable` flag mirrors
+ * [RetryUtils.isRetryable][org.dexpace.sdk.core.util.RetryUtils.isRetryable] for the exact
+ * status code, so these client errors are not retryable. (408 is *not* routed here — it has
+ * its own [RequestTimeoutException] so its `retryable = true` is never lost to this fallback.)
  */
 public open class ClientErrorException
     @JvmOverloads
@@ -335,17 +338,16 @@ public open class ClientErrorException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = false,
             message = message,
             cause = cause,
         )
 
 /**
- * Fallback for 5xx statuses without a dedicated subclass (501, 505–511). Retryable, matching
- * the canonical 5xx policy. Note: 501 (Not Implemented) and 505 (HTTP Version Not Supported)
- * are intentionally classified retryable here for hierarchy uniformity — call sites that
- * need the legacy 501/505-aware policy (`RetryUtils.isRetryable`) can override at the retry
- * step.
+ * Fallback for 5xx statuses without a dedicated subclass (501, 505–511). The baked `retryable`
+ * flag mirrors [RetryUtils.isRetryable][org.dexpace.sdk.core.util.RetryUtils.isRetryable] for
+ * the exact status code: most 5xx codes are retryable, but **501** (Not Implemented) and
+ * **505** (HTTP Version Not Supported) are not — the field agrees with the live retry policy
+ * for those codes instead of contradicting it.
  */
 public open class ServerErrorException
     @JvmOverloads
@@ -357,7 +359,6 @@ public open class ServerErrorException
             status = response.status,
             headers = response.headers,
             body = response.body,
-            retryable = true,
             message = message,
             cause = cause,
         )

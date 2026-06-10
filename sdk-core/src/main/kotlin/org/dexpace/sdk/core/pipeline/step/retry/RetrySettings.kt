@@ -13,6 +13,11 @@ import java.time.Duration
 import java.util.Collections
 import java.util.concurrent.ScheduledExecutorService
 
+// Largest delay representable as Long nanoseconds (~292 years). A larger value overflows
+// Duration.toNanos() inside the backoff math, so the builder rejects it up front rather than
+// letting an ArithmeticException surface mid-retry.
+private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_VALUE)
+
 /**
  * Immutable configuration for [RetryStep].
  *
@@ -112,6 +117,9 @@ public class RetrySettings
             public fun totalTimeout(totalTimeout: Duration): RetrySettingsBuilder =
                 apply {
                     require(!totalTimeout.isNegative) { "totalTimeout must be non-negative" }
+                    require(totalTimeout <= MAX_NANO_REPRESENTABLE_DELAY) {
+                        "totalTimeout must be representable in nanoseconds (≤ ~292 years); got $totalTimeout"
+                    }
                     this.totalTimeout = totalTimeout
                 }
 
@@ -119,6 +127,9 @@ public class RetrySettings
             public fun initialDelay(initialDelay: Duration): RetrySettingsBuilder =
                 apply {
                     require(!initialDelay.isNegative) { "initialDelay must be non-negative" }
+                    require(initialDelay <= MAX_NANO_REPRESENTABLE_DELAY) {
+                        "initialDelay must be representable in nanoseconds (≤ ~292 years); got $initialDelay"
+                    }
                     this.initialDelay = initialDelay
                 }
 
@@ -133,6 +144,9 @@ public class RetrySettings
             public fun maxDelay(maxDelay: Duration): RetrySettingsBuilder =
                 apply {
                     require(!maxDelay.isNegative) { "maxDelay must be non-negative" }
+                    require(maxDelay <= MAX_NANO_REPRESENTABLE_DELAY) {
+                        "maxDelay must be representable in nanoseconds (≤ ~292 years); got $maxDelay"
+                    }
                     this.maxDelay = maxDelay
                 }
 

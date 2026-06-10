@@ -74,6 +74,29 @@ class OkioBufferedSourceTest {
     }
 
     @Test
+    fun `read into OkioBuffer with zero byteCount returns 0 on a non-empty source`() {
+        val src = streamSource("xyz")
+        val dst = OkioIoProvider.buffer()
+        // A zero-byte read must report 0 (no progress), never EOF — even down the OkioBuffer
+        // fast path. The zero check is hoisted above the fast path so both branches agree.
+        assertEquals(0L, src.read(dst, 0))
+        assertEquals(0L, dst.size)
+        assertFalse(src.exhausted())
+    }
+
+    @Test
+    fun `read into OkioBuffer with zero byteCount returns 0 on an exhausted source`() {
+        // Regression: the OkioBuffer fast path used to run before the zero-byteCount check, so
+        // a zero-byte read against an exhausted Okio-backed source returned Okio's -1 (EOF)
+        // instead of the contractual 0. read(sink, 0) must NEVER report EOF.
+        val src = streamSource(ByteArray(0))
+        assertTrue(src.exhausted())
+        val dst = OkioIoProvider.buffer()
+        assertEquals(0L, src.read(dst, 0))
+        assertEquals(0L, dst.size)
+    }
+
+    @Test
     fun `read into non-Okio Buffer on exhausted source returns -1`() {
         val src = streamSource(ByteArray(0))
         val dst = NonOkioBuffer()

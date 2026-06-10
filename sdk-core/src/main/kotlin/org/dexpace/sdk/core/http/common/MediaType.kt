@@ -77,16 +77,55 @@ public data class MediaType private constructor(
     /**
      * Returns the wire form: type/subtype followed by `;key=value` for each parameter.
      * Parameters are joined without spaces around the `;` separator.
+     *
+     * A parameter value that is a valid RFC 7230 token is emitted bare; any value that is
+     * empty or contains a non-token character (whitespace, a `;`, a `=`, a `"`, etc.) is
+     * emitted as a `quoted-string` with `\` and `"` backslash-escaped (RFC 7230 §3.2.6).
+     * This guarantees `parse(toString(x)) == x` for every constructible [MediaType] — e.g.
+     * a multipart `boundary` value such as `a;b` round-trips without corruption.
      */
     override fun toString(): String {
         val formattedParams =
             parameters.entries.joinToString(separator = ";") { (key, value) ->
-                "$key=$value"
+                "$key=${formatParameterValue(value)}"
             }
         return if (formattedParams.isEmpty()) "$type/$subtype" else "$type/$subtype;$formattedParams"
     }
 
+    /**
+     * Renders a parameter [value] for the wire form. Bare when it is a non-empty RFC 7230
+     * token; otherwise a quoted-string with `\` and `"` escaped as quoted-pairs.
+     */
+    private fun formatParameterValue(value: String): String {
+        if (value.isNotEmpty() && value.all(::isTokenChar)) {
+            return value
+        }
+        val sb = StringBuilder(value.length + 2)
+        sb.append('"')
+        value.forEach { ch ->
+            if (ch == '\\' || ch == '"') {
+                sb.append('\\')
+            }
+            sb.append(ch)
+        }
+        sb.append('"')
+        return sb.toString()
+    }
+
+    /**
+     * True if [ch] is an RFC 7230 §3.2.6 `tchar` — a character permitted in a bare `token`:
+     * an ASCII letter, an ASCII digit, or one of the [TOKEN_SPECIALS] punctuation characters.
+     */
+    private fun isTokenChar(ch: Char): Boolean =
+        ch in 'a'..'z' ||
+            ch in 'A'..'Z' ||
+            ch in '0'..'9' ||
+            ch in TOKEN_SPECIALS
+
     public companion object {
+        /** RFC 7230 §3.2.6 `tchar` punctuation (the non-alphanumeric members of the token set). */
+        private const val TOKEN_SPECIALS: String = "!#$%&'*+-.^_`|~"
+
         /**
          * Constructs a [MediaType] from explicit parts. All inputs are lower-cased and
          * validated: [type] and [subtype] must be non-blank, and a wildcard [type] is only
@@ -125,8 +164,10 @@ public data class MediaType private constructor(
         public fun parse(mediaType: String): MediaType {
             require(mediaType.isNotBlank()) { "Media type must not be blank" }
 
-            // Split into MIME type and optional parameters
-            val segments = mediaType.split(";").map(String::trim)
+            // Split into MIME type and optional parameters. The split must respect
+            // quoted-strings: a parameter value such as `boundary="a;b"` carries a `;`
+            // that is NOT a parameter separator, so a naive `split(";")` would corrupt it.
+            val segments = splitRespectingQuotes(mediaType, ';').map(String::trim)
             val mimeString = segments.first()
             val parameterSegments = segments.drop(1)
 
@@ -184,6 +225,45 @@ public data class MediaType private constructor(
                     }
 
             return MediaType(type, subtype, parametersMap)
+        }
+
+        /**
+         * Splits [input] on [delimiter], ignoring any delimiter that appears inside a
+         * double-quoted string. A backslash escapes the next character while inside quotes,
+         * so an escaped quote does not end the quoted-string. This is the inverse of the
+         * quoting [formatParameterValue] applies, so `parse(toString(x)) == x` holds for
+         * values that contain the delimiter (e.g. a multipart `boundary`).
+         */
+        private fun splitRespectingQuotes(
+            input: String,
+            delimiter: Char,
+        ): List<String> {
+            val result = ArrayList<String>()
+            val current = StringBuilder()
+            var inQuotes = false
+            var i = 0
+            while (i < input.length) {
+                val ch = input[i]
+                when {
+                    inQuotes && ch == '\\' && i + 1 < input.length -> {
+                        current.append(ch).append(input[i + 1])
+                        i += 2
+                        continue
+                    }
+                    ch == '"' -> {
+                        inQuotes = !inQuotes
+                        current.append(ch)
+                    }
+                    ch == delimiter && !inQuotes -> {
+                        result.add(current.toString())
+                        current.setLength(0)
+                    }
+                    else -> current.append(ch)
+                }
+                i++
+            }
+            result.add(current.toString())
+            return result
         }
     }
 }

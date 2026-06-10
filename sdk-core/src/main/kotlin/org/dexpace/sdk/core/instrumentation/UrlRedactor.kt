@@ -71,7 +71,11 @@ public object UrlRedactor {
         try {
             val raw = url.toString()
             val hasUserInfo = url.userInfo != null
-            val hasQuery = raw.indexOf('?') >= 0
+            // Drive the query branch off the actual query component, not a whole-string scan:
+            // a URL whose only '?' lives in the fragment (e.g. http://h/p#a?b=c) has
+            // url.query == null and must NOT be treated as having a query. An empty query
+            // string (https://h/x?) has url.query == "" (non-null) and is still preserved.
+            val hasQuery = url.query != null
             val hasFragment = url.ref != null
 
             if (!hasUserInfo && !hasQuery && !hasFragment) {
@@ -112,11 +116,14 @@ public object UrlRedactor {
             out.append(path)
         }
 
-        // Preserve `?` even if the query is empty — some servers care.
-        if (raw.indexOf('?') >= 0) {
+        // Preserve `?` even if the query is empty — some servers care. Drive this off the
+        // real query component (url.query) rather than scanning `raw` for '?', so a '?' that
+        // only appears inside the fragment (e.g. http://h/p#a?b=c, url.query == null) does
+        // not get a spurious '?' inserted before the fragment.
+        val rawQuery = url.query
+        if (rawQuery != null) {
             out.append('?')
-            val rawQuery = url.query
-            if (!rawQuery.isNullOrEmpty()) {
+            if (rawQuery.isNotEmpty()) {
                 appendRedactedQuery(out, rawQuery, allowedLower)
             }
         }

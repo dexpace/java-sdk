@@ -27,7 +27,7 @@ Source agent reports are not committed; this document is the synthesized conclus
   - [Configuration & Lifecycle](#configuration--lifecycle)
   - [Webhooks](#webhooks)
 - [Where We Already Lead](#where-we-already-lead)
-- [Prioritized Feature Backlog](#prioritized-feature-backlog)
+- [Feature Backlog](#feature-backlog)
 - [Code Generation Strategy](#code-generation-strategy)
   - [Options Considered](#options-considered)
   - [Recommendation: Build Our Own (KotlinPoet + Swagger-Parser)](#recommendation-build-our-own-kotlinpoet--swagger-parser)
@@ -42,13 +42,15 @@ Source agent reports are not committed; this document is the synthesized conclus
 1. **Our core architecture is sound.** Zero-dep `sdk-core`, single-method `HttpClient` SPI,
    `IoProvider` seam, body replayability, separate async adapter modules, ReentrantLock +
    interrupt discipline — every reference SDK gets at least one of these wrong.
-2. **Where we are thin** is in subsystems we have not built yet: retry, auth, pagination,
-   idempotency, typed exception hierarchy, rich tracer event vocabulary, webhook signature
-   verification, client lifecycle (`close`).
-3. **The pipeline architecture needs one upgrade**: Airbyte's `Hook` taxonomy
-   (`SdkInit` / `BeforeRequest` / `AfterSuccess` / `AfterError`) is the cleanest middleware
-   shape we've seen. Adopt it for `RequestPipelineStep` / `ResponsePipelineStep` with a
-   recovery step that takes `Either<Response, Throwable>`.
+2. **Most of the early gaps are now filled.** Retry, auth, pagination, idempotency, the typed
+   exception hierarchy, a rich tracer event vocabulary, a metrics seam, and client lifecycle
+   (`close`) all ship in `sdk-core` today. What remains genuinely unbuilt is narrow: webhook
+   signature verification and a `Settings` → `Context` lifecycle split.
+3. **The pipeline architecture absorbed Airbyte's `Hook` taxonomy**
+   (`SdkInit` / `BeforeRequest` / `AfterSuccess` / `AfterError`) — the cleanest middleware
+   shape we've seen. It maps onto `RequestPipelineStep` / `ResponsePipelineStep` plus a
+   recovery-aware `ResponsePipeline` that folds a sealed `ResponseOutcome`
+   (`Success(Response)` / `Failure(Throwable)`) rather than a bare response.
 4. **For code generation, build our own.** A KotlinPoet/JavaPoet-based emitter sitting on
    swagger-parser, distributed as a Gradle plugin, targeting our `sdk-core` runtime. None
    of the off-the-shelf options (Fern, Speakeasy, Kiota, smithy-java, Expedia's plugin,
@@ -81,8 +83,8 @@ Source agent reports are not committed; this document is the synthesized conclus
 | gax | `TransportChannel` (marker-thin) + `TransportChannelProvider.needsX()` | The send method does NOT live on the channel — actual sending is per-Callable |
 | Kiota | `RequestAdapter` (owns send + deserialize + auth + tracing) | Too thick; replaces our SPI |
 
-**Action items:**
-1. Add `AutoCloseable`/`Disposable` to `HttpClient` so consumers can shut down OkHttp dispatchers, JDK selector threads, connection pools. (Expedia's `Disposable.kt:25`.)
+**Notes:**
+1. `HttpClient` and `AsyncHttpClient` already extend `AutoCloseable` with a no-op default `close()`, so consumers can shut down OkHttp dispatchers, JDK selector threads, and connection pools while SAM literals stay lightweight. Both reference transports close only SDK-managed clients (BYO clients are never closed). (Expedia's `Disposable.kt:25` was the prior art.)
 2. Keep our existing transport SPI shape. Do not adopt gax's marker-channel design — our model maps to HTTP cleanly; gax's was driven by gRPC.
 3. Reject `ServiceLoader` discovery (Expedia's pattern). Keep explicit installation à la `Io.installProvider(...)`.
 
@@ -108,26 +110,32 @@ Our `IoProvider` seam + `Source`/`Sink` contracts is the architecturally cleanes
 
 | SDK | Architecture | Verdict |
 |---|---|---|
-| Ours | `RequestPipeline` / `ResponsePipeline` fold; `PipelineStep` `fun interface`s | Right shape; missing recovery semantics |
+| Ours | `RequestPipeline` / recovery-aware `ResponsePipeline` fold over a sealed `ResponseOutcome`; `PipelineStep` `fun interface`s | Right shape; recovery semantics in place |
 | Expedia | `ExecutionPipeline` = `Request → Request` + `Response → Response` folds | Can't intercept transport, can't loop, can't proceed |
 | Square | One OkHttp `Interceptor` (the retry one) | No SDK-level pipeline |
 | Airbyte | **Hook taxonomy: `SdkInit`, `BeforeRequest`, `AfterSuccess`, `AfterError`** | Best design in the cohort |
 | gax | Per-call-shape decorator chain (`Callables.retrying(...)`, `TracedUnaryCallable`, ...) | Powerful but N parallel hierarchies for N call shapes |
 
-**Action items:**
-1. Adopt Airbyte's hook taxonomy (`utils/Hook.java` in their repo). Map to our types:
-   - `SdkInit` → existing builder configuration (no new type needed)
-   - `BeforeRequest` ≡ our `RequestPipelineStep`
-   - `AfterSuccess` ≡ a step on the response happy path
-   - `AfterError` ≡ a recovery step taking `Either<Response, Throwable>`
-2. Replace the empty `ResponsePipeline` placeholder with the recovery-aware fold. Airbyte's `Hooks.afterError(...)` semantics: each step gets the current `(Optional<Response>, Optional<Throwable>)` and can swallow/rethrow.
-3. Decide on `chain.proceed(...)` semantics: do we add an OkHttp-style chain that lets steps loop? Lean **no** for now — keep folds simple, push retry into a dedicated retry step that delegates to `HttpClient.execute` directly (so retry is part of the pipeline but doesn't require chain semantics).
-4. **Funnel all exceptions through the same path.** Airbyte's design has a corner: a `BeforeRequest` that throws bypasses `AfterError` entirely. Avoid that.
+How Airbyte's hook taxonomy (`utils/Hook.java` in their repo) maps to our types, as built:
+- `SdkInit` → builder configuration (no dedicated type)
+- `BeforeRequest` ≡ `RequestPipelineStep`
+- `AfterSuccess` ≡ `ResponsePipelineStep` (runs on the success path only)
+- `AfterError` ≡ `ResponseRecoveryStep`, taking a sealed `ResponseOutcome` (`Success(Response)` / `Failure(Throwable)`) instead of `Either`
+
+`ResponsePipeline` folds the outcome through the response steps (success path) and then through
+every recovery step, so recovery always observes the terminal outcome — including failures
+thrown by a response step. This generalizes Airbyte's `Hooks.afterError(...)`: a recovery step
+may rescue a failure into a success, replace the throwable, or pass through.
+
+Two design choices stuck:
+- **No `chain.proceed(...)` looping.** Folds stay simple; retry lives in a dedicated step that delegates to `HttpClient.execute` directly, so retry composes into the pipeline without chain semantics.
+- **All exceptions funnel through one path.** Airbyte's design has a corner — a `BeforeRequest` that throws bypasses `AfterError`. We avoid it: a step throwable is wrapped into `ResponseOutcome.Failure` and fed to the recovery chain, and `apply` never throws.
 
 ### Retry & Backoff
 
-This is a gap area for us. We can build the best-in-class implementation here by combining
-features from three different SDKs:
+Retry now ships as a pipeline step (`RetryStep` over `RetrySettings` + `BackoffCalculator` +
+`RetryAfterParser`, plus the stage-based `DefaultRetryStep`). The table below records which
+reference SDK each behavior was modeled on:
 
 | Feature | Best example |
 |---|---|
@@ -148,7 +156,10 @@ features from three different SDKs:
 
 ### Auth
 
-We have **zero auth abstractions today**. Every reference SDK does:
+Auth lives in `sdk-core` today: a sealed `Credential` family (`KeyCredential`, `NamedKeyCredential`,
+`BearerToken`), RFC 7235 challenge parsing, `ChallengeHandler` implementations (Basic, Digest,
+Composite), and pipeline auth steps (`BearerTokenAuthStep`, `KeyCredentialAuthStep`). The table
+below records where each scheme's design was sourced from:
 
 | Scheme | Best impl to reference |
 |---|---|
@@ -165,86 +176,92 @@ We have **zero auth abstractions today**. Every reference SDK does:
 - **Airbyte's `Security` reflects on `@SpeakeasyMetadata` strings per request** (`Security.java:26-103`). Don't do runtime reflection over string-DSL metadata.
 - **Square punts on `idempotency_key`** — required field on every write DTO, no auto-gen. (See [Idempotency](#idempotency).)
 
-**Action items:**
+**What shipped, and what's left:**
 
-1. Create `sdk-auth` module with `AuthProvider` interface (`fun apply(Request): Request`). Concrete impls: `BasicAuthProvider`, `BearerTokenAuthProvider`, `ApiKeyAuthProvider`, `OAuth2ClientCredentialsProvider`.
-2. Make auth a `RequestPipelineStep`. Token storage immutable, refresh coalesced via `ConcurrentHashMap<CacheKey, CompletableFuture<Token>>` + `computeIfAbsent`.
-3. Per-call override via `RequestContext.with(authProvider)`. Airbyte's model of per-client only is a real limitation for multi-tenant clients.
+1. Auth lives in `sdk-core` (`http.auth`), not a separate `sdk-auth` module: a sealed `Credential` family + `ChallengeHandler` impls (Basic, Digest, Composite) + an `AuthStep` pillar (`BearerTokenAuthStep`, `KeyCredentialAuthStep`). The `AuthStep` base requires HTTPS, strips the cross-origin redirect marker so a caller credential is never re-stamped onto a server-chosen host, and exposes a `handleChallenge` hook for token-refresh / step-up flows.
+2. Token fetch is a `BearerTokenProvider` SAM (`fetch(scopes, params)`). A full OAuth2 client_credentials provider with coalesced refresh and 401 eviction is **not yet built** — the seam (`handleChallenge`) exists, the policy does not.
+3. Per-call auth override is **not yet exposed** — auth is wired per pipeline. Airbyte's per-client-only model is a real limitation for multi-tenant clients; a per-call override remains worth adding.
 
 ### Idempotency
 
 - **Square requires `idempotency_key` as a typed DTO field on every write** (e.g. `RefundPaymentRequest.java:27,93-95`). No auto-generation, no defaulting. For a payments SDK this is a customer-trust risk.
 - **Airbyte ships an `IdempotencyHook`** as a built-in `BeforeRequest` hook (`utils/Hook.java:284-292`). Injects `Idempotency-Key: UUID.randomUUID().toString()` on each call.
 
-**Action items:**
+`IdempotencyKeyStep` covers this as a `RequestPipelineStep`:
 
-1. Build `IdempotencyKeyStep` as a `RequestPipelineStep`. Defaults: injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH` methods if the header isn't already set.
-2. Allow caller override via header on the request (always wins).
-3. Allow caller-supplied UUID strategy (some APIs want deterministic keys from a request hash).
+1. Injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH` (the `methods` set is configurable, e.g. to add `DELETE`).
+2. A header already on the request wins — `respectExisting` (default `true`) leaves caller-set keys untouched.
+3. The key value comes from a pluggable `keyStrategy` (default `UUID.randomUUID().toString()`), so APIs that want deterministic keys from a request hash can supply their own; the header name is configurable too.
 
 ### Serialization
 
-We have only abstractions in `sdk-core/serde/`. Reference SDKs:
+`sdk-core/serde/` holds the abstractions (`Serializer`/`Deserializer`/`Serde`, plus the
+`Tristate<T>` sealed type), and `sdk-serde-jackson` is the concrete adapter. Reference SDKs:
 
 - **Expedia**: hardcoded Jackson Kotlin module. Mapper is consumer-supplied. Polymorphism via `@JsonSubTypes`. Forces every consumer to ship Jackson.
 - **Square**: Jackson + Jdk8Module + JavaTimeModule + custom `DateTimeDeserializer`. **`FAIL_ON_UNKNOWN_PROPERTIES=false` + `WRITE_DATES_AS_TIMESTAMPS=false`** — the de-facto-correct SDK defaults. `ObjectMappers.java:21-22`.
 - **Airbyte**: Jackson + `jackson-databind-nullable` for tri-state `JsonNullable<T>` (PATCH semantics). Reflection-driven via `@SpeakeasyMetadata` strings — avoid.
 - **Kiota**: Pluggable `ParseNode`/`SerializationWriter` per media type. Default = Gson.
 
-**Action items:**
+**What shipped, and what's left:**
 
-1. Keep `Serde`/`Deserializer` abstractions in `sdk-core` with **no Jackson dependency**.
-2. Add adapter module `sdk-serde-jackson` (Jackson Kotlin + JSR-310 + Jdk8 modules with Square's two flags set). Optional `sdk-serde-kotlinx` later.
-3. For PATCH/tri-state semantics, define a `Tristate<T>` sealed class in `sdk-core/serde`: `Absent`, `Present<T>(value)`, `Null`. Adapter modules map it to their library's equivalent.
-4. **`oneOf` deserialization**: prefer discriminator-driven; fall back to ordered candidate probing only with explicit hints. Fail loudly on ambiguity. Airbyte's `OneOfDeserializer.java:104-107` silently picks first match by default — a real data-corruption risk.
+1. `Serde`/`Serializer`/`Deserializer` stay in `sdk-core` with **no Jackson dependency**.
+2. `sdk-serde-jackson` ships the adapter: Kotlin + JSR-310 + Jdk8 modules, `FAIL_ON_UNKNOWN_PROPERTIES` and `WRITE_DATES_AS_TIMESTAMPS` both disabled (Square's two flags). A `sdk-serde-kotlinx` is still optional/later.
+3. `Tristate<T>` is defined in `sdk-core/serde` (`Absent`, `Present<T>(value)`, `Null`); `sdk-serde-jackson`'s `TristateModule` maps it to Jackson's missing-field / null / present distinction for PATCH semantics.
+4. **`oneOf` deserialization** is still open — codegen will drive it. The rule stands: prefer discriminator-driven; fall back to ordered candidate probing only with explicit hints; fail loudly on ambiguity. Airbyte's `OneOfDeserializer.java:104-107` silently picks first match by default — a real data-corruption risk.
 
 ### Error Model
 
 | SDK | Approach | Verdict |
 |---|---|---|
-| Ours | `Status` enum + generic exception (none yet) | Build typed hierarchy |
+| Ours | `Status` value class (total `fromCode`) + typed `HttpException` hierarchy with a derived `retryable` flag | Typed hierarchy in place |
 | Expedia | Per-operation `{Op}{StatusCode}Exception` extending `ExpediaGroupApiException` | Best per-status DX |
 | Square | `SquareException` (base) + `SquareApiException` (non-2xx); tolerant body parser handles 3 error shapes | Good error-body parsing |
 | Airbyte | One `SDKError` for all non-2xx | Worst — no typed access |
 | gax | `ApiException` + 14 typed subclasses (`NotFoundException`, `UnavailableException`, ...); `retryable` flag baked at construction | Cleanest baseline taxonomy |
 
-**Action items:**
+**What shipped, and what's left:**
 
-1. Create `HttpException` base + status-code-keyed typed subclasses (`NotFoundException`, `UnauthorizedException`, `RateLimitedException`, `ServerException`, etc.). Mirror gax's 14-subclass set scaled to HTTP statuses.
-2. Bake `retryable: Boolean` at construction time (gax pattern). `ResultRetryAlgorithm.shouldRetry` becomes `(t as? HttpException)?.isRetryable == true`.
-3. For schema-defined per-status error payloads, codegen emits per-operation per-status subclasses (Expedia pattern) carrying the typed body. The base `HttpException` exposes status + headers + raw body source.
-4. Parse error bodies tolerantly (Square's `SquareApiException.parseErrors`). Return `Object` or raw string on parse failure; never throw inside an exception constructor.
-5. **Do not eagerly buffer error bodies** (Airbyte's anti-pattern). Lazy-read via our `LoggableResponseBody` so large 5xx bodies don't OOM.
+1. `HttpException` is the base, with status-code-keyed subclasses (`NotFoundException`, `UnauthorizedException`, `TooManyRequestsException`, `InternalServerErrorException`, etc.) plus `ClientErrorException`/`ServerErrorException` fallbacks for unmapped 4xx/5xx. `NetworkException` is a sibling for transport failures. The set mirrors gax's taxonomy scaled to HTTP statuses.
+2. `retryable: Boolean` is a `val` derived once at construction from `RetryUtils.isRetryable(status.code)` — not a per-subclass constant. This is the single source of truth, so it can never disagree with the live retry policy (408 retryable; 501/505 not). A retry predicate is just `(t as? HttpException)?.retryable == true`.
+3. The base exposes `status` + `headers` + a **lazy** `body: ResponseBody?` (not eagerly buffered), plus a non-consuming `bodySnapshot()` that reads from a `peek()` view so the primary read path is undisturbed — large 5xx bodies don't OOM. Per-operation per-status subclasses carrying typed bodies (Expedia pattern) are still codegen's job.
+4. Tolerant error-body parsing (Square's `SquareApiException.parseErrors`) remains future work — never throw inside an exception constructor; pass through the raw body on parse failure.
 
 ### Pagination
 
-We have nothing today. Reference designs:
+`Paginator<T>` + `Page<T>` ship in `sdk-core`, driven by a `PaginationStrategy` (cursor,
+page-number, token, link-header), and `http.paging.PagedIterable` wraps the result. Reference
+designs we drew on:
 
 - **Square**: `SyncPagingIterable<T>` (`Iterable<T>` lazy iterator), `SyncPage<T>` (per-page holder), `BiDirectionalPage<T>` (forward + backward cursors), `CustomPager<T>` (user-implementation stub for HATEOAS).
 - **gax**: `PagedListResponse<RequestT, ResponseT, ResourceT>` driven by `PagedListDescriptor` (`injectToken`, `extractNextToken`, `extractResources`). `iterateAll()` returns lazy `Iterable<ResourceT>`. `FixedSizeCollection` repaginates to consumer-chosen page sizes.
 - **Expedia GraphQL**: `Paginator` (abstract `Iterator<T>` base) + `PaginatedStream` (`Stream<T>` over the paginator). Synchronous only.
 
-**Action items:**
+**What shipped, and what's left:**
 
-1. Add `Paginator<T>` and `Page<T>` to `sdk-core`. `Paginator.iterateAll()` returns `Iterable<T>`; `streamAll()` returns `Stream<T>`. Lazy page fetching.
-2. Generic enough to cover: cursor (`next_cursor` / `prev_cursor`), page-number, link-header (RFC 5988), token-based. Strategy injected via `PaginationDescriptor`.
-3. Async variants for `sdk-async-coroutines` (`Flow<T>`) and `sdk-async-reactor` (`Flux<T>`).
-4. Defer `BiDirectionalPage` until requested by a real API; Square's pattern is good when needed.
+1. `Paginator<T>` and `Page<T>` are in `sdk-core`. `iterateAll()` returns a lazy `Iterable<T>`; `streamAll()` returns a Java 8 `Stream<T>`. Each call hands back an independent iterator with its own state.
+2. The strategy is injected via `PaginationStrategy`, with concrete impls covering cursor (`next_cursor` / `prev_cursor`), page-number, token, and link-header (RFC 8288). A `maxPages` cap guards against servers that never advance their cursor.
+3. Async variants for `sdk-async-coroutines` (`Flow<T>`) and `sdk-async-reactor` (`Flux<T>`) are not yet built.
+4. `BiDirectionalPage` is deferred until a real API needs it; Square's pattern is good when needed.
 
 ### Long-Running Operations & Streaming
 
-Both are aspirational features for us. Reference designs:
+Streaming already ships in the form that matters for HTTP APIs: a WHATWG-compliant Server-Sent
+Events reader (`http.sse`) in `sdk-core`, surfaced as a backpressured Reactor `Flux<ServerSentEvent>`
+in `sdk-async-reactor`. Long-running-operation polling is still aspirational. Reference designs:
 
 - **gax `OperationFuture<R, M>`**: extends `ApiFuture<R>` with `getName()`, `peekMetadata()`, `getPollingFuture()`. LRO modeled as retry-with-different-result-predicate (`OperationResponsePollAlgorithm`). `resumeFutureCall(operationName, ctx)` allows reattaching across restarts. (`gax/.../longrunning/OperationFuture.java:42-128`.)
 - **gax server-streaming**: `ResponseObserver<V>` (gRPC-style) with explicit backpressure via `StreamController.disableAutoInboundFlowControl()` + `request(int)`. Watchdog closes streams with no demand→response progress within `waitTimeout`.
 
-For us: defer LRO and streaming until a specific consumer needs them. When we add streaming, mirror gax's explicit `StreamController` model rather than reactive-streams' `Subscription` — `request(int)` is simpler to reason about for HTTP-shaped APIs.
+For us: defer LRO until a specific consumer needs it. Our SSE streaming already leans on
+reactive-streams backpressure via Reactor; gax's explicit `StreamController` model (`request(int)`)
+is the reference if a non-Reactor server-streaming surface is ever needed.
 
 ### Instrumentation & Tracing
 
 | SDK | Vocabulary | Verdict |
 |---|---|---|
-| Ours | `Span`, `TracingScope` (generic) | Extend with explicit events |
+| Ours | `Span` / `TracingScope` + an `HttpTracer` with named retry/request/response events | Event-rich vocabulary in place |
 | Expedia | SLF4J only | None |
 | Square | None | None |
 | Airbyte | `System.out` debug logger | None |
@@ -254,12 +271,12 @@ gax's `ApiTracer` (`gax/.../tracing/ApiTracer.java:47-219`) treats retry/streami
 first-class events. A generic OpenTelemetry tracer can't render meaningful retry dashboards
 without convention; an event-rich tracer can.
 
-**Action items:**
+**What shipped, and what's left:**
 
-1. Extend `InstrumentationContext` with named callbacks: `attemptStarted(attemptNumber)`, `attemptFailed(throwable, nextDelayMillis)`, `attemptRetriesExhausted(throwable)`, `responseHeadersReceived(headers)`, `requestUrlResolved(url)`, `connectionAcquired(host:port)`. Defaults are no-op (we already have `Noop*`).
-2. Add `MetricsRecorder` seam separate from tracing: histograms for latency, counters for attempts + status codes. gax's `MetricsTracer.java:55-` + `GoldenSignalsMetricsRecorder` is the model. Latency/errors/retries are the SRE-relevant signals.
-3. Ship `sdk-instrumentation-otel` adapter module wiring our events to OpenTelemetry spans + metrics.
-4. **Client identity header (`User-Agent`).** Adopt gax's composite token line (`gax/.../rpc/ApiClientHeaderProvider.java:43-267`): `dexpace-sdk/<ver> jvm/<javaver> okhttp/<okver>` etc. Get fleet observability for free.
+1. `HttpTracer` carries the named events with no-op defaults: `operationStarted`/`operationSucceeded`/`operationFailed`, `attemptStarted(attemptNumber)`, `attemptFailed(...)`, `attemptRetriesExhausted(throwable)`, `requestUrlResolved(url)`, `requestSent`, `responseHeadersReceived(...)`, `responseReceived`, `connectionAcquired(...)`. `NoopHttpTracer` is the default factory.
+2. A `MetricsRecorder` seam exists separate from tracing — `Meter` with `counter(...)` (`LongCounter`) and `histogram(...)` (`DoubleHistogram`), `NoopMeter` as the default. Latency/errors/retries are the SRE-relevant signals; gax's `MetricsTracer` + `GoldenSignalsMetricsRecorder` was the model.
+3. An `sdk-instrumentation-otel` adapter wiring our events to OpenTelemetry spans + metrics is not yet built.
+4. **Client identity header (`User-Agent`).** `ClientIdentityStep` builds the composite token line (`dexpace-sdk/<ver> jvm/<javaver>`, custom tokens prepended), modeled on gax's `ApiClientHeaderProvider`.
 
 ### Async Adapters
 
@@ -302,37 +319,40 @@ These are not gaps. Stay the course.
 9. **Async as adapter modules, not invented futures.** No `DexpaceFuture`. We sidestep gax's `ApiFuture` debt.
 10. **Separate transport modules (OkHttp + JDK HttpClient).** Already in place — most ref SDKs only ship one.
 
-## Prioritized Feature Backlog
+## Feature Backlog
 
-Ordered by leverage (lines of code unlocked / risk reduced per week of work):
+### Landed
 
-### Tier 1 — Foundational (next 4-6 weeks)
+The foundational and most of the DX-win work from this survey now ships in `sdk-core` (with
+adapters where noted):
 
-1. **Retry pipeline step.** `Retry-After` + `X-RateLimit-Reset` header parsing (Square's algorithm), per-attempt shrinking deadlines (gax's algorithm), `ResultRetryAlgorithm` + `TimedRetryAlgorithm` split, idempotency-aware (HTTP method + replayable body), `ScheduledExecutorService`-based delay (not `Thread.sleep`). [`sdk-core/pipeline/step/`]
-2. **Typed exception hierarchy.** `HttpException` base + 14 status-code subclasses. `retryable` flag baked at construction. [`sdk-core/http/response/`]
-3. **`AfterError` recovery step.** Replace empty `ResponsePipeline` placeholder. Step type takes `Either<Response, Throwable>`, returns recovery. [`sdk-core/pipeline/`]
-4. **`HttpClient.close()` / lifecycle.** `AutoCloseable` on transports; client builders own executor lifecycle. [`sdk-core/client/`]
-5. **Idempotency-key step.** Auto-inject `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH`. Caller override always wins. [`sdk-core/pipeline/step/`]
+- **Retry pipeline step.** `Retry-After` + `X-RateLimit-Reset` parsing, backoff with jitter, idempotency-aware (HTTP method + replayable body), `ScheduledExecutorService`-based delay. [`pipeline/step/retry/`, `http/pipeline/steps/DefaultRetryStep.kt`]
+- **Typed exception hierarchy.** `HttpException` base + status-code subclasses; `retryable` derived from `RetryUtils.isRetryable(status.code)`. [`http/response/exception/`]
+- **Recovery step.** Recovery-aware `ResponsePipeline` folding a sealed `ResponseOutcome` (`Success` / `Failure`); `ResponseRecoveryStep` is the `AfterError` analog. [`pipeline/`]
+- **`HttpClient.close()` / lifecycle.** `AutoCloseable` on both SPIs and both transports; SDK-managed clients close, BYO clients don't. [`client/`]
+- **Idempotency-key step.** Auto-injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH`; caller-set header wins; pluggable key strategy. [`pipeline/step/IdempotencyKeyStep.kt`]
+- **Auth.** `Credential` family + RFC 7235 challenge parsing + Basic/Digest/Composite `ChallengeHandler`s + `AuthStep` pillar. [`http/auth/`, `http/pipeline/steps/`]
+- **`sdk-serde-jackson` adapter.** Kotlin + JSR-310 + Jdk8 modules; `FAIL_ON_UNKNOWN_PROPERTIES` and `WRITE_DATES_AS_TIMESTAMPS` disabled; `Tristate<T>` via `TristateModule`.
+- **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationStrategy` (cursor / page-number / token / link-header) with a `maxPages` cap; `PagedIterable` wrapper.
+- **Client identity header.** `ClientIdentityStep` building the `dexpace-sdk/<ver> jvm/<javaver>` token line.
+- **Tracer event vocabulary + metrics seam.** `HttpTracer` with named retry/request/response events; `Meter`/`LongCounter`/`DoubleHistogram` separate from tracing.
+- **SSE streaming.** WHATWG reader in `sdk-core`; backpressured `Flux<ServerSentEvent>` in `sdk-async-reactor`.
 
-### Tier 2 — Major DX wins (next 6-10 weeks)
+### Remaining
 
-6. **`sdk-auth` module.** `AuthProvider` interface + concrete impls: Basic, Bearer, API key, OAuth2 client_credentials with coalesced refresh + 401 eviction. Per-call override via `RequestContext`.
-7. **`sdk-serde-jackson` adapter module.** Jackson Kotlin + JSR-310 + Jdk8 modules; `FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`. Optional `Tristate<T>` for PATCH semantics.
-8. **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationDescriptor`. Cursor / page-number / link-header strategies. Async variants in adapter modules.
-9. **Client identity header.** `DexpaceClientHeaderProvider` building composite token line. Default-injected at client construction.
-10. **Tracer event vocabulary.** Extend `InstrumentationContext` with `attemptStarted`/`attemptFailed`/`responseHeadersReceived`/`requestUrlResolved` etc. Ship `sdk-instrumentation-otel` adapter.
+Ordered by leverage:
 
-### Tier 3 — Specialized features
+1. **OAuth2 client_credentials flow.** Coalesced refresh + 401 eviction over the existing `BearerTokenProvider` / `handleChallenge` seam; per-call auth override via `RequestContext`.
+2. **`sdk-instrumentation-otel` adapter.** Wire the `HttpTracer` events and `Meter` seam to OpenTelemetry spans + metrics.
+3. **`sdk-webhooks` module.** HMAC-SHA256/SHA1 verifier, constant-time compare, timestamp+tolerance replay check.
+4. **Configuration `Settings` → `Context` resolution split.** Apply gax's `BackgroundResource` discipline at the resolution boundary.
+5. **Async pagination variants.** `Flow<T>` (`sdk-async-coroutines`) and `Flux<T>` (`sdk-async-reactor`) over `Paginator`.
+6. **Tolerant error-body parsing.** Decode typed/structured error payloads without throwing inside an exception constructor.
 
-11. **`sdk-webhooks` module.** HMAC-SHA256/SHA1 verifier, constant-time compare, timestamp+tolerance replay check.
-12. **`MetricsRecorder` seam.** Histograms + counters distinct from tracing. `GoldenSignalsMetricsRecorder` analog.
-13. **Configuration `Settings` → `Context` resolution split.** Apply `BackgroundResource` discipline.
-14. **Streaming responses (SSE).** `ResponseObserver`-style with explicit `request(n)` backpressure.
+### Speculative
 
-### Tier 4 — Speculative
-
-15. **Long-running operation polling helpers.** Only when a real consumer needs them.
-16. **Batching primitives.** Only when a real consumer needs them.
+- **Long-running operation polling helpers.** Only when a real consumer needs them.
+- **Batching primitives.** Only when a real consumer needs them.
 
 ## Code Generation Strategy
 
@@ -391,9 +411,9 @@ From **Square** (Fern's Java output):
 
 From **Airbyte** (Speakeasy's Java output):
 
-- **Hook taxonomy (`SdkInit` / `BeforeRequest` / `AfterSuccess` / `AfterError`).** Already in [Pipeline / Middleware](#pipeline--middleware) action items.
-- **`IdempotencyHook` pattern.** Built-in `BeforeRequest` step that injects `Idempotency-Key`.
-- **`ClientCredentialsHook` pattern.** Single class implements 3 hook interfaces (`SdkInit` for client init, `BeforeRequest` for token injection, `AfterError` for 401 eviction).
+- **Hook taxonomy (`SdkInit` / `BeforeRequest` / `AfterSuccess` / `AfterError`).** Already mapped onto our pipeline; see [Pipeline / Middleware](#pipeline--middleware).
+- **`IdempotencyHook` pattern.** Realized as `IdempotencyKeyStep`, a `BeforeRequest` step injecting `Idempotency-Key`.
+- **`ClientCredentialsHook` pattern.** Single class implements 3 hook interfaces (`SdkInit` for client init, `BeforeRequest` for token injection, `AfterError` for 401 eviction) — the model for the OAuth2 flow still on the [Remaining](#remaining) backlog.
 
 From **gax**:
 

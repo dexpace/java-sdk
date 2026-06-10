@@ -15,9 +15,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 
 All quality gates break the build: ktlint + detekt (`config/detekt.yml`), `allWarningsAsErrors`, explicit-API
-strict mode, binary-compatibility-validator, and an 80% aggregate line-coverage floor (Kover). Detekt is
-skipped on `sdk-async-virtualthreads` only — detekt 1.23.x cannot parse JDK-25 toolchains; see that module's
-build script for the upstream issue and re-enable conditions.
+strict mode, binary-compatibility-validator, and an 80% aggregate line-coverage floor (Kover, wired into the
+root `check` task — see `build.gradle.kts`). Detekt is skipped on the two non-Java-8 modules,
+`sdk-transport-jdkhttp` (11) and `sdk-async-virtualthreads` (21) — detekt 1.23.x crashes on the JDK-25+
+system toolchain when a module targets a non-8 toolchain; see those build scripts for the upstream issue and
+re-enable conditions. It runs everywhere else, including `sdk-transport-okhttp`.
 
 ## Repository Layout
 
@@ -112,10 +114,13 @@ Layered, from the bottom up:
   *unintentional* break.
 - **`Io.installProvider(...)` must run before any code touches `Io.provider`.** Tests install
   `OkioIoProvider` in `@BeforeTest`; production installs in the application startup path.
-- **Coverage floor is aggregate 80% line coverage.** New under-tested code can fail `:koverCachedVerify`
-  even when its own module builds clean — check `koverHtmlReport` when the gate trips.
+- **Coverage floor is aggregate 80% line coverage.** The `minBound(80)` rule lives on the root-aggregate
+  `:koverVerify`, which the root `check` task depends on, so a plain `./gradlew build` enforces it. New
+  under-tested code can trip the gate even when its own module builds clean — check `koverHtmlReport` to see
+  which classes are dragging the aggregate down.
 - **Transport tests use `mockwebserver3`** (OkHttp's). Follow the existing patterns in
   `sdk-transport-okhttp`/`sdk-transport-jdkhttp` test suites rather than spinning up real sockets.
 - **`allWarningsAsErrors` is on** — a deprecation warning in any Kotlin module breaks the build.
-- Root-build Kover excludes still reference a removed `sdk-core/src/main/java/` compat tree; they are
-  inert. Do not resurrect that tree — generated/compat code is gone by design.
+- **There is no generated/compat code and no `sdk-core/src/main/java/` tree** — `sdk-core` is pure Kotlin.
+  The root Kover filter excludes only test fixtures (`org.dexpace.sdk.core.testing.*`); do not reintroduce
+  a Java source tree or broad package-glob excludes.

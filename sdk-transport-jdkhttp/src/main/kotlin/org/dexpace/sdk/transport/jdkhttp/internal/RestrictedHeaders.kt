@@ -18,17 +18,24 @@ import java.util.Locale
  * log naming each dropped header.
  *
  * The JDK client maintains an internal `DISALLOWED_HEADERS_SET` of header names that throw
- * `IllegalArgumentException` when set; the four below are the ones an SDK user is most
- * likely to set by accident:
+ * `IllegalArgumentException` when set. Empirically (JDK 11 and JDK 21) that set is
+ * `{connection, content-length, expect, host, upgrade}`. We pre-drop these so a user-set value
+ * never reaches `HttpRequest.Builder.header(...)`:
  *
- *  - `Content-Length` — recomputed from the body publisher's `contentLength()`.
- *  - `Host` — always populated from the request URL.
- *  - `Transfer-Encoding` — determined by streaming semantics, not user choice.
  *  - `Connection` — JDK 11+ rejects manual values (see `jdk.httpclient.allowRestrictedHeaders`
  *    if a consumer truly needs to override this, but the SDK does not).
+ *  - `Content-Length` — recomputed from the body publisher's `contentLength()`.
+ *  - `Expect` — the JDK drives `100-continue` itself; a manual `Expect: 100-continue` is rejected.
+ *  - `Host` — always populated from the request URL.
+ *  - `Upgrade` — protocol-upgrade negotiation is owned by the client, not the caller.
  *
- * This list is broader than the OkHttp transport's by exactly one entry (`Connection`) because
- * the JDK enforces stricter validation than OkHttp.
+ * `Transfer-Encoding` is also dropped defensively: although it is not in the JDK's reject set,
+ * the JDK computes framing from streaming semantics, so a user-supplied value would only ever
+ * conflict with the wire format the client emits.
+ *
+ * [RequestAdapter] additionally wraps the actual `builder.header(...)` call in a try/catch so
+ * that any header outside this list which the JDK still rejects is dropped-with-DEBUG rather
+ * than escaping `execute()` (declared `@Throws(IOException)`) as an `IllegalArgumentException`.
  *
  * Names are stored lower-case to match [org.dexpace.sdk.core.http.common.Headers]'
  * case-insensitive canonical form (sanitized via `Locale.US.lowercase`).
@@ -36,10 +43,12 @@ import java.util.Locale
 internal object RestrictedHeaders {
     private val NAMES: Set<String> =
         setOf(
+            "connection".lowercase(Locale.US),
             "content-length".lowercase(Locale.US),
+            "expect".lowercase(Locale.US),
             "host".lowercase(Locale.US),
             "transfer-encoding".lowercase(Locale.US),
-            "connection".lowercase(Locale.US),
+            "upgrade".lowercase(Locale.US),
         )
 
     /** Returns `true` when [name] (case-insensitive) is in the drop list. */
