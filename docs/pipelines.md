@@ -12,14 +12,12 @@ composable request/response processing.
     - [Context Flow](#context-flow)
 - [RequestPipeline](#requestpipeline)
 - [ResponsePipeline](#responsepipeline)
-- [BuilderPipeline](#builderpipeline)
 - [ExecutionPipeline](#executionpipeline)
-- [Step Configuration](#step-configuration)
-    - [Metadata](#metadata)
-    - [Retry Configuration](#retry-configuration)
+- [Retry](#retry)
+- [Async Dispatch](#async-dispatch)
 - [Design Decisions](#design-decisions)
     - [Functional Interfaces](#functional-interfaces)
-    - [Mutable vs Immutable Pipeline State](#mutable-vs-immutable-pipeline-state)
+    - [Immutable Pipeline State](#immutable-pipeline-state)
     - [Step Ordering and Dependencies](#step-ordering-and-dependencies)
 - [Usage Examples](#usage-examples)
 - [File Index](#file-index)
@@ -46,18 +44,20 @@ This enables:
 
 ### Key source files
 
-| File                       | Package         | Purpose                                                          |
-|----------------------------|-----------------|------------------------------------------------------------------|
-| `RequestPipeline.kt`       | `pipeline`      | Sequential request transformation                                |
-| `ResponsePipeline.kt`      | `pipeline`      | Recovery-aware response fold (response + recovery steps)         |
-| `ExecutionPipeline.kt`     | `pipeline`      | Top-level request → transport → recovery → response orchestrator |
-| `ResponseOutcome.kt`       | `pipeline`      | Sealed `Success(Response)` / `Failure(Throwable)` sum type       |
-| `BuilderPipeline.kt`       | `pipeline`      | Builder-based object construction through steps                  |
-| `PipelineStep.kt`          | `pipeline.step` | Generic `PipelineStep<T, V>` functional interface                |
-| `RequestPipelineStep.kt`   | `pipeline.step` | `Request → Request` specialization                               |
-| `ResponsePipelineStep.kt`  | `pipeline.step` | `Response → Response` success-path specialization                |
-| `ResponseRecoveryStep.kt`  | `pipeline.step` | `ResponseOutcome → ResponseOutcome` recovery hook                |
-| `StepConfigTrait.kt`       | `pipeline.step` | Step configuration: metadata, retry                              |
+| File                       | Package               | Purpose                                                          |
+|----------------------------|-----------------------|------------------------------------------------------------------|
+| `RequestPipeline.kt`       | `pipeline`            | Sequential request transformation                                |
+| `ResponsePipeline.kt`      | `pipeline`            | Recovery-aware response fold (response + recovery steps)         |
+| `ExecutionPipeline.kt`     | `pipeline`            | Top-level request → transport → recovery → response orchestrator |
+| `ResponseOutcome.kt`       | `pipeline`            | Sealed `Success(Response)` / `Failure(Throwable)` sum type       |
+| `PipelineStep.kt`          | `pipeline.step`       | Generic `PipelineStep<T, V>` functional interface                |
+| `RequestPipelineStep.kt`   | `pipeline.step`       | `Request → Request` specialization                               |
+| `ResponsePipelineStep.kt`  | `pipeline.step`       | `Response → Response` success-path specialization                |
+| `ResponseRecoveryStep.kt`  | `pipeline.step`       | `ResponseOutcome → ResponseOutcome` recovery hook                |
+| `IdempotencyKeyStep.kt`    | `pipeline.step`       | `RequestPipelineStep` that injects an idempotency key            |
+| `ClientIdentityStep.kt`    | `pipeline.step`       | `RequestPipelineStep` that injects client identity headers       |
+| `RetryStep.kt`             | `pipeline.step.retry` | `ResponseRecoveryStep`: backoff retry on retryable failures      |
+| `RetrySettings.kt`         | `pipeline.step.retry` | Immutable retry configuration for `RetryStep`                    |
 
 ---
 
@@ -65,13 +65,9 @@ This enables:
 
 ### Pipeline Types
 
-The SDK defines five pipeline types, each handling a different phase of the HTTP lifecycle:
+The SDK defines three pipeline types, each handling a different phase of the HTTP lifecycle:
 
 ```
-                    BuilderPipeline<Request>
-                    (configure request builder)
-                            │
-                            ▼
                       RequestPipeline
                     (transform request — BeforeRequest)
                             │
@@ -88,12 +84,11 @@ The SDK defines five pipeline types, each handling a different phase of the HTTP
                   (catches all exceptions, threads through recovery)
 ```
 
-| Pipeline             | Input             | Output           | Phase                                                  |
-|----------------------|-------------------|------------------|--------------------------------------------------------|
-| `BuilderPipeline<T>` | `BuilderTrait<T>` | `T`              | Pre-construction: configure a builder through steps    |
-| `RequestPipeline`    | `Request`         | `Request`        | Pre-execution: transform the request                   |
-| `ExecutionPipeline`  | `Request`         | `Response`       | Top-level orchestrator: request + transport + recovery |
-| `ResponsePipeline`   | `ResponseOutcome` | `ResponseOutcome`| Post-execution: response transforms + recovery chain   |
+| Pipeline            | Input             | Output            | Phase                                                  |
+|---------------------|-------------------|-------------------|--------------------------------------------------------|
+| `RequestPipeline`   | `Request`         | `Request`         | Pre-execution: transform the request                   |
+| `ExecutionPipeline` | `Request`         | `Response`        | Top-level orchestrator: request + transport + recovery |
+| `ResponsePipeline`  | `ResponseOutcome` | `ResponseOutcome` | Post-execution: response transforms + recovery chain   |
 
 ### Step System
 
@@ -122,17 +117,9 @@ public fun interface ResponseRecoveryStep {
 }
 ```
 
-A `StepRetryTrait` (legacy) optionally augments a `PipelineStep` with a retry hook:
-
-```kotlin
-public interface StepRetryTrait<in T, out V> : PipelineStep<T, V> {
-    public fun retry(context: ExchangeContext): V
-}
-```
-
-The canonical retry implementation lives in WU-3 (`RetryStep`) and is structured as a
-`ResponseRecoveryStep` so it composes uniformly with the recovery chain rather than relying
-on the legacy trait.
+Retry is implemented as a `ResponseRecoveryStep` (`RetryStep`) rather than a property of any
+single step, so it composes uniformly with the rest of the recovery chain. See
+[Retry](#retry).
 
 ### Context Flow
 
@@ -140,15 +127,21 @@ Every step receives a `DispatchContext` that carries the `InstrumentationContext
 for tracing. As the request progresses through its lifecycle, the context is promoted:
 
 ```
-DispatchContext              Created at dispatch time
+DispatchContext                          Created at dispatch time
     │
-    ├─► toRequestContext()   When the Request is available
+    ├─► toRequestContext(request)
+    ▼
+RequestContext                           When the Request is available
     │
-    └─► ExchangeContext      When the Response arrives
+    ├─► toExchangeContext(response)
+    ▼
+ExchangeContext                          When the Response arrives
 ```
 
 Each context level provides access to more information while maintaining the tracing
-chain through `InstrumentationContext`.
+chain through `InstrumentationContext`. Pipeline steps themselves receive the `DispatchContext`;
+the promoted `RequestContext`/`ExchangeContext` carry the request and response once those are
+known.
 
 ---
 
@@ -188,13 +181,14 @@ surrounding `ExecutionPipeline` is responsible for translating that throwable in
 
 ### Common request steps
 
-| Step               | Purpose                                            |
-|--------------------|----------------------------------------------------|
-| Header injection   | Add `User-Agent`, `Authorization`, `Content-Type`  |
-| URL rewriting      | Base URL resolution, query parameter injection     |
-| Request validation | Ensure required fields are present before dispatch |
-| Logging            | Log request method, URL, headers, body preview     |
-| Retry preparation  | Snapshot the request for potential retry           |
+| Step                 | Purpose                                                  |
+|----------------------|----------------------------------------------------------|
+| `ClientIdentityStep` | Inject client identity headers (`User-Agent` and friends)|
+| `IdempotencyKeyStep` | Inject an idempotency key so retries are safely deduped  |
+| Header injection     | Add `Authorization`, `Content-Type`                      |
+| URL rewriting        | Base URL resolution, query parameter injection           |
+| Request validation   | Ensure required fields are present before dispatch       |
+| Logging              | Log request method, URL, headers, body preview           |
 
 ---
 
@@ -268,50 +262,10 @@ single value.
 
 | Step                | Purpose                                                                |
 |---------------------|------------------------------------------------------------------------|
-| `RetryStep` (WU-3)  | Re-invoke transport on retryable failures with exponential backoff     |
+| `RetryStep`         | Re-invoke transport on retryable failures with exponential backoff     |
 | Status-to-exception | Map 4xx/5xx responses (or transport `IOException`) to typed exceptions |
 | Auth-401 eviction   | Evict cached OAuth token on `UnauthorizedException` and retry once     |
 | Circuit breaker     | Open the breaker on consecutive failures; fast-fail for the open phase |
-
----
-
-## BuilderPipeline
-
-`BuilderPipeline<T>` applies a sequence of builder-modifying functions to produce a
-configured object:
-
-```kotlin
-class BuilderPipeline<T>(
-    val steps: List<(BuilderTrait<T>, DispatchContext) -> BuilderTrait<T>>,
-    val builderFactory: () -> BuilderTrait<T>,
-)
-```
-
-Each step receives the current builder and the dispatch context, and returns the modified
-builder. After all steps execute, `build()` is called on the final builder to produce `T`.
-
-```kotlin
-val pipeline = BuilderPipeline<Request>(
-    builderFactory = { Request.builder() },
-    steps = listOf(
-        { builder, ctx -> builder.method(Method.GET) as BuilderTrait<Request> },
-        { builder, ctx -> builder.url("https://api.example.com") as BuilderTrait<Request> },
-    )
-)
-
-val request = pipeline.build(context)
-```
-
-**Invariant**: The pipeline requires at least one step (`require(steps.isNotEmpty())`).
-
-**Implementation**: Steps are applied using `fold()` — the builder factory creates the
-initial builder, and each step transforms it:
-
-```kotlin
-fun build(context: DispatchContext): T = steps
-    .fold(builderFactory()) { builder, step -> step(builder, context) }
-    .build()
-```
 
 ---
 
@@ -379,40 +333,88 @@ pipeline it originated — this fixes Airbyte's design defect where a `BeforeReq
 bypassed `AfterError` entirely (`utils/Hook.java`).
 
 `execute` rethrows the terminal `Failure.error` unchanged when no recovery step rescued it.
-Wrapping into typed SDK exceptions is the recovery chain's job (see the WU-2 typed exception
-hierarchy and WU-10 auth provider).
+Wrapping into typed SDK exceptions is the recovery chain's job — the typed `HttpException`
+hierarchy and the auth steps map raw failures into domain exceptions there.
 
 ---
 
-## Step Configuration
+## Retry
 
-Steps can implement configuration traits for metadata and retry behavior.
+Retry is a `ResponseRecoveryStep` — `RetryStep` — wired into a `ResponsePipeline`'s
+`recoverySteps`. It re-executes a failed request with exponential backoff, server-driven
+pacing (`Retry-After` / `X-RateLimit-Reset`), and a total-timeout budget that shrinks the
+per-attempt deadline as attempts accrue.
 
-### Metadata
+A `RetryStep` is constructed against a captured transport and a single request template:
 
-`PipelineStepMetadataTrait` provides descriptive properties:
+```kotlin
+public class RetryStep(
+    public val httpClient: HttpClient,
+    public val settings: RetrySettings,
+    public val request: Request,
+)
+```
 
-| Property      | Default                 | Purpose                                       |
-|---------------|-------------------------|-----------------------------------------------|
-| `name`        | `"Default name"`        | Human-readable step name (logging, debugging) |
-| `description` | `"Default description"` | Step purpose documentation                    |
-| `version`     | `"Default version"`     | Step version for compatibility tracking       |
-| `tags`        | `emptyList()`           | Categorization tags                           |
+It retries only when the outcome is a `Failure` whose throwable is classified retryable:
 
-### Retry Configuration
+- An `HttpException` with `retryable == true` whose status code is in
+  `RetrySettings.retryableStatuses`.
+- A `NetworkException` (a transport failure with no response on the wire — always retryable).
 
-`PipelineStepRetryConfigTrait` defines retry behavior for steps that implement
-`StepRetryTrait`:
+Idempotency is enforced independently of classification: a request is eligible only when its
+method is in `RetrySettings.retryableMethods` **or** its body is replayable. Non-idempotent
+methods (`POST`/`PATCH`) with a non-replayable body are never re-sent.
 
-| Property                     | Default              | Purpose                            |
-|------------------------------|----------------------|------------------------------------|
-| `timeoutMilliseconds`        | `10000`              | Maximum time per retry attempt     |
-| `exponentialBackoff`         | `false`              | Enable exponential backoff         |
-| `initialBackoffMilliseconds` | `1000`               | Initial delay before first retry   |
-| `maxBackoffMilliseconds`     | `10000`              | Maximum backoff cap                |
-| `multiplier`                 | `2.0`                | Backoff multiplier                 |
-| `maxRetries`                 | `3`                  | Maximum retry attempts             |
-| `retryOnExceptions`          | `[Exception::class]` | Exception types that trigger retry |
+Waits between attempts use a `ScheduledExecutorService` plus `CompletableFuture.get`, never
+`Thread.sleep`, so virtual-thread carriers can unmount during the delay. An interrupt restores
+the interrupt flag, cancels the pending scheduled future, and surfaces an
+`InterruptedIOException` through the recovery outcome.
+
+### RetrySettings
+
+`RetrySettings` is immutable, built via `RetrySettings.builder()` (or `RetrySettings.defaults()`),
+and carries:
+
+| Property            | Default                   | Purpose                                                       |
+|---------------------|---------------------------|---------------------------------------------------------------|
+| `totalTimeout`      | `30s`                     | Hard budget across all attempts; `Duration.ZERO` disables it  |
+| `initialDelay`      | `200ms`                   | Delay before the first retry, before jitter/scaling           |
+| `delayMultiplier`   | `2.0`                     | Per-attempt backoff multiplier (must be ≥ 1.0)                |
+| `maxDelay`          | `8s`                      | Cap on the scaled delay                                       |
+| `maxAttempts`       | `3`                       | Total attempts including the first send; `1` disables retries |
+| `jitter`            | `0.2`                     | Symmetric jitter fraction in `[0.0, 1.0]`                     |
+| `retryableStatuses` | `{429, 500, 502, 503, 504}` | Status codes that trigger a retry on an `HttpException`     |
+| `retryableMethods`  | `{GET, HEAD, OPTIONS, PUT, DELETE}` | Methods retryable by RFC 9110; others need a replayable body |
+| `scheduler`         | `null`                    | Optional caller scheduler; `null` uses a daemon scheduler     |
+
+`408` (Request Timeout) is intentionally excluded from the default `retryableStatuses` — a
+server-side 408 usually means the client was slow to send and is unlikely to improve on retry.
+Callers that disagree can opt in via the builder.
+
+---
+
+## Async Dispatch
+
+The `pipeline` package described above is synchronous. The parallel `http.pipeline` package
+provides the stage-based dispatch runtime, including an async mirror (`AsyncHttpPipeline`,
+`AsyncHttpStep`) and a sync→async bridge. See `docs/architecture.md` for that layer; the one
+detail worth pinning here is how cancellation behaves when you adapt a synchronous pipeline.
+
+`HttpPipeline.toAsync(executor)` wraps a synchronous `HttpPipeline` as an `AsyncHttpPipeline` by
+submitting each `send(request)` to the supplied `executor`. Cancellation of the returned future
+matches the native transports' `executeAsync` semantics:
+
+- `cancel(true)` interrupts the worker thread running the in-flight `send(...)`. The interrupt
+  lands only while the send is actually executing — a task still queued on the executor is
+  abandoned, and an already-completed send is unaffected. For the interrupt to abort I/O the
+  wrapped transport must honour `Thread.interrupt()` (the shipped transports do; see the
+  cancellation contract in `docs/architecture.md`).
+- `cancel(false)` completes the future as cancelled without interrupting the worker, so a
+  blocking `send` that ignores interrupts runs to completion in the background.
+
+The wrapped pipeline's individual steps stay synchronous and run on the dispatch thread; for
+true per-step concurrency, implement `AsyncHttpStep` directly via `AsyncHttpPipelineBuilder`
+rather than bridging.
 
 ---
 
@@ -420,8 +422,8 @@ Steps can implement configuration traits for metadata and retry behavior.
 
 ### Functional Interfaces
 
-`PipelineStep` and `RequestPipeline` are `fun interface`s, enabling lambda-based
-implementations for simple steps:
+`PipelineStep`, `RequestPipelineStep`, `ResponsePipelineStep`, and `ResponseRecoveryStep` are
+all `fun interface`s, enabling lambda-based implementations for simple steps:
 
 ```kotlin
 // As a class
@@ -440,22 +442,20 @@ val authStep = RequestPipelineStep { request, context ->
 This keeps simple steps concise while allowing complex steps to use full class definitions
 with state, dependencies, and configuration.
 
-### Mutable vs Immutable Pipeline State
+### Immutable Pipeline State
 
-The current design uses immutable `Request` and `Response` objects — each step produces
-a new instance via `newBuilder().build()`. However, as noted in the source:
+Steps operate on immutable `Request` and `Response` objects — each transforming step produces
+a new instance via `newBuilder().build()` rather than mutating in place. The pipelines
+themselves are immutable after construction: `RequestPipeline` wraps its step list in an
+unmodifiable view, `ResponsePipeline` does the same for both step lists, and `ExecutionPipeline`
+holds final references to its components. Instances are therefore safe to share across threads
+provided the steps they hold are themselves thread-safe.
 
-> The whole pipeline thing works based on the OOP concept of mutating request/response
-> instances in-place. This limits the retry ability of any failing step.
-
-The plan is to evolve toward:
-
-1. **Pure functional steps**: Each step receives and returns immutable data, making it
-   trivial to snapshot state at any point for retry or rollback.
-2. **Step dependency graphs**: Define explicit dependencies between steps so the pipeline
-   can revert to a previous state when a step fails.
-3. **Retry isolation**: When a step with `StepRetryTrait` fails, the pipeline can replay
-   from a known-good checkpoint instead of restarting from scratch.
+This is what makes retry tractable. Because a step never destroys its input, `RetryStep` can
+re-send the original `Request` template verbatim — the only safety question is idempotency
+(method + body replayability), not state corruption from a partially-applied step. Recovery is
+modelled as a fold over `ResponseOutcome` rather than rollback over mutated state: a failure
+flows through the recovery chain as data, and any step may rescue, replace, or pass it through.
 
 ### Step Ordering and Dependencies
 
@@ -465,12 +465,16 @@ order they execute. There is no automatic dependency resolution or topological s
 Consuming libraries are responsible for ensuring correct ordering. Common patterns:
 
 ```
-1. Validation steps       (fail fast on bad input)
-2. Header injection       (User-Agent, Accept, Content-Type)
-3. Authentication         (Authorization header)
-4. Logging                (log the final request)
-5. Retry wrapper          (wrap execution for retry logic)
+RequestPipeline.steps (BeforeRequest):
+  1. Validation steps     (fail fast on bad input)
+  2. Header injection     (User-Agent, Accept, Content-Type)
+  3. Authentication       (Authorization header)
+  4. Logging              (log the final request)
 ```
+
+Retry is **not** a request step — it lives in `ResponsePipeline.recoverySteps` so it can observe
+the transport outcome and re-issue the request. Order recovery steps so retry runs before any
+status-to-exception mapping you do not want a transient failure to surface prematurely.
 
 ---
 
@@ -490,57 +494,23 @@ val authStep = RequestPipelineStep { request, context ->
         .build()
 }
 
-val pipeline = RequestPipeline { request, context ->
-    listOf(loggingStep, authStep).fold(request) { req, step ->
-        step.execute(req, context)
-    }
-}
+val pipeline = RequestPipeline(steps = listOf(loggingStep, authStep))
 
 val finalRequest = pipeline.execute(request, DispatchContext.default())
 ```
 
-### Builder pipeline for request construction
+### Configuring a retry step
 
 ```kotlin
-val pipeline = BuilderPipeline<Request>(
-    builderFactory = { Request.builder() },
-    steps = listOf(
-        { builder, ctx ->
-            (builder as Request.Builder)
-                .method(Method.POST)
-                .url("https://api.example.com/v1/users")
-            builder
-        },
-        { builder, ctx ->
-            (builder as Request.Builder)
-                .header("Content-Type", "application/json")
-                .body(RequestBody.create(payload, MediaType.parse("application/json")))
-            builder
-        }
-    )
-)
+val settings = RetrySettings.builder()
+    .maxAttempts(4)
+    .initialDelay(Duration.ofMillis(250))
+    .build()
 
-val request = pipeline.build(DispatchContext.default())
-```
+val retryStep = RetryStep(httpClient = transport, settings = settings, request = request)
 
-### Retryable step
-
-```kotlin
-class RetryableAuthStep(
-    private val tokenProvider: TokenProvider
-) : RequestPipelineStep, StepRetryTrait<Request, Request> {
-
-    override fun execute(input: Request, context: DispatchContext): Request {
-        return input.newBuilder()
-            .header("Authorization", "Bearer ${tokenProvider.token}")
-            .build()
-    }
-
-    override fun retry(context: ExchangeContext): Request {
-        tokenProvider.refresh()
-        return execute(context.request, context.dispatchContext)
-    }
-}
+// Wired into a ResponsePipeline's recovery chain, or invoked directly:
+val response = retryStep.attempt()
 ```
 
 ### End-to-end execution with recovery
@@ -550,7 +520,7 @@ val mapToTypedException = ResponseRecoveryStep { outcome ->
     when (outcome) {
         is ResponseOutcome.Success -> outcome
         is ResponseOutcome.Failure ->
-            ResponseOutcome.Failure(SdkException("transport failed", outcome.error))
+            ResponseOutcome.Failure(NetworkException("transport failed", outcome.error))
     }
 }
 
@@ -580,9 +550,11 @@ unwrapped: `Success` returns the `Response`; `Failure` rethrows.
 | `ResponsePipeline.kt`           | public     | Recovery-aware response fold (response + recovery steps)                   |
 | `ExecutionPipeline.kt`          | public     | Top-level orchestrator: request → transport → recovery → response          |
 | `ResponseOutcome.kt`            | public     | Sealed `Success(Response)` / `Failure(Throwable)` sum type                 |
-| `BuilderPipeline.kt`            | public     | Builder-based construction through steps                                   |
 | `step/PipelineStep.kt`          | public     | Generic `PipelineStep<T, V>` functional interface                          |
 | `step/RequestPipelineStep.kt`   | public     | `Request → Request` specialization                                         |
 | `step/ResponsePipelineStep.kt`  | public     | `Response → Response` success-path specialization                          |
 | `step/ResponseRecoveryStep.kt`  | public     | `ResponseOutcome → ResponseOutcome` recovery hook                          |
-| `step/StepConfigTrait.kt`       | public     | Configuration traits: metadata, retry config                               |
+| `step/IdempotencyKeyStep.kt`    | public     | `RequestPipelineStep` that injects an idempotency key                      |
+| `step/ClientIdentityStep.kt`    | public     | `RequestPipelineStep` that injects client identity headers                 |
+| `step/retry/RetryStep.kt`       | public     | `ResponseRecoveryStep`: backoff retry on retryable failures                |
+| `step/retry/RetrySettings.kt`   | public     | Immutable retry configuration for `RetryStep`                              |

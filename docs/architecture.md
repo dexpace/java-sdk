@@ -12,13 +12,14 @@ concerns.
     - [I/O Layer](#io-layer)
     - [HTTP Layer](#http-layer)
     - [Body Logging](#body-logging)
+    - [Authentication](#authentication)
     - [Context System](#context-system)
     - [Pipeline Architecture](#pipeline-architecture)
+    - [Pagination](#pagination)
     - [Client Interface](#client-interface)
     - [Serialization](#serialization)
     - [Instrumentation](#instrumentation)
     - [Generics and Utilities](#generics-and-utilities)
-- [Java Source Tree](#java-source-tree)
 - [Data Flow](#data-flow)
     - [Request Lifecycle](#request-lifecycle)
     - [Response Lifecycle](#response-lifecycle)
@@ -38,15 +39,15 @@ concerns.
 
 The SDK is built around these principles:
 
-1. **Zero-dependency core**: The Kotlin SDK core depends only on SLF4J API and Kotlin
-   stdlib. No HTTP client implementation, no serialization library, no Okio. Every JDK
-   API used is available since Java 8.
+1. **Zero-dependency core**: `sdk-core` depends only on the SLF4J API (`compileOnly`) and the
+   Kotlin stdlib. No HTTP client implementation, no serialization library, and no concrete
+   I/O implementation — not even Okio. Every JDK API used is available since Java 8.
 
 2. **Modular composition**: Core components are interfaces or abstract classes. Concrete
    implementations are plugged in by consuming libraries. The SDK provides the abstractions
    and the plumbing, not the concrete HTTP transport.
 
-3. **Concurrency-model agnostic**: The SDK uses blocking `java.io` APIs with `ReentrantLock`
+3. **Concurrency-model agnostic**: The SDK exposes blocking calls guarded by `ReentrantLock`
    for thread safety. This works correctly on platform threads, virtual threads (Project
    Loom), `Dispatchers.IO`, and reactive schedulers. No coroutines or reactive types leak
    into the core API.
@@ -64,29 +65,35 @@ The SDK is built around these principles:
 
 ## Module Structure
 
+The project is nine Gradle modules (`settings.gradle.kts`), all under group `org.dexpace`:
+
 ```
 java-sdk/
-  sdk-core/                           Primary SDK module (Java 8 target)
-    src/main/kotlin/                  Kotlin sources — primary API
+  sdk-core/                           Primary SDK module — all public contracts (Java 8 target)
+    src/main/kotlin/                  Kotlin sources — there is no Java source tree
       org/dexpace/sdk/core/
         io/                           I/O contracts: Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink
-        http/request/                 Request, RequestBody, LoggableRequestBody, Method
-        http/response/                Response, ResponseBody, LoggableResponseBody, Status
-        http/common/                  Headers, MediaType, Protocol, CommonMediaTypes
-        http/context/                 Call/dispatch/request/exchange contexts
-        pipeline/                     Pipeline orchestration
-        pipeline/step/                Step interfaces and config traits
-        client/                       HttpClient interface (transport SPI)
-        serde/                        Serialization abstractions
-        instrumentation/              Tracing, spans, scopes, logging
+        http/request/                 Request, RequestBody, FileRequestBody, LoggableRequestBody, Method
+        http/response/                Response, ResponseBody, LoggableResponseBody, Status, typed exception hierarchy
+        http/common/                  Headers, MediaType, Protocol, CommonMediaTypes, ETag, HttpRange, conditions
+        http/auth/                    Credentials, RFC 7235 challenge parsing, Basic/Digest/Composite handlers
+        http/context/                 Call/dispatch/request/exchange contexts + ContextStore
+        http/paging/                  PagedIterable, PagedResponse, PagingOptions
+        http/pipeline/                Stage-based sync/async pipeline runtime (+ .steps)
+        http/sse/                     WHATWG Server-Sent Events reader/listener/events
+        pipeline/                     Recovery-aware Request/Response/Execution pipeline primitives (+ .step, .step.retry)
+        pagination/                   Paginator + cursor/page-number/token/link-header strategies
+        client/                       HttpClient + AsyncHttpClient interfaces (transport SPI)
+        serde/                        Serialization abstractions + Tristate
+        instrumentation/              Tracing, spans, scopes, logging (+ .metrics)
+        config/                       Configuration + ConfigurationBuilder
         generics/                     Builder<T>
-        util/                         SDK-level annotations
-    src/main/java/                    Java sources — legacy/compat layer (~367 files)
+        util/                         Clock, Futures, ProxyOptions, RetryUtils, SdkInfo, Uuids, DateTimeRfc1123, annotation helpers
 
   sdk-io-okio3/                       Okio 3.x IoProvider implementation (Java 8 target)
-  sdk-async-coroutines/               Kotlin coroutines adapter (Java 8 target)
-  sdk-async-reactor/                  Reactor Mono/Flux adapter (Java 8 target)
-  sdk-async-netty/                    Netty Future adapter (Java 8 target)
+  sdk-async-coroutines/               Kotlin coroutines adapter — suspend extensions, MDC propagation (Java 8 target)
+  sdk-async-reactor/                  Reactor Mono/Flux adapter, incl. SSE → Flux (Java 8 target)
+  sdk-async-netty/                    Netty Future adapter with bidirectional cancellation (Java 8 target)
   sdk-async-virtualthreads/           Virtual-thread executor adapter (Java 21 target)
 
   sdk-transport-okhttp/               Reference transport: OkHttp 5.x (Java 8 target)
@@ -94,7 +101,7 @@ java-sdk/
       org/dexpace/sdk/transport/okhttp/
         OkHttpTransport.kt            Public — implements HttpClient + AsyncHttpClient
         internal/                     Internal adapters (request, response, body, restricted-headers)
-    src/test/kotlin/                  JUnit Platform tests (MockWebServer)
+    src/test/kotlin/                  JUnit Platform tests (mockwebserver3)
 
   sdk-transport-jdkhttp/              Reference transport: java.net.http.HttpClient (Java 11 target)
     src/main/kotlin/
@@ -116,7 +123,7 @@ java-sdk/
 
 All modules except `sdk-async-virtualthreads` and `sdk-transport-jdkhttp` target Java 8 bytecode. `sdk-async-virtualthreads` overrides the toolchain to JDK 21 because virtual threads require it; `sdk-transport-jdkhttp` overrides to JDK 11 because `java.net.http.HttpClient` was finalised in JEP 321. Consumers of each module must be on the corresponding JDK or newer.
 
-`sdk-core` defines only contracts and contains no concrete I/O implementation. Adapter modules depend on `sdk-core` and bring exactly one third-party library each; consumers pay only for what they use.
+`sdk-core` is written entirely in Kotlin — there is no `src/main/java` tree. It defines only contracts and contains no concrete I/O implementation. Adapter modules depend on `sdk-core` and bring exactly one third-party library each; consumers pay only for what they use.
 
 ---
 
@@ -139,7 +146,7 @@ one provider at startup via `Io.installProvider(...)`.
 | `BufferedSink`   | public     | Typed writes: byte arrays, UTF-8 strings, writeAll, java.io       |
 | `Buffer`         | public     | In-memory queue (source + sink + `snapshot()` for body logging)   |
 | `IoProvider`     | public     | Single factory the adapter implements                             |
-| `Io`             | public     | `provider` getter + `installProvider(...)` + `withProvider(...)`  |
+| `Io`             | public     | `provider` getter + `installProvider(...)` (one-shot install seam) |
 | `TeeSink`        | internal   | `BufferedSink` that mirrors writes into a `Buffer` for logging    |
 
 See [I/O Module](io.md) for full design documentation.
@@ -148,23 +155,28 @@ See [I/O Module](io.md) for full design documentation.
 
 **Package**: `org.dexpace.sdk.core.http`
 
-The HTTP layer is split into four sub-packages:
+The core HTTP models live in three sub-packages — `http.request`, `http.response`, and
+`http.common` — with body logging spanning the first two. The remaining `http.*` sub-packages
+(`auth`, `context`, `paging`, `pipeline`, `sse`) are documented in their own sections below.
 
 #### `http.request`
 
-| Type          | Role                                                                                                                      |
-|---------------|---------------------------------------------------------------------------------------------------------------------------|
-| `Request`     | Immutable HTTP request (method, URL, headers, body). Builder pattern.                                                     |
-| `RequestBody` | Abstract body with `writeTo(OutputStream)`. Factory methods for byte array, string, form data, and input stream variants. |
-| `Method`      | HTTP method enum (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)                                                           |
+| Type              | Role                                                                                                                                  |
+|-------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `Request`         | Immutable HTTP request (method, URL, headers, body). Builder pattern.                                                                  |
+| `RequestBody`     | Abstract body with `writeTo(sink: BufferedSink)` and `isReplayable()`/`toReplayable()`. Factory methods for byte array, string, form data, buffer, file, and input-stream variants. |
+| `FileRequestBody` | Replayable file-backed body transports can recognize to dispatch a zero-copy `sendfile(2)`.                                            |
+| `Method`          | HTTP method enum (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)                                                                        |
 
 #### `http.response`
 
 | Type           | Role                                                                                                       |
 |----------------|------------------------------------------------------------------------------------------------------------|
 | `Response`     | Immutable HTTP response (request, protocol, status, message, headers, body). `Closeable`. Builder pattern. |
-| `ResponseBody` | Abstract body with `byteStream()`, `bytes()`, `string()`. Single-use contract.                             |
-| `Status`       | HTTP status code with reason phrase                                                                        |
+| `ResponseBody` | Abstract body exposing `source(): BufferedSource`. Single-use contract; wrap with `LoggableResponseBody` for repeatable reads. |
+| `Status`       | A **total** status type — `fromCode(code)` never throws and returns an unknown `Status` for vendor codes (nginx 499, Cloudflare 520–526). Canonical codes carry a `statusName`. |
+
+A typed exception hierarchy lives in `http.response.exception`: `HttpException` (abstract, with a `retryable` flag derived from `RetryUtils.isRetryable(status.code)`), per-status subclasses including `RequestTimeoutException` (408, retryable), and `NetworkException`.
 
 #### `http.common`
 
@@ -175,20 +187,42 @@ The HTTP layer is split into four sub-packages:
 | `CommonMediaTypes` | Constants for common media types (JSON, XML, form-urlencoded, etc.)            |
 | `Protocol`         | HTTP protocol version (HTTP/1.0, HTTP/1.1, HTTP/2, etc.)                       |
 
-#### Body logging (`http.request` / `http.response`)
+#### Body Logging
 
 `LoggableRequestBody` lives in `http.request`; `LoggableResponseBody` lives in `http.response`.
 There is no separate `http.logging` package.
 
-| Type                   | Package        | Role                                                                |
-|------------------------|----------------|---------------------------------------------------------------------|
-| `LoggableRequestBody`  | `http.request` | Tee-write wrapper — captures request bytes during write for logging |
-| `LoggableResponseBody` | `http.response`| Eager-buffering wrapper — repeatable reads + snapshot for logging   |
-| `BodySnapshot`         | `http.request` or `http.response` | Immutable body capture with text detection and preview generation |
-| `BodySegment`          | (shared)       | Fixed-size chunk + handler callback for streaming observation       |
+| Type                   | Package        | Role                                                                                  |
+|------------------------|----------------|----------------------------------------------------------------------------------------|
+| `LoggableRequestBody`  | `http.request` | Wraps a `RequestBody` and mirrors bytes through a `TeeSink` into a `Buffer` during write |
+| `LoggableResponseBody` | `http.response`| Drain-once wrapper over a `BufferedSource` — repeatable reads + `snapshot()` previews   |
+
+Both wrappers stage captured bytes in the `io` package's `Buffer`/`TeeSink` and expose
+race-safe, consumed-once previews. There is no separate `http.logging` package, and no
+`BodySnapshot`/`BodySegment` types.
 
 See [HTTP Body Logging & Concurrency](http-body-logging-and-concurrency.md) for full design
 documentation.
+
+### Authentication
+
+**Package**: `org.dexpace.sdk.core.http.auth`
+
+Credential types and RFC 7235 challenge handling. Credentials authorize a request; challenge
+handlers answer `WWW-Authenticate` challenges parsed from a 401/407.
+
+| Type                                              | Role                                                                       |
+|---------------------------------------------------|----------------------------------------------------------------------------|
+| `Credential`                                      | Sealed interface for credential kinds                                      |
+| `KeyCredential` / `NamedKeyCredential`            | API-key credentials                                                        |
+| `BearerToken`                                     | OAuth bearer token with optional `expiresAt`                               |
+| `ChallengeHandler`                                | Answers a parsed `AuthenticateChallenge`, producing an `AuthorizationHeader` |
+| `BasicChallengeHandler` / `DigestChallengeHandler`| RFC 7617 Basic and RFC 7616 Digest handlers                                |
+| `CompositeChallengeHandler`                       | Picks the strongest handler that can answer a challenge set                |
+| `AuthChallengeParser`                             | Parses `WWW-Authenticate` / `Proxy-Authenticate` into `AuthenticateChallenge`s |
+
+The matching pipeline steps that stamp credentials onto outgoing requests live in
+`http.pipeline.steps` (`BearerTokenAuthStep`, `KeyCredentialAuthStep`, `AuthStep`).
 
 ### Context System
 
@@ -196,42 +230,79 @@ documentation.
 
 The context system carries metadata through the request/response lifecycle:
 
-| Type              | Role                                                              |
-|-------------------|-------------------------------------------------------------------|
-| `CallContext`     | Base interface — provides `InstrumentationContext`                |
-| `DispatchContext` | Pipeline execution context — entry point for a request dispatch   |
-| `RequestContext`  | Request-scoped context — extends `CallContext` with the `Request` |
-| `ExchangeContext` | Full exchange context — carries both request and response         |
-| `ContextStore`    | Thread-safe store for retrieving contexts by trace ID             |
+| Type              | Role                                                                       |
+|-------------------|----------------------------------------------------------------------------|
+| `CallContext`     | Base interface — provides `instrumentationContext` and a per-call `callKey`; `AutoCloseable` |
+| `DispatchContext` | Head of the promotion chain — mints the `callKey` for the call             |
+| `RequestContext`  | Adds the outgoing `Request` to the chain                                   |
+| `ExchangeContext` | Full exchange context — carries both request and response                  |
+| `ContextStore`    | Thread-safe store keyed by `callKey` for retrieving a call's live context  |
 
-**Flow**: `DispatchContext` is created at dispatch time, converted to `RequestContext` when
-the request is available, and extended to `ExchangeContext` after the response arrives.
-Each context carries an `InstrumentationContext` for tracing.
+**Flow**: `DispatchContext` is created at dispatch time, promoted to `RequestContext` when
+the request is available, and promoted to `ExchangeContext` after the response arrives. The
+whole chain shares one `callKey` — a per-call key, **not** the trace id (which is not
+call-unique: untraced calls share a constant trace id, and an inbound W3C trace shares one
+trace id across many spans). Each context carries an `InstrumentationContext` for tracing.
+Only the terminal context of a chain should be closed; eviction from `ContextStore` is
+conditional on identity, so closing an earlier link never removes a live successor.
 
 ### Pipeline Architecture
 
-**Package**: `org.dexpace.sdk.core.pipeline`
+Two cooperating pipeline layers, both fully implemented — no placeholders.
 
-Modular, composable request/response processing:
+#### Stage-based runtime (`org.dexpace.sdk.core.http.pipeline`)
 
-| Type                 | Role                                                               |
-|----------------------|--------------------------------------------------------------------|
-| `RequestPipeline`    | Processes a `Request` through a sequence of `RequestPipelineStep`s |
-| `ResponsePipeline`   | Processes a `Response` through response steps (interface, WIP)     |
-| `BuilderPipeline<T>` | Applies builder-modifying steps to produce a configured `T`        |
-| `ExecutionPipeline`  | Core execution stage that invokes the `HttpClient` (WIP)           |
+`HttpPipelineBuilder` assembles ordered `HttpStep`s into an `HttpPipeline`. Each step belongs
+to a `Stage`; lower-ordered stages run first. Five stages are **pillars** that admit exactly
+one step each — `REDIRECT`, `RETRY`, `AUTH`, `LOGGING`, `SERDE` — while the interleaved
+non-pillar stages (e.g. `PRE_AUTH`, `POST_LOGGING`) hold an ordered deque of user steps. The
+terminal `SEND` stage is `HttpClient.execute` itself. Replacing a pillar emits a
+`pipeline.pillar.replaced` SLF4J warning.
 
-#### Step System (`pipeline.step`)
+| Type                  | Role                                                                            |
+|-----------------------|---------------------------------------------------------------------------------|
+| `HttpStep`            | `process(request, next): Response` — the stage-based step interface             |
+| `Stage`               | Ordered stage enum; `isPillar` stages take a single step                        |
+| `HttpPipelineBuilder` | Assembles steps; surgical edits via `insertAfter`/`insertBefore`/`replace`/`remove` taking a `Class` |
+| `HttpPipeline`        | The built, immutable pipeline                                                    |
+| `AsyncHttpPipeline` / `AsyncHttpStep` / `AsyncHttpPipelineBuilder` | The async mirror, with sync→async bridges (`AsyncPipelineBridges`) |
 
-| Type                           | Role                                                      |
-|--------------------------------|-----------------------------------------------------------|
-| `PipelineStep<T, V>`           | Generic step interface: `execute(input: T, context) -> V` |
-| `RequestPipelineStep`          | Specialized: `PipelineStep<Request, Request>`             |
-| `ResponsePipelineStep`         | Specialized: `PipelineStep<Response, Response>`           |
-| `StepRetryTrait<T, V>`         | Adds `retry(context) -> V` to a step                      |
-| `PipelineStepConfigTrait`      | Base config marker                                        |
-| `PipelineStepMetadataTrait`    | Name, description, version, tags                          |
-| `PipelineStepRetryConfigTrait` | Timeout, backoff, max retries, retryable exceptions       |
+Shipped pillar/step implementations live in `http.pipeline.steps`: `DefaultRedirectStep`,
+`DefaultRetryStep`, `AuthStep` (+ `BearerTokenAuthStep` / `KeyCredentialAuthStep`),
+`DefaultInstrumentationStep`, and the redirect/retry option types.
+
+#### Recovery-aware primitives (`org.dexpace.sdk.core.pipeline`)
+
+A lower-level layer that threads a sealed `ResponseOutcome` so recovery steps observe and
+rescue failures uniformly, whether they originate in a request step, the transport, or a
+response step.
+
+| Type                | Role                                                                       |
+|---------------------|----------------------------------------------------------------------------|
+| `RequestPipeline`   | Folds a `Request` through a sequence of `RequestPipelineStep`s              |
+| `ResponsePipeline`  | Runs `ResponsePipelineStep`s on success and `ResponseRecoveryStep`s on every outcome |
+| `ExecutionPipeline` | Wires request pipeline → `HttpClient` → response pipeline                   |
+| `ResponseOutcome`   | Sealed `Success(Response)` / `Failure(Throwable)` sum type                  |
+
+##### Step System (`pipeline.step`)
+
+| Type                    | Role                                                                  |
+|-------------------------|-----------------------------------------------------------------------|
+| `PipelineStep<T, V>`    | Generic step interface: `execute(input: T, context: DispatchContext): V` |
+| `RequestPipelineStep`   | Specialized: `PipelineStep<Request, Request>`                         |
+| `ResponsePipelineStep`  | Specialized: `PipelineStep<Response, Response>`                       |
+| `ResponseRecoveryStep`  | `invoke(outcome): ResponseOutcome` — rescue / replace / pass-through  |
+| `ClientIdentityStep`    | Stamps client-identity tokens onto the request                        |
+| `IdempotencyKeyStep`    | Adds an idempotency-key header for configured methods                 |
+
+Retry primitives live in `pipeline.step.retry`:
+
+| Type               | Role                                                                  |
+|--------------------|-----------------------------------------------------------------------|
+| `RetryStep`        | Recovery step that re-invokes the transport with backoff + `Retry-After` honoring |
+| `RetrySettings`    | Immutable retry policy (timeout, backoff, max attempts, retryable statuses/methods) |
+| `BackoffCalculator`| Computes the per-attempt delay                                        |
+| `RetryAfterParser` | Parses `Retry-After` / `X-RateLimit-Reset` pacing hints              |
 
 See [Pipeline Mechanism](pipelines.md) for full design documentation.
 
@@ -265,20 +336,33 @@ no-op, the caller owns the client's lifecycle) or by using the SDK-managed build
 releases the underlying transport resources). See the README's "Choosing a transport" section
 for usage examples.
 
+### Pagination
+
+**Packages**: `org.dexpace.sdk.core.pagination`, `org.dexpace.sdk.core.http.paging`
+
+Two complementary surfaces for walking multi-page responses.
+
+| Type                                                            | Role                                                                  |
+|-----------------------------------------------------------------|-----------------------------------------------------------------------|
+| `Paginator<T>`                                                  | Lazily iterates pages by re-issuing requests through an `HttpClient`; carries a `maxPages` safety cap |
+| `PaginationStrategy<T>`                                         | Computes the next-page request (or stops) from the current page       |
+| `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `TokenPaginationStrategy` / `LinkHeaderPaginationStrategy` | The four shipped strategies |
+| `PagedIterable<T>`                                              | First/next-page fetcher abstraction over `PagedResponse`, with its own `maxPages` cap |
+
 ### Serialization
 
 **Package**: `org.dexpace.sdk.core.serde`
 
-| Type             | Role                                                     |
-|------------------|----------------------------------------------------------|
-| `Serde`          | Combined serializer/deserializer interface               |
-| `Deserializer`   | Deserialize from `String`, `ByteArray`, or `InputStream` |
-| `SerializeTrait` | Mixin for types that can serialize themselves            |
-| `Tristate<T>`    | Three-valued container (Absent / Null / Present) for `PATCH` payloads |
+| Type           | Role                                                                        |
+|----------------|----------------------------------------------------------------------------|
+| `Serde`        | Bundle exposing a `serializer` and a `deserializer` for one wire format     |
+| `Serializer`   | Encode values to bytes / strings / streams                                  |
+| `Deserializer` | Decode from `String`, `ByteArray`, or `InputStream` using an explicit `Class<T>` type token |
+| `Tristate<T>`  | Three-valued container (Absent / Null / Present) for `PATCH` payloads        |
 
 The core module defines abstractions only. Concrete implementations (Jackson, Moshi, kotlinx.serialization) belong in
 optional extension modules. `sdk-serde-jackson` ships today as the reference Jackson 2.18 adapter, including a
-`TristateModule` that wires the [`Tristate<T>`](#tristate) type through Jackson's
+`TristateModule` that wires the `Tristate<T>` type through Jackson's
 serializer / deserializer pipeline.
 
 #### Jackson adapter (`sdk-serde-jackson`)
@@ -301,15 +385,19 @@ SDK-correct mapper defaults installed by `JacksonObjectMappers.defaultObjectMapp
 
 | Type                         | Role                                               |
 |------------------------------|----------------------------------------------------|
-| `InstrumentationContext`     | Base context carrying trace ID and span management |
-| `Span`                       | Represents a unit of work in a trace               |
-| `TracingScope`               | Scoped tracing lifecycle (start/end)               |
-| `TraceIdType`                | Trace ID type abstraction                          |
+| `InstrumentationContext`     | Base context carrying trace/span ids and span management |
+| `Span` / `NoopSpan`          | A unit of work in a trace, plus its no-op default  |
+| `Tracer` / `HttpTracer` / `NoopTracer` | Span factories, plus the no-op default   |
+| `TracingScope`               | Scoped tracing lifecycle (`AutoCloseable`)         |
+| `TraceIdType`                | Trace-id generation strategy                        |
 | `NoopInstrumentationContext` | No-op default for non-instrumented calls           |
-| `NoopSpan`                   | No-op span implementation                          |
+| `ClientLogger` / `LoggingEvent` | Structured logging façade over SLF4J            |
+| `UrlRedactor` / `MdcSnapshot`   | Log-safe URL redaction and MDC capture          |
 
-The Java source tree contains the concrete OpenTelemetry integration and fallback
-implementations.
+The `instrumentation.metrics` sub-package adds metric abstractions (`Meter`, `LongCounter`,
+`DoubleHistogram`) with `NoopMeter` as the default. `sdk-core` ships only these abstractions
+and their no-op implementations; a concrete OpenTelemetry adapter is expected to live in a
+separate module.
 
 ## Log correlation
 
@@ -317,37 +405,11 @@ Log correlation is wired through SLF4J MDC: `Span.makeCurrentWithLoggingContext(
 
 ### Generics and Utilities
 
-| Type              | Package    | Role                                        |
-|-------------------|------------|---------------------------------------------|
-| `BuilderTrait<T>` | `generics` | Generic builder interface: `fun build(): T` |
-| `Annotations.kt`  | `util`     | SDK-level annotation definitions            |
-
----
-
-## Java Source Tree
-
-The `src/main/java` tree contains ~367 files providing a comprehensive Java compatibility
-layer. Key packages:
-
-| Package                          | Description                                                                 |
-|----------------------------------|-----------------------------------------------------------------------------|
-| `annotations`                    | `@ServiceClient`, `@ServiceMethod`, `@Metadata` — code generation markers   |
-| `binarydata`                     | `BinaryData` interface + implementations (byte array, file, stream, string) |
-| `credentials`                    | `KeyCredential`, `NamedKeyCredential`, OAuth token types                    |
-| `http.client`                    | Java HTTP client interfaces and configuration                               |
-| `http.models`                    | Java HTTP models (headers, query params, URL builders)                      |
-| `http.pipeline`                  | Java pipeline interfaces and policies                                       |
-| `http.paging`                    | Pagination abstractions (`PagedIterable`, `PagedResponse`)                  |
-| `models`                         | Domain model abstractions including geo types                               |
-| `instrumentation`                | Logging, metrics, and tracing interfaces                                    |
-| `implementation.instrumentation` | OpenTelemetry integration (`otel/`) and fallback impls                      |
-| `serialization.json`             | Jackson-based JSON serialization (with embedded Jackson core)               |
-| `serialization.xml`              | Aalto XML parser implementation                                             |
-| `traits`                         | `HttpTrait`, `ProxyTrait`, `EndpointTrait`, configuration mixins            |
-| `utils`                          | `Configuration`, utility classes                                            |
-
-These Java sources form the foundation layer for generated service clients and provide
-backward compatibility with Azure SDK patterns.
+| Type             | Package    | Role                                                                  |
+|------------------|------------|-----------------------------------------------------------------------|
+| `Builder<out T>` | `generics` | Generic builder interface implemented by every SDK builder: `fun build(): T` |
+| `util`           | `util`     | `Clock`, `Futures`, `ProxyOptions`, `RetryUtils`, `SdkInfo`, `Uuids`, `DateTimeRfc1123`, and small annotation helpers |
+| `config`         | `config`   | `Configuration` + `ConfigurationBuilder` — typed configuration lookup |
 
 ---
 
@@ -373,7 +435,7 @@ backward compatibility with Azure SDK patterns.
                                │
                     ┌──────────▼────────────┐
                     │   LoggableRequestBody  │  (if logging enabled)
-                    │   TeeOutputStream      │
+                    │   TeeSink mirror       │
                     └──────────┬────────────┘
                                │
                     ┌──────────▼────────────┐
@@ -396,7 +458,7 @@ backward compatibility with Azure SDK patterns.
                                │
                     ┌──────────▼───────────┐
                     │ LoggableResponseBody  │  (if logging enabled)
-                    │ Eager buffer + snap   │
+                    │ Drain-once + snapshot │
                     └──────────┬───────────┘
                                │
                     ┌──────────▼───────────┐
@@ -405,7 +467,7 @@ backward compatibility with Azure SDK patterns.
                                │
                                ▼
                        Application Code
-                   response.body?.string()
+                  response.body?.source()?.readUtf8()
 ```
 
 ---
@@ -416,13 +478,13 @@ backward compatibility with Azure SDK patterns.
 
 The SDK core avoids all third-party dependencies (beyond SLF4J and Kotlin stdlib):
 
-- **No Okio**: `sdk-core` defines interface contracts only; the Okio dependency lives in
-  the optional `sdk-io-okio3` adapter module (see [I/O Module](io.md))
+- **No Okio**: `sdk-core` defines I/O interface contracts only (`Source`/`Sink`/`Buffer` …);
+  the Okio 3.x dependency lives in the optional `sdk-io-okio3` adapter (see [I/O Module](io.md))
 - **No Jackson/Moshi/kotlinx**: Serialization is abstract in core; concrete implementations
-  belong in extension modules
-- **No coroutines**: Blocking `java.io` APIs work everywhere; coroutine adapters belong in
-  optional `sdk-coroutines` modules
-- **No HTTP transport**: `HttpClient` is an interface; consumers pick their transport
+  belong in extension modules (`sdk-serde-jackson` today)
+- **No coroutines**: The core exposes blocking calls that work on any scheduler; coroutine
+  support lives in the optional `sdk-async-coroutines` adapter
+- **No HTTP transport**: `HttpClient`/`AsyncHttpClient` are interfaces; consumers pick their transport
 
 This means any JVM project can depend on `sdk-core` without transitive dependency conflicts.
 
@@ -455,16 +517,16 @@ data class Request private constructor(
     val headers: Headers,
     val body: RequestBody?
 ) {
-    fun newBuilder(): Builder = Builder(this)
+    fun newBuilder(): RequestBuilder = RequestBuilder(this)
 
-    class Builder : BuilderTrait<Request> {
+    class RequestBuilder : Builder<Request> {
         fun method(method: Method) = apply { ... }
         fun url(url: String) = apply { ... }
         override fun build(): Request = ...
     }
 
     companion object {
-        fun builder(): Builder = Builder()
+        fun builder(): RequestBuilder = RequestBuilder()
     }
 }
 ```
@@ -472,7 +534,7 @@ data class Request private constructor(
 - **Private constructor**: Forces use of builder
 - **`data class`**: Gives `equals()`, `hashCode()`, `toString()`, `copy()` for free
 - **`newBuilder()`**: Creates a pre-filled builder for modification
-- **`BuilderTrait<T>`**: Generic interface ensuring all builders have `fun build(): T`
+- **`Builder<out T>`**: Generic interface ensuring all builders have `fun build(): T`
 
 ### Virtual Thread Safety
 
@@ -587,20 +649,29 @@ they should construct a fresh one.
 
 ### Kotlin Sources
 
-| Package           | Key Types                                                                                       |
-|-------------------|-------------------------------------------------------------------------------------------------|
-| `io`              | Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink (internal)          |
-| `http.request`    | Request, RequestBody, LoggableRequestBody, Method                                               |
-| `http.response`   | Response, ResponseBody, LoggableResponseBody, Status                                            |
-| `http.common`     | Headers, MediaType, CommonMediaTypes, Protocol                                                  |
-| `http.context`    | CallContext, RequestContext, DispatchContext, ExchangeContext, ContextStore                     |
-| `pipeline`        | RequestPipeline, ResponsePipeline, BuilderPipeline, ExecutionPipeline                           |
-| `pipeline.step`   | PipelineStep, StepConfigTrait                                                                   |
-| `client`          | HttpClient                                                                                      |
-| `serde`           | Serde, Deserializer, SerializeTrait                                                             |
-| `instrumentation` | InstrumentationContext, Span, NoopSpan, NoopInstrumentationContext, TracingScope, TraceIdType   |
-| `generics`        | Builder                                                                                         |
-| `util`            | Annotations                                                                                     |
+| Package              | Key Types                                                                                       |
+|----------------------|-------------------------------------------------------------------------------------------------|
+| `io`                 | Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink (internal)          |
+| `http.request`       | Request, RequestBody, FileRequestBody, LoggableRequestBody, Method                              |
+| `http.response`      | Response, ResponseBody, LoggableResponseBody, Status, HttpResponseException                     |
+| `http.response.exception` | HttpException, HttpExceptionFactory, RequestTimeoutException (and siblings), NetworkException |
+| `http.common`        | Headers, MediaType, CommonMediaTypes, Protocol, ETag, HttpRange, RequestConditions             |
+| `http.auth`          | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
+| `http.context`       | CallContext, DispatchContext, RequestContext, ExchangeContext, ContextStore                     |
+| `http.paging`        | PagedIterable, PagedResponse, PagingOptions                                                      |
+| `http.pipeline`      | HttpPipeline, HttpPipelineBuilder, HttpStep, Stage, AsyncHttpPipeline (+ `.steps`)              |
+| `http.sse`           | ServerSentEvent, ServerSentEventReader, ServerSentEventListener                                 |
+| `pipeline`           | RequestPipeline, ResponsePipeline, ExecutionPipeline, ResponseOutcome                           |
+| `pipeline.step`      | PipelineStep, RequestPipelineStep, ResponsePipelineStep, ResponseRecoveryStep, ClientIdentityStep, IdempotencyKeyStep |
+| `pipeline.step.retry`| RetryStep, RetrySettings, BackoffCalculator, RetryAfterParser                                   |
+| `pagination`         | Paginator, PaginationStrategy, Cursor/PageNumber/Token/LinkHeader strategies, Page              |
+| `client`             | HttpClient, AsyncHttpClient                                                                      |
+| `serde`              | Serde, Serializer, Deserializer, Tristate                                                        |
+| `instrumentation`    | InstrumentationContext, Span, NoopSpan, NoopInstrumentationContext, Tracer, TracingScope, TraceIdType, ClientLogger |
+| `instrumentation.metrics` | Meter, LongCounter, DoubleHistogram, NoopMeter                                              |
+| `config`             | Configuration, ConfigurationBuilder                                                              |
+| `generics`           | Builder                                                                                          |
+| `util`               | Clock, Futures, ProxyOptions, RetryUtils, SdkInfo, Uuids, DateTimeRfc1123                        |
 
 ### Okio adapter (`sdk-io-okio3`)
 
