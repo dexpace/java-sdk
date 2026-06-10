@@ -94,15 +94,10 @@ public class OkHttpTransport private constructor(
                 Thread.currentThread().interrupt()
                 throw e
             }
-        // Adaptation acquires the body source and constructs the SDK Response; any throw here
-        // (e.g. `Io.provider` not installed, an unparseable Content-Type) would otherwise
-        // leak `okResponse` — and its live socket. Mirror the async path: close on failure.
-        return try {
-            responseAdapter.adapt(request, okResponse)
-        } catch (t: Throwable) {
-            okResponse.close()
-            throw t
-        }
+        // ResponseAdapter.adapt acquires the body source and constructs the SDK Response; if any
+        // step throws (e.g. `Io.provider` not installed, an unparseable Content-Type) it closes
+        // `okResponse` — and its live socket — before propagating, so no extra guard is needed here.
+        return responseAdapter.adapt(request, okResponse)
     }
 
     /**
@@ -123,7 +118,8 @@ public class OkHttpTransport private constructor(
                     try {
                         future.complete(responseAdapter.adapt(request, response))
                     } catch (t: Throwable) {
-                        response.close()
+                        // ResponseAdapter.adapt already closed the response on failure; we only
+                        // need to surface the error to the future.
                         future.completeExceptionally(t)
                     }
                 }
