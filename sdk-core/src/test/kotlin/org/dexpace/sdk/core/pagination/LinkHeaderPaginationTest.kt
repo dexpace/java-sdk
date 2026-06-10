@@ -177,6 +177,50 @@ class LinkHeaderPaginationTest {
     }
 
     @Test
+    fun `query-only relative rel next link preserves the full base path`() {
+        // RFC 3986: a query-only reference ("?page=2") resolves against the base's FULL path,
+        // yielding ".../repo/issues?page=2". Java's URL(base, ref) AND URI.resolve both follow the
+        // older RFC 2396 and drop the base's last path segment (".../repo/?page=2"), which points
+        // the next page at the wrong resource.
+        val initial = initialRequest() // https://api.example.com/repo/issues
+        val response =
+            textResponse(initial, "i1,i2", extraHeaders = mapOf("Link" to "<?page=2>; rel=\"next\""))
+
+        val strategy = LinkHeaderPaginationStrategy(itemsExtractor)
+        val page = strategy.parse(response, initial)
+
+        assertEquals(
+            "https://api.example.com/repo/issues?page=2",
+            page.nextPageRequest()?.url?.toString(),
+            "a query-only relative next link must keep the full base path",
+        )
+    }
+
+    @Test
+    fun `query-only relative rel next link is followed end-to-end`() {
+        // The same query-only case, driven through the paginator: the resolved URL must match the
+        // registered page-2 handler, proving the next request actually targets ".../issues?page=2".
+        val client = StubHttpClient()
+        client.on("https://api.example.com/repo/issues") { req ->
+            textResponse(req, "i1,i2", extraHeaders = mapOf("Link" to "<?page=2>; rel=\"next\""))
+        }
+        client.on("https://api.example.com/repo/issues?page=2") { req ->
+            textResponse(req, "i3")
+        }
+
+        val strategy = LinkHeaderPaginationStrategy(itemsExtractor)
+        val paginator = Paginator(client, initialRequest(), strategy)
+        assertEquals(listOf("i1", "i2", "i3"), paginator.iterateAll().toList())
+        assertEquals(
+            listOf(
+                "https://api.example.com/repo/issues",
+                "https://api.example.com/repo/issues?page=2",
+            ),
+            client.receivedUrls,
+        )
+    }
+
+    @Test
     fun `unparseable next link target ends the stream instead of aborting iteration`() {
         // A next-link target with an unknown scheme cannot be resolved into a valid URL; the
         // strategy must treat it as end-of-stream rather than letting MalformedURLException

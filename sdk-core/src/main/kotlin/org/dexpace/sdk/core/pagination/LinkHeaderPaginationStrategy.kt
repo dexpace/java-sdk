@@ -85,12 +85,21 @@ public class LinkHeaderPaginationStrategy<T>
             nextUrlString: String,
         ): URL? =
             try {
-                URL(response.request.url, nextUrlString)
-            } catch (e: MalformedURLException) {
-                // Unresolvable next link (e.g. unknown scheme): stop paginating rather than
-                // letting the exception abort iteration. The cause is intentionally swallowed.
-                @Suppress("UNUSED_VARIABLE")
-                val ignored = e
+                val base = response.request.url
+                val ref = nextUrlString.trim()
+                if (ref.startsWith("?")) {
+                    // RFC 3986 query-only reference: keep the base's FULL path and replace only the
+                    // query. Both URL(base, ref) and URI.resolve follow the older RFC 2396 here and
+                    // drop the base's last path segment (".../repo/?page=2" instead of
+                    // ".../repo/issues?page=2"), pointing the next page at the wrong resource. Splice
+                    // the already-encoded base components directly so nothing is re-encoded.
+                    URL("${base.protocol}://${base.authority}${base.path}$ref")
+                } else {
+                    URL(base, nextUrlString)
+                }
+            } catch (ignored: MalformedURLException) {
+                // Unresolvable next link (e.g. unknown scheme): stop paginating rather than letting
+                // the exception abort iteration.
                 null
             }
 
