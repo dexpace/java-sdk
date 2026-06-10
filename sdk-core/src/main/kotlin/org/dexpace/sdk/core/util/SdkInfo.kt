@@ -16,12 +16,10 @@ package org.dexpace.sdk.core.util
  * ## Resolution
  *
  * - [sdkVersion] is read from the JAR manifest's `Implementation-Version` attribute
- *   (i.e. [Package.getImplementationVersion]). This returns a concrete version only when
- *   the SDK is loaded from a JAR whose manifest carries that attribute. The current build
- *   does **not** yet wire `Implementation-Version` into the published Jar manifests, so in
- *   practice this resolves to the `"unknown"` fallback today; populating the manifest is a
- *   pending build change. It likewise falls back to `"unknown"` when the SDK is loaded from
- *   classes-on-disk (e.g. during local unit tests where there is no enclosing JAR) and
+ *   (i.e. [Package.getImplementationVersion]). The build stamps this attribute into every
+ *   module's Jar manifest from the project version, so a JAR-packaged SDK resolves a concrete
+ *   version. It falls back to `"unknown"` only when the SDK is loaded from classes-on-disk
+ *   (e.g. during local unit tests where there is no enclosing JAR) and
  *   [Package.getImplementationVersion] returns `null`. The fallback is intentional:
  *   identity tokens must always render a non-blank value so that downstream
  *   `joinToString(" ")` cannot produce a malformed `User-Agent`.

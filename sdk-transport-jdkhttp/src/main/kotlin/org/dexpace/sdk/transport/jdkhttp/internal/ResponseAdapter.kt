@@ -37,8 +37,9 @@ import org.dexpace.sdk.core.http.response.ResponseBody as SdkResponseBody
  * silently downgraded to `null` (the SDK contract allows `mediaType()` to be `null`).
  *
  * The JDK response carries no reason phrase (HTTP/2 dropped it, and the JDK normalises away
- * the HTTP/1.1 form too), so the SDK `message` field stays unset. Callers wanting a reason
- * string should look up [Status.name] instead.
+ * the HTTP/1.1 form too), so the SDK `message` field stays unset. Callers wanting a canonical
+ * reason string can read [Status.statusName], which is non-null for known status codes and
+ * `null` for unknown/vendor ones.
  *
  * If adaptation throws anywhere between acquiring the body and building the [SdkResponse], the
  * live response [InputStream] is closed before the throwable propagates so the connection is
