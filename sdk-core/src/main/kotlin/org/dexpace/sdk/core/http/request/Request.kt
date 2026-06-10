@@ -26,6 +26,13 @@ import java.net.URL
  * Instances are immutable and safe to share across threads. The [body], when present, may
  * carry single-use stream state — see [RequestBody] for that contract.
  *
+ * ## Equality
+ *
+ * [url] participates in equality by its external form ([URL.toExternalForm]) — a pure string
+ * comparison that performs **no** network I/O. `java.net.URL.equals`/`hashCode` resolve the host
+ * via DNS (blocking, and wrong for virtual hosts that share an address), so this type compares
+ * URLs textually instead. The remaining fields ([method], [headers], [body]) compare by value.
+ *
  * @property method HTTP method on the wire.
  * @property url Fully-resolved target URL.
  * @property headers Request headers; may be empty but never `null`.
@@ -38,6 +45,31 @@ public data class Request private constructor(
     val headers: Headers,
     val body: RequestBody?,
 ) {
+    /**
+     * Compares by value. [url] is compared by its external form (a pure string, no DNS lookup);
+     * [method], [headers], and [body] compare structurally as the generated equality would.
+     */
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Request) return false
+        return method == other.method &&
+            url.toExternalForm() == other.url.toExternalForm() &&
+            headers == other.headers &&
+            body == other.body
+    }
+
+    /**
+     * Hash consistent with [equals]: [url] hashes by its external form (no DNS lookup), the rest
+     * by value.
+     */
+    override fun hashCode(): Int {
+        var result = method.hashCode()
+        result = HASH_MULTIPLIER * result + url.toExternalForm().hashCode()
+        result = HASH_MULTIPLIER * result + headers.hashCode()
+        result = HASH_MULTIPLIER * result + (body?.hashCode() ?: 0)
+        return result
+    }
+
     /**
      * Returns a new [RequestBuilder] initialized with this request's data.
      *
@@ -227,6 +259,8 @@ public data class Request private constructor(
     }
 
     public companion object {
+        private const val HASH_MULTIPLIER = 31
+
         /**
          * Returns a fresh empty [RequestBuilder]. Java-friendly entry point matching the
          * `Request.builder()` idiom.

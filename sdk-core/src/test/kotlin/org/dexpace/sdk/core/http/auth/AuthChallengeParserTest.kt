@@ -395,6 +395,24 @@ class AuthChallengeParserTest {
     }
 
     @Test
+    fun `malformed continuation after a param does not emit a phantom challenge`() {
+        // Regression guard: `Digest realm="x", foo=)Bearer abc123`. After `foo=`, the value
+        // begins with `)`, which is not a valid token/quoted-string start, so the param read
+        // bails out. The bail-out leaves the cursor at a non-token char (or EOF), which the
+        // outer recovery absorbs WITHOUT emitting a spurious challenge — in particular, no
+        // phantom `bearer` challenge is produced from the trailing `Bearer abc123` text.
+        // We must get exactly the one well-formed Digest challenge.
+        val challenges = AuthChallengeParser.parse("""Digest realm="x", foo=)Bearer abc123""")
+        assertEquals(1, challenges.size, "only the leading Digest challenge should be emitted")
+        assertEquals("digest", challenges[0].scheme)
+        assertEquals("x", challenges[0].parameters["realm"])
+        assertTrue(
+            challenges.none { it.scheme == "bearer" },
+            "the malformed continuation must not produce a phantom bearer challenge",
+        )
+    }
+
+    @Test
     fun `quote with only a backslash inside before close quote`() {
         // `"\"` — opens, sees backslash, advances, sees `"` (the close), appends
         // the `"` and continues. Then EOF: dangling. The parser returns null and

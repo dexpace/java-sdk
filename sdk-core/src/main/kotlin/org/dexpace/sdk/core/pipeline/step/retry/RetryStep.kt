@@ -23,8 +23,6 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 /**
  * Recovery-aware retry step that re-executes a failed request with exponential backoff,
@@ -44,13 +42,19 @@ import kotlin.concurrent.withLock
  *
  * ## Idempotency
  *
- * A request is eligible for retry when either:
- *  - `request.method ∈ retryableMethods`, **or**
- *  - `request.body?.isReplayable() == true` (body can be re-sent verbatim).
+ * Eligibility is gated on re-sendability, split by whether the request carries a body:
+ *  - **No body** — eligible only when `request.method ∈ retryableMethods` (the method is
+ *    idempotent). A body-less non-idempotent request (e.g. a bare POST) is not retried.
+ *  - **Has a body** — eligible only when `request.body.isReplayable() == true`. A non-replayable
+ *    body physically cannot be re-sent: its consume-once guard would trip on the second
+ *    `writeTo` and mask the original failure with an [IllegalStateException]. A replayable body
+ *    is re-sendable, so the request is retried; ensuring the re-sent request is idempotent (for
+ *    a non-idempotent method, e.g. via an idempotency key) is the caller's responsibility.
  *
- * Non-idempotent methods (POST/PATCH) with non-replayable bodies are NOT retried. This is a
- * deliberate departure from Square's `RetryInterceptor`, which retries on status alone and
- * silently double-sends POSTs on transport timeouts.
+ * The body-replayability gate closes the hazard where an idempotent method carrying a one-shot
+ * body slipped through a method-only check and tripped the consume-once guard on resend. This
+ * is a deliberate departure from Square's `RetryInterceptor`, which retries on status alone and
+ * silently double-sends a body it cannot replay on transport timeouts.
  *
  * ## Cancellation
  *
@@ -70,8 +74,9 @@ import kotlin.concurrent.withLock
  * not held on the instance; it is allocated fresh inside each top-level [invoke]/[attempt]
  * and threaded through the retry loop as a local [AttemptState]. Two threads invoking the
  * same instance, or the same thread invoking it again after a prior attempt was exhausted,
- * each start from a clean attempt budget. The only mutable instance field is the lazy-init
- * guard for the default scheduler, which is itself lock-protected.
+ * each start from a clean attempt budget. The instance holds no mutable fields at all: the
+ * process-wide default scheduler is a companion `by lazy` (SYNCHRONIZED), created at most once
+ * VM-wide, so no per-instance guard is needed.
  *
  * The [httpClient] and the originating [request] are captured at construction; a single
  * instance therefore retries exactly that one request template. Construct a distinct
@@ -93,9 +98,6 @@ public class RetryStep
         public val request: Request,
         private val clock: Clock = Clock.systemUTC(),
     ) : ResponseRecoveryStep {
-        /** Lock guards lazy-init of the default scheduler so we never create two. */
-        private val lock: ReentrantLock = ReentrantLock()
-
         /**
          * Per-call retry bookkeeping. Allocated fresh at the top of each [invoke]/[attempt] so
          * a shared/reused [RetryStep] never inherits a stale attempt budget and concurrent
@@ -320,14 +322,13 @@ public class RetryStep
         }
 
         /**
-         * Returns the [settings]-supplied scheduler, or lazily creates the process-wide
-         * daemon scheduler. The lazy init runs at most once per RetryStep instance via the
-         * `lock`; the process-wide scheduler itself is initialised at most once across the
-         * whole VM via the companion `by lazy`.
+         * Returns the [settings]-supplied scheduler, or the process-wide daemon scheduler. The
+         * process-wide scheduler is a companion `by lazy` (SYNCHRONIZED), so it is initialised
+         * at most once across the whole VM — no per-instance guard is involved.
          */
         private fun resolveScheduler(): ScheduledExecutorService {
             settings.scheduler?.let { return it }
-            return lock.withLock { DEFAULT_SCHEDULER }
+            return DEFAULT_SCHEDULER
         }
 
         /**
@@ -342,13 +343,14 @@ public class RetryStep
             }
 
         /**
-         * Returns true when [request] is safe to retry — its method is in
-         * [RetrySettings.retryableMethods] OR its body is replayable. A non-idempotent
-         * method with a non-replayable body cannot be safely re-sent.
+         * Returns true when [request] is safe to retry. A body-less request is retry-safe only
+         * when its method is in [RetrySettings.retryableMethods] (idempotent); a body-bearing
+         * request is retry-safe only when its body is replayable — a non-replayable body cannot
+         * be re-sent (the second `writeTo` trips the consume-once guard). Ensuring a re-sent
+         * body-bearing request is idempotent is the caller's responsibility.
          */
         private fun canRetry(request: Request): Boolean {
-            if (settings.retryableMethods.contains(request.method)) return true
-            val body = request.body ?: return true
+            val body = request.body ?: return settings.retryableMethods.contains(request.method)
             return body.isReplayable()
         }
 

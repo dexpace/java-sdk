@@ -144,6 +144,46 @@ class LoggableRequestBodyTest {
     }
 
     @Test
+    fun `bounded wrapper caps the tap but streams the full body to the sink`() {
+        val payload = "0123456789".toByteArray() // 10 bytes
+        val delegate = RequestBody.create(payload)
+        val wrapper = LoggableRequestBody.bounded(delegate, Io.provider, tapLimit = 4)
+        val sink = Io.provider.buffer()
+
+        wrapper.writeTo(sink)
+
+        // The transport sink receives the FULL body.
+        assertContentEquals(payload, sink.snapshot())
+        // The tap captured only the bounded preview.
+        assertContentEquals("0123".toByteArray(), wrapper.snapshot())
+    }
+
+    @Test
+    fun `bounded wrapper preserves the tap cap across a replayable rewrite`() {
+        // A single-use delegate forces toReplayable() to build a new wrapper; the cap must carry.
+        val delegate = RequestBody.create(Io.provider.source("0123456789".toByteArray()))
+        val wrapper = LoggableRequestBody.bounded(delegate, Io.provider, tapLimit = 3)
+        val replayable = wrapper.toReplayable(Io.provider)
+        assertTrue(replayable is LoggableRequestBody)
+
+        val sink = Io.provider.buffer()
+        replayable.writeTo(sink)
+
+        assertContentEquals("0123456789".toByteArray(), sink.snapshot(), "full body must reach the sink")
+        assertContentEquals("012".toByteArray(), replayable.snapshot(), "tap cap must survive the rewrite")
+    }
+
+    @Test
+    fun `default wrapper mirrors the entire body unbounded`() {
+        val payload = "x".repeat(20_000).toByteArray()
+        val wrapper = LoggableRequestBody(RequestBody.create(payload))
+        val sink = Io.provider.buffer()
+        wrapper.writeTo(sink)
+        assertContentEquals(payload, sink.snapshot())
+        assertContentEquals(payload, wrapper.snapshot(), "default path mirrors the whole body")
+    }
+
+    @Test
     fun `snapshot captures bytes written before a delegate failure`() {
         val delegate =
             object : RequestBody() {

@@ -15,6 +15,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.URL
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -236,7 +237,7 @@ class AsyncHttpPipelineTest {
     }
 
     @Test
-    fun `AsyncHttpPipeline_toBlocking unwraps CompletionException to the original cause`() {
+    fun `AsyncHttpPipeline_toBlocking unwraps the wrapper to the original cause`() {
         val async =
             AsyncHttpPipelineBuilder(
                 AsyncHttpClient {
@@ -247,6 +248,38 @@ class AsyncHttpPipelineTest {
         val sync = async.toBlocking()
         val thrown = assertFails { sync.send(getRequest()) }
         assertEquals("oops", thrown.message)
+    }
+
+    @Test
+    fun `toBlocking honours interruption, throwing InterruptedIOException with the flag set`() {
+        // A future that never completes, so toBlocking parks in get() until interrupted.
+        val never = CompletableFuture<Response>()
+        val async = AsyncHttpPipelineBuilder(AsyncHttpClient { never }).build()
+        val sync = async.toBlocking()
+
+        val started = CountDownLatch(1)
+        val thrown = AtomicReference<Throwable?>()
+        val flagSet = AtomicBoolean(false)
+        val worker =
+            Thread {
+                started.countDown()
+                try {
+                    sync.send(getRequest())
+                } catch (t: Throwable) {
+                    thrown.set(t)
+                    flagSet.set(Thread.currentThread().isInterrupted)
+                }
+            }
+        worker.start()
+        assertTrue(started.await(2, TimeUnit.SECONDS))
+        Thread.sleep(50)
+        worker.interrupt()
+        worker.join(2_000)
+
+        val failure = thrown.get()
+        assertTrue(failure is InterruptedIOException, "expected InterruptedIOException, got $failure")
+        assertTrue(flagSet.get(), "interrupt flag must be restored on the calling thread")
+        assertTrue(never.isCancelled, "the in-flight future must be cancelled on interruption")
     }
 
     @Test

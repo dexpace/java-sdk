@@ -146,6 +146,27 @@ class RetryStepTest {
             .build()
     }
 
+    private fun requestPutNonReplayable(): Request {
+        // OneShotInputStreamRequestBody (non-markable stream) is single-use / non-replayable.
+        // PUT is idempotent, so this isolates the body-replayability gate from the method gate.
+        val body =
+            RequestBody.create(
+                java.io.ByteArrayInputStream(byteArrayOf(1, 2, 3)).let { stream ->
+                    object : java.io.InputStream() {
+                        override fun read(): Int = stream.read()
+
+                        override fun markSupported(): Boolean = false
+                    }
+                },
+                3L,
+            )
+        return Request.builder()
+            .url("https://api.example.com/resource")
+            .method(Method.PUT)
+            .body(body)
+            .build()
+    }
+
     private fun response(
         status: Int,
         headers: Headers = Headers.builder().build(),
@@ -209,6 +230,21 @@ class RetryStepTest {
         val out = step.invoke(outcome)
         // Non-replayable POST: no retry attempted; transport never invoked.
         assertSame(outcome, out, "Outcome must be unchanged when body is non-replayable")
+        assertTrue(client.calls.isEmpty())
+    }
+
+    @Test
+    fun `503 with non-replayable PUT body is not retried despite PUT being idempotent`() {
+        // Both gates are required: PUT is in retryableMethods (idempotent), but a non-replayable
+        // body physically cannot be re-sent. Method idempotency alone must NOT widen eligibility
+        // — the failure passes through unchanged and the transport is never re-invoked (which
+        // would otherwise trip the body's consume-once guard).
+        val client = FakeClient()
+        val request = requestPutNonReplayable()
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
+        val out = step.invoke(outcome)
+        assertSame(outcome, out, "Outcome must be unchanged when an idempotent method carries a non-replayable body")
         assertTrue(client.calls.isEmpty())
     }
 

@@ -46,11 +46,14 @@ import java.util.concurrent.ThreadLocalRandom
  *
  * ## Body replayability
  *
- * A request whose method is non-idempotent (e.g. POST/PATCH) and whose body is **not**
- * replayable is never retried — the loop runs exactly one attempt and returns the response
- * (or rethrows the exception) as-is. Re-sending such a body would trip the body's consume-once
- * guard and surface as a confusing wrapped [IllegalStateException]. Idempotent methods, and
- * any method with no body or a replayable body, are retried normally. This mirrors
+ * Eligibility is gated on re-sendability. A body-less request is retried only when its method
+ * is idempotent; a body-bearing request is retried only when its body is replayable — a
+ * non-replayable body physically cannot be re-sent (the second `writeTo` trips the body's
+ * consume-once guard and surfaces as a confusing wrapped [IllegalStateException] that masks the
+ * real failure). A replayable body is re-sendable regardless of method; making the re-sent
+ * request idempotent (for a non-idempotent method, e.g. via an idempotency key) is the caller's
+ * responsibility. When the request is not re-sendable the loop runs exactly one attempt and
+ * returns the response (or rethrows the exception) as-is. This mirrors
  * `pipeline.step.retry.RetryStep.canRetry`.
  *
  * ## Delay precedence (highest to lowest)
@@ -242,15 +245,15 @@ public open class DefaultRetryStep
         }
 
         /**
-         * Returns `true` when [request] may be re-sent. A request whose method is idempotent is
-         * always retry-safe; otherwise it is safe only when it has no body or a replayable one.
-         * A non-idempotent method (POST/PATCH) carrying a single-use body cannot be retried —
-         * the second `RequestBody.writeTo` would trip the body's consume-once guard. Mirrors
-         * `pipeline.step.retry.RetryStep.canRetry`.
+         * Returns `true` when [request] may be re-sent. A body-less request is retry-safe only
+         * when its method is idempotent; a body-bearing request is retry-safe only when its body
+         * is replayable — a non-replayable body cannot be re-sent (the second
+         * `RequestBody.writeTo` trips the body's consume-once guard and surfaces as a confusing
+         * wrapped [IllegalStateException]). Making a re-sent body-bearing request idempotent is
+         * the caller's responsibility. Mirrors `pipeline.step.retry.RetryStep.canRetry`.
          */
         private fun isRetrySafe(request: Request): Boolean {
-            if (request.method in IDEMPOTENT_METHODS) return true
-            val body = request.body ?: return true
+            val body = request.body ?: return request.method in IDEMPOTENT_METHODS
             return body.isReplayable()
         }
 
@@ -282,6 +285,8 @@ public open class DefaultRetryStep
          * The retryable response is closed BEFORE the backoff sleep so its body's resources
          * (socket / buffer) are not pinned open across a potentially long `Thread.sleep`. The
          * delay is computed from the response headers first, while the response is still open.
+         * If the should-retry predicate or [computeResponseDelay] throws, the response is closed
+         * before the throwable propagates so the retryable response never leaks.
          */
         private fun decideRetryResponse(
             response: Response,
@@ -290,11 +295,21 @@ public open class DefaultRetryStep
             retrySequenceStartNanos: Long,
         ): Boolean {
             val condition = HttpRetryCondition(response, null, tryCount, suppressed.orEmpty())
-            if (!invokeShouldRetryResponse(condition)) return false
             // Compute the delay (may read Retry-After from the response) while the response is
             // still open, then release the response body's resources BEFORE we sleep so the
-            // socket/buffer is not held open across the backoff window.
-            val delay = computeResponseDelay(condition)
+            // socket/buffer is not held open across the backoff window. Both the should-retry
+            // predicate and computeResponseDelay (a subclass override) can throw; if either
+            // does we must still close the retryable response — otherwise its socket/buffer
+            // leaks. closeQuietly swallows IOException and Response.close is idempotent, so
+            // closing on the throw path is safe even though the happy path closes again.
+            val delay: Duration =
+                try {
+                    if (!invokeShouldRetryResponse(condition)) return false
+                    computeResponseDelay(condition)
+                } catch (t: Throwable) {
+                    closeQuietly(response)
+                    throw t
+                }
             logRetry(tryCount, delay, response.status.code, cause = null, retrySequenceStartNanos)
             closeQuietly(response)
             sleepOrAbort(delay, suppressed)

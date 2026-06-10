@@ -101,6 +101,11 @@ internal class RequestAdapter(
      * Catching it here drops the offending header with a DEBUG log rather than letting the
      * `IllegalArgumentException` escape [adapt] (and therefore `execute`, declared
      * `@Throws(IOException)`) where a caller's `catch(IOException)` would not observe it.
+     *
+     * Note this catch guards against the JDK's restricted *name* set only. Illegal header
+     * *values* (CR/LF and similar) are now rejected upstream by `Headers.Builder`, so a value
+     * with control characters never reaches this point — the `IllegalArgumentException` handled
+     * here is the JDK refusing a restricted name, not a malformed value.
      */
     private fun attachHeaders(
         builder: HttpRequest.Builder,

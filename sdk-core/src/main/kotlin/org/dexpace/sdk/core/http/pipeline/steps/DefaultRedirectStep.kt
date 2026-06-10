@@ -328,18 +328,23 @@ public open class DefaultRedirectStep
         /**
          * Returns [uri] with its userinfo component cleared. If [uri] has no userinfo the
          * input is returned unchanged.
+         *
+         * The URI is rebuilt **textually** from its already-encoded (`raw*`) components rather
+         * than via the multi-argument [URI] constructor. That constructor takes *decoded*
+         * components and re-encodes them, which would corrupt a `Location` whose path or query
+         * carries percent-escaped reserved characters: `%2F` would decode to `/` and `%26` to
+         * `&`, silently changing the path/query structure. Reassembling from `rawPath` /
+         * `rawQuery` / `rawFragment` preserves the wire-exact encoding.
          */
         private fun stripUserInfo(uri: URI): URI {
             if (uri.userInfo == null) return uri
-            return URI(
-                uri.scheme,
-                null,
-                uri.host,
-                uri.port,
-                uri.path,
-                uri.query,
-                uri.fragment,
-            )
+            val sb = StringBuilder()
+            sb.append(uri.scheme).append("://").append(uri.host)
+            if (uri.port != -1) sb.append(':').append(uri.port)
+            uri.rawPath?.let { sb.append(it) }
+            uri.rawQuery?.let { sb.append('?').append(it) }
+            uri.rawFragment?.let { sb.append('#').append(it) }
+            return URI(sb.toString())
         }
 
         /**

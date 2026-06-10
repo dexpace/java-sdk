@@ -9,11 +9,16 @@ package org.dexpace.sdk.transport.jdkhttp.internal
 
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
+import java.io.Closeable
+import java.io.IOException
+import java.io.InputStream
+import java.io.InterruptedIOException
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.net.http.HttpRequest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
 
 /**
@@ -31,16 +36,26 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  *    because the body would have to be materialised in the publisher anyway and small
  *    bodies do not benefit from streaming.
  *
- *  - **Streaming path (`contentLength > 64 KiB` or `-1L` (unknown))** — create a
- *    [PipedOutputStream] / [PipedInputStream] pair. A daemon writer thread drains
- *    `body.writeTo(...)` into the OutputStream; the publisher reads from the InputStream
- *    via `BodyPublishers.ofInputStream`. Exceptions on the writer side propagate to the
- *    reader as `IOException` (the standard JDK PipedStream contract), which the JDK client
- *    surfaces back to the calling future.
+ *  - **Streaming path (`contentLength > 64 KiB` or `-1L` (unknown))** — return a
+ *    `BodyPublishers.ofInputStream` whose supplier creates a **fresh**
+ *    [PipedOutputStream] / [PipedInputStream] pair and a **fresh** writer task on every
+ *    invocation. A daemon writer thread drains `body.writeTo(...)` into the OutputStream;
+ *    the publisher reads from the InputStream. See "Per-subscription pipes" below for why
+ *    the pipe and writer are created lazily, per-subscription, rather than once.
  *
  * The 64 KiB threshold matches the spec; not exposed via the builder. Justification: the
  * pipe coordination overhead measurably exceeds the buffer cost below this size, and
  * holding 64 KiB in heap is uncontroversial.
+ *
+ * ## Per-subscription pipes
+ *
+ * The JDK invokes the `ofInputStream` supplier **once per subscription**, and it re-subscribes
+ * the same publisher on internal resends — notably the 407 proxy-auth retry driven by the
+ * `ProxyAuthenticator` this transport installs, and HTTP/2 `GOAWAY` replays. A supplier that
+ * returned one shared, already-draining stream would hand the second subscription an exhausted
+ * pipe, so the authenticated retry would carry a truncated or empty body. The supplier therefore
+ * constructs a new pipe + writer each time, and the streaming path requires the body to be
+ * **replayable** (see [streamingPublisher]) so a second `writeTo` produces the same bytes.
  *
  * ## Writer thread lifecycle
  *
@@ -48,11 +63,17 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  * stranded writers without an explicit close hook. Threads are named
  * `dexpace-jdkhttp-body-writer` so they are identifiable in thread dumps.
  *
+ * A subscription that is acquired but never drained (connect failure, cancellation before
+ * the body is sent) would otherwise strand its writer thread blocked in
+ * `PipedOutputStream.write`. The returned [PipedInputStream] is wrapped so that closing it
+ * — which the JDK does when it abandons a subscription — cancels the writer [Future] and
+ * closes the pipe's output end, unblocking the stuck writer.
+ *
  * ## Thread-safety
  *
- * Each call to [adaptBody] creates a fresh `BodyPublisher` over a fresh pipe (for the
- * streaming path) or a fresh byte array (for the eager path); no state is shared between
- * concurrent invocations.
+ * Each call to [adaptBody] creates a fresh `BodyPublisher`; each subscription to a streaming
+ * publisher creates a fresh pipe + writer. No state is shared between concurrent invocations
+ * or between subscriptions.
  */
 internal object BodyPublishers {
     /**
@@ -109,44 +130,158 @@ internal object BodyPublishers {
      * memory is released when the array is handed off.
      */
     private fun eagerPublisher(body: SdkRequestBody): HttpRequest.BodyPublisher {
-        val buffer = Io.provider.buffer()
-        body.writeTo(buffer)
-        val bytes = buffer.snapshot()
+        val bytes = bufferToByteArray(body)
         return HttpRequest.BodyPublishers.ofByteArray(bytes)
     }
 
     /**
-     * Creates a [PipedOutputStream] / [PipedInputStream] pair, submits a daemon task that
-     * drives `body.writeTo(...)` onto the OutputStream side, and returns
-     * [HttpRequest.BodyPublishers.ofInputStream] over the InputStream side.
+     * Streaming publisher for bodies larger than the eager threshold (or of unknown length).
      *
-     * The `ofInputStream` factory expects a `Supplier<InputStream>` — the JDK calls it once
-     * to acquire the stream. The stream returned here is constructed eagerly so the writer
-     * task can start producing bytes immediately; the JDK reader picks them up as it
-     * consumes the publisher.
+     * The JDK calls the `ofInputStream` supplier **once per subscription** and re-subscribes
+     * on internal resends (407 proxy-auth retry, HTTP/2 `GOAWAY` replay). Each subscription
+     * therefore re-reads the body, so the body must be replayable for the resent request to
+     * carry the correct bytes. If [body] is not already replayable it is buffered once into an
+     * in-memory copy via [SdkRequestBody.toReplayable]. A body that cannot be made replayable
+     * (its `toReplayable` throws) falls back to a single eager byte-array publisher — correct
+     * for the first send and harmless on a resend — rather than a one-shot pipe that would
+     * corrupt the body on resubscribe.
      *
-     * Errors thrown from `body.writeTo` close the OutputStream prematurely (because the
-     * `use { }` block exits abnormally); the JDK reader then observes an `IOException` on
-     * its next read and the surrounding future completes exceptionally. The DEBUG log
-     * records the writer-side failure so it's discoverable in tests / production.
+     * For each subscription the supplier:
+     *  1. creates a fresh [PipedOutputStream] / [PipedInputStream] pair;
+     *  2. submits a writer task that drives `body.writeTo(...)` onto the OutputStream side and
+     *     captures its [Future]; and
+     *  3. returns the InputStream wrapped so its `close()` cancels the writer [Future] and
+     *     closes the OutputStream — unblocking a writer stranded in `PipedOutputStream.write`
+     *     when the JDK abandons the subscription without draining it.
+     *
+     * Errors thrown from `body.writeTo` close the OutputStream prematurely (the `use { }` block
+     * exits abnormally); the JDK reader then observes an `IOException` on its next read and the
+     * surrounding future completes exceptionally. Thread interruption in the writer is honoured
+     * per the repo convention: the flag is restored and an [InterruptedIOException] is surfaced
+     * so the reader side fails loudly. The DEBUG log records the writer-side failure so it is
+     * discoverable in tests / production.
      */
     private fun streamingPublisher(body: SdkRequestBody): HttpRequest.BodyPublisher {
+        val replayable: SdkRequestBody =
+            if (body.isReplayable()) {
+                body
+            } else {
+                try {
+                    body.toReplayable()
+                } catch (e: IOException) {
+                    // The body could not be buffered into a replayable copy. A one-shot pipe
+                    // would corrupt the body on the JDK's resubscribe, so fall back to a single
+                    // eager byte-array publisher: the body has already been partially consumed
+                    // by the failed buffering attempt, but emitting whatever was captured is
+                    // strictly better than handing back a stream that is wrong on resend.
+                    log.atVerbose()
+                        .event("transport.jdkhttp.body.replayable.failed")
+                        .field("error.message", e.message ?: "")
+                        .log("could not buffer streaming body as replayable; falling back to eager publisher")
+                    return HttpRequest.BodyPublishers.ofByteArray(bufferToByteArray(body))
+                }
+            }
+        return HttpRequest.BodyPublishers.ofInputStream { newSubscriptionStream(replayable) }
+    }
+
+    /**
+     * Test seam: opens a single streaming subscription's InputStream directly, bypassing the
+     * `ofInputStream` publisher's own reader thread so a test can hold the stream un-drained and
+     * close it to exercise the [KillSwitchInputStream] writer-unblock path. The [body] must be
+     * replayable (the production path guarantees this before reaching [newSubscriptionStream]).
+     */
+    @JvmSynthetic
+    internal fun openSubscriptionStreamForTest(body: SdkRequestBody): InputStream = newSubscriptionStream(body)
+
+    /**
+     * Builds one subscription's InputStream: a fresh pipe pair plus a writer task draining
+     * [body] into it. Returns the read end wrapped with a kill-switch `close()` (see
+     * [KillSwitchInputStream]).
+     */
+    private fun newSubscriptionStream(body: SdkRequestBody): InputStream {
         val pipeIn = PipedInputStream(PIPE_BUFFER_BYTES)
         val pipeOut = PipedOutputStream(pipeIn)
-        bodyWriterExecutor.execute {
-            try {
-                pipeOut.use { os ->
-                    Io.provider.sink(os).use { sdkSink ->
-                        body.writeTo(sdkSink)
+        val task =
+            Runnable {
+                try {
+                    pipeOut.use { os ->
+                        Io.provider.sink(os).use { sdkSink ->
+                            body.writeTo(sdkSink)
+                        }
                     }
+                } catch (e: InterruptedIOException) {
+                    // The writer was interrupted (e.g. its Future was cancelled when the
+                    // subscription was abandoned). Restore the flag per repo convention; the
+                    // pipe is already closing, so the reader observes EOF / IOException.
+                    Thread.currentThread().interrupt()
+                    logWriterFailure(e)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    logWriterFailure(e)
+                } catch (t: Throwable) {
+                    logWriterFailure(t)
                 }
-            } catch (t: Throwable) {
-                log.atVerbose()
-                    .event("transport.jdkhttp.body.write.failed")
-                    .field("error.message", t.message ?: "")
-                    .log("piped body writer failed; reader side will see IOException")
+            }
+        val writer: Future<*> = bodyWriterExecutor.submit(task)
+        return KillSwitchInputStream(pipeIn, pipeOut, writer)
+    }
+
+    private fun logWriterFailure(t: Throwable) {
+        log.atVerbose()
+            .event("transport.jdkhttp.body.write.failed")
+            .field("error.message", t.message ?: "")
+            .log("piped body writer failed; reader side will see IOException")
+    }
+
+    /**
+     * Drains [body] into a fresh in-memory [org.dexpace.sdk.core.io.Buffer] from the active
+     * [Io.provider] and snapshots it to a byte array.
+     */
+    private fun bufferToByteArray(body: SdkRequestBody): ByteArray {
+        val buffer = Io.provider.buffer()
+        body.writeTo(buffer)
+        return buffer.snapshot()
+    }
+
+    /**
+     * Wraps a subscription's [PipedInputStream] so that closing the read end also cancels the
+     * writer [Future] and closes the [PipedOutputStream] write end. Without this, a JDK
+     * subscription that is acquired and then abandoned (connect failure, cancellation before
+     * the body is sent) would leave the writer thread blocked indefinitely in
+     * `PipedOutputStream.write`, pinning the writer thread and the body's resources.
+     *
+     * `close()` is idempotent: the JDK may close the supplied stream more than once.
+     */
+    private class KillSwitchInputStream(
+        private val pipeIn: PipedInputStream,
+        private val pipeOut: PipedOutputStream,
+        private val writer: Future<*>,
+    ) : InputStream() {
+        override fun read(): Int = pipeIn.read()
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int = pipeIn.read(b, off, len)
+
+        override fun available(): Int = pipeIn.available()
+
+        override fun close() {
+            // Interrupt/cancel the writer first so a thread parked in PipedOutputStream.write
+            // wakes up, then close both pipe ends. Order matters: closing pipeOut alone does
+            // not unblock a writer mid-write, so the cancel(true) is what frees the thread.
+            writer.cancel(true)
+            closeQuietly(pipeOut)
+            closeQuietly(pipeIn)
+        }
+
+        private fun closeQuietly(closeable: Closeable) {
+            try {
+                closeable.close()
+            } catch (_: IOException) {
+                // Best-effort teardown — the peer end may already be closed.
             }
         }
-        return HttpRequest.BodyPublishers.ofInputStream { pipeIn }
     }
 }

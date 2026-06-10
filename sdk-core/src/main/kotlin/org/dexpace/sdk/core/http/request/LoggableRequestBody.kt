@@ -48,6 +48,13 @@ import java.io.IOException
  * [toReplayable] returns a new `LoggableRequestBody` wrapping the delegate's replayable
  * form, so retry loops continue to see captured bytes for every attempt.
  *
+ * ## Tap cap
+ *
+ * By default the entire write is mirrored into the tap. The instrumentation steps construct a
+ * [bounded] wrapper that caps how many bytes are mirrored (via the [TeeSink] tap limit), so a
+ * multi-GB `FileRequestBody` upload mirrors only a bounded preview into memory while still
+ * streaming zero-copy to the transport. The full payload always reaches the transport sink.
+ *
  * ## Thread safety
  *
  * Not thread-safe. One writer at a time.
@@ -57,11 +64,21 @@ import java.io.IOException
  *   installed provider.
  */
 public class LoggableRequestBody
-    @JvmOverloads
-    constructor(
+    internal constructor(
         private val delegate: RequestBody,
-        private val provider: IoProvider = Io.provider,
+        private val provider: IoProvider,
+        private val tapLimit: Long,
     ) : RequestBody() {
+        /**
+         * Public surface: a wrapper that mirrors the entire write into the tap (unbounded).
+         * Equivalent to `bounded(delegate, provider, Long.MAX_VALUE)`.
+         */
+        @JvmOverloads
+        public constructor(
+            delegate: RequestBody,
+            provider: IoProvider = Io.provider,
+        ) : this(delegate, provider, Long.MAX_VALUE)
+
         // Deferred so a wrapper that is constructed but never written/snapshot'd doesn't allocate
         // a Buffer. NONE thread-safety mode matches the documented "not thread-safe" contract.
         private val tap: Buffer by lazy(LazyThreadSafetyMode.NONE) { provider.buffer() }
@@ -76,7 +93,8 @@ public class LoggableRequestBody
             if (delegate.isReplayable()) {
                 this
             } else {
-                LoggableRequestBody(delegate.toReplayable(provider), provider)
+                // Preserve the configured tap cap across the replayable rewrite.
+                LoggableRequestBody(delegate.toReplayable(provider), provider, tapLimit)
             }
 
         /**
@@ -88,7 +106,7 @@ public class LoggableRequestBody
         @Throws(IOException::class)
         override fun writeTo(sink: BufferedSink) {
             tap.clear()
-            val tee = TeeSink(sink, tap, provider)
+            val tee = TeeSink(sink, tap, provider, tapLimit)
             delegate.writeTo(tee)
         }
 
@@ -113,5 +131,15 @@ public class LoggableRequestBody
             val cap = minOf(maxBytes, Buffer.MAX_BYTE_ARRAY_SIZE)
             if (tap.size <= cap) return tap.snapshot()
             return tap.peek().readByteArray(cap.toLong())
+        }
+
+        internal companion object {
+            /** Internal seam: a wrapper that caps the request-side tap at [tapLimit] bytes. */
+            @JvmSynthetic
+            internal fun bounded(
+                delegate: RequestBody,
+                provider: IoProvider,
+                tapLimit: Long,
+            ): LoggableRequestBody = LoggableRequestBody(delegate, provider, tapLimit)
         }
     }

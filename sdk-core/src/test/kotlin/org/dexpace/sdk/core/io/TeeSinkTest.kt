@@ -256,6 +256,93 @@ class TeeSinkTest {
         assertContentEquals("2345".toByteArray(), tap.snapshot())
     }
 
+    // ----- M4: bounded tap (tapLimit) -----
+
+    @Test
+    fun `tapLimit caps the tap but forwards the full payload to primary - typed write`() {
+        val provider = OkioIoProvider
+        val primaryOut = ByteArrayOutputStream()
+        val primary = provider.sink(primaryOut)
+        val tap = provider.buffer()
+        val tee = TeeSink(primary, tap, provider, tapLimit = 5)
+
+        tee.writeUtf8("0123456789") // 10 bytes, cap is 5
+        tee.flush()
+
+        // Primary received ALL 10 bytes — the wire body is never truncated.
+        assertContentEquals("0123456789".toByteArray(), primaryOut.toByteArray())
+        // The tap captured only the first 5 bytes.
+        assertContentEquals("01234".toByteArray(), tap.snapshot())
+    }
+
+    @Test
+    fun `tapLimit caps the tap across multiple writes`() {
+        val provider = OkioIoProvider
+        val primaryOut = ByteArrayOutputStream()
+        val primary = provider.sink(primaryOut)
+        val tap = provider.buffer()
+        val tee = TeeSink(primary, tap, provider, tapLimit = 6)
+
+        tee.write("abcd".toByteArray()) // 4 bytes -> tap has "abcd"
+        tee.write("efgh".toByteArray()) // 4 more -> tap fills to 6 ("abcdef"), rest forwarded only
+        tee.flush()
+
+        // Primary got everything (8 bytes).
+        assertContentEquals("abcdefgh".toByteArray(), primaryOut.toByteArray())
+        // Tap is capped at 6.
+        assertContentEquals("abcdef".toByteArray(), tap.snapshot())
+    }
+
+    @Test
+    fun `tapLimit caps the tap on the write Buffer path`() {
+        val provider = OkioIoProvider
+        val primaryOut = ByteArrayOutputStream()
+        val primary = provider.sink(primaryOut)
+        val tap = provider.buffer()
+        val tee = TeeSink(primary, tap, provider, tapLimit = 3)
+
+        val src = OkioIoProvider.buffer().apply { writeUtf8("payload") } // 7 bytes
+        tee.write(src, 7)
+        tee.flush()
+
+        assertContentEquals("payload".toByteArray(), primaryOut.toByteArray())
+        assertContentEquals("pay".toByteArray(), tap.snapshot())
+        assertEquals(0L, src.size, "the full source must be drained into primary")
+    }
+
+    @Test
+    fun `tapLimit caps the tap on the outputStream path`() {
+        val provider = OkioIoProvider
+        val primaryOut = ByteArrayOutputStream()
+        val primary = provider.sink(primaryOut)
+        val tap = provider.buffer()
+        val tee = TeeSink(primary, tap, provider, tapLimit = 4)
+
+        val s = tee.outputStream()
+        s.write("ab".toByteArray()) // 2 bytes
+        s.write("cdef".toByteArray(), 0, 4) // 4 more; cap reached at 4, remainder forwarded only
+        s.write('Z'.code) // single byte past the cap — primary only
+        s.flush()
+
+        assertContentEquals("abcdefZ".toByteArray(), primaryOut.toByteArray())
+        assertContentEquals("abcd".toByteArray(), tap.snapshot())
+    }
+
+    @Test
+    fun `zero tapLimit mirrors nothing but forwards everything`() {
+        val provider = OkioIoProvider
+        val primaryOut = ByteArrayOutputStream()
+        val primary = provider.sink(primaryOut)
+        val tap = provider.buffer()
+        val tee = TeeSink(primary, tap, provider, tapLimit = 0)
+
+        tee.writeUtf8("anything")
+        tee.flush()
+
+        assertContentEquals("anything".toByteArray(), primaryOut.toByteArray())
+        assertEquals(0L, tap.size, "a zero tapLimit must mirror nothing")
+    }
+
     @Test
     fun `buffer property is unsupported on TeeSink`() {
         // Direct buffer access would write to the tap only, never the primary sink — a

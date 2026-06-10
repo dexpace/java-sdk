@@ -158,6 +158,106 @@ class HeadersTest {
         assertEquals(listOf("new=1", "new=2"), headers.values(HttpHeaderName.SET_COOKIE))
     }
 
+    // ---- value validation (request/header-splitting guard) ----------------------
+
+    @Test
+    fun `add rejects a value containing a line feed`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil", "ok\nInjected: 1")
+        }
+    }
+
+    @Test
+    fun `add rejects a value containing a carriage return`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil", "ok\rInjected: 1")
+        }
+    }
+
+    @Test
+    fun `set rejects a value containing a line feed`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set("X-Evil", "ok\nInjected: 1")
+        }
+    }
+
+    @Test
+    fun `set rejects a value containing a carriage return`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set("X-Evil", "ok\rInjected: 1")
+        }
+    }
+
+    @Test
+    fun `add list overload rejects any value containing CR or LF`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil", listOf("fine", "bad\nvalue"))
+        }
+    }
+
+    @Test
+    fun `set list overload rejects any value containing CR or LF`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set("X-Evil", listOf("bad\rvalue"))
+        }
+    }
+
+    @Test
+    fun `typed add rejects a value containing a line feed`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add(HttpHeaderName.SET_COOKIE, "a=1\nInjected: 1")
+        }
+    }
+
+    @Test
+    fun `typed set rejects a value containing a line feed`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set(HttpHeaderName.SET_COOKIE, "a=1\nInjected: 1")
+        }
+    }
+
+    @Test
+    fun `the rejection message names the offending header`() {
+        val thrown =
+            assertFailsWith<IllegalArgumentException> {
+                Headers.builder().add("X-Trace-Id", "ok\nbad")
+            }
+        assertTrue(
+            thrown.message?.lowercase()?.contains("x-trace-id") == true,
+            "message should name the header, got: ${thrown.message}",
+        )
+    }
+
+    @Test
+    fun `normal values without CR or LF are accepted`() {
+        val headers =
+            Headers.builder()
+                .add("X-Plain", "hello world")
+                .set("Authorization", "Bearer abc.def-ghi")
+                .add(HttpHeaderName.SET_COOKIE, "id=42; Path=/")
+                // Tabs and UTF-8 are not CR/LF, so they must pass the conservative check.
+                .set("X-Unicode", "café\tvalue")
+                .build()
+
+        assertEquals("hello world", headers.get("X-Plain"))
+        assertEquals("Bearer abc.def-ghi", headers.get("Authorization"))
+        assertEquals("id=42; Path=/", headers.get(HttpHeaderName.SET_COOKIE))
+        assertEquals("café\tvalue", headers.get("X-Unicode"))
+    }
+
+    @Test
+    fun `set with null still removes even though value validation is in place`() {
+        // Removal must not run value validation — null is the documented removal signal.
+        val headers =
+            Headers.builder()
+                .set("X-Trace-Id", "trace-1")
+                .set("X-Trace-Id", null)
+                .build()
+
+        assertFalse(headers.contains("X-Trace-Id"))
+        assertNull(headers.get("X-Trace-Id"))
+    }
+
     // ---- accessors & equality coverage ------------------------------------------
 
     @Test

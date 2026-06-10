@@ -115,12 +115,20 @@ public class OkHttpTransport private constructor(
                     call: Call,
                     response: OkResponse,
                 ) {
-                    try {
-                        future.complete(responseAdapter.adapt(request, response))
-                    } catch (t: Throwable) {
-                        // ResponseAdapter.adapt already closed the response on failure; we only
-                        // need to surface the error to the future.
-                        future.completeExceptionally(t)
+                    val adapted =
+                        try {
+                            responseAdapter.adapt(request, response)
+                        } catch (t: Throwable) {
+                            // ResponseAdapter.adapt already closed the response on failure; we only
+                            // need to surface the error to the future.
+                            future.completeExceptionally(t)
+                            return
+                        }
+                    // The consumer may have cancelled `future` while the exchange was being
+                    // adapted. In that race complete() returns false and nothing else will ever
+                    // close `adapted` — a live connection — so close it here to release it.
+                    if (!future.complete(adapted)) {
+                        closeQuietly(adapted)
                     }
                 }
 
@@ -138,6 +146,19 @@ public class OkHttpTransport private constructor(
             }
         }
         return future
+    }
+
+    /**
+     * Best-effort close on a discard path. Used when an adapted [Response] loses the race to a
+     * cancelled future: the response is already being discarded, so a failure to close it has
+     * nothing actionable to surface.
+     */
+    private fun closeQuietly(response: Response) {
+        try {
+            response.close()
+        } catch (ignored: Throwable) {
+            // Intentionally ignored: the response is already being discarded.
+        }
     }
 
     /**
@@ -223,6 +244,7 @@ public class OkHttpTransport private constructor(
      * — letting OkHttp follow redirects underneath would double-handle them.
      */
     public class Builder internal constructor() : SdkBuilder<OkHttpTransport> {
+        private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.okhttp.OkHttpTransport")
         private var connectTimeout: Duration? = null
         private var readTimeout: Duration? = null
         private var writeTimeout: Duration? = null
@@ -304,6 +326,13 @@ public class OkHttpTransport private constructor(
          *  3. Credentials (when present) are wired through [Authenticator] —
          *     a `Proxy-Authorization: Basic …` is added on 407 challenges.
          *
+         * This transport does **not** honour [ProxyOptions.challengeHandler]: a custom proxy
+         * challenge handler (e.g. Digest) is not wired into OkHttp's `proxyAuthenticator`, which
+         * only ever emits Basic auth from [ProxyOptions.username] / [ProxyOptions.password]. A
+         * caller who configured a `challengeHandler` gets a loud WARNING here so the limitation is
+         * discoverable rather than surfacing as unexplained `407 Proxy Authentication Required`
+         * responses.
+         *
          * Credentials are deliberately never logged; only the proxy host/port appears in
          * the DEBUG log.
          */
@@ -311,6 +340,16 @@ public class OkHttpTransport private constructor(
             okBuilder: OkHttpClient.Builder,
             options: ProxyOptions,
         ) {
+            if (options.challengeHandler != null) {
+                log.atWarning()
+                    .event("proxy.auth.challenge_handler.unsupported")
+                    .log(
+                        "The OkHttp transport does not honour ProxyOptions.challengeHandler; it is " +
+                            "ignored. Proxy authentication falls back to Basic auth derived from " +
+                            "ProxyOptions.username / ProxyOptions.password. Supply those credentials, " +
+                            "or use a transport that supports a custom proxy challenge handler.",
+                    )
+            }
             val javaType =
                 when (options.type) {
                     ProxyOptions.Type.HTTP -> Proxy.Type.HTTP

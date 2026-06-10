@@ -23,9 +23,11 @@ public enum class HttpLogLevel {
     /**
      * Headers plus the request/response body. The request body is captured during write
      * via [org.dexpace.sdk.core.http.request.LoggableRequestBody]; the response body is
-     * drained eagerly into [org.dexpace.sdk.core.http.response.LoggableResponseBody].
+     * captured into [org.dexpace.sdk.core.http.response.LoggableResponseBody].
      *
-     * Not suitable for very large streamed responses — the entire body is buffered in memory.
+     * Capture is **bounded** to the configured preview size (`bodyPreviewMaxBytes`), so large
+     * or streaming responses are not buffered whole — the caller still streams the remainder.
+     * See [HttpInstrumentationOptions] for the streaming and async-completion-thread caveats.
      */
     BODY_AND_HEADERS,
 }

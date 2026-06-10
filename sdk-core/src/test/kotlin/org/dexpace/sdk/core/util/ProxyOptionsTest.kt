@@ -635,9 +635,11 @@ class ProxyOptionsTest {
 
     @Test
     fun `challengeHandler is retained alongside username and password`() {
-        // When both are present we keep both — the consumer is expected to prefer the
-        // challengeHandler. ProxyOptions itself does not enforce one over the other; that
-        // is documented as the caller's responsibility (per to-implement.md §16).
+        // When both are present we keep both verbatim. challengeHandler is a reserved slot:
+        // no shipped transport reads it today (the OkHttp transport applies Basic auth from
+        // username/password, the JDK transport delegates Basic/Digest negotiation to the JDK
+        // stack from the same credentials). ProxyOptions itself stores the handler without
+        // enforcing any precedence; this test pins that both fields survive construction.
         val handler = StubChallengeHandler()
         val po =
             ProxyOptions(

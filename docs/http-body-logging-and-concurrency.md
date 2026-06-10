@@ -176,39 +176,60 @@ bytes tee'd up to the failure point — useful for diagnosing a failed request. 
 the delegate's replayability: `isReplayable()` delegates, and `toReplayable()` returns a new
 `LoggableRequestBody` wrapping the delegate's replayable form.
 
-### LoggableResponseBody — Drain-Once Strategy
+### LoggableResponseBody — Bounded-Capture Strategy
 
-**Problem**: Log response body content without consuming the stream that the caller needs.
+**Problem**: Log response body content without consuming the stream that the caller needs, and
+without buffering an arbitrarily large body into memory.
 
-**Solution**: Drain once. On first access, the entire delegate body is drained into an internal
-`Buffer` with a single `writeAll` (a segment transfer on Okio-backed providers) and the delegate
-is closed. All subsequent reads are served from the captured buffer:
+**Solution**: Drain a bounded prefix on first access. The wrapper reads at most `maxCaptureBytes`
+bytes from the delegate into an internal `Buffer`; what happens next depends on whether the body
+fit within that cap:
 
 ```
 First access (source / snapshot / captureException):
-  delegate.source() ──writeAll──► Buffer            (drains into pooled segments,
-  delegate closed via use {}                          then closes the source)
-                                       │
-                                       ▼
-Subsequent access:               captured.peek()
-  source() returns a fresh non-consuming view        (no copy, no consumption)
+  read up to maxCaptureBytes from delegate.source() ──► Buffer (the capture prefix)
+
+  Body fit within the cap (default, unlimited):
+    delegate closed; capture is the whole body
+        │
+        ▼
+    Subsequent access:  captured.peek()   (fresh non-consuming view, fully repeatable)
+
+  Body exceeded the cap:
+    delegate left OPEN; only the prefix is buffered
+        │
+        ▼
+    source() (once):  captured.peek()  ─then─►  live delegate tail
+                      (one-shot: replays the prefix, then continues from the wire)
 ```
 
-**Why drain-once over tee-read?**
+When the whole body fits within `maxCaptureBytes` the behavior is the classic drain-once: the
+delegate is closed and every `source()` call returns a fresh `peek()` view. When the body is
+larger than the cap, only the preview prefix is buffered, the delegate stays open, and `source()`
+returns a **one-shot** stream that replays the captured prefix and then continues from the live
+delegate tail — so the caller still receives the complete body. Because the tail is single-use, a
+second `source()` call on an over-cap body throws `IllegalStateException`.
 
-For responses, a tee-read (wrapping the source) would require the consumer to read the body to
-trigger observation — if the consumer never reads, nothing is logged. Draining ensures the body
-is always available for logging regardless of whether the consumer reads it.
+The default `maxCaptureBytes` is `Long.MAX_VALUE` (unbounded, fully repeatable). The
+instrumentation steps construct the wrapper via the internal `bounded(...)` seam capped at the
+configured `bodyPreviewMaxBytes`, so logging never buffers more than a preview while the caller
+still streams the rest.
 
-**Trade-off**: The full response is held in memory. This is acceptable for API responses
-(typically JSON, < 1 MB) but not suitable for streaming large downloads. The class documents
-this constraint and offers `snapshot(maxBytes)` for capturing only a bounded preview prefix.
+**Why bound the capture rather than always drain?**
 
-**Why `source()` returns a new non-consuming view each time:**
+A tee-read (wrapping the source) would require the consumer to read the body to trigger
+observation — if the consumer never reads, nothing is logged. Draining a bounded prefix ensures a
+preview is always available for logging regardless of whether the consumer reads, while keeping
+memory bounded and avoiding a hang on a large or unbounded streaming body.
 
-Each call returns an independent, non-consuming `BufferedSource` over the captured buffer (via
-`Buffer.peek()`). This turns a single-use body into a repeatable one — the caller can read the
-body multiple times without re-fetching or copying.
+**Trade-off**: only the preview prefix is held in memory. For a body within the cap the capture is
+the whole body and reads are fully repeatable; for a larger body the wrapper is single-consumer
+(the live tail can be read only once). `snapshot(maxBytes)` returns a bounded prefix of the
+capture, leaving the capture intact.
+
+**`contentLength()`**: returns the captured size only when the body fit within the cap (then the
+capture *is* the body); otherwise it returns the delegate's true length, since the capture is just
+a prefix.
 
 **Failure semantics**: a network error during the drain does not silently truncate. The wrapper
 retains whatever bytes were read before the failure and caches the exception:
@@ -224,8 +245,8 @@ retains whatever bytes were read before the failure and caches the exception:
 The only logging output is a raw `ByteArray`:
 
 ```kotlin
-fun snapshot(): ByteArray            // the full captured body
-fun snapshot(maxBytes: Int): ByteArray   // a bounded prefix, leaving the capture intact
+fun snapshot(): ByteArray            // the full captured prefix (the whole body when it fit the cap)
+fun snapshot(maxBytes: Int): ByteArray   // a bounded slice of the capture, leaving it intact
 ```
 
 `snapshot()` throws `IllegalStateException` if the captured size exceeds
@@ -253,6 +274,13 @@ operations, so the cost is one encode plus two segment moves regardless of paylo
 network resource. Direct buffer access (`tee.buffer`) is unsupported and throws — writing into the
 backing buffer would reach only the tap, silently corrupting the wire body. Callers must use the
 typed `write*` methods so bytes reach both sinks.
+
+`TeeSink` accepts a `tapLimit` (default `Long.MAX_VALUE`) that bounds how many bytes are mirrored
+into the tap. Once the limit is reached the tee stops copying into the tap entirely but keeps
+forwarding the **full** payload to the primary — the wire body is never truncated. The
+instrumentation steps build the request wrapper via `LoggableRequestBody.bounded(...)` with the
+limit set to `bodyPreviewMaxBytes`, so a multi-GB `FileRequestBody` upload mirrors only a bounded
+preview into memory while streaming zero-copy to the transport.
 
 ### Buffer-Based Capture
 
