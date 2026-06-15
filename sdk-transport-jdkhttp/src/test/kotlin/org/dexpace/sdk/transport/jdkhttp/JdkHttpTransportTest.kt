@@ -24,6 +24,7 @@ import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.transport.jdkhttp.internal.BodyPublishers
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URL
@@ -339,6 +340,45 @@ class JdkHttpTransportTest {
         val recorded = server.takeRequest()
         val received = recorded.body?.toByteArray() ?: ByteArray(0)
         assertEquals(md5(bytes), md5(received), "streaming body must round-trip intact")
+    }
+
+    @Test
+    fun `streamingBodyThatCannotBeBufferedFailsLoudly`() {
+        // A non-replayable streaming body (> 64 KiB, so it takes the piped path) whose writeTo
+        // aborts with an IOException after a partial write cannot be turned into a replayable
+        // copy: toReplayable's internal writeTo throws, and the body — like the SDK's
+        // consume-once bodies — has already flipped its consumed guard. The adapter must NOT
+        // attempt a second writeTo (which would trip the guard and surface an
+        // IllegalStateException, masking the real cause and escaping the @Throws(IOException)
+        // contract). It must instead fail loudly with a clear UncheckedIOException that wraps
+        // the original IOException.
+        val body = PartialThenFailingBody(CommonMediaTypes.APPLICATION_OCTET_STREAM)
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/unbufferable").toUrl())
+                .body(body)
+                .build()
+        val ex =
+            assertFails {
+                transport.execute(request).close()
+            }
+        assertTrue(
+            ex is UncheckedIOException,
+            "expected UncheckedIOException, got ${ex::class}: ${ex.message}",
+        )
+        assertTrue(
+            ex.message?.contains("supply a replayable body") == true,
+            "message must explain the body could not be buffered, was: ${ex.message}",
+        )
+        val cause = ex.cause
+        // UncheckedIOException is a RuntimeException, so `is IOException` already excludes a
+        // re-wrapped IllegalStateException/UncheckedIOException — the masking failure mode.
+        assertTrue(
+            cause is IOException,
+            "the original IOException must be preserved as the cause, was: ${cause?.let { it::class }}",
+        )
+        assertEquals("simulated mid-write failure", cause.message)
     }
 
     @Test
@@ -724,6 +764,35 @@ class JdkHttpTransportTest {
             } finally {
                 exited.countDown()
             }
+        }
+    }
+
+    /**
+     * Non-replayable body that writes a partial chunk and then aborts with an [IOException]. Its
+     * declared length is large enough to route through the streaming (piped) publisher path, and
+     * a consume-once guard mirrors the SDK's stream-backed bodies: a second [writeTo] throws
+     * [IllegalStateException]. Used to verify the adapter does not re-drive an already-consumed
+     * body when buffering it into a replayable copy fails mid-write.
+     */
+    private class PartialThenFailingBody(
+        private val mediaType: MediaType,
+    ) : RequestBody() {
+        private val consumed = AtomicBoolean(false)
+
+        override fun mediaType(): MediaType = mediaType
+
+        // > 64 KiB so adaptBody routes to the streaming publisher rather than the eager path.
+        override fun contentLength(): Long = 128L * 1024L
+
+        override fun isReplayable(): Boolean = false
+
+        override fun writeTo(sink: BufferedSink) {
+            check(consumed.compareAndSet(false, true)) {
+                "PartialThenFailingBody.writeTo was already called — the body is single-use"
+            }
+            sink.write(ByteArray(4096))
+            sink.flush()
+            throw IOException("simulated mid-write failure")
         }
     }
 

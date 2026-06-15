@@ -102,6 +102,61 @@ class OkHttpTransportTest {
         assertEquals("/echo", recorded.url.encodedPath)
     }
 
+    // -------- body-less methods that OkHttp requires a body for --------
+
+    @Test
+    fun executeBodylessPostSendsEmptyBody() {
+        // The SDK treats a body as optional for every method, so a body-less POST is a valid,
+        // publicly-constructible request. OkHttp's Request.Builder.method, however, rejects a
+        // null body for POST/PUT/PATCH. The adapter must substitute a zero-length body so the
+        // request dispatches with an empty payload instead of throwing IllegalArgumentException.
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/bodyless-post").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
+        assertEquals("/bodyless-post", recorded.url.encodedPath)
+    }
+
+    @Test
+    fun executeBodylessPutSendsEmptyBody() {
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url(server.url("/bodyless-put").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
+    }
+
+    @Test
+    fun executeBodylessPatchSendsEmptyBody() {
+        server.enqueue(MockResponse.Builder().code(201).build())
+        val request =
+            Request.builder()
+                .method(Method.PATCH)
+                .url(server.url("/bodyless-patch").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(201, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
+    }
+
     // -------- async golden paths --------
 
     @Test
