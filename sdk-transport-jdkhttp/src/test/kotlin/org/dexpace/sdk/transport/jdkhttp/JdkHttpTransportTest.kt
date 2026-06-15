@@ -301,7 +301,7 @@ class JdkHttpTransportTest {
         }
     }
 
-    // -------- streaming publisher re-subscription (H4) --------
+    // -------- streaming publisher re-subscription --------
 
     @Test
     fun `streamingPublisherSurvivesResubscription`() {
@@ -367,7 +367,7 @@ class JdkHttpTransportTest {
         )
     }
 
-    // -------- proxy challengeHandler (M7) --------
+    // -------- proxy challengeHandler --------
 
     @Test
     fun `proxyChallengeHandlerIsAcceptedAndSurfacedAsUnsupported`() {
@@ -727,7 +727,7 @@ class JdkHttpTransportTest {
         }
     }
 
-    /** Minimal [org.dexpace.sdk.core.http.auth.ChallengeHandler] stub for the M7 acceptance test. */
+    /** Minimal [org.dexpace.sdk.core.http.auth.ChallengeHandler] stub for the proxy challenge-handler acceptance test. */
     private object NoopChallengeHandler : org.dexpace.sdk.core.http.auth.ChallengeHandler {
         override fun handleChallenges(
             method: Method,

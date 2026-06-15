@@ -368,7 +368,7 @@ class OkHttpTransportTest {
 
     @Test
     fun asyncResponseThatLosesTheRaceIsClosed() {
-        // L1: the consumer can complete/cancel the returned future in the window *between* OkHttp
+        // The consumer can complete/cancel the returned future in the window *between* OkHttp
         // finishing the exchange and Callback.onResponse adapting it. In that race
         // `future.complete(adapted)` returns false and nothing else will ever close `adapted` — a
         // live connection — so the transport must close it. We reproduce the race deterministically
@@ -447,7 +447,7 @@ class OkHttpTransportTest {
 
     @Test
     fun proxyChallengeHandlerIsAcceptedAndIgnored() {
-        // M7: ProxyOptions.challengeHandler is not honoured by the OkHttp transport. Building a
+        // ProxyOptions.challengeHandler is not honoured by the OkHttp transport. Building a
         // transport with one set must be accepted (it logs a loud WARNING and falls back to Basic
         // auth from username/password) rather than throwing. We point the proxy at the
         // MockWebServer so the built transport still routes a normal request through it, proving

@@ -976,7 +976,7 @@ class RetryStepTest {
 
     @Test
     fun `throwing shouldRetryCondition closes the retryable response before propagating`() {
-        // M6: the should-retry predicate runs while the retryable response is still open. If it
+        // The should-retry predicate runs while the retryable response is still open. If it
         // throws, the response must be closed before the exception propagates — otherwise the
         // 5xx response's socket/buffer leaks. Assert both the close() is observed and the
         // exception still surfaces.
@@ -1008,7 +1008,7 @@ class RetryStepTest {
 
     @Test
     fun `throwing computeResponseDelay override closes the retryable response before propagating`() {
-        // M6: a subclass override of computeResponseDelay runs after the predicate approves the
+        // A subclass override of computeResponseDelay runs after the predicate approves the
         // retry, while the response is still open. If it throws, the response must be closed
         // before the exception propagates.
         val closes = AtomicInteger(0)

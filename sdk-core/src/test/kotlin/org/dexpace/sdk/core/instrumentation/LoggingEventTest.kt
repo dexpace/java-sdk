@@ -597,7 +597,7 @@ class LoggingEventTest {
         assertContains(rendered, "anon-msg")
     }
 
-    // -- MDC allow-list (B9) ------------------------------------------------------------------
+    // -- MDC allow-list ------------------------------------------------------------------
 
     @Test
     fun `default allow-list folds only trace_id and span_id from MDC`() {
