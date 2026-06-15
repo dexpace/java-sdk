@@ -2163,6 +2163,13 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetryStep : org/dexp
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetryStep$Companion {
 }
 
+public class org/dexpace/sdk/core/serde/DeserializationException : org/dexpace/sdk/core/serde/SerdeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
 public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 	public abstract fun deserialize (Ljava/io/InputStream;Ljava/lang/Class;)Ljava/lang/Object;
 	public abstract fun deserialize (Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;
@@ -2172,6 +2179,20 @@ public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 public abstract interface class org/dexpace/sdk/core/serde/Serde {
 	public abstract fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public abstract fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
+}
+
+public class org/dexpace/sdk/core/serde/SerdeException : java/lang/RuntimeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public class org/dexpace/sdk/core/serde/SerializationException : org/dexpace/sdk/core/serde/SerdeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public abstract interface class org/dexpace/sdk/core/serde/Serializer {

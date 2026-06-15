@@ -9,11 +9,15 @@ package org.dexpace.sdk.serde.jackson
 
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.core.JsonParser
+import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.dexpace.sdk.core.serde.DeserializationException
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
+import org.dexpace.sdk.core.serde.SerializationException
 import org.dexpace.sdk.core.serde.Serializer
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -51,26 +55,34 @@ public class JacksonSerde private constructor(
     /**
      * Deserialize [input] into a value of the type captured by [type]. This overload is the
      * "correct" entry point for parametric or otherwise erased generic targets.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [type].
      */
     public fun <T> deserializeAs(
         input: String,
         type: TypeReference<T>,
-    ): T = mapper.readValue(input, type)
+    ): T = deserializing { mapper.readValue(input, type) }
 
-    /** Deserialize from a [ByteArray]. See [deserializeAs] for type-reference rationale. */
+    /**
+     * Deserialize from a [ByteArray]. See [deserializeAs] for type-reference rationale.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [type].
+     */
     public fun <T> deserializeAs(
         input: ByteArray,
         type: TypeReference<T>,
-    ): T = mapper.readValue(input, type)
+    ): T = deserializing { mapper.readValue(input, type) }
 
     /**
      * Deserialize by streaming from [inputStream]. The implementation reads to EOF but does
      * **not** close the stream — the caller retains ownership.
+     *
+     * @throws DeserializationException if the payload is malformed or does not match [type].
      */
     public fun <T> deserializeAs(
         inputStream: InputStream,
         type: TypeReference<T>,
-    ): T = mapper.readValue(inputStream, type)
+    ): T = deserializing { mapper.readValue(inputStream, type) }
 
     public companion object {
         /** Build a [JacksonSerde] backed by an [ObjectMapper] with the SDK-correct defaults. */
@@ -100,9 +112,9 @@ public class JacksonSerde private constructor(
 internal class JacksonSerializer internal constructor(
     private val mapper: ObjectMapper,
 ) : Serializer {
-    override fun serialize(input: Any): String = mapper.writeValueAsString(input)
+    override fun serialize(input: Any): String = serializing { mapper.writeValueAsString(input) }
 
-    override fun serializeToByteArray(input: Any): ByteArray = mapper.writeValueAsBytes(input)
+    override fun serializeToByteArray(input: Any): ByteArray = serializing { mapper.writeValueAsBytes(input) }
 
     override fun serialize(
         input: Any,
@@ -113,7 +125,7 @@ internal class JacksonSerializer internal constructor(
         // mutated and the stream is left open after close()/flush — see JacksonSerde.from(...).
         val generator = mapper.factory.createGenerator(outputStream).disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
         generator.use { gen ->
-            mapper.writeValue(gen, input)
+            serializing { mapper.writeValue(gen, input) }
         }
     }
 
@@ -124,13 +136,14 @@ internal class JacksonSerializer internal constructor(
     ): Int {
         // Render to bytes then memcpy into the caller's buffer at [offset], returning the count so
         // the caller can slice the valid prefix. Overflow / bad offset throws IndexOutOfBoundsException
-        // per the Serializer contract; bounds-check is cheap.
+        // per the Serializer contract; bounds-check is cheap — and stays outside the encode wrapper so
+        // a bounds error is never re-wrapped as a SerializationException.
         if (offset < 0 || offset > buffer.size) {
             throw IndexOutOfBoundsException(
                 "offset $offset out of bounds for buffer of size ${buffer.size}.",
             )
         }
-        val encoded = mapper.writeValueAsBytes(input)
+        val encoded = serializing { mapper.writeValueAsBytes(input) }
         val remaining = buffer.size - offset
         if (encoded.size > remaining) {
             throw IndexOutOfBoundsException(
@@ -158,12 +171,12 @@ internal class JacksonDeserializer internal constructor(
     override fun <T> deserialize(
         input: String,
         type: Class<T>,
-    ): T = mapper.readValue(input, type)
+    ): T = deserializing { mapper.readValue(input, type) }
 
     override fun <T> deserialize(
         input: ByteArray,
         type: Class<T>,
-    ): T = mapper.readValue(input, type)
+    ): T = deserializing { mapper.readValue(input, type) }
 
     override fun <T> deserialize(
         inputStream: InputStream,
@@ -173,7 +186,40 @@ internal class JacksonDeserializer internal constructor(
         // a caller-supplied mapper (see JacksonSerde.from) is not mutated and the stream stays open.
         val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
         return parser.use { p ->
-            mapper.readValue(p, type)
+            deserializing { mapper.readValue(p, type) }
         }
     }
 }
+
+/**
+ * Run an encode [block], translating any Jackson [JsonProcessingException] into a
+ * [SerializationException] so no `com.fasterxml.*` type escapes the `Serde` SPI. The original
+ * Jackson failure is chained as the cause.
+ *
+ * [JsonProcessingException] is the root of Jackson's databind/streaming failure hierarchy and a
+ * subtype of [IOException]; catching it specifically leaves a genuine stream [IOException] (a real
+ * write failure, not a serde problem) to propagate untouched, matching the caller-owned-stream
+ * contract on [Serializer.serialize].
+ */
+private inline fun <T> serializing(block: () -> T): T =
+    try {
+        block()
+    } catch (e: JsonProcessingException) {
+        throw SerializationException(e.originalMessage ?: e.message, e)
+    }
+
+/**
+ * Run a decode [block], translating any Jackson [JsonProcessingException] into a
+ * [DeserializationException] so no `com.fasterxml.*` type escapes the `Serde` SPI. The original
+ * Jackson failure is chained as the cause.
+ *
+ * As with [serializing], only [JsonProcessingException] (malformed input, shape/type mismatch) is
+ * wrapped; a genuine stream [IOException] propagates unchanged so existing `catch (IOException)`
+ * sites on the read path keep working.
+ */
+private inline fun <T> deserializing(block: () -> T): T =
+    try {
+        block()
+    } catch (e: JsonProcessingException) {
+        throw DeserializationException(e.originalMessage ?: e.message, e)
+    }
