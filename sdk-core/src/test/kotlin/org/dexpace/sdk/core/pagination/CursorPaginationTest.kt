@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import java.util.IdentityHashMap
+import java.util.stream.Collectors
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -126,5 +127,50 @@ class CursorPaginationTest {
         val strategy = CursorPaginationStrategy(items, cursor)
         val paginator = Paginator(client, authRequest, strategy)
         assertEquals(listOf("a", "b"), paginator.iterateAll().toList())
+    }
+
+    @Test
+    fun `streamAll yields the same items as iterateAll`() {
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            textResponse(req, "items=1,2\ncursor=c1")
+        }
+        client.on("https://api.example.com/items?cursor=c1") { req ->
+            textResponse(req, "items=3,4\ncursor=")
+        }
+
+        val (items, cursor) = buildCachedExtractors()
+        val strategy = CursorPaginationStrategy(items, cursor)
+        val paginator = Paginator(client, initialRequest(), strategy)
+        val streamed: List<String> = paginator.streamAll().collect(Collectors.toList())
+        assertEquals(listOf("1", "2", "3", "4"), streamed)
+    }
+
+    @Test
+    fun `cursor with special characters is URL encoded in next request`() {
+        // Opaque cursors may contain `=` `+` `/` characters (base64) — the rebuilder must
+        // URL-encode them so the server sees the original value unmangled. A custom query
+        // param name (e.g. `page_token`) covers token-style APIs that reuse this strategy.
+        val rawCursor = "a+b/c="
+        val encoded = "a%2Bb%2Fc%3D"
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            textResponse(req, "items=one\ncursor=$rawCursor")
+        }
+        client.on("https://api.example.com/items?page_token=$encoded") { req ->
+            textResponse(req, "items=two\ncursor=")
+        }
+
+        val (items, cursor) = buildCachedExtractors()
+        val strategy = CursorPaginationStrategy(items, cursor, cursorQueryParam = "page_token")
+        val paginator = Paginator(client, initialRequest(), strategy)
+        assertEquals(listOf("one", "two"), paginator.iterateAll().toList())
+        assertEquals(
+            listOf(
+                "https://api.example.com/items",
+                "https://api.example.com/items?page_token=$encoded",
+            ),
+            client.receivedUrls,
+        )
     }
 }

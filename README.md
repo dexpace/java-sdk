@@ -255,7 +255,7 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `http.auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, `AuthMetadata`, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler`, `CompositeChallengeHandler`. |
 | `http.sse` | `ServerSentEventReader` (WHATWG spec), `ServerSentEvent`, `ServerSentEventListener`, `BufferedSource.readServerSentEvents()`. |
 | `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` and `stream()` accessors. |
-| `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / token / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. |
+| `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. Token-style APIs use `CursorPaginationStrategy` with the query-param name set (e.g. `"page_token"`). |
 | `pipeline` | Recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline` over a sealed `ResponseOutcome`, with steps (`pipeline.step`, `pipeline.step.retry`) like `RetryStep`, `ResponseRecoveryStep`, `IdempotencyKeyStep`, `ClientIdentityStep`. |
 | `serde` | `Serde`, `Serializer`, `Deserializer` abstractions and `Tristate<T>` (absent / null / present). |
 | `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |
