@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<h1 align="center">Dexpace Java SDK</h1>
+<h1 align="center">Java SDKs Platform</h1>
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.3.21-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org)
