@@ -27,6 +27,8 @@ public enum class HttpLogLevel {
      *
      * Capture is **bounded** to the configured preview size (`bodyPreviewMaxBytes`), so large
      * or streaming responses are not buffered whole — the caller still streams the remainder.
+     * Consequently the logged `response.body.size` / `response.body.preview` fields reflect the
+     * captured preview, not necessarily the full body, which can be larger than the preview.
      * See [HttpInstrumentationOptions] for the streaming and async-completion-thread caveats.
      */
     BODY_AND_HEADERS,
