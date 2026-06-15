@@ -1038,6 +1038,142 @@ class RetryStepTest {
         assertTrue(closes.get() >= 1, "retryable response must be closed when the delay override throws")
     }
 
+    // ----------------- ServerOverrideRetryPredicate (X-Should-Retry) -----------------
+
+    @Test
+    fun `server override is not consulted by default`() {
+        // Off-by-default: the stock options never look at X-Should-Retry, so a 200 carrying
+        // `X-Should-Retry: true` is still returned without a retry.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(200).header("X-Should-Retry", "true") }
+
+        val pipeline = retryPipeline(fake)
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(1, fake.callCount)
+    }
+
+    @Test
+    fun `server override forces a retry on an otherwise non-retryable status`() {
+        // 404 is not in the default retryable set, but an explicit server signal forces a retry
+        // when the predicate is wired in.
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = ServerOverrideRetryPredicate(),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(404).header("X-Should-Retry", "true") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount)
+    }
+
+    @Test
+    fun `server override suppresses a retry on an otherwise retryable status`() {
+        // 503 is normally retried, but the server explicitly tells us not to.
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = ServerOverrideRetryPredicate(),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503).header("X-Should-Retry", "false") }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(503, response.status.code)
+        assertEquals(1, fake.callCount)
+    }
+
+    @Test
+    fun `server override falls back to the wrapped predicate when the header is absent`() {
+        // No X-Should-Retry header → defer to the delegate (here, the default classifier),
+        // so a 503 still retries and a 404 still does not.
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = ServerOverrideRetryPredicate(),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount)
+    }
+
+    @Test
+    fun `server override honours a configurable header name`() {
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition =
+                    ServerOverrideRetryPredicate(headerName = HttpHeaderName.fromString("X-Retry-Me")),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(404).header("X-Retry-Me", "true") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount)
+    }
+
+    @Test
+    fun `server override defers on the exception path`() {
+        // The header lives on responses; on the exception path the predicate defers to the
+        // delegate. With the default delegate, a retryable IOException still retries.
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryException = ServerOverrideRetryPredicate(),
+            )
+        val attempts = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    if (attempts.getAndIncrement() == 0) throw IOException("transient")
+                    return okResponse(request)
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(2, attempts.get())
+    }
+
     // ----------------- Error propagation -----------------
 
     @Test

@@ -28,7 +28,9 @@ import java.util.concurrent.ThreadLocalRandom
  *
  * ## Recognized header forms
  *
- *  1. `Retry-After: <seconds>` — RFC 7231 §7.1.3 numeric (delta-seconds) form.
+ *  1. `Retry-After: <seconds>` — RFC 7231 §7.1.3 numeric (delta-seconds) form. Both integer
+ *     and fractional values (e.g. `1.5`) are accepted; the fractional part is honoured to
+ *     nanosecond resolution.
  *  2. `Retry-After: <HTTP-date>` — RFC 7231 §7.1.3 absolute-date form (parsed via
  *     [DateTimeRfc1123], which tolerates an informational weekday per RFC 7231 §7.1.1.1).
  *  3. `retry-after-ms: <millis>` — millisecond delta variant.
@@ -105,6 +107,12 @@ public object RetryAfterParser {
      * year, so clamping here loses nothing operationally.
      */
     private val MAX_DELAY: Duration = Duration.ofDays(365)
+
+    /** [MAX_DELAY] expressed in whole seconds — the clamp threshold for fractional parsing. */
+    private val MAX_DELAY_SECONDS: Double = MAX_DELAY.seconds.toDouble()
+
+    /** Nanoseconds per second — the scale factor for the fractional `Retry-After` conversion. */
+    private const val NANOS_PER_SECOND: Double = 1_000_000_000.0
 
     /**
      * Parses the next-attempt delay from [headers] relative to [now]. Returns `null` when no
@@ -185,14 +193,23 @@ public object RetryAfterParser {
     }
 
     /**
-     * Parses [value] as a non-negative integer count of seconds. Returns `null` on any parse
-     * failure, including negative values — the retry layer falls back to its backoff
-     * schedule rather than retrying immediately against a misbehaving server.
+     * Parses [value] as a non-negative count of seconds. Accepts both the RFC 7231 §7.1.3
+     * integer (delta-seconds) form and the fractional form (`1.5`) that real servers and
+     * proxies emit; the fractional part is honoured down to nanosecond resolution.
+     *
+     * Returns `null` on any parse failure, on a negative value, or on a non-finite value
+     * (`NaN`, `Infinity`) — the retry layer then falls back to its backoff schedule rather
+     * than retrying immediately against a misbehaving server. A finite but absurdly large
+     * value is clamped to [MAX_DELAY] before the nanosecond conversion so the resulting
+     * [Duration] can never overflow [Duration.toNanos] downstream.
      */
     private fun parseNumericSeconds(value: String): Duration? {
-        val seconds = value.toLongOrNull() ?: return null
-        if (seconds < 0L) return null
-        return Duration.ofSeconds(seconds)
+        val seconds = value.toDoubleOrNull() ?: return null
+        if (seconds.isNaN() || seconds.isInfinite() || seconds < 0.0) return null
+        // Clamp in the seconds domain before converting to nanos: a value beyond the ceiling
+        // would overflow the `* NANOS_PER_SECOND` multiply and the Long cast below.
+        if (seconds >= MAX_DELAY_SECONDS) return MAX_DELAY
+        return Duration.ofNanos((seconds * NANOS_PER_SECOND).toLong())
     }
 
     /**

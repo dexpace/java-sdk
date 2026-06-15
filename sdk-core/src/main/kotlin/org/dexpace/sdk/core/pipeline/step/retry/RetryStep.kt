@@ -56,6 +56,14 @@ import java.util.concurrent.TimeUnit
  * is a deliberate departure from Square's `RetryInterceptor`, which retries on status alone and
  * silently double-sends a body it cannot replay on transport timeouts.
  *
+ * ## Per-attempt header
+ *
+ * When [RetrySettings.attemptHeaderName] is configured (it is `null` by default), every send is
+ * stamped with that header carrying the 1-based attempt ordinal (`1` for the original send, `2`
+ * for the first retry, …) on a fresh per-attempt copy of the request, so servers and proxies can
+ * observe the retry count. The header is set on a copy via [Request.newBuilder]; the captured
+ * template is never mutated, and any idempotency key already on the request is left untouched.
+ *
  * ## Cancellation
  *
  * Waits between attempts use [CompletableFuture.get] backed by [scheduler] — never
@@ -142,9 +150,11 @@ public class RetryStep
          */
         @Throws(Throwable::class)
         public fun attempt(): Response {
+            // The original send is attempt ordinal 1 — stamp it when the feature is enabled so
+            // the very first request carries the same observable counter the retries will.
             val initial: ResponseOutcome =
                 try {
-                    ResponseOutcome.Success(httpClient.execute(request))
+                    ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal = 1)))
                 } catch (t: Throwable) {
                     ResponseOutcome.Failure(t)
                 }
@@ -172,7 +182,9 @@ public class RetryStep
                     is AttemptStep.Abort -> return ResponseOutcome.Failure(readyState.error)
                     is AttemptStep.Proceed -> {
                         state.attempt += 1
-                        val outcome = executeOnce()
+                        // state.attempt is now the 1-based ordinal of the send about to happen:
+                        // the original was 1, so the first retry dispatched here is 2.
+                        val outcome = executeOnce(state.attempt)
                         if (outcome is ResponseOutcome.Success) return outcome
                         val nextError = (outcome as ResponseOutcome.Failure).error
                         if (!isClassifiedRetryable(nextError)) return outcome
@@ -268,16 +280,38 @@ public class RetryStep
          * Executes the request once via the captured transport, converting any throwable
          * raised by the transport into a [ResponseOutcome.Failure]. Preserves the interrupt
          * flag if the transport raises an [InterruptedException] mid-send.
+         *
+         * @param attemptOrdinal The 1-based ordinal of this send, stamped onto the per-attempt
+         *  request copy when [RetrySettings.attemptHeaderName] is configured.
          */
-        private fun executeOnce(): ResponseOutcome =
+        private fun executeOnce(attemptOrdinal: Int): ResponseOutcome =
             try {
-                ResponseOutcome.Success(httpClient.execute(request))
+                ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal)))
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 ResponseOutcome.Failure(e)
             } catch (t: Throwable) {
                 ResponseOutcome.Failure(t)
             }
+
+        /**
+         * Returns a per-attempt copy of [request] carrying the configured
+         * [RetrySettings.attemptHeaderName] set to [attemptOrdinal]. When no attempt header is
+         * configured the original [request] is returned unchanged — the no-op path allocates
+         * nothing, so the common (feature-off) case pays no cost. The returned copy is built via
+         * [Request.newBuilder] so the immutable template the step captured is never mutated; any
+         * idempotency key the caller stamped is preserved verbatim because only this single
+         * header is replaced.
+         */
+        private fun stampAttempt(
+            request: Request,
+            attemptOrdinal: Int,
+        ): Request {
+            val header = settings.attemptHeaderName ?: return request
+            return request.newBuilder()
+                .setHeader(header.caseSensitiveName, attemptOrdinal.toString())
+                .build()
+        }
 
         /**
          * Blocks the calling thread for [delay] without pinning a carrier thread under Loom.

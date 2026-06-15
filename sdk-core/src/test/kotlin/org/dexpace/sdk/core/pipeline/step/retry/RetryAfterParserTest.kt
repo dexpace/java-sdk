@@ -58,6 +58,50 @@ class RetryAfterParserTest {
         assertEquals(Duration.ofSeconds(7), RetryAfterParser.parse(headers("Retry-After" to "  7  "), now))
     }
 
+    @Test
+    fun `fractional Retry-After parses as sub-second delay`() {
+        // RFC 7231 delta-seconds is integer-only, but real servers and proxies emit `1.5`.
+        // 1.5 s == 1_500 ms.
+        assertEquals(Duration.ofMillis(1500), RetryAfterParser.parse(headers("Retry-After" to "1.5"), now))
+    }
+
+    @Test
+    fun `fractional Retry-After below one second parses`() {
+        // 0.25 s == 250 ms — the integer parser would have rejected this entirely.
+        assertEquals(Duration.ofMillis(250), RetryAfterParser.parse(headers("Retry-After" to "0.25"), now))
+    }
+
+    @Test
+    fun `fractional Retry-After negative returns null`() {
+        // The existing negative clamp must survive the switch to fractional parsing.
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "-1.5"), now))
+    }
+
+    @Test
+    fun `fractional Retry-After NaN returns null`() {
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "NaN"), now))
+    }
+
+    @Test
+    fun `fractional Retry-After infinity returns null`() {
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "Infinity"), now))
+    }
+
+    @Test
+    fun `fractional Retry-After far-future value is clamped to 365 days`() {
+        // A value larger than the 365-day ceiling must clamp, not overflow toNanos().
+        val tenYearsSeconds = Duration.ofDays(3650).seconds.toString()
+        assertEquals(Duration.ofDays(365), RetryAfterParser.parse(headers("Retry-After" to tenYearsSeconds), now))
+    }
+
+    @Test
+    fun `parseHeaderValue dispatches fractional Retry-After to sub-second delay`() {
+        assertEquals(
+            Duration.ofMillis(2500),
+            RetryAfterParser.parseHeaderValue(HttpHeaderName.RETRY_AFTER, "2.5", now),
+        )
+    }
+
     // endregion
 
     // region -- HTTP-date Retry-After --
@@ -278,10 +322,13 @@ class RetryAfterParserTest {
     }
 
     @Test
-    fun `numeric Retry-After of Long MAX_VALUE does not throw`() {
-        // Duration.ofSeconds(Long.MAX_VALUE) is representable; the downstream consumer clamps.
+    fun `numeric Retry-After of Long MAX_VALUE clamps to 365 days`() {
+        // The numeric form now shares the 365-day ceiling applied to the HTTP-date and
+        // Unix-epoch forms: a far-future delta is clamped before the nanosecond conversion so
+        // a later Duration.toNanos() can never overflow. No real pacing header asks a client to
+        // wait centuries, so clamping here loses nothing operationally.
         val result = RetryAfterParser.parse(headers("Retry-After" to Long.MAX_VALUE.toString()), now)
-        assertEquals(Duration.ofSeconds(Long.MAX_VALUE), result)
+        assertEquals(Duration.ofDays(MAX_CLAMP_DAYS), result)
     }
 
     // endregion
