@@ -686,6 +686,59 @@ class RetryStepTest {
     }
 
     @Test
+    fun `body-less POST is NOT retried on a retryable response`() {
+        // Body-less retry safety keys off METHOD idempotency, not off the absence of a body. A
+        // bare POST (no payload to re-send) is non-idempotent, so it must NOT be retried even on a
+        // retryable status — a second POST could duplicate a side effect the server already
+        // applied. The 503 is returned as-is after exactly one attempt. This exercises the
+        // body == null branch of isRetrySafe on a non-idempotent method.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) } // must never be reached
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/x")
+                .build()
+
+        val response = pipeline.send(request)
+        assertEquals(503, response.status.code)
+        assertEquals(1, fake.callCount, "body-less POST must not be retried — POST is non-idempotent")
+    }
+
+    @Test
+    fun `body-less PUT IS retried because PUT is idempotent`() {
+        // Control for the body == null branch: with no body the gate falls through to method
+        // idempotency. PUT is idempotent, so a body-less PUT is retry-safe and retries normally.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url("https://api.example.com/x")
+                .build()
+
+        val response = pipeline.send(request)
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount, "body-less PUT must retry — PUT is idempotent")
+    }
+
+    @Test
     fun `non-replayable PUT body is NOT retried even though PUT is idempotent`() {
         // Both gates are required: PUT is idempotent, but a non-replayable body physically
         // cannot be re-sent, so the request is NOT retry-safe. The 503 is returned as-is rather
