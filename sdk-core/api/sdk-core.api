@@ -201,12 +201,14 @@ public final class org/dexpace/sdk/core/http/auth/KeyCredential : org/dexpace/sd
 	public final fun getApiKey ()Ljava/lang/String;
 	public final fun getHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
 	public final fun getPrefix ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/auth/NamedKeyCredential : org/dexpace/sdk/core/http/auth/Credential {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
 	public final fun getKey ()Ljava/lang/String;
 	public final fun getName ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/common/CommonMediaTypes {
