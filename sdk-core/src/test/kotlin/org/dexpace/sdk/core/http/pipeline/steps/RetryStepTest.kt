@@ -295,7 +295,7 @@ class RetryStepTest {
     fun `Retry-After negative falls back to default backoff`() {
         val clock = FixedClock()
         // Configure a deterministic backoff: 100ms base with 100ms cap removes the
-        // exponential growth window and the jitter range is at most 5ms.
+        // exponential growth window and the symmetric jitter range is at most ±10ms (±10%).
         val opts =
             HttpRetryOptions(
                 baseDelay = Duration.ofMillis(100),
@@ -313,10 +313,10 @@ class RetryStepTest {
 
         val before = clock.now()
         pipeline.send(getRequest())
-        // 100ms ± 5ms jitter — Duration#compareTo lets us range-check.
+        // 100ms ± 10ms symmetric jitter — Duration#compareTo lets us range-check.
         val elapsed = Duration.between(before, clock.now())
-        assertTrue(elapsed >= Duration.ofMillis(95), "elapsed=$elapsed below 95ms")
-        assertTrue(elapsed <= Duration.ofMillis(105), "elapsed=$elapsed above 105ms")
+        assertTrue(elapsed >= Duration.ofMillis(90), "elapsed=$elapsed below 90ms")
+        assertTrue(elapsed <= Duration.ofMillis(110), "elapsed=$elapsed above 110ms")
     }
 
     @Test
@@ -340,15 +340,15 @@ class RetryStepTest {
         val before = clock.now()
         pipeline.send(getRequest())
         val elapsed = Duration.between(before, clock.now())
-        assertTrue(elapsed >= Duration.ofMillis(95))
-        assertTrue(elapsed <= Duration.ofMillis(105))
+        assertTrue(elapsed >= Duration.ofMillis(90))
+        assertTrue(elapsed <= Duration.ofMillis(110))
     }
 
     @Test
     fun `custom retryAfterHeaders list ignores non-listed variants`() {
         val clock = FixedClock()
         // Only listen to the standard `Retry-After`; the `retry-after-ms` header is
-        // therefore invisible and we fall back to backoff (100ms ± 5ms).
+        // therefore invisible and we fall back to backoff (100ms ± 10ms symmetric jitter).
         val opts =
             HttpRetryOptions(
                 baseDelay = Duration.ofMillis(100),
@@ -368,8 +368,8 @@ class RetryStepTest {
         val before = clock.now()
         pipeline.send(getRequest())
         val elapsed = Duration.between(before, clock.now())
-        assertTrue(elapsed >= Duration.ofMillis(95), "elapsed=$elapsed below 95ms")
-        assertTrue(elapsed <= Duration.ofMillis(105), "elapsed=$elapsed above 105ms")
+        assertTrue(elapsed >= Duration.ofMillis(90), "elapsed=$elapsed below 90ms")
+        assertTrue(elapsed <= Duration.ofMillis(110), "elapsed=$elapsed above 110ms")
     }
 
     // ----------------- Exception classifier -----------------
@@ -833,7 +833,7 @@ class RetryStepTest {
     }
 
     @Test
-    fun `exponential backoff grows roughly 100 200 400 with 5pct jitter`() {
+    fun `exponential backoff grows roughly 100 200 400 with symmetric jitter`() {
         val clock = FixedClock()
         val opts =
             HttpRetryOptions(
@@ -855,14 +855,14 @@ class RetryStepTest {
 
         val before = clock.now()
         pipeline.send(getRequest())
-        // Expected: 100 + 200 + 400 = 700ms, ± 5% on each → ± 35ms total.
+        // Expected: 100 + 200 + 400 = 700ms, with symmetric ±10% jitter per term → ± 70ms total.
         val elapsed = Duration.between(before, clock.now())
-        assertTrue(elapsed >= Duration.ofMillis(665), "elapsed=$elapsed below lower bound")
-        assertTrue(elapsed <= Duration.ofMillis(735), "elapsed=$elapsed above upper bound")
+        assertTrue(elapsed >= Duration.ofMillis(630), "elapsed=$elapsed below lower bound")
+        assertTrue(elapsed <= Duration.ofMillis(770), "elapsed=$elapsed above upper bound")
     }
 
     @Test
-    fun `jitter stays within +- 5 percent across many samples`() {
+    fun `jitter stays within +- 10 percent across many samples`() {
         // Drive the same try count repeatedly through the step and check the spread is
         // within the documented bound. Run via a small reflective-ish hack: invoke the
         // backoff path indirectly by sending many one-retry sequences and reading the
@@ -889,9 +889,10 @@ class RetryStepTest {
             pipeline.send(getRequest())
             samples.add(Duration.between(before, clock.now()).toMillis())
         }
-        // 5% of 1000ms is 50ms.
+        // Symmetric jitter is ±10% of the delay; half-range of 1000ms is 100ms, so every
+        // sample lands in [900, 1100].
         for (ms in samples) {
-            assertTrue(ms in 950..1050, "sample $ms outside [950,1050]")
+            assertTrue(ms in 900..1100, "sample $ms outside [900,1100]")
         }
         // Distribution sanity: at least 10% of samples should be on either side of the
         // mean to confirm the jitter is non-trivially applied. Tight assertion to catch
@@ -1312,9 +1313,9 @@ class RetryStepTest {
         val before = clock.now()
         pipeline.send(getRequest())
         val elapsed = Duration.between(before, clock.now())
-        // Within the 5% jitter window of 100ms.
-        assertTrue(elapsed >= Duration.ofMillis(95), "elapsed=$elapsed below 95ms")
-        assertTrue(elapsed <= Duration.ofMillis(105), "elapsed=$elapsed above 105ms")
+        // Within the ±10% symmetric jitter window of 100ms.
+        assertTrue(elapsed >= Duration.ofMillis(90), "elapsed=$elapsed below 90ms")
+        assertTrue(elapsed <= Duration.ofMillis(110), "elapsed=$elapsed above 110ms")
     }
 
     @Test
@@ -1384,8 +1385,9 @@ class RetryStepTest {
         val before = clock.now()
         pipeline.send(getRequest())
         val elapsed = Duration.between(before, clock.now())
-        assertTrue(elapsed >= Duration.ofMillis(75), "elapsed=$elapsed below 75ms")
-        assertTrue(elapsed <= Duration.ofMillis(85), "elapsed=$elapsed above 85ms")
+        // ±10% symmetric jitter on 80ms → [72, 88].
+        assertTrue(elapsed >= Duration.ofMillis(72), "elapsed=$elapsed below 72ms")
+        assertTrue(elapsed <= Duration.ofMillis(88), "elapsed=$elapsed above 88ms")
     }
 
     // ----------------- Exception-side hook coverage -----------------
@@ -1585,13 +1587,13 @@ class RetryStepTest {
         assertEquals("attempt 2", ex.suppressed[1].message)
     }
 
-    // ----------------- MAX_SHIFT_TRY_COUNT cap -----------------
+    // ----------------- Backoff overflow / boundary handling -----------------
 
     @Test
     fun `baseDelay zero produces an immediate retry through the early-return branch`() {
-        // `if (baseNanos == 0L) return Duration.ZERO` in exponentialBackoff. The fixed-delay
-        // tests already drive baseDelay=Duration.ZERO, but this one explicitly exercises the
-        // exponential path with a zero base — the branch must short-circuit before any shift.
+        // A zero base delay must yield a zero exponential delay (immediate retry). The shared
+        // BackoffCalculator returns Duration.ZERO when initialDelay is zero, so the exponential
+        // path short-circuits to an immediate retry just as the fixed-delay path does.
         val clock = FixedClock()
         val opts =
             HttpRetryOptions(
@@ -1616,12 +1618,13 @@ class RetryStepTest {
 
     @Test
     fun `exponential backoff overflow path is clamped to maxDelay rather than wrapping negative`() {
-        // Drive the overflow check: with baseDelay near Long.MAX_VALUE/2 and tryCount=30,
-        // baseNanos * (1L shl 30) overflows. The step must clamp to Long.MAX_VALUE and then
-        // to maxDelay rather than returning a negative duration.
+        // Drive the saturating-multiply path: with a base delay near the nanosecond ceiling and a
+        // high attempt count, the unscaled exponential value saturates instead of overflowing.
+        // The shared BackoffCalculator clamps the saturated value to maxDelay rather than
+        // returning a negative duration.
         val clock = FixedClock()
-        // 9_223_372_036 seconds is well over Long.MAX_VALUE / 2^30 in nanos, forcing the
-        // overflow branch.
+        // 9_223_372_036 seconds is just under the Long-nanosecond ceiling, so the scaled value
+        // saturates to maxDelay on every attempt.
         val opts =
             HttpRetryOptions(
                 maxRetries = 35,
@@ -1770,10 +1773,9 @@ class RetryStepTest {
     // ----------------- maxRetries clamping -----------------
 
     @Test
-    fun `negative maxRetries is clamped to default 3`() {
+    fun `negative maxRetries is clamped to the default retry count`() {
         val fake =
             FakeHttpClient()
-                .enqueue { status(503) }
                 .enqueue { status(503) }
                 .enqueue { status(503) }
                 .enqueue { status(503) }
@@ -1786,8 +1788,8 @@ class RetryStepTest {
 
         val response = pipeline.send(getRequest())
         assertEquals(503, response.status.code)
-        // Default is 3 retries → 1 original + 3 retries = 4 calls.
-        assertEquals(4, fake.callCount)
+        // The clamp applies the canonical DEFAULT_MAX_RETRIES (2) → 1 original + 2 retries = 3 calls.
+        assertEquals(DefaultRetryStep.DEFAULT_MAX_RETRIES + 1, fake.callCount)
     }
 
     // ----------------- Diagnostic field coverage -----------------

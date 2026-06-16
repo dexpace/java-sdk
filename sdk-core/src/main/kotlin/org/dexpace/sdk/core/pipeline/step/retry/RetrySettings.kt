@@ -28,13 +28,17 @@ private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_V
  *    timeout, capped `maxDelay`, `maxAttempts`.
  *
  * ## Defaults (Square + gax tuned)
+ *
+ * These are the canonical SDK retry defaults, shared with the stage-based
+ * [DefaultRetryStep][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep] so both retry
+ * stacks compute the same backoff schedule and honour the same retryable-status policy.
  *  - [totalTimeout] = 30 s — hard budget for all attempts combined.
  *  - [initialDelay] = 200 ms — first retry waits this long (subject to jitter).
  *  - [delayMultiplier] = 2.0 — each subsequent delay is multiplied by this factor.
  *  - [maxDelay] = 8 s — cap on the scaled delay; further attempts plateau here.
  *  - [maxAttempts] = 3 — total attempts including the initial call (matches Square's default).
  *  - [jitter] = 0.2 — symmetric jitter fraction. Effective delay ∈ `[delay*(1−j/2), delay*(1+j/2)]`.
- *  - [retryableStatuses] = `{429, 500, 502, 503, 504}` — canonical retryable codes.
+ *  - [retryableStatuses] = `{408, 429, 500, 502, 503, 504}` — canonical retryable codes.
  *  - [retryableMethods] = `{GET, HEAD, OPTIONS, PUT, DELETE}` — safe-by-method per RFC 9110.
  *    `POST`/`PATCH`/etc. retry only when the request body is replayable.
  *  - [scheduler] = `null` — fall back to the lazy daemon scheduler created by [RetryStep].
@@ -227,36 +231,61 @@ public class RetrySettings
             // Defaults — see class kdoc for rationale.
             private const val DEFAULT_TOTAL_TIMEOUT_SECONDS = 30L
             private const val DEFAULT_INITIAL_DELAY_MS = 200L
-            private const val DEFAULT_DELAY_MULTIPLIER = 2.0
             private const val DEFAULT_MAX_DELAY_SECONDS = 8L
-            private const val DEFAULT_MAX_ATTEMPTS = 3
-            private const val DEFAULT_JITTER = 0.2
+
+            /**
+             * Canonical exponential-backoff multiplier shared by both retry stacks: each delay is
+             * `previous * 2.0`. Exposed so the stage-based [DefaultRetryStep][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep]
+             * and the recovery-aware [RetryStep] compute the same schedule from one constant.
+             */
+            public const val DEFAULT_DELAY_MULTIPLIER: Double = 2.0
+
+            /**
+             * Canonical symmetric jitter fraction shared by both retry stacks. The effective delay
+             * is drawn uniformly from `[delay * (1 - j/2), delay * (1 + j/2)]`, i.e. ±10% at the
+             * default `0.2`.
+             */
+            public const val DEFAULT_JITTER: Double = 0.2
+
+            /**
+             * Canonical retry budget shared by both stacks: **3 total attempts**, i.e. the initial
+             * send plus 2 retries. The recovery-aware [RetryStep] counts total attempts directly
+             * via [maxAttempts]; the stage-based step counts retries, so its equivalent default is
+             * [DefaultRetryStep.DEFAULT_MAX_RETRIES][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep.DEFAULT_MAX_RETRIES]
+             * `= 2`. Both yield the same 3 sends.
+             */
+            public const val DEFAULT_MAX_ATTEMPTS: Int = 3
 
             /** Default total timeout: 30 s. */
             @JvmField
             public val DEFAULT_TOTAL_TIMEOUT: Duration = Duration.ofSeconds(DEFAULT_TOTAL_TIMEOUT_SECONDS)
 
-            /** Default initial delay: 200 ms. */
+            /** Default initial delay: 200 ms. Shared with the stage-based step's base delay. */
             @JvmField
             public val DEFAULT_INITIAL_DELAY: Duration = Duration.ofMillis(DEFAULT_INITIAL_DELAY_MS)
 
-            /** Default max delay cap: 8 s. */
+            /** Default max delay cap: 8 s. Shared with the stage-based step. */
             @JvmField
             public val DEFAULT_MAX_DELAY: Duration = Duration.ofSeconds(DEFAULT_MAX_DELAY_SECONDS)
 
             /**
-             * Default retryable HTTP statuses: `429` (rate limit), `500` (internal), `502`
-             * (bad gateway), `503` (service unavailable), `504` (gateway timeout).
+             * Default retryable HTTP statuses: `408` (request timeout), `429` (rate limit), `500`
+             * (internal), `502` (bad gateway), `503` (service unavailable), `504` (gateway
+             * timeout).
              *
-             * Note: `408` (Request Timeout) is intentionally NOT in the default set — a 408
-             * from a server usually means the client took too long to send the request,
-             * which is unlikely to improve on retry. Callers that disagree can opt in via
-             * the builder.
+             * This is the recovery-aware step's allow-list; [RetryStep] intersects it with
+             * [HttpException.retryable][org.dexpace.sdk.core.http.response.exception.HttpException.retryable]
+             * (which is itself derived from [RetryUtils.isRetryable][org.dexpace.sdk.core.util.RetryUtils.isRetryable]).
+             * With this default set the recovery-aware step retries the same common statuses the
+             * stage-based [DefaultRetryStep][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep]
+             * does via `RetryUtils` — `408` included, so the two stacks agree on the 408 stance.
+             * Callers wanting a stricter posture can pass a tighter set to the builder.
              */
             @JvmField
             public val DEFAULT_RETRYABLE_STATUSES: Set<Int> =
                 Collections.unmodifiableSet(
                     linkedSetOf(
+                        SC_REQUEST_TIMEOUT,
                         SC_TOO_MANY_REQUESTS,
                         SC_INTERNAL_ERROR,
                         SC_BAD_GATEWAY,
@@ -277,6 +306,7 @@ public class RetrySettings
                 )
 
             // Spelled-out status constants to satisfy detekt's MagicNumber rule.
+            private const val SC_REQUEST_TIMEOUT = 408
             private const val SC_TOO_MANY_REQUESTS = 429
             private const val SC_INTERNAL_ERROR = 500
             private const val SC_BAD_GATEWAY = 502
