@@ -7,6 +7,9 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
+import org.dexpace.sdk.core.config.Configuration
+import java.util.Locale
+
 /**
  * Granularity of HTTP logging emitted by [InstrumentationStep].
  *
@@ -32,4 +35,41 @@ public enum class HttpLogLevel {
      * See [HttpInstrumentationOptions] for the streaming and async-completion-thread caveats.
      */
     BODY_AND_HEADERS,
+    ;
+
+    public companion object {
+        /**
+         * Resolves a log level by looking [key] up in [source].
+         *
+         * [source] is consulted via [Configuration.get], so the value goes through the full
+         * layering — explicit override -> environment variable -> normalized system property ->
+         * default. The value may come from any of those layers: the key `MY_PRODUCT_LOG_LEVEL`
+         * also matches the `my.product.log.level` system property, and an explicit override wins
+         * over both.
+         *
+         * The SDK is a toolkit, not a product, so it deliberately bakes in **no** default key —
+         * the caller (e.g. a generated client) supplies its own product's variable name, and
+         * [source] supplies the lookup. Pass a [Configuration] built with
+         * [org.dexpace.sdk.core.config.ConfigurationBuilder.envSource] to inject a hermetic env
+         * in tests; in production a [Configuration] backed by `System.getenv` is the natural fit.
+         *
+         * Parsing is tolerant: the resolved value is matched against the enum names
+         * case-insensitively and after trimming surrounding whitespace (so `headers`,
+         * `HEADERS`, and `  Headers  ` all resolve to [HEADERS]). When the key is unset (or set
+         * to an empty string, which [Configuration] treats as absent) or holds an unrecognized
+         * value, [default] is returned. [default] itself defaults to [NONE] — logging stays off
+         * unless explicitly opted into.
+         */
+        @JvmStatic
+        @JvmOverloads
+        public fun fromConfiguration(
+            key: String,
+            source: Configuration,
+            default: HttpLogLevel = NONE,
+        ): HttpLogLevel {
+            val raw = source.get(key) ?: return default
+            val name = raw.trim().uppercase(Locale.US)
+            return entries.firstOrNull { it.name == name } ?: default
+        }
+    }
 }
