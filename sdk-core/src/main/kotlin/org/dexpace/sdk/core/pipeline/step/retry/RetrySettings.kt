@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.generics.Builder
+import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Method
 import java.time.Duration
 import java.util.Collections
@@ -37,6 +38,7 @@ private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_V
  *  - [retryableMethods] = `{GET, HEAD, OPTIONS, PUT, DELETE}` — safe-by-method per RFC 9110.
  *    `POST`/`PATCH`/etc. retry only when the request body is replayable.
  *  - [scheduler] = `null` — fall back to the lazy daemon scheduler created by [RetryStep].
+ *  - [attemptHeaderName] = `null` — no per-attempt header is stamped (opt-in; see the property).
  *
  * ## Thread-safety
  *
@@ -61,6 +63,12 @@ private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_V
  *   RFC). Non-idempotent methods (`POST`, `PATCH`) only retry when the body is replayable.
  * @property scheduler Optional caller-provided scheduler. When `null` [RetryStep] uses a
  *   process-wide lazy daemon scheduler.
+ * @property attemptHeaderName Optional request header stamped on each attempt [RetryStep]
+ *   dispatches, carrying the 1-based attempt ordinal (`1` for the original send, `2` for the
+ *   first retry, and so on) so servers and proxies can observe the retry count. `null` (the
+ *   default) disables the header entirely. The header is set on a per-attempt copy of the
+ *   request, never on the immutable template. Any idempotency key the caller stamps stays
+ *   stable across retries — only this attempt header changes per send.
  */
 public class RetrySettings
     // The 9-arg constructor lives behind a `private` modifier — public construction goes
@@ -78,6 +86,7 @@ public class RetrySettings
         public val retryableStatuses: Set<Int>,
         public val retryableMethods: Set<Method>,
         public val scheduler: ScheduledExecutorService?,
+        public val attemptHeaderName: HttpHeaderName?,
     ) {
         /** Returns a fresh [RetrySettingsBuilder] preloaded with this instance's values. */
         public fun newBuilder(): RetrySettingsBuilder = RetrySettingsBuilder(this)
@@ -96,6 +105,7 @@ public class RetrySettings
             private var retryableStatuses: Set<Int> = DEFAULT_RETRYABLE_STATUSES
             private var retryableMethods: Set<Method> = DEFAULT_RETRYABLE_METHODS
             private var scheduler: ScheduledExecutorService? = null
+            private var attemptHeaderName: HttpHeaderName? = null
 
             /** Creates an empty builder populated with the SDK defaults. */
             public constructor()
@@ -111,6 +121,7 @@ public class RetrySettings
                 this.retryableStatuses = settings.retryableStatuses
                 this.retryableMethods = settings.retryableMethods
                 this.scheduler = settings.scheduler
+                this.attemptHeaderName = settings.attemptHeaderName
             }
 
             /** Sets [RetrySettings.totalTimeout]. Must be non-negative. */
@@ -186,6 +197,16 @@ public class RetrySettings
                     this.scheduler = scheduler
                 }
 
+            /**
+             * Sets [RetrySettings.attemptHeaderName]. When non-null, [RetryStep] stamps this
+             * header (carrying the 1-based attempt ordinal) on each attempt's request copy.
+             * `null` (the default) leaves attempts unstamped.
+             */
+            public fun attemptHeaderName(attemptHeaderName: HttpHeaderName?): RetrySettingsBuilder =
+                apply {
+                    this.attemptHeaderName = attemptHeaderName
+                }
+
             /** Builds the immutable [RetrySettings] instance. */
             override fun build(): RetrySettings =
                 RetrySettings(
@@ -198,6 +219,7 @@ public class RetrySettings
                     retryableStatuses = Collections.unmodifiableSet(LinkedHashSet(retryableStatuses)),
                     retryableMethods = Collections.unmodifiableSet(LinkedHashSet(retryableMethods)),
                     scheduler = scheduler,
+                    attemptHeaderName = attemptHeaderName,
                 )
         }
 

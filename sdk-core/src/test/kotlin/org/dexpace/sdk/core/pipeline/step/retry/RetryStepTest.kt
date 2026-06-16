@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
@@ -21,6 +22,7 @@ import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -642,11 +644,114 @@ class RetryStepTest {
 
     // endregion
 
+    // region -- per-attempt retry-count header --
+
+    @Test
+    fun `attempt header is absent by default`() {
+        // Opt-in feature: with the default settings no attempt header is stamped on retries.
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(out is ResponseOutcome.Success)
+        // Two retried sends were made; neither carries the attempt header.
+        assertEquals(2, client.calls.size)
+        client.calls.forEach { call ->
+            assertNull(call.headers.get(DEFAULT_ATTEMPT_HEADER), "no attempt header should be stamped by default")
+        }
+    }
+
+    @Test
+    fun `attempt header is stamped with the attempt ordinal on each send via attempt()`() {
+        // attempt() drives the initial send too, so we can observe the full ordinal sequence:
+        // the original send is attempt 1, the first retry is 2, the second retry is 3.
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .attemptHeaderName(DEFAULT_ATTEMPT_HEADER)
+                .build()
+        val step = RetryStep(client, settings, requestGet())
+
+        val response = step.attempt()
+        assertEquals(SC_OK, response.status.code)
+        assertEquals(3, client.calls.size)
+        assertEquals("1", client.calls[0].headers.get(DEFAULT_ATTEMPT_HEADER))
+        assertEquals("2", client.calls[1].headers.get(DEFAULT_ATTEMPT_HEADER))
+        assertEquals("3", client.calls[2].headers.get(DEFAULT_ATTEMPT_HEADER))
+    }
+
+    @Test
+    fun `attempt header uses the configured header name`() {
+        val custom = HttpHeaderName.fromString("X-My-Retry-Count")
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .attemptHeaderName(custom)
+                .build()
+        val step = RetryStep(client, settings, requestGet())
+
+        val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(out is ResponseOutcome.Success)
+        // invoke() does not control the external initial send (ordinal 1), so the retried sends
+        // it dispatches start at ordinal 2. Two retries fire here under the configured name.
+        assertEquals(2, client.calls.size)
+        assertEquals("2", client.calls[0].headers.get(custom))
+        assertEquals("3", client.calls[1].headers.get(custom))
+    }
+
+    @Test
+    fun `attempt header is stamped on a per-attempt copy and does not mutate the template request`() {
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val request = requestGet()
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .attemptHeaderName(DEFAULT_ATTEMPT_HEADER)
+                .build()
+        val step = RetryStep(client, settings, request)
+
+        step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        // The retried request copy carries the header; the immutable template never gains it.
+        assertEquals("2", client.calls[0].headers.get(DEFAULT_ATTEMPT_HEADER))
+        assertNull(request.headers.get(DEFAULT_ATTEMPT_HEADER), "template request must stay unmodified")
+    }
+
+    // endregion
+
     private companion object {
         // HTTP status code constants for tests.
         private const val SC_OK = 200
         private const val SC_NOT_FOUND = 404
         private const val SC_SERVICE_UNAVAILABLE = 503
+
+        // Header used by the per-attempt retry-count tests.
+        private val DEFAULT_ATTEMPT_HEADER: HttpHeaderName = HttpHeaderName.fromString("X-Retry-Attempt")
 
         private const val DEFAULT_MAX_ATTEMPTS = 3
         private const val DEFAULT_MAX_ATTEMPTS_TIMEOUT = 3

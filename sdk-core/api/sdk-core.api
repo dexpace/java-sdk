@@ -951,6 +951,21 @@ public abstract class org/dexpace/sdk/core/http/pipeline/steps/RetryStep : org/d
 	public final fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
 }
 
+public final class org/dexpace/sdk/core/http/pipeline/steps/ServerOverrideRetryPredicate : org/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate {
+	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/ServerOverrideRetryPredicate$Companion;
+	public static final field DEFAULT_HEADER_NAME Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDelegate ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;
+	public final fun getHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
+	public fun shouldRetry (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryCondition;)Z
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/ServerOverrideRetryPredicate$Companion {
+}
+
 public final class org/dexpace/sdk/core/http/pipeline/steps/SetDateStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/util/Clock;)V
@@ -2118,9 +2133,10 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings {
 	public static final field DEFAULT_RETRYABLE_METHODS Ljava/util/Set;
 	public static final field DEFAULT_RETRYABLE_STATUSES Ljava/util/Set;
 	public static final field DEFAULT_TOTAL_TIMEOUT Ljava/time/Duration;
-	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Duration;DLjava/time/Duration;IDLjava/util/Set;Ljava/util/Set;Ljava/util/concurrent/ScheduledExecutorService;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Duration;DLjava/time/Duration;IDLjava/util/Set;Ljava/util/Set;Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
 	public static final fun defaults ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;
+	public final fun getAttemptHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
 	public final fun getDelayMultiplier ()D
 	public final fun getInitialDelay ()Ljava/time/Duration;
 	public final fun getJitter ()D
@@ -2141,6 +2157,7 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings$Compan
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder : org/dexpace/sdk/core/generics/Builder {
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;)V
+	public final fun attemptHeaderName (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
 	public synthetic fun build ()Ljava/lang/Object;
 	public fun build ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;
 	public final fun delayMultiplier (D)Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
