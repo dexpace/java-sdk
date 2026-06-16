@@ -18,7 +18,7 @@ import org.dexpace.sdk.core.http.response.Response
 // that stamps a deserialized error payload — see `docs/refs-comparison.md` Error Model §,
 // action item 3.
 //
-// None of these subclasses sets its own retryable flag: `HttpException.retryable` is derived
+// None of these subclasses sets its own retryable flag: `HttpException.isRetryable` is derived
 // from `RetryUtils.isRetryable(status.code)` (the single source of truth), so the baked flag
 // always mirrors the live retry policy — 408 / 429 and the 5xx range except 501 / 505 are
 // retryable, everything else is not. Fallback subclasses (`ClientErrorException`,

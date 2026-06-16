@@ -11,9 +11,10 @@ import java.io.IOException
 import java.util.concurrent.TimeoutException
 
 /**
- * Shared retryability classifier used by both [org.dexpace.sdk.core.http.response.HttpResponseException]
- * (to precompute its `isRetryable` flag at construction time) and the default retry
- * policy (Rank 4).
+ * Shared retryability classifier used by both
+ * [org.dexpace.sdk.core.http.response.exception.HttpException] (to derive its
+ * [org.dexpace.sdk.core.http.response.exception.Retryable.isRetryable] flag at construction
+ * time) and the default retry policy (Rank 4).
  *
  * Retryable conditions:
  * - **Status codes**: 408 (Request Timeout), 429 (Too Many Requests), all 5xx except

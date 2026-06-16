@@ -25,14 +25,18 @@ import java.io.IOException
  * so service-client codegen can introduce per-operation typed subclasses by deriving from a
  * concrete one and stamping a typed deserialized payload.
  *
+ * This is the single response-carrying exception base. It is a [RuntimeException], so callers
+ * are not forced to declare `throws` for protocol-level failures; transport-level failures use
+ * [NetworkException] (an `IOException` sibling) instead.
+ *
  * ## Retryability
  *
- * [retryable] is a `val` derived at construction time from [RetryUtils.isRetryable] applied
- * to [status]'s code — it is *not* hardcoded per subclass. This guarantees the baked flag can
- * never disagree with the live retry policy: 408 / 429 and the 5xx range (except 501 and 505)
- * are retryable, every other status is not. A downstream retry policy is expected to query
- * this field rather than maintaining a parallel predicate map. Transport-level
- * [NetworkException] is a sibling type and always retryable.
+ * [HttpException] implements [Retryable]. [isRetryable] is a `val` derived at construction time
+ * from [RetryUtils.isRetryable] applied to [status]'s code — it is *not* hardcoded per subclass.
+ * This guarantees the baked flag can never disagree with the live retry policy: 408 / 429 and
+ * the 5xx range (except 501 and 505) are retryable, every other status is not. A downstream
+ * retry policy queries the [Retryable] interface rather than maintaining a parallel predicate
+ * map. Transport-level [NetworkException] is a sibling type and always retryable.
  *
  * ## Body access
  *
@@ -40,6 +44,10 @@ import java.io.IOException
  * stream it on demand (for typed error-body deserialization) or use [bodySnapshot] for a
  * non-consuming preview suitable for log lines. The snapshot uses
  * [org.dexpace.sdk.core.io.BufferedSource.peek] so the primary read path is undisturbed.
+ *
+ * [value] is a slot for a deserialized error payload (e.g. a parsed JSON error object). It is
+ * `null` here; the generated service layer is expected to populate it on a per-operation typed
+ * subclass once it has deserialized [body].
  *
  * ## Why `RuntimeException` and not `IOException`
  *
@@ -51,7 +59,9 @@ import java.io.IOException
  * @property status Parsed HTTP status from the originating response.
  * @property headers Response headers as received on the wire.
  * @property body Lazy response body, or `null` when the response carries no payload.
- * @property retryable Whether the exception represents a retryable condition. Derived once at
+ * @property value Optional deserialized payload describing the error, or `null` when none was
+ *   parsed. Reserved for the generated layer to stamp a typed error object.
+ * @property isRetryable Whether the exception represents a retryable condition. Derived once at
  *   construction from [RetryUtils.isRetryable] over [status]'s code, so it always mirrors the
  *   live retry policy rather than a per-subclass constant.
  */
@@ -63,13 +73,14 @@ public abstract class HttpException
         public val body: ResponseBody?,
         message: String? = null,
         cause: Throwable? = null,
-    ) : RuntimeException(message ?: defaultMessage(status), cause) {
+        public val value: Any? = null,
+    ) : RuntimeException(message ?: defaultMessage(status), cause), Retryable {
         /**
          * Whether this exception represents a retryable condition. Derived from
          * [RetryUtils.isRetryable] over [status]'s code so it can never disagree with the
          * live retry policy.
          */
-        public val retryable: Boolean = RetryUtils.isRetryable(status.code)
+        override val isRetryable: Boolean = RetryUtils.isRetryable(status.code)
 
         /**
          * Returns a non-consuming preview of the body bytes, capped at [maxBytes].
