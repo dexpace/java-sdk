@@ -21,15 +21,22 @@ import org.dexpace.sdk.core.http.response.Response
  * - Page-N response: arbitrary body containing both the items and the next cursor.
  * - End of stream: response carries a `null` or absent next cursor.
  *
- * The strategy is **stateless**: it relies on [itemsExtractor] and [cursorExtractor]
- * lambdas to pull data out of the response, and on [RequestRebuilder] to mutate the
- * initial request's URL with the new cursor query parameter.
+ * The strategy is **stateless**: it relies on a single [extractor] to pull both the items
+ * and the next cursor out of the response in one pass — see [CursorResult] — and on
+ * [RequestRebuilder] to mutate the initial request's URL with the new cursor query
+ * parameter.
+ *
+ * ## Single read
+ *
+ * A response body is single-use. Because cursor APIs carry the items and the next cursor in
+ * the same payload, the extractor reads the body **once** and returns both via a
+ * [CursorResult]. This avoids the double-drain trap of pulling items and cursor with two
+ * independent `(Response) -> …` lambdas, which forces either a failed second read or a
+ * per-response cache to work around it.
  *
  * @param T Element type extracted from the response.
- * @property itemsExtractor Reads the list of items from the response. Called once per
- *   page; must drain the response body synchronously.
- * @property cursorExtractor Reads the next cursor from the response, or returns `null`
- *   if there are no more pages.
+ * @property extractor Reads the items and next cursor from the response in a single pass.
+ *   Called once per page; must drain the response body synchronously and return both pieces.
  * @property cursorQueryParam Query parameter name used to send the cursor (default
  *   `"cursor"`). Servers vary; common alternatives include `"after"`, `"next"`,
  *   `"pageCursor"`.
@@ -37,16 +44,44 @@ import org.dexpace.sdk.core.http.response.Response
 public class CursorPaginationStrategy<T>
     @JvmOverloads
     constructor(
-        private val itemsExtractor: (Response) -> List<T>,
-        private val cursorExtractor: (Response) -> String?,
+        private val extractor: (Response) -> CursorResult<T>,
         private val cursorQueryParam: String = "cursor",
     ) : PaginationStrategy<T> {
+        /**
+         * Creates a strategy from two body-reading lambdas.
+         *
+         * @deprecated Each lambda drains the single-use response body separately, so the body
+         *   is read twice per page. Use the single-pass [extractor] constructor that returns a
+         *   [CursorResult] instead.
+         */
+        @Deprecated(
+            message =
+                "Two body-reading lambdas drain the single-use response body twice per page. " +
+                    "Pass a single extractor returning a CursorResult instead.",
+            replaceWith =
+                ReplaceWith(
+                    "CursorPaginationStrategy({ response -> " +
+                        "CursorResult(itemsExtractor(response), cursorExtractor(response)) }, " +
+                        "cursorQueryParam)",
+                    "org.dexpace.sdk.core.pagination.CursorResult",
+                ),
+        )
+        @JvmOverloads
+        public constructor(
+            itemsExtractor: (Response) -> List<T>,
+            cursorExtractor: (Response) -> String?,
+            cursorQueryParam: String = "cursor",
+        ) : this(
+            extractor = { response -> CursorResult(itemsExtractor(response), cursorExtractor(response)) },
+            cursorQueryParam = cursorQueryParam,
+        )
+
         override fun parse(
             response: Response,
             initialRequest: Request,
         ): Page<T> {
-            val items: List<T> = itemsExtractor(response)
-            val nextCursor: String? = cursorExtractor(response)
+            val result: CursorResult<T> = extractor(response)
+            val nextCursor: String? = result.nextCursor
             val hasNext: Boolean = !nextCursor.isNullOrEmpty()
             val nextRequest: Request? =
                 if (hasNext) {
@@ -54,6 +89,6 @@ public class CursorPaginationStrategy<T>
                 } else {
                     null
                 }
-            return SimplePage(items = items, hasNext = hasNext, nextRequest = nextRequest)
+            return SimplePage(items = result.items, hasNext = hasNext, nextRequest = nextRequest)
         }
     }

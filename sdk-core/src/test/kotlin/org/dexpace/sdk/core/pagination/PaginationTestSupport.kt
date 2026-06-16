@@ -52,6 +52,44 @@ private fun stringResponseBody(content: String): ResponseBody {
     }
 }
 
+/**
+ * Convenience: build a 200 OK response whose body may be drained exactly once. A second
+ * `source()` call throws, so any double-read of the body is a hard failure rather than a
+ * silently-served cache — used to prove a single-pass extractor really reads once.
+ */
+internal fun singleUseResponse(
+    request: Request,
+    body: String,
+): Response =
+    Response.builder()
+        .request(request)
+        .protocol(Protocol.HTTP_1_1)
+        .status(Status.OK)
+        .headers(Headers.Builder().build())
+        .body(singleUseResponseBody(body))
+        .build()
+
+private fun singleUseResponseBody(content: String): ResponseBody {
+    val bytes = content.toByteArray(Charsets.UTF_8)
+    return object : ResponseBody() {
+        private var consumed = false
+
+        override fun mediaType(): org.dexpace.sdk.core.http.common.MediaType? = null
+
+        override fun contentLength(): Long = bytes.size.toLong()
+
+        override fun source(): org.dexpace.sdk.core.io.BufferedSource {
+            check(!consumed) { "Response body already consumed: source() called twice." }
+            consumed = true
+            return Io.provider.source(bytes)
+        }
+
+        override fun close() {
+            consumed = true
+        }
+    }
+}
+
 /** Install the Okio IoProvider so test response bodies are readable. */
 internal fun installIoProvider() {
     Io.installProvider(OkioIoProvider)

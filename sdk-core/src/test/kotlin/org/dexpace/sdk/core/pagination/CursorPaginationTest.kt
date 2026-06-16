@@ -10,7 +10,6 @@ package org.dexpace.sdk.core.pagination
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
-import java.util.IdentityHashMap
 import java.util.stream.Collectors
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -29,34 +28,18 @@ class CursorPaginationTest {
             .build()
 
     /**
-     * Parses the body format `items=<csv>\ncursor=<next-or-empty>` into a (items, cursor)
-     * pair. Reads the body exactly once.
+     * Single-pass extractor for the body format `items=<csv>\ncursor=<next-or-empty>`. Reads
+     * the body exactly once and returns both the items and the next cursor as a
+     * [CursorResult], so there is no double-drain of the single-use response body.
      */
-    private fun parsePayload(resp: Response): Pair<List<String>, String?> {
+    private val extractor: (Response) -> CursorResult<String> = { resp ->
         val body = resp.body!!.source().use { it.readUtf8() }
         val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
         val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
         val itemsRaw = itemsLine.removePrefix("items=")
         val cursorRaw = cursorLine.removePrefix("cursor=")
         val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
-        val cursor: String? = cursorRaw.ifEmpty { null }
-        return Pair(items, cursor)
-    }
-
-    /**
-     * Pair of extractors that share a per-Response identity-keyed cache so the
-     * single-use body is read exactly once per page even though the strategy's contract
-     * splits items + cursor into two calls.
-     */
-    private fun buildCachedExtractors(): Pair<(Response) -> List<String>, (Response) -> String?> {
-        val cache: MutableMap<Response, Pair<List<String>, String?>> = IdentityHashMap()
-        val items: (Response) -> List<String> = { r ->
-            cache.getOrPut(r) { parsePayload(r) }.first
-        }
-        val cursor: (Response) -> String? = { r ->
-            cache.getOrPut(r) { parsePayload(r) }.second
-        }
-        return Pair(items, cursor)
+        CursorResult(items, cursorRaw.ifEmpty { null })
     }
 
     @Test
@@ -72,8 +55,7 @@ class CursorPaginationTest {
             textResponse(req, "items=g,h,i\ncursor=")
         }
 
-        val (items, cursor) = buildCachedExtractors()
-        val strategy = CursorPaginationStrategy(items, cursor, cursorQueryParam = "cursor")
+        val strategy = CursorPaginationStrategy(extractor, cursorQueryParam = "cursor")
         val paginator = Paginator(client, initialRequest(), strategy)
 
         val collected: List<String> = paginator.iterateAll().toList()
@@ -96,8 +78,7 @@ class CursorPaginationTest {
         client.on("https://api.example.com/items") { req ->
             textResponse(req, "items=only-1,only-2\ncursor=")
         }
-        val (items, cursor) = buildCachedExtractors()
-        val strategy = CursorPaginationStrategy(items, cursor, "cursor")
+        val strategy = CursorPaginationStrategy(extractor, "cursor")
         val paginator = Paginator(client, initialRequest(), strategy)
         assertEquals(listOf("only-1", "only-2"), paginator.iterateAll().toList())
         assertEquals(1, client.callCount)
@@ -123,8 +104,7 @@ class CursorPaginationTest {
                 .addHeader("Authorization", "Bearer xyz")
                 .build()
 
-        val (items, cursor) = buildCachedExtractors()
-        val strategy = CursorPaginationStrategy(items, cursor)
+        val strategy = CursorPaginationStrategy(extractor)
         val paginator = Paginator(client, authRequest, strategy)
         assertEquals(listOf("a", "b"), paginator.iterateAll().toList())
     }
@@ -139,8 +119,7 @@ class CursorPaginationTest {
             textResponse(req, "items=3,4\ncursor=")
         }
 
-        val (items, cursor) = buildCachedExtractors()
-        val strategy = CursorPaginationStrategy(items, cursor)
+        val strategy = CursorPaginationStrategy(extractor)
         val paginator = Paginator(client, initialRequest(), strategy)
         val streamed: List<String> = paginator.streamAll().collect(Collectors.toList())
         assertEquals(listOf("1", "2", "3", "4"), streamed)
@@ -161,8 +140,7 @@ class CursorPaginationTest {
             textResponse(req, "items=two\ncursor=")
         }
 
-        val (items, cursor) = buildCachedExtractors()
-        val strategy = CursorPaginationStrategy(items, cursor, cursorQueryParam = "page_token")
+        val strategy = CursorPaginationStrategy(extractor, cursorQueryParam = "page_token")
         val paginator = Paginator(client, initialRequest(), strategy)
         assertEquals(listOf("one", "two"), paginator.iterateAll().toList())
         assertEquals(
