@@ -7,6 +7,7 @@
 
 <h1 align="center">Java SDKs Platform</h1>
 
+[![CI](https://github.com/dexpace/java-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/dexpace/java-sdk/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.3.21-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 ![JDK](https://img.shields.io/badge/JDK-8%2B-437291.svg?logo=openjdk&logoColor=white)
@@ -255,7 +256,7 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `http.auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, `AuthMetadata`, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler`, `CompositeChallengeHandler`. |
 | `http.sse` | `ServerSentEventReader` (WHATWG spec), `ServerSentEvent`, `ServerSentEventListener`, `BufferedSource.readServerSentEvents()`. |
 | `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` and `stream()` accessors. |
-| `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / token / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. |
+| `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. |
 | `pipeline` | Recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline` over a sealed `ResponseOutcome`, with steps (`pipeline.step`, `pipeline.step.retry`) like `RetryStep`, `ResponseRecoveryStep`, `IdempotencyKeyStep`, `ClientIdentityStep`. |
 | `serde` | `Serde`, `Serializer`, `Deserializer` abstractions, `Tristate<T>` (absent / null / present), and `SerdeException` (the unchecked failure adapters translate codec errors into). |
 | `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |
@@ -264,6 +265,9 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `config` | `Configuration` (system-property + env-var layered lookup), `ConfigurationBuilder`. |
 | `util` | `Clock`, `Uuids` (non-blocking v4), `DateTimeRfc1123`, `RetryUtils`, `ProxyOptions`, `Futures`. |
 | `generics` | `Builder<T>` — the generic builder interface every SDK builder implements. |
+
+Token-style APIs (`next_page_token`, `pageToken`, …) are served by `CursorPaginationStrategy`:
+construct it with the desired query-param name, e.g. `CursorPaginationStrategy(items, extractor, "page_token")`.
 
 ## Building
 

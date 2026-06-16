@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.response
 
 import org.dexpace.sdk.core.generics.Builder
+import org.dexpace.sdk.core.generics.checkRequired
 import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.common.Protocol
@@ -252,9 +253,9 @@ public data class Response private constructor(
          */
         override fun build(): Response =
             Response(
-                request = checkNotNull(request) { "request is required" },
-                protocol = checkNotNull(protocol) { "protocol is required" },
-                status = checkNotNull(status) { "status is required" },
+                request = checkRequired("request", request),
+                protocol = checkRequired("protocol", protocol),
+                status = checkRequired("status", status),
                 message = message,
                 headers = headersBuilder.build(),
                 body = body,

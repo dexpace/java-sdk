@@ -95,12 +95,17 @@ public object JacksonObjectMappers {
      * so the rejection holds regardless of how a given scalar target consults coercion config:
      *
      *  - string → integer / floating-point / boolean (the headline `"5"` → numeric case),
-     *  - boolean ↔ integer,
-     *  - integer / floating-point / boolean → string.
+     *  - floating-point → integer (the lossy `1.5` → `1` narrowing),
+     *  - boolean ↔ integer and boolean → floating-point,
+     *  - integer / floating-point / boolean → string,
+     *  - empty string → integer / floating-point / boolean (Jackson otherwise coerces `""` to a
+     *    null/zero scalar, masking a malformed payload).
      *
      * Untouched on purpose: numeric **widening** (an integer JSON value into a floating-point
      * field) stays legal because it is a representation-preserving conversion, not a shape mismatch;
-     * and genuinely typed values bind exactly as before.
+     * and genuinely typed values bind exactly as before. The inverse — a floating-point JSON value
+     * into an integer field — is rejected because it silently truncates (`1.5` → `1`). An empty
+     * string into a textual field is left alone: `""` is a legitimate string value.
      */
     private fun applyStrictScalarCoercion(builder: JsonMapper.Builder) {
         fun JsonMapper.Builder.failOn(
@@ -112,11 +117,30 @@ public object JacksonObjectMappers {
             }
 
         builder
-            // string "5"/"1.5"/"true" must not flow into numeric or boolean fields.
-            .failOn(LogicalType.Integer, CoercionInputShape.String, CoercionInputShape.Boolean)
-            .failOn(LogicalType.Float, CoercionInputShape.String)
-            .failOn(LogicalType.Boolean, CoercionInputShape.String, CoercionInputShape.Integer)
-            // a non-string scalar must not be stringified into a textual field.
+            // string "5"/"1.5"/"true" (and an empty string) must not flow into numeric or boolean
+            // fields, and a floating-point value must not be lossily narrowed into an integer field
+            // (1.5 -> 1).
+            .failOn(
+                LogicalType.Integer,
+                CoercionInputShape.String,
+                CoercionInputShape.EmptyString,
+                CoercionInputShape.Boolean,
+                CoercionInputShape.Float,
+            )
+            .failOn(
+                LogicalType.Float,
+                CoercionInputShape.String,
+                CoercionInputShape.EmptyString,
+                CoercionInputShape.Boolean,
+            )
+            .failOn(
+                LogicalType.Boolean,
+                CoercionInputShape.String,
+                CoercionInputShape.EmptyString,
+                CoercionInputShape.Integer,
+            )
+            // a non-string scalar must not be stringified into a textual field. An empty string is a
+            // valid string, so EmptyString is intentionally absent here.
             .failOn(
                 LogicalType.Textual,
                 CoercionInputShape.Integer,
