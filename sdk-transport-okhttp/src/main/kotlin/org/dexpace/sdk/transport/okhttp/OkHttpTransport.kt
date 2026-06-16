@@ -111,13 +111,15 @@ public class OkHttpTransport private constructor(
         val okRequest =
             try {
                 requestAdapter.adapt(request)
-            } catch (t: Throwable) {
+            } catch (e: Exception) {
                 // The async contract is that errors arrive through the returned future. Request
                 // adaptation runs on the caller's thread and can throw (e.g. a method/body
-                // mismatch OkHttp rejects), so route any failure into a completed-exceptionally
+                // mismatch OkHttp rejects), so route the failure into a completed-exceptionally
                 // future instead of throwing synchronously where a future-composing caller's
-                // .exceptionally/.handle would never observe it.
-                return failedFuture(t)
+                // .exceptionally/.handle would never observe it. Errors (OOM and other JVM-fatal
+                // conditions) are left to propagate up the caller's stack rather than be packaged
+                // into a future that may never be awaited.
+                return failedFuture(e)
             }
         val call = client.newCall(okRequest)
         val future = CompletableFuture<Response>()

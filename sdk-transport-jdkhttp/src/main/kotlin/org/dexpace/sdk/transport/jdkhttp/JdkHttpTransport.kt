@@ -141,13 +141,15 @@ public class JdkHttpTransport private constructor(
         val jdkRequest =
             try {
                 requestAdapter.adapt(request, responseTimeout)
-            } catch (t: Throwable) {
+            } catch (e: Exception) {
                 // The async contract is that errors arrive through the returned future. Request
                 // adaptation runs on the caller's thread and can throw (e.g. a CONNECT request the
-                // JDK client rejects), so route any failure into a failed future instead of
+                // JDK client rejects), so route the failure into a failed future instead of
                 // throwing synchronously where a future-composing caller's .exceptionally/.handle
-                // would never observe it.
-                return CompletableFuture.failedFuture<Response>(t)
+                // would never observe it. Errors (OOM and other JVM-fatal conditions) are left to
+                // propagate up the caller's stack rather than be packaged into a future that may
+                // never be awaited.
+                return CompletableFuture.failedFuture<Response>(e)
             }
         val inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
         return bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
