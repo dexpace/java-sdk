@@ -832,17 +832,17 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel : java/
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion;
 	public static final field HEADERS Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 	public static final field NONE Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
-	public static final fun fromEnv (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
-	public static final fun fromEnv (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 	public static fun values ()[Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion {
-	public final fun fromEnv (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
-	public final fun fromEnv (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
-	public static synthetic fun fromEnv$default (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion;Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static synthetic fun fromConfiguration$default (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion;Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectCondition {

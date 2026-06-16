@@ -37,14 +37,13 @@ public enum class HttpLogLevel {
 
     public companion object {
         /**
-         * Resolves a log level from the configuration [key], reading through the testable
-         * config seam of [source].
+         * Resolves a log level by looking [key] up in [source].
          *
-         * Despite the name, resolution is not env-only: [source] is consulted via
-         * [Configuration.get], which applies the full layering — explicit override -> environment
-         * variable -> normalized system property -> default. So the value may legitimately come
-         * from an override or from a system property (e.g. the key `MY_PRODUCT_LOG_LEVEL` also
-         * matches the `my.product.log.level` system property), not strictly the environment.
+         * [source] is consulted via [Configuration.get], so the value goes through the full
+         * layering — explicit override -> environment variable -> normalized system property ->
+         * default. The value may come from any of those layers: the key `MY_PRODUCT_LOG_LEVEL`
+         * also matches the `my.product.log.level` system property, and an explicit override wins
+         * over both.
          *
          * The SDK is a toolkit, not a product, so it deliberately bakes in **no** default key —
          * the caller (e.g. a generated client) supplies its own product's variable name, and
@@ -61,7 +60,7 @@ public enum class HttpLogLevel {
          */
         @JvmStatic
         @JvmOverloads
-        public fun fromEnv(
+        public fun fromConfiguration(
             key: String,
             source: Configuration,
             default: HttpLogLevel = NONE,

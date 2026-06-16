@@ -26,7 +26,7 @@ class HttpLogLevelTest {
         val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "HEADERS")
         assertEquals(
             HttpLogLevel.HEADERS,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
         )
     }
 
@@ -35,7 +35,7 @@ class HttpLogLevelTest {
         val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "body_and_headers")
         assertEquals(
             HttpLogLevel.BODY_AND_HEADERS,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
         )
     }
 
@@ -44,7 +44,7 @@ class HttpLogLevelTest {
         val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "  Headers  ")
         assertEquals(
             HttpLogLevel.HEADERS,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
         )
     }
 
@@ -52,8 +52,40 @@ class HttpLogLevelTest {
     fun `each level name round-trips`() {
         HttpLogLevel.entries.forEach { level ->
             val cfg = configWithEnv("LL" to level.name)
-            assertEquals(level, HttpLogLevel.fromEnv("LL", cfg, HttpLogLevel.NONE))
+            assertEquals(level, HttpLogLevel.fromConfiguration("LL", cfg, HttpLogLevel.NONE))
         }
+    }
+
+    // ----- Resolution honors the full Configuration layering, not just env -----
+
+    @Test
+    fun `value resolves from the system-property layer when the env is unset`() {
+        // Env unset; the property is looked up under the normalized name (MY_PRODUCT_LOG_LEVEL
+        // -> my.product.log.level). The resolved value must still feed the level parsing.
+        val cfg =
+            ConfigurationBuilder()
+                .envSource { null }
+                .propsSource { name -> if (name == "my.product.log.level") "HEADERS" else null }
+                .build()
+        assertEquals(
+            HttpLogLevel.HEADERS,
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
+        )
+    }
+
+    @Test
+    fun `explicit override wins over a conflicting env value`() {
+        // Override is the top layer; it must take precedence over the env entry for the same key.
+        val cfg =
+            ConfigurationBuilder()
+                .put("MY_PRODUCT_LOG_LEVEL", "BODY_AND_HEADERS")
+                .envSource { name -> if (name == "MY_PRODUCT_LOG_LEVEL") "HEADERS" else null }
+                .propsSource { null }
+                .build()
+        assertEquals(
+            HttpLogLevel.BODY_AND_HEADERS,
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
+        )
     }
 
     // ----- Unset key falls back to the supplied default -----
@@ -63,7 +95,7 @@ class HttpLogLevelTest {
         val cfg = configWithEnv() // nothing set
         assertEquals(
             HttpLogLevel.HEADERS,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.HEADERS),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.HEADERS),
         )
     }
 
@@ -73,18 +105,18 @@ class HttpLogLevelTest {
         val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "")
         assertEquals(
             HttpLogLevel.BODY_AND_HEADERS,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.BODY_AND_HEADERS),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.BODY_AND_HEADERS),
         )
     }
 
     @Test
     fun `whitespace-only value returns the supplied default`() {
         // Configuration only treats an exactly-empty env string as absent, so a whitespace-only
-        // value is returned as-is; fromEnv's own trim collapses it to "" and falls to the default.
+        // value is returned as-is; fromConfiguration's own trim collapses it to "" and falls to the default.
         val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "   ")
         assertEquals(
             HttpLogLevel.HEADERS,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.HEADERS),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.HEADERS),
         )
     }
 
@@ -95,7 +127,7 @@ class HttpLogLevelTest {
         val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "VERBOSE")
         assertEquals(
             HttpLogLevel.NONE,
-            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
+            HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.NONE),
         )
     }
 
@@ -104,6 +136,6 @@ class HttpLogLevelTest {
     @Test
     fun `default parameter is NONE when omitted`() {
         val cfg = configWithEnv() // nothing set
-        assertEquals(HttpLogLevel.NONE, HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg))
+        assertEquals(HttpLogLevel.NONE, HttpLogLevel.fromConfiguration("MY_PRODUCT_LOG_LEVEL", cfg))
     }
 }
