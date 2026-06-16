@@ -117,6 +117,9 @@ public class TlsServer internal constructor(
     public fun newTransportTrusting(): OkHttpTransport {
         val client =
             OkHttpClient.Builder()
+                // Demo only: trusts a single self-signed certificate so the sample needs no
+                // network. Production callers should rely on the default system trust store and
+                // not configure custom trust material here.
                 .sslSocketFactory(
                     clientCertificates.sslSocketFactory(),
                     clientCertificates.trustManager,
@@ -196,6 +199,9 @@ public fun main() {
     installIoProvider()
     val serde = JacksonSerde.withDefaults()
 
+    // ---- Demo scaffolding: fake the server so the sample is deterministic and network-free. ----
+    // Everything in this `tls.server.use { ... }` block stands in for a real backend; a caller
+    // wiring the SDK against a live API would not write any of it.
     val tls = newTlsServer()
     tls.server.use { server ->
         // Canned JSON the SDK will deserialize back into a typed `User`.
@@ -211,6 +217,7 @@ public fun main() {
         )
         server.start()
 
+        // ---- SDK wiring: this is the copyable part a real caller would actually write. ----
         tls.newTransportTrusting().use { transport ->
             val pipeline = buildPipeline(transport)
             val endpoint = server.url("/v1/users").toUrl()
