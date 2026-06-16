@@ -9,20 +9,27 @@ package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.pipeline.HttpPipelineBuilder
 import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
 import org.dexpace.sdk.core.http.pipeline.steps.HttpRetryOptions
+import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FakeHttpClient
 import org.dexpace.sdk.core.testing.FixedClock
+import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.io.OkioIoProvider
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Duration
+import java.time.Instant
 
 /**
  * Guards that the two retry stacks — the stage-based [DefaultRetryStep]/[HttpRetryOptions] and
@@ -134,7 +141,7 @@ class RetryDefaultsReconciliationTest {
             val tolerance = (sum * (RetrySettings.DEFAULT_JITTER / 2.0)).toLong() + 1
             val low = sum - tolerance
             val high = sum + tolerance
-            org.junit.jupiter.api.Assertions.assertTrue(
+            assertTrue(
                 elapsedMs in low..high,
                 "retries=$retries: elapsed=$elapsedMs not in [$low,$high] (sum=$sum)",
             )
@@ -162,7 +169,7 @@ class RetryDefaultsReconciliationTest {
 
     @Test
     fun `recovery-aware default retryable statuses contains 408`() {
-        org.junit.jupiter.api.Assertions.assertTrue(
+        assertTrue(
             RetrySettings.DEFAULT_RETRYABLE_STATUSES.contains(STATUS_REQUEST_TIMEOUT),
             "recovery-aware default must agree with the stage-based 408 stance",
         )
@@ -177,7 +184,7 @@ class RetryDefaultsReconciliationTest {
                 override fun execute(request: Request): Response {
                     calls += 1
                     if (calls == 1) {
-                        throw object : org.dexpace.sdk.core.http.response.exception.HttpException(
+                        throw object : HttpException(
                             status = Status.REQUEST_TIMEOUT,
                             headers = Headers.builder().build(),
                             body = null,
@@ -185,12 +192,15 @@ class RetryDefaultsReconciliationTest {
                     }
                     return Response.builder()
                         .request(request)
-                        .protocol(org.dexpace.sdk.core.http.common.Protocol.HTTP_1_1)
+                        .protocol(Protocol.HTTP_1_1)
                         .status(Status.OK)
                         .headers(Headers.builder().build())
                         .build()
                 }
             }
+        // No explicit scheduler: with zero delays the step never schedules a deferred wait, and
+        // leaving it null routes through RetryStep's process-wide lazy daemon scheduler rather
+        // than leaking a caller-owned executor (which RetryStep never shuts down) per run.
         val settings =
             RetrySettings.builder()
                 .initialDelay(Duration.ZERO)
@@ -198,7 +208,6 @@ class RetryDefaultsReconciliationTest {
                 .delayMultiplier(1.0)
                 .jitter(0.0)
                 .totalTimeout(Duration.ZERO)
-                .scheduler(java.util.concurrent.Executors.newSingleThreadScheduledExecutor())
                 .build()
         val step = RetryStep(client, settings, getRequest())
         val response = step.attempt()
@@ -207,15 +216,38 @@ class RetryDefaultsReconciliationTest {
 
     // endregion
 
+    // region -- eager delay-magnitude validation --
+
+    @Test
+    fun `constructing the stage-based step validates delay magnitudes eagerly`() {
+        // HttpRetryOptions does not range-check baseDelay/maxDelay, but routing them through the
+        // shared RetrySettings (to drive BackoffCalculator) does. A negative delay must therefore
+        // fail fast at DefaultRetryStep construction, not later at delay-computation time.
+        assertThrows(IllegalArgumentException::class.java) {
+            DefaultRetryStep(
+                HttpRetryOptions(baseDelay = Duration.ofMillis(-1)),
+                zeroDelayClock(),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DefaultRetryStep(
+                HttpRetryOptions(maxDelay = Duration.ofMillis(-1)),
+                zeroDelayClock(),
+            )
+        }
+    }
+
+    // endregion
+
     private fun getRequest(): Request =
         Request.builder()
-            .method(org.dexpace.sdk.core.http.request.Method.GET)
+            .method(Method.GET)
             .url("https://api.example.com/x")
             .build()
 
-    private fun zeroDelayClock(): org.dexpace.sdk.core.util.Clock =
-        object : org.dexpace.sdk.core.util.Clock {
-            override fun now(): java.time.Instant = java.time.Instant.EPOCH
+    private fun zeroDelayClock(): Clock =
+        object : Clock {
+            override fun now(): Instant = Instant.EPOCH
 
             override fun monotonic(): Long = 0L
 

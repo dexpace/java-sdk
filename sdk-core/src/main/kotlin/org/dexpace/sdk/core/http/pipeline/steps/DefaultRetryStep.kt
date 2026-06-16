@@ -68,7 +68,7 @@ import java.time.Duration
  *     `baseDelay * 2.0^tryCount` clamped to `maxDelay`, with symmetric ±10% jitter
  *     ([RetrySettings.DEFAULT_JITTER]). This is the same calculator the recovery-aware
  *     `pipeline.step.retry.RetryStep` uses, so both stacks share one backoff formula and one
- *     set of defaults. The deadline-shrinking the calculator also offers is disabled here
+ *     set of defaults. The deadline-shrinking that the calculator also offers is disabled here
  *     (this stage-based step carries no total-timeout budget).
  *
  * ## Failure handling
@@ -153,6 +153,12 @@ public open class DefaultRetryStep
          *    options object does not expose its own multiplier/jitter, so the SDK defaults apply.
          *  - `totalTimeout = ZERO` disables the deadline cap: the stage-based step has no budget.
          * The `fixedDelay` path never consults this view; it short-circuits in [backoffOrFixed].
+         *
+         * Building this view also validates the delay magnitudes eagerly: [RetrySettings.builder]
+         * rejects a negative `baseDelay`/`maxDelay` and one larger than the calculator's
+         * ~292-year nanosecond ceiling. [HttpRetryOptions] performs no such range check, so a
+         * pathological delay surfaces as an [IllegalArgumentException] here, at step construction,
+         * rather than later at delay-computation time.
          */
         private val backoffSettings: RetrySettings =
             RetrySettings.builder()
