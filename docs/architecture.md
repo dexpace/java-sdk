@@ -510,7 +510,7 @@ All code targets Java 8 bytecode (`jvmTarget = "1.8"`). Specific implications:
 
 Most modules compile against Java 8 bytecode, but two need a newer JDK: `sdk-transport-jdkhttp`
 targets 11 (`java.net.http.HttpClient` was finalised in JEP 321) and `sdk-async-virtualthreads`
-targets 21 (virtual threads). Each of those modules raises its target by overriding **two**
+targets 21 (virtual threads). Each of those modules raises its target by overriding **three**
 things in its own build script:
 
 ```kotlin
@@ -518,14 +518,26 @@ kotlin {
     jvmToolchain(21)                       // which JDK compiles the module
 }
 
+java {
+    sourceCompatibility = JavaVersion.VERSION_21   // Java-source level
+    targetCompatibility = JavaVersion.VERSION_21   // bytecode version `compileJava` emits
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)    // which bytecode version it emits
+        jvmTarget.set(JvmTarget.JVM_21)    // bytecode version `compileKotlin` emits
     }
 }
 ```
 
-(`sdk-transport-jdkhttp` does the same with `11`/`JVM_11`.) **Both** overrides are mandatory.
+(`sdk-transport-jdkhttp` does the same with `11`/`VERSION_11`/`JVM_11`.) **All three** overrides
+are mandatory. The `java {}` block governs `compileJava` and keeps Gradle's JVM-target validation
+between `compileJava` and `compileKotlin` happy; a module that sets only the Kotlin toolchain and
+`jvmTarget` but omits the `java {}` block will trip that validation or compile its Java sources at
+the wrong level.
 The root build registers a `plugins.withId("org.jetbrains.kotlin.jvm")` callback that sets
 `jvmTarget` to `JVM_1_8` for every Kotlin module by default. A module that bumps only the
 toolchain — say to JDK 21 — but leaves `jvmTarget` at the inherited `1.8` will compile *against*
