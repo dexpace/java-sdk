@@ -1153,6 +1153,27 @@ public final class org/dexpace/sdk/core/http/response/LoggableResponseBody : org
 	public fun source ()Lorg/dexpace/sdk/core/io/BufferedSource;
 }
 
+public final class org/dexpace/sdk/core/http/response/ParsedResponse : java/io/Closeable {
+	public static final field Companion Lorg/dexpace/sdk/core/http/response/ParsedResponse$Companion;
+	public fun close ()V
+	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getProtocol ()Lorg/dexpace/sdk/core/http/common/Protocol;
+	public final fun getRaw ()Lorg/dexpace/sdk/core/http/response/Response;
+	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun getStatus ()Lorg/dexpace/sdk/core/http/response/Status;
+	public static final fun of (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Lorg/dexpace/sdk/core/http/response/ParsedResponse;
+	public final fun value ()Ljava/lang/Object;
+}
+
+public final class org/dexpace/sdk/core/http/response/ParsedResponse$Companion {
+	public final fun of (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Lorg/dexpace/sdk/core/http/response/ParsedResponse;
+}
+
+public final class org/dexpace/sdk/core/http/response/ParsedResponseKt {
+	public static final fun parsedWith (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Lorg/dexpace/sdk/core/http/response/ParsedResponse;
+}
+
 public final class org/dexpace/sdk/core/http/response/Response : java/io/Closeable {
 	public static final field Companion Lorg/dexpace/sdk/core/http/response/Response$Companion;
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/common/Protocol;Lorg/dexpace/sdk/core/http/response/Status;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -1216,6 +1237,18 @@ public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;J)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/response/ResponseBody$Companion;Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;JILjava/lang/Object;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
+}
+
+public abstract interface class org/dexpace/sdk/core/http/response/ResponseHandler {
+	public static final field Companion Lorg/dexpace/sdk/core/http/response/ResponseHandler$Companion;
+	public static fun empty ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public abstract fun handle (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/lang/Object;
+	public static fun string ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+}
+
+public final class org/dexpace/sdk/core/http/response/ResponseHandler$Companion {
+	public final fun empty ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public final fun string ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 }
 
 public final class org/dexpace/sdk/core/http/response/Status {

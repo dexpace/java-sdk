@@ -247,7 +247,7 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 |---|---|
 | `client` | `HttpClient`, `AsyncHttpClient` — the two transport SPIs (sync and async). |
 | `http.request` | `Request`, `RequestBody`, `FileRequestBody`, `LoggableRequestBody`, `Method`. |
-| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status` (a value-carrying class with a total `fromCode`), `HttpResponseException`. |
+| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status` (a value-carrying class with a total `fromCode`), `HttpResponseException`, plus the raw-vs-parsed seam: `ResponseHandler<T>` (with dep-free `string()`/`empty()` handlers) and a lazy, parse-once `ParsedResponse<T>`. |
 | `http.response.exception` | Typed `HttpException` hierarchy (`BadRequestException`, `RequestTimeoutException`, `TooManyRequestsException`, `ServiceUnavailableException`, …) with `retryable` derived from `RetryUtils.isRetryable`, plus `NetworkException` and `HttpExceptionFactory`. |
 | `http.common` | `Headers`, `HttpHeaderName` (interned), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
 | `http.context` | `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext` chain, `ContextStore`. |
@@ -258,7 +258,7 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` and `stream()` accessors. |
 | `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. |
 | `pipeline` | Recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline` over a sealed `ResponseOutcome`, with steps (`pipeline.step`, `pipeline.step.retry`) like `RetryStep`, `ResponseRecoveryStep`, `IdempotencyKeyStep`, `ClientIdentityStep`. |
-| `serde` | `Serde`, `Serializer`, `Deserializer` abstractions and `Tristate<T>` (absent / null / present). |
+| `serde` | `Serde`, `Serializer`, `Deserializer` abstractions, `Tristate<T>` (absent / null / present), and `SerdeException` (the unchecked failure adapters translate codec errors into). |
 | `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |
 | `instrumentation` | `ClientLogger` (zero-alloc disabled path), `LoggingEvent`, `UrlRedactor`, `Tracer` / `NoopTracer`, `Span` / `NoopSpan`, `InstrumentationContext`. |
 | `instrumentation.metrics` | `Meter`, `LongCounter`, `DoubleHistogram`, `NoopMeter`. |
