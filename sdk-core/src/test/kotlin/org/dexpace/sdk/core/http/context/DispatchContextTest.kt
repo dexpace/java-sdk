@@ -60,13 +60,42 @@ class DispatchContextTest {
     @Test
     fun `data class equality and copy work on instrumentation context`() {
         val instr = FakeInstrumentationContext(TraceId(owned("eq")))
-        val a = DispatchContext(instr)
-        val b = DispatchContext(instr)
+        // Pin an explicit call key so the two instances are constructed identically: the
+        // default key is now call-unique, so two default-keyed instances are deliberately
+        // distinct (see the call-key uniqueness test below).
+        val key = owned("eq-key")
+        val a = DispatchContext(instr, key)
+        val b = DispatchContext(instr, key)
         assertEquals(a, b)
         assertEquals(a.hashCode(), b.hashCode())
 
         val copy = a.copy()
         assertEquals(a, copy)
+    }
+
+    @Test
+    fun `two contexts sharing a trace and span id receive distinct call keys`() {
+        // A directly-constructed dispatch context — built from an inbound W3C trace, or by a
+        // tracer that reuses a span id across sibling client calls — must still get a
+        // call-unique key. FakeInstrumentationContext defaults to a fixed span id, so both
+        // instances below share the SAME trace id AND span id: the exact collision case. The
+        // default call key must distinguish them, or they would clobber each other in
+        // ContextStore (which rejects duplicate keys).
+        val sharedId = owned("collision")
+        val a = DispatchContext(FakeInstrumentationContext(TraceId(sharedId)))
+        val b = DispatchContext(FakeInstrumentationContext(TraceId(sharedId)))
+        ownedIds.add(a.callKey)
+        ownedIds.add(b.callKey)
+
+        assertEquals(a.instrumentationContext.traceId, b.instrumentationContext.traceId)
+        assertEquals(a.instrumentationContext.spanId, b.instrumentationContext.spanId)
+        assertNotEquals(a.callKey, b.callKey)
+
+        // Both register in the store without one rejecting or evicting the other.
+        ContextStore.put(a.callKey, a)
+        ContextStore.put(b.callKey, b)
+        assertSame(a, ContextStore.get(a.callKey))
+        assertSame(b, ContextStore.get(b.callKey))
     }
 
     @Test

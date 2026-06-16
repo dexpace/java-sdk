@@ -28,6 +28,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+// Failsafe deadline for awaiting an operation that is expected to complete promptly. It exists only
+// to stop a genuinely-stuck test from hanging forever, so it is kept generous: a healthy test
+// returns the instant the awaited work finishes and never approaches this bound, even on a loaded
+// CI host running modules in parallel.
+private const val FAILSAFE_TIMEOUT_SECONDS = 30L
+
 class VirtualThreadsTest {
     @Test
     fun `asAsyncVirtualThreads runs the call on a virtual thread`() {
@@ -42,7 +48,7 @@ class VirtualThreadsTest {
             }
 
         syncClient.asAsyncVirtualThreads().use { vtClient ->
-            val response = vtClient.executeAsync(getRequest()).get(2, TimeUnit.SECONDS)
+            val response = vtClient.executeAsync(getRequest()).get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             assertEquals(200, response.status.code)
         }
         assertTrue(
@@ -55,10 +61,13 @@ class VirtualThreadsTest {
     fun `close shuts the virtual-thread executor down`() {
         val vt = HttpClient { request -> mockResponse(request, 200) }.asAsyncVirtualThreads()
         // Drive one request to ensure the executor is live.
-        vt.executeAsync(getRequest()).get(2, TimeUnit.SECONDS)
+        vt.executeAsync(getRequest()).get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         vt.close()
         // After close, the executor service has terminated; submitting again would throw.
-        val thrown = runCatching { vt.executeAsync(getRequest()).get(2, TimeUnit.SECONDS) }.exceptionOrNull()
+        val thrown =
+            runCatching {
+                vt.executeAsync(getRequest()).get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }.exceptionOrNull()
         assertTrue(thrown != null, "expected closed virtual-thread executor to reject new tasks")
     }
 
@@ -99,7 +108,7 @@ class VirtualThreadsTest {
             }
         syncClient.asAsyncVirtualThreads().use { vt ->
             val futures = (1..100).map { vt.executeAsync(getRequest()) }
-            futures.forEach { it.get(5, TimeUnit.SECONDS) }
+            futures.forEach { it.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
         }
         assertEquals(100, executions.get())
     }
@@ -128,7 +137,7 @@ class VirtualThreadsTest {
                     mockResponse(request, 200)
                 }
             sync.asAsyncVirtualThreads().use { async ->
-                async.executeAsync(getRequest()).get(2, java.util.concurrent.TimeUnit.SECONDS)
+                async.executeAsync(getRequest()).get(FAILSAFE_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
             }
             assertEquals("vt-transport-test", seenTraceId.get())
         } finally {

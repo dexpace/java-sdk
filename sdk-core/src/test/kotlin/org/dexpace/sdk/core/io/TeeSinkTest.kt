@@ -256,7 +256,7 @@ class TeeSinkTest {
         assertContentEquals("2345".toByteArray(), tap.snapshot())
     }
 
-    // ----- M4: bounded tap (tapLimit) -----
+    // ----- bounded tap (tapLimit) -----
 
     @Test
     fun `tapLimit caps the tap but forwards the full payload to primary - typed write`() {

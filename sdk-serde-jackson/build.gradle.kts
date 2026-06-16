@@ -25,6 +25,9 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
+    // The response-handler tests build real response bodies over the I/O seam, so they need an
+    // IoProvider implementation (OkioIoProvider) on the test classpath.
+    testImplementation(project(":sdk-io-okio3"))
     testRuntimeOnly(libs.slf4j.nop)
 }
 

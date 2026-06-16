@@ -23,24 +23,25 @@ import java.io.IOException
  *
  * ## Retryability
  *
- * Always [retryable] = `true`. A transport-level failure with no response on the wire is by
- * definition transient from the SDK's standpoint: nothing was processed by the server, so a
- * retry can attempt the request from scratch. Whether the operation is *safe* to retry
- * still depends on idempotency (HTTP method + replayable body) — that decision lives at the
- * retry step, not here.
+ * Implements [Retryable] with [isRetryable] always `true`. A transport-level failure with no
+ * response on the wire is by definition transient from the SDK's standpoint: nothing was
+ * processed by the server, so a retry can attempt the request from scratch. Whether the
+ * operation is *safe* to retry still depends on idempotency (HTTP method + replayable body) —
+ * that decision lives at the retry step, not here.
  *
- * @property retryable Always `true`; exposed as a `val` for API symmetry with [HttpException].
+ * @property isRetryable Always `true`; satisfies [Retryable] so the retry classifier treats
+ *   transport failures uniformly with retryable [HttpException]s.
  */
 public open class NetworkException
     @JvmOverloads
     constructor(
         message: String? = null,
         cause: Throwable? = null,
-    ) : IOException(message, cause) {
+    ) : IOException(message, cause), Retryable {
         /**
          * Whether this exception represents a retryable condition. Always `true` for
          * `NetworkException` — transport failures with no response are by definition
          * transient at the SDK level.
          */
-        public val retryable: Boolean = true
+        override val isRetryable: Boolean = true
     }

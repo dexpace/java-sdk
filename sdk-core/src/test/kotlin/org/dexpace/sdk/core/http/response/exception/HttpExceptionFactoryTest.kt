@@ -27,6 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class HttpExceptionFactoryTest {
@@ -51,7 +52,7 @@ class HttpExceptionFactoryTest {
                 ex.javaClass,
                 "factory must dispatch status ${status.code} (${status.statusName}) to ${expectedClass.simpleName}",
             )
-            assertEquals(expectedRetryable, ex.retryable, "${status.code} retryable flag mismatch")
+            assertEquals(expectedRetryable, ex.isRetryable, "${status.code} retryable flag mismatch")
             assertEquals(status, ex.status)
         }
     }
@@ -64,11 +65,11 @@ class HttpExceptionFactoryTest {
         // should fall through to the 4xx generic. Same for the auth-handshake-style 407.
         val teapot = HttpExceptionFactory.fromResponse(response(Status.IM_A_TEAPOT))
         assertTrue(teapot is ClientErrorException, "418 should be ClientErrorException")
-        assertEquals(false, teapot.retryable)
+        assertEquals(false, teapot.isRetryable)
 
         val proxyAuth = HttpExceptionFactory.fromResponse(response(Status.PROXY_AUTHENTICATION_REQUIRED))
         assertTrue(proxyAuth is ClientErrorException, "407 should be ClientErrorException")
-        assertEquals(false, proxyAuth.retryable)
+        assertEquals(false, proxyAuth.isRetryable)
     }
 
     @Test
@@ -77,21 +78,21 @@ class HttpExceptionFactoryTest {
         // RetryUtils (which excludes 501/505) — NOT the old blanket "5xx is retryable" rule.
         val notImpl = HttpExceptionFactory.fromResponse(response(Status.NOT_IMPLEMENTED))
         assertTrue(notImpl is ServerErrorException, "501 should be ServerErrorException")
-        assertEquals(false, notImpl.retryable, "501 must not be retryable (RetryUtils excludes it)")
-        assertEquals(RetryUtils.isRetryable(Status.NOT_IMPLEMENTED.code), notImpl.retryable)
+        assertEquals(false, notImpl.isRetryable, "501 must not be retryable (RetryUtils excludes it)")
+        assertEquals(RetryUtils.isRetryable(Status.NOT_IMPLEMENTED.code), notImpl.isRetryable)
 
         val versionBad = HttpExceptionFactory.fromResponse(response(Status.HTTP_VERSION_NOT_SUPPORTED))
         assertTrue(versionBad is ServerErrorException, "505 should be ServerErrorException")
-        assertEquals(false, versionBad.retryable, "505 must not be retryable (RetryUtils excludes it)")
-        assertEquals(RetryUtils.isRetryable(Status.HTTP_VERSION_NOT_SUPPORTED.code), versionBad.retryable)
+        assertEquals(false, versionBad.isRetryable, "505 must not be retryable (RetryUtils excludes it)")
+        assertEquals(RetryUtils.isRetryable(Status.HTTP_VERSION_NOT_SUPPORTED.code), versionBad.isRetryable)
     }
 
     @Test
     fun `408 maps to RequestTimeoutException and is retryable`() {
         val ex = HttpExceptionFactory.fromResponse(response(Status.REQUEST_TIMEOUT))
         assertTrue(ex is RequestTimeoutException, "408 should map to RequestTimeoutException, not the 4xx fallback")
-        assertEquals(true, ex.retryable, "408 must be retryable per RetryUtils")
-        assertEquals(RetryUtils.isRetryable(Status.REQUEST_TIMEOUT.code), ex.retryable)
+        assertEquals(true, ex.isRetryable, "408 must be retryable per RetryUtils")
+        assertEquals(RetryUtils.isRetryable(Status.REQUEST_TIMEOUT.code), ex.isRetryable)
         assertEquals(Status.REQUEST_TIMEOUT, ex.status)
     }
 
@@ -130,7 +131,7 @@ class HttpExceptionFactoryTest {
             val ex = HttpExceptionFactory.fromResponse(response(status))
             assertEquals(
                 RetryUtils.isRetryable(status.code),
-                ex.retryable,
+                ex.isRetryable,
                 "baked retryable for ${status.code} (${status.statusName}) must equal RetryUtils.isRetryable",
             )
         }
@@ -160,36 +161,72 @@ class HttpExceptionFactoryTest {
     @Test
     fun `retryable flag matches the canonical retryable status set`() {
         // 4xx subclasses except 429 — not retryable.
-        assertEquals(false, BadRequestException(response(Status.BAD_REQUEST)).retryable)
-        assertEquals(false, UnauthorizedException(response(Status.UNAUTHORIZED)).retryable)
-        assertEquals(false, ForbiddenException(response(Status.FORBIDDEN)).retryable)
-        assertEquals(false, NotFoundException(response(Status.NOT_FOUND)).retryable)
-        assertEquals(false, MethodNotAllowedException(response(Status.METHOD_NOT_ALLOWED)).retryable)
-        assertEquals(false, ConflictException(response(Status.CONFLICT)).retryable)
-        assertEquals(false, GoneException(response(Status.GONE)).retryable)
-        assertEquals(false, PayloadTooLargeException(response(Status.PAYLOAD_TOO_LARGE)).retryable)
-        assertEquals(false, UnsupportedMediaTypeException(response(Status.UNSUPPORTED_MEDIA_TYPE)).retryable)
-        assertEquals(false, UnprocessableEntityException(response(Status.UNPROCESSABLE_ENTITY)).retryable)
-        assertEquals(false, ClientErrorException(response(Status.IM_A_TEAPOT)).retryable)
+        assertEquals(false, BadRequestException(response(Status.BAD_REQUEST)).isRetryable)
+        assertEquals(false, UnauthorizedException(response(Status.UNAUTHORIZED)).isRetryable)
+        assertEquals(false, ForbiddenException(response(Status.FORBIDDEN)).isRetryable)
+        assertEquals(false, NotFoundException(response(Status.NOT_FOUND)).isRetryable)
+        assertEquals(false, MethodNotAllowedException(response(Status.METHOD_NOT_ALLOWED)).isRetryable)
+        assertEquals(false, ConflictException(response(Status.CONFLICT)).isRetryable)
+        assertEquals(false, GoneException(response(Status.GONE)).isRetryable)
+        assertEquals(false, PayloadTooLargeException(response(Status.PAYLOAD_TOO_LARGE)).isRetryable)
+        assertEquals(false, UnsupportedMediaTypeException(response(Status.UNSUPPORTED_MEDIA_TYPE)).isRetryable)
+        assertEquals(false, UnprocessableEntityException(response(Status.UNPROCESSABLE_ENTITY)).isRetryable)
+        assertEquals(false, ClientErrorException(response(Status.IM_A_TEAPOT)).isRetryable)
 
         // 408 + 429 + the retryable 5xx codes — retryable.
-        assertEquals(true, RequestTimeoutException(response(Status.REQUEST_TIMEOUT)).retryable)
-        assertEquals(true, TooManyRequestsException(response(Status.TOO_MANY_REQUESTS)).retryable)
-        assertEquals(true, InternalServerErrorException(response(Status.INTERNAL_SERVER_ERROR)).retryable)
-        assertEquals(true, BadGatewayException(response(Status.BAD_GATEWAY)).retryable)
-        assertEquals(true, ServiceUnavailableException(response(Status.SERVICE_UNAVAILABLE)).retryable)
-        assertEquals(true, GatewayTimeoutException(response(Status.GATEWAY_TIMEOUT)).retryable)
+        assertEquals(true, RequestTimeoutException(response(Status.REQUEST_TIMEOUT)).isRetryable)
+        assertEquals(true, TooManyRequestsException(response(Status.TOO_MANY_REQUESTS)).isRetryable)
+        assertEquals(true, InternalServerErrorException(response(Status.INTERNAL_SERVER_ERROR)).isRetryable)
+        assertEquals(true, BadGatewayException(response(Status.BAD_GATEWAY)).isRetryable)
+        assertEquals(true, ServiceUnavailableException(response(Status.SERVICE_UNAVAILABLE)).isRetryable)
+        assertEquals(true, GatewayTimeoutException(response(Status.GATEWAY_TIMEOUT)).isRetryable)
 
         // 501 routes through the 5xx fallback but is NOT retryable — the baked flag now
         // mirrors RetryUtils instead of the old blanket 5xx rule.
-        assertEquals(false, ServerErrorException(response(Status.NOT_IMPLEMENTED)).retryable)
-        assertEquals(false, ServerErrorException(response(Status.HTTP_VERSION_NOT_SUPPORTED)).retryable)
+        assertEquals(false, ServerErrorException(response(Status.NOT_IMPLEMENTED)).isRetryable)
+        assertEquals(false, ServerErrorException(response(Status.HTTP_VERSION_NOT_SUPPORTED)).isRetryable)
     }
 
     @Test
     fun `NetworkException is always retryable`() {
         val ex = NetworkException("connect refused")
-        assertEquals(true, ex.retryable)
+        assertEquals(true, ex.isRetryable)
+    }
+
+    // ---- 4b. Retryable interface + error-body value slot --------------------------------
+
+    @Test
+    fun `HttpException and NetworkException both implement Retryable`() {
+        val http: Throwable = HttpExceptionFactory.fromResponse(response(Status.SERVICE_UNAVAILABLE))
+        val net: Throwable = NetworkException("connect failed")
+        // Both surface their retry classification through the shared Retryable seam, so the
+        // retry classifier can key off the interface instead of matching concrete types.
+        assertTrue(Retryable::class.java.isInstance(http), "HttpException must implement Retryable")
+        assertTrue(Retryable::class.java.isInstance(net), "NetworkException must implement Retryable")
+        assertEquals(true, (http as Retryable).isRetryable)
+        assertEquals(true, (net as Retryable).isRetryable)
+    }
+
+    @Test
+    fun `factory-produced exception carries a null value slot by default`() {
+        // The deserialized error-body slot exists for the generated layer to populate; the
+        // factory leaves it null because sdk-core does not parse bodies.
+        val ex = HttpExceptionFactory.fromResponse(response(Status.BAD_REQUEST))
+        assertNull(ex.value, "value slot must default to null")
+    }
+
+    @Test
+    fun `value slot round-trips a deserialized error payload`() {
+        val payload = mapOf("code" to "rate_limited", "message" to "slow down")
+        val ex =
+            object : HttpException(
+                status = Status.TOO_MANY_REQUESTS,
+                headers = Headers.Builder().build(),
+                body = null,
+                value = payload,
+            ) {}
+        assertSame(payload, ex.value, "value must be carried through as the same instance")
+        assertEquals(true, ex.isRetryable, "429 is retryable")
     }
 
     // ---- 5. bodySnapshot() behavior -----------------------------------------------------

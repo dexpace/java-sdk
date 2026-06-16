@@ -34,6 +34,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+// Failsafe deadline for awaiting an operation that is expected to complete promptly. It exists only
+// to stop a genuinely-stuck test from blocking forever, so it is kept generous: a healthy test
+// returns the instant the awaited work finishes and never approaches this bound, even on a loaded
+// CI host running modules in parallel.
+private const val FAILSAFE_TIMEOUT_SECONDS = 30L
+private val FAILSAFE_TIMEOUT: Duration = Duration.ofSeconds(FAILSAFE_TIMEOUT_SECONDS)
+
 class ReactorTest {
     @BeforeTest
     fun installIo() {
@@ -134,7 +141,7 @@ class ReactorTest {
                     seenTraceId.set(MDC.get("trace.id")?.hashCode() ?: -1)
                     CompletableFuture.completedFuture(mockResponse(request, 200))
                 }
-            client.executeMono(getRequest()).block(java.time.Duration.ofSeconds(2))
+            client.executeMono(getRequest()).block(FAILSAFE_TIMEOUT)
             // The supplier is called synchronously on the subscribe thread, so MDC is already present.
             // We just verify that the supplier sees it (baseline regression).
             assertTrue(seenTraceId.get() != 0, "Supplier should see the trace.id")
@@ -154,7 +161,7 @@ class ReactorTest {
                 AsyncHttpClient { request ->
                     CompletableFuture.completedFuture(mockResponse(request, 200))
                 }
-            client.executeMono(getRequest()).block(java.time.Duration.ofSeconds(2))
+            client.executeMono(getRequest()).block(FAILSAFE_TIMEOUT)
             // After block() returns, the caller's MDC should still be intact — withMdc inside the
             // adapter's hooks restores the previous (= caller's) MDC on exit.
             assertEquals("reactor-caller-preserve", MDC.get("trace.id"))
@@ -177,9 +184,9 @@ class ReactorTest {
         // StepVerifier creates subscription then cancels it.
         StepVerifier.create(mono)
             .thenCancel()
-            .verify(Duration.ofSeconds(2))
+            .verify(FAILSAFE_TIMEOUT)
         // Retrieve the underlying future that was created during subscription.
-        val underlying = futureLatch.get(2, TimeUnit.SECONDS)
+        val underlying = futureLatch.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         assertTrue(
             underlying.isCancelled,
             "Disposing the Mono subscription should cancel the underlying CompletableFuture",
@@ -202,7 +209,7 @@ class ReactorTest {
             // Reactor scheduler thread — the mdc.withMdc { ... } wrap must re-apply MDC there.
             client.executeMono(getRequest())
                 .subscribeOn(Schedulers.boundedElastic())
-                .block(Duration.ofSeconds(2))
+                .block(FAILSAFE_TIMEOUT)
             assertEquals(
                 "reactor-supplier-mdc",
                 seenTraceId.get(),
@@ -234,7 +241,7 @@ class ReactorTest {
             // supplier would observe "assembly-time"; with Mono.defer the capture happens per
             // subscription, so it must observe the subscriber's value instead.
             MDC.put("trace.id", "subscribe-time")
-            mono.block(Duration.ofSeconds(2))
+            mono.block(FAILSAFE_TIMEOUT)
 
             assertEquals(
                 "subscribe-time",
@@ -261,11 +268,11 @@ class ReactorTest {
 
             MDC.put("trace.id", "first")
             val mono = client.executeMono(getRequest())
-            mono.block(Duration.ofSeconds(2))
+            mono.block(FAILSAFE_TIMEOUT)
 
             // Re-subscribe under a different MDC; deferred capture must reflect the new value.
             MDC.put("trace.id", "second")
-            mono.block(Duration.ofSeconds(2))
+            mono.block(FAILSAFE_TIMEOUT)
 
             assertEquals(listOf("first", "second"), seenTraceIds.toList())
         } finally {
@@ -292,7 +299,7 @@ class ReactorTest {
             val mono = pipeline.sendMono(getRequest())
 
             MDC.put("trace.id", "subscribe-time")
-            mono.block(Duration.ofSeconds(2))
+            mono.block(FAILSAFE_TIMEOUT)
 
             assertEquals(
                 "subscribe-time",

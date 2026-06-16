@@ -35,6 +35,7 @@ import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletionException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Flow
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -44,6 +45,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -142,6 +144,29 @@ class JdkHttpTransportTest {
         }
         val recorded = server.takeRequest()
         assertEquals(payload, recorded.body?.utf8())
+    }
+
+    // -------- async adaptation failures --------
+
+    @Test
+    fun `executeAsyncDeliversAdaptationFailureThroughFuture`() {
+        // A CONNECT request makes request adaptation throw synchronously inside executeAsync
+        // (the JDK client reserves CONNECT for internal tunnelling). The contract is that
+        // executeAsync completes exceptionally on error, so the failure must arrive through the
+        // returned future — a future-composing caller's .exceptionally/.handle would never
+        // observe a synchronous throw.
+        val request =
+            Request.builder()
+                .method(Method.CONNECT)
+                .url(server.url("/async-adapt-fail").toUrl())
+                .build()
+        // Must return a future rather than throwing on the caller's thread.
+        val future = transport.executeAsync(request)
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        assertTrue(
+            ex.cause is IllegalArgumentException,
+            "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
+        )
     }
 
     // -------- headers round-trip --------
@@ -301,7 +326,7 @@ class JdkHttpTransportTest {
         }
     }
 
-    // -------- streaming publisher re-subscription (H4) --------
+    // -------- streaming publisher re-subscription --------
 
     @Test
     fun `streamingPublisherSurvivesResubscription`() {
@@ -342,6 +367,46 @@ class JdkHttpTransportTest {
     }
 
     @Test
+    fun `streamingBodyThatCannotBeBufferedFailsLoudly`() {
+        // A non-replayable streaming body (> 64 KiB, so it takes the piped path) whose writeTo
+        // aborts with an IOException after a partial write cannot be turned into a replayable
+        // copy: toReplayable's internal writeTo throws, and the body — like the SDK's
+        // consume-once bodies — has already flipped its consumed guard. The adapter must NOT
+        // attempt a second writeTo (which would trip the guard and surface an
+        // IllegalStateException, masking the real cause). It must instead fail with a checked
+        // IOException — honouring execute's @Throws(IOException) contract, and matching the eager
+        // path — that carries a clear message and preserves the original IOException as its cause.
+        val body = PartialThenFailingBody(CommonMediaTypes.APPLICATION_OCTET_STREAM)
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/unbufferable").toUrl())
+                .body(body)
+                .build()
+        val ex =
+            assertFails {
+                transport.execute(request).close()
+            }
+        // IOException is checked; UncheckedIOException and IllegalStateException are
+        // RuntimeExceptions, so asserting `is IOException` rules out both a contract-bypassing
+        // unchecked throw and the IllegalStateException masking failure mode.
+        assertTrue(
+            ex is IOException,
+            "expected a checked IOException, got ${ex::class}: ${ex.message}",
+        )
+        assertTrue(
+            ex.message?.contains("supply a replayable body") == true,
+            "message must explain the body could not be buffered, was: ${ex.message}",
+        )
+        val cause = ex.cause
+        assertTrue(
+            cause is IOException,
+            "the original IOException must be preserved as the cause, was: ${cause?.let { it::class }}",
+        )
+        assertEquals("simulated mid-write failure", cause.message)
+    }
+
+    @Test
     fun `abandonedStreamingPublisherDoesNotStrandWriter`() {
         // A subscription that is acquired but never drained (connect failure, cancellation
         // before body send) would otherwise leave the writer thread blocked forever in
@@ -367,7 +432,7 @@ class JdkHttpTransportTest {
         )
     }
 
-    // -------- proxy challengeHandler (M7) --------
+    // -------- proxy challengeHandler --------
 
     @Test
     fun `proxyChallengeHandlerIsAcceptedAndSurfacedAsUnsupported`() {
@@ -727,7 +792,36 @@ class JdkHttpTransportTest {
         }
     }
 
-    /** Minimal [org.dexpace.sdk.core.http.auth.ChallengeHandler] stub for the M7 acceptance test. */
+    /**
+     * Non-replayable body that writes a partial chunk and then aborts with an [IOException]. Its
+     * declared length is large enough to route through the streaming (piped) publisher path, and
+     * a consume-once guard mirrors the SDK's stream-backed bodies: a second [writeTo] throws
+     * [IllegalStateException]. Used to verify the adapter does not re-drive an already-consumed
+     * body when buffering it into a replayable copy fails mid-write.
+     */
+    private class PartialThenFailingBody(
+        private val mediaType: MediaType,
+    ) : RequestBody() {
+        private val consumed = AtomicBoolean(false)
+
+        override fun mediaType(): MediaType = mediaType
+
+        // > 64 KiB so adaptBody routes to the streaming publisher rather than the eager path.
+        override fun contentLength(): Long = 128L * 1024L
+
+        override fun isReplayable(): Boolean = false
+
+        override fun writeTo(sink: BufferedSink) {
+            check(consumed.compareAndSet(false, true)) {
+                "PartialThenFailingBody.writeTo was already called — the body is single-use"
+            }
+            sink.write(ByteArray(4096))
+            sink.flush()
+            throw IOException("simulated mid-write failure")
+        }
+    }
+
+    /** Minimal [org.dexpace.sdk.core.http.auth.ChallengeHandler] stub for the proxy challenge-handler acceptance test. */
     private object NoopChallengeHandler : org.dexpace.sdk.core.http.auth.ChallengeHandler {
         override fun handleChallenges(
             method: Method,

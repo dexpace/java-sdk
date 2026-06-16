@@ -207,7 +207,7 @@ class RequestTest {
             assertFailsWith<IllegalStateException> {
                 Request.builder().url("https://example.test").build()
             }
-        assertEquals("Method is required.", ex.message)
+        assertEquals("method is required", ex.message)
     }
 
     @Test
@@ -216,7 +216,7 @@ class RequestTest {
             assertFailsWith<IllegalStateException> {
                 Request.builder().method(Method.GET).build()
             }
-        assertEquals("URL is required.", ex.message)
+        assertEquals("url is required", ex.message)
     }
 
     // ---------------------------------------------------------------------

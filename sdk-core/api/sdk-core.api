@@ -56,6 +56,10 @@ public abstract interface class org/dexpace/sdk/core/generics/Builder {
 	public abstract fun build ()Ljava/lang/Object;
 }
 
+public final class org/dexpace/sdk/core/generics/BuilderChecksKt {
+	public static final fun checkRequired (Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+}
+
 public final class org/dexpace/sdk/core/http/auth/AuthChallengeParser {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/http/auth/AuthChallengeParser;
 	public static final fun parse (Ljava/lang/String;)Ljava/util/List;
@@ -201,12 +205,14 @@ public final class org/dexpace/sdk/core/http/auth/KeyCredential : org/dexpace/sd
 	public final fun getApiKey ()Ljava/lang/String;
 	public final fun getHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
 	public final fun getPrefix ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/auth/NamedKeyCredential : org/dexpace/sdk/core/http/auth/Credential {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
 	public final fun getKey ()Ljava/lang/String;
 	public final fun getName ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/common/CommonMediaTypes {
@@ -755,6 +761,8 @@ public class org/dexpace/sdk/core/http/pipeline/steps/BearerTokenAuthStep : org/
 	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	protected fun authorizeRequest (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
+	protected fun authorizeRequestOnChallenge (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/request/Request;
+	protected fun bearerHeaderValue (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncInstrumentationStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
@@ -787,7 +795,6 @@ public class org/dexpace/sdk/core/http/pipeline/steps/DefaultRedirectStep : org/
 public class org/dexpace/sdk/core/http/pipeline/steps/DefaultRetryStep : org/dexpace/sdk/core/http/pipeline/steps/RetryStep {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/DefaultRetryStep$Companion;
 	public static final field DEFAULT_MAX_RETRIES I
-	public static final field MAX_SHIFT_TRY_COUNT I
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;)V
@@ -829,11 +836,20 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationO
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel : java/lang/Enum {
 	public static final field BODY_AND_HEADERS Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion;
 	public static final field HEADERS Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 	public static final field NONE Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 	public static fun values ()[Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion {
+	public final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public final fun fromConfiguration (Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
+	public static synthetic fun fromConfiguration$default (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel$Companion;Ljava/lang/String;Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectCondition {
@@ -943,6 +959,21 @@ public abstract class org/dexpace/sdk/core/http/pipeline/steps/RedirectStep : or
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/RetryStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
 	public fun <init> ()V
 	public final fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/ServerOverrideRetryPredicate : org/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate {
+	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/ServerOverrideRetryPredicate$Companion;
+	public static final field DEFAULT_HEADER_NAME Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDelegate ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;
+	public final fun getHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
+	public fun shouldRetry (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryCondition;)Z
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/ServerOverrideRetryPredicate$Companion {
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/SetDateStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
@@ -1100,16 +1131,6 @@ public final class org/dexpace/sdk/core/http/request/RequestBody$Companion {
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;[BLorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 }
 
-public class org/dexpace/sdk/core/http/response/HttpResponseException : java/io/IOException {
-	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/response/Response;)V
-	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/Object;)V
-	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/Object;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/Object;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getResponse ()Lorg/dexpace/sdk/core/http/response/Response;
-	public final fun getValue ()Ljava/lang/Object;
-	public final fun isRetryable ()Z
-}
-
 public final class org/dexpace/sdk/core/http/response/LoggableResponseBody : org/dexpace/sdk/core/http/response/ResponseBody {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/ResponseBody;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/ResponseBody;Lorg/dexpace/sdk/core/io/IoProvider;)V
@@ -1121,6 +1142,27 @@ public final class org/dexpace/sdk/core/http/response/LoggableResponseBody : org
 	public final fun snapshot ()[B
 	public final fun snapshot (I)[B
 	public fun source ()Lorg/dexpace/sdk/core/io/BufferedSource;
+}
+
+public final class org/dexpace/sdk/core/http/response/ParsedResponse : java/io/Closeable {
+	public static final field Companion Lorg/dexpace/sdk/core/http/response/ParsedResponse$Companion;
+	public fun close ()V
+	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getProtocol ()Lorg/dexpace/sdk/core/http/common/Protocol;
+	public final fun getRaw ()Lorg/dexpace/sdk/core/http/response/Response;
+	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun getStatus ()Lorg/dexpace/sdk/core/http/response/Status;
+	public static final fun of (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Lorg/dexpace/sdk/core/http/response/ParsedResponse;
+	public final fun value ()Ljava/lang/Object;
+}
+
+public final class org/dexpace/sdk/core/http/response/ParsedResponse$Companion {
+	public final fun of (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Lorg/dexpace/sdk/core/http/response/ParsedResponse;
+}
+
+public final class org/dexpace/sdk/core/http/response/ParsedResponseKt {
+	public static final fun parsedWith (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Lorg/dexpace/sdk/core/http/response/ParsedResponse;
 }
 
 public final class org/dexpace/sdk/core/http/response/Response : java/io/Closeable {
@@ -1186,6 +1228,18 @@ public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;J)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/response/ResponseBody$Companion;Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;JILjava/lang/Object;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
+}
+
+public abstract interface class org/dexpace/sdk/core/http/response/ResponseHandler {
+	public static final field Companion Lorg/dexpace/sdk/core/http/response/ResponseHandler$Companion;
+	public static fun empty ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public abstract fun handle (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/lang/Object;
+	public static fun string ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+}
+
+public final class org/dexpace/sdk/core/http/response/ResponseHandler$Companion {
+	public final fun empty ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public final fun string ()Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 }
 
 public final class org/dexpace/sdk/core/http/response/Status {
@@ -1274,65 +1328,74 @@ public class org/dexpace/sdk/core/http/response/exception/BadGatewayException : 
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/BadRequestException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/ClientErrorException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/ConflictException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/ForbiddenException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/GatewayTimeoutException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/GoneException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
-public abstract class org/dexpace/sdk/core/http/response/exception/HttpException : java/lang/RuntimeException {
+public abstract class org/dexpace/sdk/core/http/response/exception/HttpException : java/lang/RuntimeException, org/dexpace/sdk/core/http/response/exception/Retryable {
 	public static final field Companion Lorg/dexpace/sdk/core/http/response/exception/HttpException$Companion;
 	public static final field DEFAULT_SNAPSHOT_BYTES I
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun bodySnapshot ()[B
 	public final fun bodySnapshot (I)[B
 	public static synthetic fun bodySnapshot$default (Lorg/dexpace/sdk/core/http/response/exception/HttpException;IILjava/lang/Object;)[B
 	public final fun getBody ()Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
-	public final fun getRetryable ()Z
 	public final fun getStatus ()Lorg/dexpace/sdk/core/http/response/Status;
+	public final fun getValue ()Ljava/lang/Object;
+	public fun isRetryable ()Z
 }
 
 public final class org/dexpace/sdk/core/http/response/exception/HttpException$Companion {
@@ -1341,91 +1404,108 @@ public final class org/dexpace/sdk/core/http/response/exception/HttpException$Co
 public final class org/dexpace/sdk/core/http/response/exception/HttpExceptionFactory {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/http/response/exception/HttpExceptionFactory;
 	public static final fun fromResponse (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/response/exception/HttpException;
+	public static final fun fromResponseOrNull (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/response/exception/HttpException;
+	public static final fun isErrorStatus (I)Z
 }
 
 public class org/dexpace/sdk/core/http/response/exception/InternalServerErrorException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/MethodNotAllowedException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
-public class org/dexpace/sdk/core/http/response/exception/NetworkException : java/io/IOException {
+public class org/dexpace/sdk/core/http/response/exception/NetworkException : java/io/IOException, org/dexpace/sdk/core/http/response/exception/Retryable {
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/String;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getRetryable ()Z
+	public fun isRetryable ()Z
 }
 
 public class org/dexpace/sdk/core/http/response/exception/NotFoundException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/PayloadTooLargeException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/RequestTimeoutException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public abstract interface class org/dexpace/sdk/core/http/response/exception/Retryable {
+	public abstract fun isRetryable ()Z
 }
 
 public class org/dexpace/sdk/core/http/response/exception/ServerErrorException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/ServiceUnavailableException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/TooManyRequestsException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/UnauthorizedException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/UnprocessableEntityException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public class org/dexpace/sdk/core/http/response/exception/UnsupportedMediaTypeException : org/dexpace/sdk/core/http/response/exception/HttpException {
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public final class org/dexpace/sdk/core/http/sse/ServerSentEvent {
@@ -1898,10 +1978,23 @@ public abstract interface class org/dexpace/sdk/core/io/Source : java/io/Closeab
 }
 
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lkotlin/jvm/functions/Function1;)V
+	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
+}
+
+public final class org/dexpace/sdk/core/pagination/CursorResult {
+	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/util/List;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/CursorResult;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/pagination/CursorResult;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/pagination/CursorResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getItems ()Ljava/util/List;
+	public final fun getNextCursor ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/pagination/LinkHeaderPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
@@ -1935,13 +2028,6 @@ public final class org/dexpace/sdk/core/pagination/Paginator {
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun iterateAll ()Ljava/lang/Iterable;
 	public final fun streamAll ()Ljava/util/stream/Stream;
-}
-
-public final class org/dexpace/sdk/core/pagination/TokenPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
 }
 
 public final class org/dexpace/sdk/core/pipeline/ExecutionPipeline {
@@ -2091,6 +2177,12 @@ public abstract interface class org/dexpace/sdk/core/pipeline/step/ResponseRecov
 	public abstract fun invoke (Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;)Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;
 }
 
+public final class org/dexpace/sdk/core/pipeline/step/ThrowOnHttpErrorStep : org/dexpace/sdk/core/pipeline/step/ResponsePipelineStep {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/pipeline/step/ThrowOnHttpErrorStep;
+	public synthetic fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
+	public fun execute (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/response/Response;
+}
+
 public final class org/dexpace/sdk/core/pipeline/step/retry/BackoffCalculator {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/pipeline/step/retry/BackoffCalculator;
 	public static final fun computeDelay (ILorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;)Ljava/time/Duration;
@@ -2107,14 +2199,18 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetryAfterParser {
 
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings {
 	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$Companion;
+	public static final field DEFAULT_DELAY_MULTIPLIER D
 	public static final field DEFAULT_INITIAL_DELAY Ljava/time/Duration;
+	public static final field DEFAULT_JITTER D
+	public static final field DEFAULT_MAX_ATTEMPTS I
 	public static final field DEFAULT_MAX_DELAY Ljava/time/Duration;
 	public static final field DEFAULT_RETRYABLE_METHODS Ljava/util/Set;
 	public static final field DEFAULT_RETRYABLE_STATUSES Ljava/util/Set;
 	public static final field DEFAULT_TOTAL_TIMEOUT Ljava/time/Duration;
-	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Duration;DLjava/time/Duration;IDLjava/util/Set;Ljava/util/Set;Ljava/util/concurrent/ScheduledExecutorService;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Duration;DLjava/time/Duration;IDLjava/util/Set;Ljava/util/Set;Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
 	public static final fun defaults ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;
+	public final fun getAttemptHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
 	public final fun getDelayMultiplier ()D
 	public final fun getInitialDelay ()Ljava/time/Duration;
 	public final fun getJitter ()D
@@ -2135,6 +2231,7 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings$Compan
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder : org/dexpace/sdk/core/generics/Builder {
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;)V
+	public final fun attemptHeaderName (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
 	public synthetic fun build ()Ljava/lang/Object;
 	public fun build ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;
 	public final fun delayMultiplier (D)Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
@@ -2163,6 +2260,13 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetryStep : org/dexp
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetryStep$Companion {
 }
 
+public class org/dexpace/sdk/core/serde/DeserializationException : org/dexpace/sdk/core/serde/SerdeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
 public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 	public abstract fun deserialize (Ljava/io/InputStream;Ljava/lang/Class;)Ljava/lang/Object;
 	public abstract fun deserialize (Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;
@@ -2172,6 +2276,20 @@ public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 public abstract interface class org/dexpace/sdk/core/serde/Serde {
 	public abstract fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public abstract fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
+}
+
+public class org/dexpace/sdk/core/serde/SerdeException : java/lang/RuntimeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public class org/dexpace/sdk/core/serde/SerializationException : org/dexpace/sdk/core/serde/SerdeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public abstract interface class org/dexpace/sdk/core/serde/Serializer {

@@ -34,4 +34,12 @@ public class KeyCredential
         init {
             require(apiKey.isNotBlank()) { "apiKey must not be blank" }
         }
+
+        /**
+         * Redacts the secret [apiKey]. Without this override any log line, exception message,
+         * or debugger that stringifies the credential would expose the key; this emits
+         * `apiKey=***` instead while keeping the non-secret [headerName] and [prefix] for
+         * diagnostics. Identity equality is unaffected.
+         */
+        override fun toString(): String = "KeyCredential(apiKey=***, headerName=$headerName, prefix=$prefix)"
     }

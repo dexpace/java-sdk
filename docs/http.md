@@ -286,8 +286,9 @@ on whether a code is one the SDK recognizes.
 The SDK ships a typed exception hierarchy under `org.dexpace.sdk.core.http.response.exception`.
 The shape mirrors `gax`'s `ApiException` taxonomy translated to HTTP terms: one base class plus
 one concrete subclass per canonical status code. The base class derives its retryable flag
-from a single source of truth, so a downstream retry policy can read `exception.retryable`
-instead of maintaining a parallel predicate map.
+from a single source of truth and exposes it through the `Retryable` interface, so a downstream
+retry policy can read `(t as? Retryable)?.isRetryable` instead of maintaining a parallel
+predicate map or matching concrete exception types.
 
 ### HttpException Hierarchy
 
@@ -302,16 +303,21 @@ abstract class HttpException(
     val body: ResponseBody?,         // lazy — NOT eagerly buffered
     message: String? = null,
     cause: Throwable? = null,
-) : RuntimeException(message, cause) {
-    val retryable: Boolean = RetryUtils.isRetryable(status.code)
+    val value: Any? = null,          // slot for a deserialized error payload (generated layer)
+) : RuntimeException(message, cause), Retryable {
+    override val isRetryable: Boolean = RetryUtils.isRetryable(status.code)
     fun bodySnapshot(maxBytes: Int = DEFAULT_SNAPSHOT_BYTES): ByteArray?
 }
 ```
 
-`retryable` is a `val` **derived** at construction from `RetryUtils.isRetryable(status.code)`,
+`isRetryable` is a `val` **derived** at construction from `RetryUtils.isRetryable(status.code)`,
 not hardcoded per subclass and not a constructor parameter. This guarantees the baked flag
 can never disagree with the live retry policy: 408 / 429 and the 5xx range except 501 and 505
-are retryable, everything else is not.
+are retryable, everything else is not. It satisfies the `Retryable` interface (shared with
+`NetworkException`), which is what the retry step keys off.
+
+`value` is a slot for a deserialized error payload, left `null` here — `sdk-core` does not
+parse bodies. The generated service layer populates it on a per-operation typed subclass.
 
 `bodySnapshot()` returns a non-consuming preview of the body bytes — it reads from a fresh
 `source().peek()` view so the primary read path is undisturbed — capped at `maxBytes`
@@ -355,19 +361,21 @@ subclass: it extends `java.io.IOException` so existing `catch (IOException)` cal
 working, and it carries no status/headers/body because none arrived.
 
 ```kotlin
-open class NetworkException(message: String? = null, cause: Throwable? = null) : IOException(message, cause) {
-    val retryable: Boolean = true  // always retryable at the SDK level
+open class NetworkException(message: String? = null, cause: Throwable? = null) :
+    IOException(message, cause), Retryable {
+    override val isRetryable: Boolean = true  // always retryable at the SDK level
 }
 ```
 
-The `retryable` flag is always `true`: nothing reached the server, so the SDK can safely
+The `isRetryable` flag is always `true`: nothing reached the server, so the SDK can safely
 attempt the request again. Whether the request itself is *safe* to retry (HTTP method
 idempotency, replayable body) is the retry policy's call, not this class's.
 
 ### HttpExceptionFactory
 
-`HttpExceptionFactory.fromResponse(response)` maps a non-2xx `Response` to the right
-subclass:
+`HttpExceptionFactory.fromResponse(response)` maps a 4xx/5xx `Response` to the right subclass.
+It is the one seam that turns an error response into a typed exception, so the family is
+produced consistently rather than re-derived at each call site:
 
 ```kotlin
 val response = httpClient.execute(request)
@@ -378,6 +386,14 @@ if (!response.status.isSuccess) {
 
 The factory throws `IllegalArgumentException` if called with a status outside 400..599 —
 1xx/2xx/3xx outcomes are not exceptions and should not be funneled through this path.
+
+For the recovery-aware pipeline, `ThrowOnHttpErrorStep` packages this mapping as a
+`ResponsePipelineStep`: drop it into a `ResponsePipeline.responseSteps` list and it calls
+`fromResponse` on a 4xx/5xx response and throws the result. `ResponsePipeline` converts that
+throw into a `ResponseOutcome.Failure`, which then flows through the recovery chain (e.g.
+`RetryStep`) exactly like a transport failure — and because the thrown `HttpException` is
+`Retryable`, retry classification keys off it uniformly. The step is a building block; no
+default pipeline in `sdk-core` assembles it for you.
 
 ---
 
