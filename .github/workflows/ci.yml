@@ -1,0 +1,46 @@
+name: CI
+
+# Run the full Gradle build on every pull request and on pushes to main.
+# `./gradlew build` runs the complete quality gate: tests, ktlint, detekt,
+# apiCheck (binary-compatibility), explicit-API strict mode, allWarningsAsErrors,
+# and the aggregate 80% Kover line-coverage floor.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref so only the latest commit of a branch/PR builds.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # The styleguide directory is a git submodule; fetch it so the working tree matches local checkouts.
+          submodules: recursive
+
+      # Install a single Temurin JDK 21. The build's Gradle daemon runs on this JVM, and the
+      # foojay-resolver-convention plugin (settings.gradle.kts) auto-provisions the JDK 8 and
+      # JDK 11 toolchains the Java-8 and JDK-11 modules require. JDK 21 also satisfies the
+      # virtual-threads module's toolchain. JDK 21 (rather than the newest LTS) is deliberate:
+      # detekt 1.23.x crashes on JDK 25+, so keeping the daemon on 21 keeps the detekt gate green.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Built-in Gradle dependency and build caching, plus wrapper validation.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew build
