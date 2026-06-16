@@ -115,6 +115,19 @@ public object RetryAfterParser {
     private const val NANOS_PER_SECOND: Double = 1_000_000_000.0
 
     /**
+     * Strict grammar for the numeric `Retry-After` delta: one or more decimal digits, optionally
+     * followed by a single decimal point and one or more decimal digits.
+     *
+     * Screening with this regex before [String.toDoubleOrNull] is deliberate: `toDoubleOrNull`
+     * accepts the Java floating-point literal grammar, which includes the type suffixes (`d`,
+     * `f`) and hexadecimal-float forms (`0x1p4`). Without the screen a header such as
+     * `Retry-After: 30d` or `Retry-After: 0x1p4` would parse to a finite delta instead of falling
+     * through to the backoff schedule. Only the RFC 7231 §7.1.3 delta-seconds form and the
+     * fractional extension real servers emit are honoured here.
+     */
+    private val NUMERIC_SECONDS = Regex("""^\d+(\.\d+)?$""")
+
+    /**
      * Parses the next-attempt delay from [headers] relative to [now]. Returns `null` when no
      * recognized header is present or parseable.
      *
@@ -197,17 +210,23 @@ public object RetryAfterParser {
      * integer (delta-seconds) form and the fractional form (`1.5`) that real servers and
      * proxies emit; the fractional part is honoured down to nanosecond resolution.
      *
-     * Returns `null` on any parse failure, on a negative value, or on a non-finite value
-     * (`NaN`, `Infinity`) — the retry layer then falls back to its backoff schedule rather
-     * than retrying immediately against a misbehaving server. A finite but absurdly large
-     * value is clamped to [MAX_DELAY] before the nanosecond conversion so the resulting
-     * [Duration] can never overflow [Duration.toNanos] downstream.
+     * The value is first screened against [NUMERIC_SECONDS] so only the plain decimal grammar
+     * is honoured: [String.toDoubleOrNull] otherwise accepts Java float literals such as `30d`
+     * and `0x1p4`, which must instead fall through to the HTTP-date branch (or, ultimately, the
+     * backoff schedule). Returns `null` on any parse failure, on a negative value, or on a
+     * non-finite value (`NaN`, `Infinity`). A finite but absurdly large value is clamped to
+     * [MAX_DELAY] before the nanosecond conversion so the resulting [Duration] can never
+     * overflow [Duration.toNanos] downstream.
      */
     private fun parseNumericSeconds(value: String): Duration? {
+        // The strict screen guarantees a non-negative decimal, so toDoubleOrNull never returns
+        // null/NaN here; an extremely long digit run can still overflow to +Infinity, which the
+        // ceiling check below absorbs by clamping rather than letting it reach the nanos multiply.
+        if (!NUMERIC_SECONDS.matches(value)) return null
         val seconds = value.toDoubleOrNull() ?: return null
-        if (seconds.isNaN() || seconds.isInfinite() || seconds < 0.0) return null
         // Clamp in the seconds domain before converting to nanos: a value beyond the ceiling
-        // would overflow the `* NANOS_PER_SECOND` multiply and the Long cast below.
+        // (or an overflow to +Infinity) would otherwise overflow the `* NANOS_PER_SECOND`
+        // multiply and the Long cast below.
         if (seconds >= MAX_DELAY_SECONDS) return MAX_DELAY
         return Duration.ofNanos((seconds * NANOS_PER_SECOND).toLong())
     }

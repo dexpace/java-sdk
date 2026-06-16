@@ -1174,6 +1174,115 @@ class RetryStepTest {
         assertEquals(2, attempts.get())
     }
 
+    @Test
+    fun `server override recognises every truthy token and forces a retry`() {
+        // Each documented truthy spelling (case-insensitive) must force a retry on an otherwise
+        // non-retryable 404. Verbatim casing variants prove the lowercase() normalisation.
+        for (token in listOf("true", "TRUE", "1", "yes", "YES", "retry", "Retry")) {
+            val opts =
+                HttpRetryOptions(
+                    maxRetries = 3,
+                    shouldRetryCondition = ServerOverrideRetryPredicate(),
+                )
+            val fake =
+                FakeHttpClient()
+                    .enqueue { status(404).header("X-Should-Retry", token) }
+                    .enqueue { status(200) }
+            val pipeline =
+                HttpPipelineBuilder(fake)
+                    .append(DefaultRetryStep(opts, zeroDelayClock()))
+                    .build()
+
+            val response = pipeline.send(getRequest())
+            assertEquals(200, response.status.code, "truthy token '$token' should force a retry")
+            assertEquals(2, fake.callCount, "truthy token '$token' should produce exactly one retry")
+        }
+    }
+
+    @Test
+    fun `server override recognises every falsy token and suppresses a retry`() {
+        // Each documented falsy spelling must suppress the retry the default classifier would
+        // otherwise allow on a 503.
+        for (token in listOf("false", "FALSE", "0", "no", "NO", "stop", "Stop")) {
+            val opts =
+                HttpRetryOptions(
+                    maxRetries = 3,
+                    shouldRetryCondition = ServerOverrideRetryPredicate(),
+                )
+            val fake =
+                FakeHttpClient()
+                    .enqueue { status(503).header("X-Should-Retry", token) }
+            val pipeline =
+                HttpPipelineBuilder(fake)
+                    .append(DefaultRetryStep(opts, zeroDelayClock()))
+                    .build()
+
+            val response = pipeline.send(getRequest())
+            assertEquals(503, response.status.code, "falsy token '$token' should suppress the retry")
+            assertEquals(1, fake.callCount, "falsy token '$token' should not retry")
+        }
+    }
+
+    @Test
+    fun `server override defers an unrecognised token to the delegate`() {
+        // An unrecognised value such as `maybe` is not a directive: the predicate falls through
+        // to the delegate. With the default classifier, a 503 still retries and a 404 still does
+        // not — proving the else branch defers rather than guessing.
+        val retryableOpts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = ServerOverrideRetryPredicate(),
+            )
+        val retryableFake =
+            FakeHttpClient()
+                .enqueue { status(503).header("X-Should-Retry", "maybe") }
+                .enqueue { status(200) }
+        val retryablePipeline =
+            HttpPipelineBuilder(retryableFake)
+                .append(DefaultRetryStep(retryableOpts, zeroDelayClock()))
+                .build()
+        assertEquals(200, retryablePipeline.send(getRequest()).status.code)
+        assertEquals(2, retryableFake.callCount, "unrecognised token must defer: 503 still retries")
+
+        val nonRetryableOpts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = ServerOverrideRetryPredicate(),
+            )
+        val nonRetryableFake =
+            FakeHttpClient()
+                .enqueue { status(404).header("X-Should-Retry", "maybe") }
+        val nonRetryablePipeline =
+            HttpPipelineBuilder(nonRetryableFake)
+                .append(DefaultRetryStep(nonRetryableOpts, zeroDelayClock()))
+                .build()
+        assertEquals(404, nonRetryablePipeline.send(getRequest()).status.code)
+        assertEquals(1, nonRetryableFake.callCount, "unrecognised token must defer: 404 still does not retry")
+    }
+
+    @Test
+    fun `server override does not bypass the non-replayable body gate`() {
+        // A truthy override flips the classification decision, but it does not bypass the
+        // replayability gate: a POST with a non-replayable body cannot be re-sent, so the
+        // response is returned without a retry even though the server asked for one.
+        val opts =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = ServerOverrideRetryPredicate(),
+            )
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(404).header("X-Should-Retry", "true") }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(opts, zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(nonReplayablePost())
+        assertEquals(404, response.status.code)
+        assertEquals(1, fake.callCount, "forced retry must not re-send a non-replayable body")
+    }
+
     // ----------------- Error propagation -----------------
 
     @Test

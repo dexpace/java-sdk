@@ -27,6 +27,14 @@ import java.util.Locale
  *    the decision is delegated to [delegate] — so wiring this predicate in changes behaviour
  *    only when the server actually speaks.
  *
+ * ## What the override does and does not bypass
+ *
+ * The override flips only the *classification* decision — "is this response retryable?". It does
+ * not bypass the other gates the retry step enforces: a forced retry is still capped by
+ * [HttpRetryOptions.maxRetries], and still requires a retry-safe request (an idempotent method or
+ * a replayable body). A truthy header on a `POST` carrying a non-replayable body therefore does
+ * **not** trigger a retry — the body cannot be re-sent, so the response is returned as-is.
+ *
  * ## Opt-in
  *
  * This predicate is **not** installed by default. A caller enables it by passing an instance as
