@@ -1125,7 +1125,6 @@ public final class org/dexpace/sdk/core/http/response/LoggableResponseBody : org
 
 public final class org/dexpace/sdk/core/http/response/ParsedResponse : java/io/Closeable {
 	public static final field Companion Lorg/dexpace/sdk/core/http/response/ParsedResponse$Companion;
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)V
 	public fun close ()V
 	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun getMessage ()Ljava/lang/String;

@@ -103,7 +103,9 @@ class JsonResponseHandlerTest {
                 .protocol(Protocol.HTTP_1_1)
                 .status(Status.NO_CONTENT)
                 .build()
-        assertFailsWith<SerdeException> { jsonHandler(serde, Dto::class.java).handle(resp) }
+        val ex = assertFailsWith<SerdeException> { jsonHandler(serde, Dto::class.java).handle(resp) }
+        // The message names the target type so a failure log says what the decode was aiming for.
+        assertEquals(true, ex.message?.contains(Dto::class.java.typeName) == true)
     }
 
     @Test

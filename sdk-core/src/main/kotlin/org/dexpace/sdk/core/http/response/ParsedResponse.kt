@@ -46,7 +46,7 @@ import kotlin.concurrent.withLock
  * @param raw The underlying raw response. Header / status / metadata access reads from here.
  * @param handler Strategy that maps [raw] to the typed value on first [value] access.
  */
-public class ParsedResponse<out T>(
+public class ParsedResponse<out T> internal constructor(
     public val raw: Response,
     private val handler: ResponseHandler<T>,
 ) : Closeable {
@@ -80,8 +80,12 @@ public class ParsedResponse<out T>(
      * typically consumes and closes the body); subsequent calls return the same value, or
      * re-throw the same failure, without re-running the handler.
      *
+     * Any failure the handler throws is memoized and re-thrown verbatim on every later call — not
+     * just [IOException]. Handlers commonly throw **unchecked** exceptions (the Jackson `jsonHandler`
+     * throws `SerdeException`), so callers should not assume the only escape is [IOException].
+     *
      * @return The parsed value (which may be `null` if the handler produces `null`).
-     * @throws IOException If the handler failed — the original failure is cached and re-thrown.
+     * @throws IOException If the handler failed with an [IOException] — cached and re-thrown.
      */
     @Throws(IOException::class)
     public fun value(): T {
@@ -94,6 +98,10 @@ public class ParsedResponse<out T>(
                 try {
                     Outcome.Success(handler.handle(raw))
                 } catch (t: Throwable) {
+                    // Catch Throwable, not Exception, on purpose: once the handler has touched the
+                    // single-use body, re-running it would read an already-consumed stream. Even an
+                    // Error (e.g. an OOM mid-parse) is memoized so a later call re-throws it rather
+                    // than re-reading the body and masking the original failure.
                     Outcome.Failure(t)
                 }
             outcome = resolved

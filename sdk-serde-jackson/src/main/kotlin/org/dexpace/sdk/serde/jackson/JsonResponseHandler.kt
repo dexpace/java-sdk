@@ -12,7 +12,6 @@ import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseHandler
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerdeException
-import org.dexpace.sdk.core.serde.deserialize
 
 /**
  * A [ResponseHandler] that streams the response body through [serde]'s deserializer into a value
@@ -40,7 +39,7 @@ public fun <T> jsonHandler(
     type: Class<T>,
 ): ResponseHandler<T> =
     ResponseHandler { response ->
-        decode(response) { stream -> serde.deserializer.deserialize(stream, type) }
+        decode(response, type.typeName) { stream -> serde.deserializer.deserialize(stream, type) }
     }
 
 /**
@@ -60,7 +59,7 @@ public fun <T> jsonHandler(
     type: TypeReference<T>,
 ): ResponseHandler<T> =
     ResponseHandler { response ->
-        decode(response) { stream -> serde.deserializeAs(stream, type) }
+        decode(response, type.type.typeName) { stream -> serde.deserializeAs(stream, type) }
     }
 
 /**
@@ -70,13 +69,14 @@ public fun <T> jsonHandler(
  */
 private inline fun <T> decode(
     response: Response,
+    targetType: String,
     decoder: (java.io.InputStream) -> T,
 ): T =
     response.use { resp ->
         val body =
             resp.body
                 ?: throw SerdeException(
-                    "Cannot deserialize a ${resp.status.code} response that has no body.",
+                    "Cannot deserialize a ${resp.status.code} response with no body into $targetType.",
                 )
         try {
             decoder(body.source().inputStream())

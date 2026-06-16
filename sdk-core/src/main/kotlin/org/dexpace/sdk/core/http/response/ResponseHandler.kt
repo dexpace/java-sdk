@@ -57,6 +57,11 @@ public fun interface ResponseHandler<out T> {
          * A handler that reads the entire response body as a UTF-8 [String] and closes the
          * response. A bodyless response (e.g. `204 No Content`) yields an empty string.
          *
+         * **Unbounded.** This reads the whole body into a single in-memory [String] with no size
+         * cap, so it is an unbounded-allocation vector against a hostile or misbehaving server.
+         * Unlike the bounded body-logging path elsewhere in the SDK, it applies no limit — use it
+         * only for trusted endpoints with bounded payloads, not for untrusted or large bodies.
+         *
          * @return A stateless [String] handler.
          */
         @JvmStatic
@@ -90,7 +95,10 @@ public fun interface ResponseHandler<out T> {
                 }
             }
 
-        /** Per-read pump size for the discarding drain — matches the I/O segment size. */
+        /**
+         * Per-read pump size for the discarding drain — a reasonable chunk size. `read` treats it
+         * as an upper bound, so the exact value is not load-bearing for correctness.
+         */
         private const val DRAIN_CHUNK_BYTES: Long = 8 * 1024
     }
 }
