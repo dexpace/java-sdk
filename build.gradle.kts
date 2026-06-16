@@ -38,8 +38,8 @@ plugins {
     alias(libs.plugins.detekt)
 }
 
-group = "org.dexpace"
-version = "0.0.1-alpha.1"
+// `group` and `version` are set once in `gradle.properties` and applied by Gradle to the root
+// project and every subproject — see that file.
 
 // Coverage: aggregate every Kover-enabled subproject through this root project's reports.
 dependencies {

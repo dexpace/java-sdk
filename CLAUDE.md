@@ -108,6 +108,12 @@ Layered, from the bottom up:
   public entry point (e.g. only `OkioIoProvider` is public in `sdk-io-okio3`).
 - **`sdk-core` has zero non-SLF4J runtime deps** — I/O, Jackson, and concurrency libraries live only in
   adapter modules. SLF4J is `compileOnly` (added by the root build to every Kotlin module).
+- **Published modules apply `id("dexpace.published-module")`** — the convention plugin in the `build-logic`
+  included build (`build-logic/src/main/kotlin/dexpace.published-module.gradle.kts`) carries the
+  `maven-publish` + `signing` setup, shared POM, staging repo, and CI-gated signing. Do not re-inline a
+  `publishing {}`/`signing {}` block in a module; a new publishable module just applies the plugin, and a
+  module that must not be published simply omits it. Coordinates (`group`/`version`) come from
+  `gradle.properties` and apply to every project.
 - **Commit style:** `feat:` / `test:` / `docs:` / `chore:` prefixes; `merge:` for work-unit merge commits.
 
 ## Things That Will Bite You

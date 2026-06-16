@@ -5,6 +5,13 @@
  * SPDX-License-Identifier: MIT
  */
 
+pluginManagement {
+    // `build-logic` is an included build that compiles this repository's convention plugins.
+    // Putting `includeBuild` here (rather than at the top level) lets modules apply those
+    // plugins by id from their own `plugins {}` block — e.g. `id("dexpace.published-module")`.
+    includeBuild("build-logic")
+}
+
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
