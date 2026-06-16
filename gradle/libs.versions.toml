@@ -9,6 +9,9 @@ reactor = "3.8.5"
 netty = "4.2.13.Final"
 jackson = "2.18.2"
 junit-jupiter = "5.10.2"
+# R8 is used only by the test-only sdk-shrink-test module to verify the SDK survives consumer-side
+# shrinking. It is fetched from Google's Maven repo and never enters a published artifact.
+r8 = "8.9.35"
 kover = "0.9.8"
 binary-compatibility-validator = "0.16.3"
 ktlint-plugin = "12.1.1"
@@ -32,6 +35,7 @@ jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-
 jackson-datatype-jsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 jackson-datatype-jdk8 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jdk8", version.ref = "jackson" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
+r8 = { module = "com.android.tools:r8", version.ref = "r8" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
