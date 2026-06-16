@@ -26,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BearerTokenAuthStepTest {
@@ -291,6 +292,43 @@ class BearerTokenAuthStepTest {
         assertEquals(401, response.status.code, "the second 401 is surfaced, not retried again")
         assertEquals(2, fake.callCount)
         assertEquals(2, fetches.get())
+    }
+
+    @Test
+    fun `cross-origin-marked request that 401s is surfaced unchanged without stamping a token`() {
+        // A cross-origin redirect re-issue is stripped of its Authorization header and tagged
+        // with the internal marker, so it reaches the foreign host with no credential. If that
+        // host 401s, the challenge path must NOT stamp the caller's bearer token onto the
+        // foreign host (that would leak the token cross-origin and bypass the HTTPS/cross-origin
+        // suppression). The 401 must surface unchanged with no token fetch.
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        // Mimic DefaultRedirectStep's cross-origin re-issue: no Authorization, marker present.
+        val markedRequest =
+            Request.builder()
+                .method(Method.GET)
+                .url("https://foreign.example.org/resource")
+                .addHeader(CrossOriginRedirectMarker.MARKER_HEADER, CrossOriginRedirectMarker.MARKER_VALUE)
+                .build()
+
+        val response = pipeline.send(markedRequest)
+
+        assertEquals(401, response.status.code, "the cross-origin 401 must surface unchanged")
+        assertEquals(1, fake.callCount, "no retry: the credential-free request must not be re-stamped")
+        assertEquals(0, fetches.get(), "no token must be fetched for a credential-free cross-origin request")
+        // The (single) request that reached the foreign host carried no Authorization header.
+        assertNull(fake.requests.single().headers.get(HttpHeaderName.AUTHORIZATION))
     }
 
     // ---- Helpers ----

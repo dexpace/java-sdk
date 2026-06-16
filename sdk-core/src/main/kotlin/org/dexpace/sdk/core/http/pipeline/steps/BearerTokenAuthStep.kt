@@ -51,6 +51,11 @@ import kotlin.concurrent.withLock
  * method (the in-step hook is not gated by retry-safety), so a non-idempotent POST is
  * re-authenticated too.
  *
+ * A request that reaches the challenge hook carrying **no** `Authorization` header is a
+ * cross-origin redirect re-issue whose credential the AUTH stage deliberately suppressed
+ * (see [CrossOriginRedirectMarker]). In that case the hook re-stamps nothing and surfaces the
+ * 401 unchanged, so the caller's token is never attached to a server-chosen foreign host.
+ *
  * ## Errors from [provider]
  *
  *  - Throws → propagated. The exception is **not** cached, so a subsequent request
@@ -62,7 +67,9 @@ import kotlin.concurrent.withLock
  *
  * Eviction-on-401 is built in. Users wanting to customise challenge handling further (e.g.
  * inspect the `WWW-Authenticate` scheme before deciding to refresh) can override
- * [authorizeRequestOnChallenge].
+ * [authorizeRequestOnChallenge]. A subclass that changes the stamped header format by
+ * overriding [authorizeRequest] must also override [bearerHeaderValue] so the eviction match
+ * keeps recognising the rejected token.
  *
  * Thread-safety: see Caching above.
  * Cancellation: token fetch may block; the [provider] is expected to respect interrupts.
@@ -83,7 +90,7 @@ public open class BearerTokenAuthStep
         override fun authorizeRequest(request: Request): Request {
             val token = currentToken()
             return request.newBuilder()
-                .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "Bearer ${token.token}")
+                .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, bearerHeaderValue(token.token))
                 .build()
         }
 
@@ -91,8 +98,16 @@ public open class BearerTokenAuthStep
          * On a 401 challenge, evict the token that was just rejected and re-stamp [request]
          * with a freshly fetched one so [AuthStep]'s single retry carries a new credential.
          *
-         * Eviction is scoped to the exact token that produced the 401 (matched against the
-         * `Authorization` header [request] carried): if a concurrent request already refreshed
+         * Returns `null` — surfacing the 401 unchanged with no retry — when [request] carried no
+         * `Authorization` header. A request reaches this hook credential-free only when the AUTH
+         * stage deliberately suppressed stamping, i.e. a cross-origin redirect re-issue (see
+         * [CrossOriginRedirectMarker]). Re-stamping there would attach the caller's bearer token
+         * to a server-chosen foreign host and re-drive it through the chain, leaking the token
+         * cross-origin and bypassing the HTTPS guard that only [AuthStep.process]'s first pass
+         * enforces. Refusing to re-stamp preserves that suppression.
+         *
+         * Otherwise eviction is scoped to the exact token that produced the 401 (matched against
+         * the `Authorization` header [request] carried): if a concurrent request already refreshed
          * the cache, that newer token is preserved and reused for the retry rather than being
          * discarded. The subsequent [currentToken] call then re-fetches only when the cache is
          * actually empty, so a 401 storm across threads still funnels through the same
@@ -101,25 +116,37 @@ public open class BearerTokenAuthStep
         override fun authorizeRequestOnChallenge(
             request: Request,
             response: Response,
-        ): Request {
-            evictRejectedToken(request.headers.get(HttpHeaderName.AUTHORIZATION))
+        ): Request? {
+            // No credential on the rejected request means stamping was suppressed (cross-origin
+            // redirect). Do not re-attach one: surface the 401 unchanged.
+            val rejectedHeader = request.headers.get(HttpHeaderName.AUTHORIZATION) ?: return null
+            evictRejectedToken(rejectedHeader)
             return authorizeRequest(request)
         }
 
         /**
          * Clears [cachedToken] iff it is still the token whose stamped header is [rejectedHeader].
          * Guarded by the same [lock] as the refresh path so the read-compare-clear is atomic
-         * against a concurrent refresh.
+         * against a concurrent refresh. Routes the comparison through [bearerHeaderValue] so it
+         * stays in lock-step with the value [authorizeRequest] stamps.
          */
-        private fun evictRejectedToken(rejectedHeader: String?) {
-            if (rejectedHeader == null) return
+        private fun evictRejectedToken(rejectedHeader: String) {
             lock.withLock {
                 val current = cachedToken ?: return
-                if ("Bearer ${current.token}" == rejectedHeader) {
+                if (bearerHeaderValue(current.token) == rejectedHeader) {
                     cachedToken = null
                 }
             }
         }
+
+        /**
+         * The `Authorization` header value for [token]. Single source of truth shared by
+         * [authorizeRequest] (stamping) and [evictRejectedToken] (the eviction match), so the two
+         * never drift. A subclass that overrides [authorizeRequest] to emit a different header
+         * format must override this too, or eviction will stop matching and a rejected token will
+         * be re-fetched but never cleared.
+         */
+        protected open fun bearerHeaderValue(token: String): String = "Bearer $token"
 
         private fun currentToken(): BearerToken {
             // Fast path: lock-free volatile read; return the cached token if it's still valid.
