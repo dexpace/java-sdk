@@ -21,10 +21,13 @@ import java.io.IOException
  *
  * ## HTTPS-only
  *
- * [process] rejects non-HTTPS schemes up front, before any token fetch or header stamp,
- * to prevent credential leakage over plaintext. The check is case-insensitive
- * (`HTTPS`/`https`/`HtTpS` all pass). Failure throws [IllegalStateException] naming the
- * concrete step type and the offending scheme.
+ * The HTTPS requirement guards credential **stamping**: before a credential is attached
+ * [process] rejects non-HTTPS schemes, before any token fetch or header stamp, to prevent
+ * credential leakage over plaintext. The check is case-insensitive (`HTTPS`/`https`/`HtTpS`
+ * all pass). Failure throws [IllegalStateException] naming the concrete step type and the
+ * offending scheme. The guard is *not* applied when no credential is being attached — see
+ * Cross-origin redirects, where a marker-suppressed re-issue is forwarded credential-free
+ * over any scheme.
  *
  * ## Challenge retry
  *
@@ -41,7 +44,12 @@ import java.io.IOException
  * marks the re-issued request (see [CrossOriginRedirectMarker]); this step then skips
  * credential stamping so the caller's bearer/key credential is never re-applied to a
  * server-chosen foreign host. The marker is stripped here so it never reaches the wire.
- * A same-origin redirect is *not* marked and is re-stamped as normal.
+ * Because no credential is attached on the marker-suppressed path, the HTTPS guard does
+ * not apply: a marker-suppressed cross-origin re-issue is forwarded credential-free over
+ * any scheme, so a redirect the redirect step deliberately allowed (including an opted-in
+ * HTTPS→HTTP downgrade hop) is not turned into a hard failure. A same-origin redirect is
+ * *not* marked and is re-stamped as normal — and is therefore still subject to the HTTPS
+ * guard.
  *
  * ## Thread-safety
  *
@@ -57,21 +65,24 @@ public abstract class AuthStep : HttpStep {
         request: Request,
         next: PipelineNext,
     ): Response {
-        val scheme = request.url.protocol
-        check("https".equals(scheme, ignoreCase = true)) {
-            "${this::class.simpleName} requires HTTPS to prevent credential leak " +
-                "(URL scheme: $scheme)"
-        }
-
         // A cross-origin redirect re-issue is marked by DefaultRedirectStep; do NOT re-stamp
         // the caller's credential onto a server-chosen foreign host. The marker is stripped so
-        // it never reaches the wire whether or not it suppressed stamping.
+        // it never reaches the wire. This branch is evaluated BEFORE the HTTPS guard: no
+        // credential is attached here, so the plaintext credential-leak the guard protects
+        // against cannot occur, and a cross-origin hop the redirect step deliberately followed
+        // (including an opted-in HTTPS->HTTP downgrade) must not be turned into a hard failure.
+        // The HTTPS guard applies only on the credential-stamping branch below.
         val authorized =
             if (CrossOriginRedirectMarker.isMarked(request)) {
                 request.newBuilder()
                     .headers(CrossOriginRedirectMarker.strip(request.headers))
                     .build()
             } else {
+                val scheme = request.url.protocol
+                check("https".equals(scheme, ignoreCase = true)) {
+                    "${this::class.simpleName} requires HTTPS to prevent credential leak " +
+                        "(URL scheme: $scheme)"
+                }
                 authorizeRequest(request)
             }
         val response = next.copy().process(authorized)
