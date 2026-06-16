@@ -1958,13 +1958,6 @@ public final class org/dexpace/sdk/core/pagination/Paginator {
 	public final fun streamAll ()Ljava/util/stream/Stream;
 }
 
-public final class org/dexpace/sdk/core/pagination/TokenPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
-}
-
 public final class org/dexpace/sdk/core/pipeline/ExecutionPipeline {
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;)V
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestPipeline;)V
