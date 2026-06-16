@@ -37,6 +37,7 @@ import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletionException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -46,6 +47,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -187,6 +189,29 @@ class OkHttpTransportTest {
         }
         val recorded = server.takeRequest()
         assertEquals(payload, recorded.body?.utf8())
+    }
+
+    // -------- async adaptation failures --------
+
+    @Test
+    fun executeAsyncDeliversAdaptationFailureThroughFuture() {
+        // A body on a method OkHttp forbids one for (GET) makes request adaptation throw
+        // synchronously inside executeAsync. The contract is that executeAsync completes
+        // exceptionally on error, so the failure must arrive through the returned future — a
+        // future-composing caller's .exceptionally/.handle would never observe a synchronous throw.
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/async-adapt-fail").toUrl())
+                .body(RequestBody.create("x".toByteArray()))
+                .build()
+        // Must return a future rather than throwing on the caller's thread.
+        val future = transport.executeAsync(request)
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        assertTrue(
+            ex.cause is IllegalArgumentException,
+            "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
+        )
     }
 
     // -------- headers round-trip --------
