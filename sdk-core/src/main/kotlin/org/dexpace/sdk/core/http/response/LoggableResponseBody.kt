@@ -143,7 +143,10 @@ public class LoggableResponseBody
                 "LoggableResponseBody capture exceeded maxCaptureBytes; source() over the live tail " +
                     "is single-use and was already consumed."
             }
-            val tail = liveTail ?: return buf.peek()
+            // On the over-cap path the live tail is always set by the time control reaches here:
+            // drainError throws above and fullyCaptured returns above, so the only remaining regime
+            // is "cap hit with bytes pending", which always assigns liveTail.
+            val tail = checkNotNull(liveTail) { "over-cap source() reached with no live tail to replay" }
             return provider.bufferedSource(PrefixThenTailSource(buf.peek(), tail))
         }
 
@@ -190,12 +193,26 @@ public class LoggableResponseBody
                 // On an over-cap capture the delegate is still open and must be closed here; the
                 // delegate owns the live-tail source, so closing the delegate releases it too (we
                 // must NOT close the live tail separately, or the source would be closed twice).
-                if (!delegateClosed) {
-                    delegate.close()
-                    delegateClosed = true
-                }
+                // Both this path and the over-cap one-shot source funnel through the same guard so
+                // whichever fires first wins and the second is a no-op.
+                closeDelegateOnce()
                 // The captured buffer intentionally survives close — it holds in-memory bytes
                 // and no network resources, and is needed for post-mortem snapshot logging.
+            }
+        }
+
+        /**
+         * Closes the delegate (and, by ownership, its source) at most once. Both [close] and the
+         * over-cap one-shot source close the same underlying source on the over-cap path; routing
+         * both through this single guard prevents a double-close on a delegate whose [source]
+         * returns the same instance and whose [close] closes it (some sockets / streams throw on
+         * double-close). Callers must hold [lock].
+         */
+        @Throws(IOException::class)
+        private fun closeDelegateOnce() {
+            if (!delegateClosed) {
+                delegate.close()
+                delegateClosed = true
             }
         }
 
@@ -244,6 +261,14 @@ public class LoggableResponseBody
                         fullyCaptured = true
                         break
                     }
+                    // A 0-read for a positive byteCount violates the Source.read contract; treating
+                    // it as a no-op would spin this loop forever. Fail fast (the catch below caches
+                    // it and source() re-throws it). Do NOT treat 0 as EOF — that would truncate.
+                    if (n == 0L) {
+                        throw IOException(
+                            "Source returned 0 for byteCount=$chunk which violates the Source.read contract",
+                        )
+                    }
                     remaining -= n
                 }
                 if (fullyCaptured) {
@@ -285,9 +310,12 @@ public class LoggableResponseBody
 
         /**
          * A one-shot [Source] that yields the captured [prefix] bytes first, then continues from
-         * the live [tail]. Used only on the over-cap path; closing it closes the tail.
+         * the live [tail]. Used only on the over-cap path. Closing it closes the independent peek
+         * [prefix] view directly, but routes the live-tail close through [closeDelegateOnce] — the
+         * same single-close guard the wrapper's own [close] uses — so the underlying delegate
+         * source is never closed twice when both this source and the wrapper are closed.
          */
-        private class PrefixThenTailSource(
+        private inner class PrefixThenTailSource(
             private val prefix: BufferedSource,
             private val tail: BufferedSource,
         ) : Source {
@@ -303,9 +331,12 @@ public class LoggableResponseBody
             @Throws(IOException::class)
             override fun close() {
                 try {
+                    // The peek view is independent of the delegate source and cheap to close.
                     prefix.close()
                 } finally {
-                    tail.close()
+                    // The tail IS the delegate's source; close it through the shared guard so the
+                    // wrapper's close() and this close() cannot both close the underlying source.
+                    lock.withLock { closeDelegateOnce() }
                 }
             }
         }
