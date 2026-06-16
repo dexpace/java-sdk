@@ -247,8 +247,8 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 |---|---|
 | `client` | `HttpClient`, `AsyncHttpClient` — the two transport SPIs (sync and async). |
 | `http.request` | `Request`, `RequestBody`, `FileRequestBody`, `LoggableRequestBody`, `Method`. |
-| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status` (a value-carrying class with a total `fromCode`), `HttpResponseException`, plus the raw-vs-parsed seam: `ResponseHandler<T>` (with dep-free `string()`/`empty()` handlers) and a lazy, parse-once `ParsedResponse<T>`. |
-| `http.response.exception` | Typed `HttpException` hierarchy (`BadRequestException`, `RequestTimeoutException`, `TooManyRequestsException`, `ServiceUnavailableException`, …) with `retryable` derived from `RetryUtils.isRetryable`, plus `NetworkException` and `HttpExceptionFactory`. |
+| `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status` (a value-carrying class with a total `fromCode`), plus the raw-vs-parsed seam: `ResponseHandler<T>` (with dep-free `string()`/`empty()` handlers) and a lazy, parse-once `ParsedResponse<T>`. |
+| `http.response.exception` | Typed `HttpException` hierarchy (`BadRequestException`, `RequestTimeoutException`, `TooManyRequestsException`, `ServiceUnavailableException`, …) with `isRetryable` derived from `RetryUtils.isRetryable` and exposed via the `Retryable` interface, plus `NetworkException` and `HttpExceptionFactory`. |
 | `http.common` | `Headers`, `HttpHeaderName` (interned), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
 | `http.context` | `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext` chain, `ContextStore`. |
 | `http.pipeline` | Sync (`HttpStep` / `HttpPipeline` / `HttpPipelineBuilder` / `PipelineNext` / `Stage`) and async (`AsyncHttpStep` / `AsyncHttpPipeline` / `AsyncHttpPipelineBuilder` / `AsyncPipelineNext`) pipeline machinery, plus `AsyncPipelineBridges`. |

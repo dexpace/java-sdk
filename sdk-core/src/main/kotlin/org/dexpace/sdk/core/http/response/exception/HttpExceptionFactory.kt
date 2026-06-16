@@ -66,6 +66,26 @@ public object HttpExceptionFactory {
     private const val SC_SERVER_ERROR_MAX = 599
 
     /**
+     * Whether [code] is in the 400..599 error range this factory maps to an [HttpException].
+     *
+     * This is the single source of truth for the error-status boundary; callers that want to
+     * pre-check before mapping (e.g. a pipeline step that only acts on error responses) should
+     * use this rather than re-declaring the range.
+     */
+    @JvmStatic
+    public fun isErrorStatus(code: Int): Boolean = code in SC_CLIENT_ERROR_MIN..SC_SERVER_ERROR_MAX
+
+    /**
+     * Maps [response] to its [HttpException] subclass, or returns `null` when the status is not
+     * an error (1xx / 2xx / 3xx). Unlike [fromResponse], a non-error status is a no-op rather
+     * than an [IllegalArgumentException], so this is the convenient form for "map it if it is
+     * an error" call sites.
+     */
+    @JvmStatic
+    public fun fromResponseOrNull(response: Response): HttpException? =
+        if (isErrorStatus(response.status.code)) fromResponse(response) else null
+
+    /**
      * Returns the [HttpException] subclass that corresponds to [response]'s status code.
      *
      * @throws IllegalArgumentException if `response.status.code` is not in the 400..599 range —

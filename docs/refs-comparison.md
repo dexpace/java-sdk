@@ -223,7 +223,7 @@ below records where each scheme's design was sourced from:
 **What shipped, and what's left:**
 
 1. `HttpException` is the base, with status-code-keyed subclasses (`NotFoundException`, `UnauthorizedException`, `TooManyRequestsException`, `InternalServerErrorException`, etc.) plus `ClientErrorException`/`ServerErrorException` fallbacks for unmapped 4xx/5xx. `NetworkException` is a sibling for transport failures. The set mirrors gax's taxonomy scaled to HTTP statuses.
-2. `retryable: Boolean` is a `val` derived once at construction from `RetryUtils.isRetryable(status.code)` — not a per-subclass constant. This is the single source of truth, so it can never disagree with the live retry policy (408 retryable; 501/505 not). A retry predicate is just `(t as? HttpException)?.retryable == true`.
+2. `isRetryable: Boolean` (from the `Retryable` interface) is a `val` derived once at construction from `RetryUtils.isRetryable(status.code)` — not a per-subclass constant. This is the single source of truth, so it can never disagree with the live retry policy (408 retryable; 501/505 not). `NetworkException` implements the same interface (always `true`), so a retry predicate keys off the interface: `(t as? Retryable)?.isRetryable == true`.
 3. The base exposes `status` + `headers` + a **lazy** `body: ResponseBody?` (not eagerly buffered), plus a non-consuming `bodySnapshot()` that reads from a `peek()` view so the primary read path is undisturbed — large 5xx bodies don't OOM. Per-operation per-status subclasses carrying typed bodies (Expedia pattern) are still codegen's job.
 4. Tolerant error-body parsing (Square's `SquareApiException.parseErrors`) remains future work — never throw inside an exception constructor; pass through the raw body on parse failure.
 

@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.NetworkException
+import org.dexpace.sdk.core.http.response.exception.Retryable
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
 import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
 import java.io.InterruptedIOException
@@ -31,14 +32,16 @@ import java.util.concurrent.TimeUnit
  *
  * ## Semantics
  *
- *  - On a [ResponseOutcome.Failure] whose throwable is an [HttpException] with `retryable =
+ * Retry eligibility is classified off the [Retryable] interface, not concrete exception types:
+ *  - On a [ResponseOutcome.Failure] whose throwable is an [HttpException] with `isRetryable =
  *    true` AND whose status is in [RetrySettings.retryableStatuses], the step schedules a
  *    retry — provided the request is idempotency-safe (see [canRetry]).
- *  - On a [ResponseOutcome.Failure] whose throwable is a [NetworkException], the step always
- *    schedules a retry (network-level failures had no response, so the server never saw the
- *    request — replay is safe modulo the body-replayability check).
- *  - On any other outcome (other throwable types or a [ResponseOutcome.Success]), the step
- *    is a pass-through.
+ *  - On a [ResponseOutcome.Failure] whose throwable is a [NetworkException] (always
+ *    [Retryable.isRetryable]), the step always schedules a retry (network-level failures had no
+ *    response, so the server never saw the request — replay is safe modulo the body-
+ *    replayability check).
+ *  - On any other outcome (a non-[Retryable] throwable, a [Retryable] whose flag is `false`, or
+ *    a [ResponseOutcome.Success]), the step is a pass-through.
  *
  * ## Idempotency
  *
@@ -366,15 +369,18 @@ public class RetryStep
         }
 
         /**
-         * Returns true when [error] is an SDK-classified retryable condition AND, for
-         * [HttpException], the status is in [RetrySettings.retryableStatuses].
+         * Returns true when [error] is an SDK-classified retryable condition. Classification
+         * keys off the [Retryable] interface rather than concrete exception types: a non-
+         * [Retryable] throwable is never retried, and a [Retryable] is retried only when its
+         * [Retryable.isRetryable] flag is set. An [HttpException] carries an additional gate —
+         * its status must also be in [RetrySettings.retryableStatuses] — so the caller can
+         * narrow which retryable statuses this step actually re-issues. A [NetworkException]
+         * (no response, hence no status) passes once its flag is set.
          */
-        private fun isClassifiedRetryable(error: Throwable): Boolean =
-            when (error) {
-                is NetworkException -> error.retryable
-                is HttpException -> error.retryable && settings.retryableStatuses.contains(error.status.code)
-                else -> false
-            }
+        private fun isClassifiedRetryable(error: Throwable): Boolean {
+            if (error !is Retryable || !error.isRetryable) return false
+            return error !is HttpException || settings.retryableStatuses.contains(error.status.code)
+        }
 
         /**
          * Returns true when [request] is safe to retry. A body-less request is retry-safe only

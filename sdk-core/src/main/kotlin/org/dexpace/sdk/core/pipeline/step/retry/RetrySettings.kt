@@ -274,7 +274,7 @@ public class RetrySettings
              * timeout).
              *
              * This is the recovery-aware step's allow-list; [RetryStep] intersects it with
-             * [HttpException.retryable][org.dexpace.sdk.core.http.response.exception.HttpException.retryable]
+             * [HttpException.isRetryable][org.dexpace.sdk.core.http.response.exception.HttpException.isRetryable]
              * (which is itself derived from [RetryUtils.isRetryable][org.dexpace.sdk.core.util.RetryUtils.isRetryable]).
              * With this default set the recovery-aware step retries the same common statuses the
              * stage-based [DefaultRetryStep][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep]

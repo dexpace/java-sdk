@@ -582,8 +582,8 @@ responds in a uniform way:
    subsequent blocking call also surfaces it.
 3. Throws `InterruptedIOException` (or the operation's natural failure exception with
    `InterruptedException` added as a suppressed cause).
-4. Classifies the interruption as **non-retryable** — `HttpResponseException.isRetryable`
-   returns `false` for an interrupt-driven failure.
+4. Classifies the interruption as **non-retryable** — an interrupt-driven failure is not a
+   `Retryable` condition, so the retry step never re-issues it.
 
 Loops bounded by user input (retry attempts, paged iteration, server-sent-event
 consumption, drain loops in body logging) check `Thread.currentThread().isInterrupted` at
@@ -660,8 +660,8 @@ they should construct a fresh one.
 |----------------------|-------------------------------------------------------------------------------------------------|
 | `io`                 | Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink (internal)          |
 | `http.request`       | Request, RequestBody, FileRequestBody, LoggableRequestBody, Method                              |
-| `http.response`      | Response, ResponseBody, LoggableResponseBody, Status, HttpResponseException                     |
-| `http.response.exception` | HttpException, HttpExceptionFactory, RequestTimeoutException (and siblings), NetworkException |
+| `http.response`      | Response, ResponseBody, LoggableResponseBody, Status                                            |
+| `http.response.exception` | HttpException, HttpExceptionFactory, Retryable, RequestTimeoutException (and siblings), NetworkException |
 | `http.common`        | Headers, MediaType, CommonMediaTypes, Protocol, ETag, HttpRange, RequestConditions             |
 | `http.auth`          | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
 | `http.context`       | CallContext, DispatchContext, RequestContext, ExchangeContext, ContextStore                     |

@@ -356,11 +356,13 @@ public class RetryStep(
 )
 ```
 
-It retries only when the outcome is a `Failure` whose throwable is classified retryable:
+It retries only when the outcome is a `Failure` whose throwable is classified retryable. The
+classifier keys off the `Retryable` interface, not concrete exception types:
 
-- An `HttpException` with `retryable == true` whose status code is in
+- An `HttpException` (which is `Retryable`) with `isRetryable == true` whose status code is in
   `RetrySettings.retryableStatuses`.
-- A `NetworkException` (a transport failure with no response on the wire — always retryable).
+- A `NetworkException` (also `Retryable`, always `true` — a transport failure with no response
+  on the wire).
 
 Idempotency is enforced independently of classification, keyed off whether the request carries
 a body. A request **with a body** is eligible only when its body is replayable (a non-replayable

@@ -82,7 +82,7 @@ class RetrySettingsTest {
 
     @Test
     fun `default retryable statuses include 408 and the common retryable codes`() {
-        // The reconciled stance: 408 IS retryable, matching RetryUtils / HttpException.retryable
+        // The reconciled stance: 408 IS retryable, matching RetryUtils / HttpException.isRetryable
         // and the stage-based DefaultRetryStep. The two stacks must agree on the 408 question.
         val statuses = RetrySettings.DEFAULT_RETRYABLE_STATUSES
         assertEquals(setOf(408, 429, 500, 502, 503, 504), statuses.toSet())
