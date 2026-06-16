@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.MediaType
 import java.nio.charset.Charset
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Renders captured request/response body bytes into a short, log-safe preview string.
@@ -23,8 +24,10 @@ import java.nio.charset.Charset
  *   names one the JVM does not recognise, the preview falls back to [DEFAULT_CHARSET] (UTF-8),
  *   matching the HTTP default for most text types and the previous behaviour.
  * - **Binary-safe** — a body that does not look like text is never decoded. Instead it is
- *   summarised as `[binary N bytes]`, so an operator sees a stable, greppable marker rather
- *   than a line of replacement characters that can corrupt log viewers.
+ *   summarised as `[binary N bytes captured]`, so an operator sees a stable, greppable marker
+ *   rather than a line of replacement characters that can corrupt log viewers. `N` is the number
+ *   of bytes in the (already bounded) preview snapshot — i.e. how much was captured, not
+ *   necessarily the full body length — so the summary cannot imply a size it didn't observe.
  *
  * Decoding itself never throws: [Charset]-based decoding substitutes the replacement character
  * for malformed input, so a snapshot that ends mid-multibyte-sequence (a real possibility on a
@@ -38,8 +41,9 @@ import java.nio.charset.Charset
  * first: when the [MediaType] explicitly declares a *resolvable* charset whose encoding is not
  * NUL-free for ASCII (UTF-16/UTF-32 and friends), the body is decoded with that charset and the
  * NUL-based heuristic is skipped. When no charset is declared, or the declared one is single-byte
- * (US-ASCII, ISO-8859-1, UTF-8), the heuristic still runs so a genuinely binary body is summarised
- * rather than decoded into noise.
+ * (US-ASCII, ISO-8859-1, UTF-8), the heuristic still runs so a genuinely binary body is
+ * summarised rather than decoded into noise. The wide-charset probe is memoised per [Charset], so
+ * the cost is a single small encode the first time a charset is seen and a map lookup thereafter.
  *
  * ## Best-effort detection
  * The heuristic is **best-effort**, not a guarantee. It samples only the first
@@ -87,8 +91,8 @@ internal object BodyPreview {
      * Empty input yields the empty string. When [mediaType] explicitly declares a resolvable
      * multi-byte charset (UTF-16/UTF-32 and friends), the bytes are decoded with that charset and
      * the NUL-based binary heuristic is skipped — see the class KDoc. Otherwise a body that does
-     * not pass [isProbablyText] is rendered as a size-only `[binary N bytes]` summary, and a body
-     * that does is decoded with the charset from [mediaType] (or [DEFAULT_CHARSET] when
+     * not pass [isProbablyText] is rendered as a size-only `[binary N bytes captured]` summary, and
+     * a body that does is decoded with the charset from [mediaType] (or [DEFAULT_CHARSET] when
      * absent/unknown).
      */
     internal fun render(
@@ -108,23 +112,34 @@ internal object BodyPreview {
 
     /**
      * Decodes [bytes] using [charset]. Invalid byte sequences are replaced rather than throwing.
+     * [render] guarantees a non-empty array before calling this.
      */
     private fun previewText(
         bytes: ByteArray,
         charset: Charset,
-    ): String {
-        if (bytes.isEmpty()) return ""
-        return String(bytes, charset)
-    }
+    ): String = String(bytes, charset)
+
+    /** Memoised results of [computeEncodesAsciiWithNul], keyed by [Charset] (a JVM singleton). */
+    private val asciiWithNulByCharset = ConcurrentHashMap<Charset, Boolean>()
 
     /**
      * True when [charset] encodes a plain ASCII character to a byte sequence that contains a NUL
      * byte — the signature of a fixed-width multi-byte charset such as UTF-16 or UTF-32, where
      * `'A'` becomes e.g. `0x00 0x41`. Single-byte charsets (US-ASCII, ISO-8859-1) and UTF-8
-     * encode ASCII without NUL padding and return false. The probe is computed from the charset's
-     * own encoder, so it covers any such charset the JVM knows, not a hard-coded name list.
+     * encode ASCII without NUL padding and return false.
+     *
+     * The result is memoised per charset so the encode runs at most once per distinct [Charset];
+     * subsequent renders for that charset are a plain map lookup with no per-call allocation.
      */
     private fun encodesAsciiWithNul(charset: Charset): Boolean =
+        asciiWithNulByCharset.computeIfAbsent(charset) { computeEncodesAsciiWithNul(it) }
+
+    /**
+     * Computes the [encodesAsciiWithNul] verdict from the charset's own encoder, so it covers any
+     * such charset the JVM knows rather than a hard-coded name list. An encoder that rejects the
+     * probe is treated as non-wide (the heuristic path then applies).
+     */
+    private fun computeEncodesAsciiWithNul(charset: Charset): Boolean =
         try {
             "A".toByteArray(charset).any { it.toInt() == NUL }
         } catch (_: Exception) {
@@ -161,6 +176,10 @@ internal object BodyPreview {
     private fun isControlByte(b: Int): Boolean =
         (b < FIRST_PRINTABLE && b != TAB && b != LINE_FEED && b != CARRIAGE_RETURN) || b == DEL
 
-    /** The size-only summary emitted for a binary body. */
-    private fun binarySummary(size: Int): String = "[binary $size bytes]"
+    /**
+     * The size-only summary emitted for a binary body. [size] is the captured/preview byte count
+     * (the input is an already-bounded snapshot), so the wording says "captured" rather than
+     * implying it observed the full body length.
+     */
+    private fun binarySummary(size: Int): String = "[binary $size bytes captured]"
 }

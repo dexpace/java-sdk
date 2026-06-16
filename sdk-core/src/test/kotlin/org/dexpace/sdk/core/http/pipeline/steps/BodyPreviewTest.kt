@@ -56,7 +56,7 @@ class BodyPreviewTest {
         // gzip magic header (0x1f 0x8b 0x08) followed by a NUL byte — a representative binary body.
         val bytes = byteArrayOf(0x1f, 0x8b.toByte(), 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03)
         val preview = BodyPreview.render(bytes, MediaType.parse("application/gzip"))
-        assertEquals("[binary ${bytes.size} bytes]", preview)
+        assertEquals("[binary ${bytes.size} bytes captured]", preview)
         assertFalse(preview.contains('�'), "binary body must not be rendered as replacement chars")
     }
 
@@ -65,7 +65,7 @@ class BodyPreviewTest {
         // Even if a server mislabels a gzip stream as text, the NUL byte keeps it from being decoded.
         val bytes = byteArrayOf(0x1f, 0x8b.toByte(), 0x00, 0x42, 0x00, 0x13)
         val preview = BodyPreview.render(bytes, MediaType.parse("text/plain;charset=utf-8"))
-        assertEquals("[binary ${bytes.size} bytes]", preview)
+        assertEquals("[binary ${bytes.size} bytes captured]", preview)
     }
 
     @Test

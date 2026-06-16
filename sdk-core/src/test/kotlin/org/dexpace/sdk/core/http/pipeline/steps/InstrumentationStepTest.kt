@@ -713,7 +713,7 @@ class InstrumentationStepTest {
         response.close()
 
         val preview = responsePreview(fakeSlf4j)
-        assertEquals("[binary ${binary.size} bytes]", preview)
+        assertEquals("[binary ${binary.size} bytes captured]", preview)
         assertFalse(preview.contains('�'), "binary body must not be logged as replacement characters")
     }
 
