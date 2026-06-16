@@ -82,12 +82,27 @@ tasks.named("check") {
     dependsOn(tasks.named("koverVerify"))
 }
 
+// Keep the test-only shrink-survival module out of the binary-compatibility snapshot. It ships no
+// public artifact, so it needs no committed `.api` file; without this exclusion apiCheck would
+// demand one (and apiDump would generate a spurious snapshot for an unpublished module). Mirrors
+// how the module is also left out of the kover aggregate below.
+apiValidation {
+    ignoredProjects += "sdk-shrink-test"
+}
+
 allprojects {
     repositories {
         mavenCentral()
         maven {
             // For maven snapshots
             url = URI.create("https://oss.sonatype.org/content/repositories/snapshots/")
+        }
+        // Google's Maven repo hosts R8 (com.android.tools:r8), used only by the test-only
+        // sdk-shrink-test module. Restricted to that group so it is not consulted for anything else.
+        google {
+            content {
+                includeModule("com.android.tools", "r8")
+            }
         }
     }
 

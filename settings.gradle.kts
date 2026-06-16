@@ -31,3 +31,8 @@ include("sdk-async-virtualthreads")
 include("sdk-transport-okhttp")
 include("sdk-transport-jdkhttp")
 include("sdk-serde-jackson")
+
+// Test-only, unpublished: runs R8 against a consumer of the SDK to verify the toolkit survives
+// downstream shrinking with its shipped consumer keep-rules. Kept out of the kover aggregate and
+// the binary-compatibility snapshot (see root build.gradle.kts).
+include("sdk-shrink-test")
