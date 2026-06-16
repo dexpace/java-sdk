@@ -52,6 +52,14 @@ import org.dexpace.sdk.core.io.Io
  * `bodySnapshot` cap, so a multi-megabyte 5xx body cannot OOM the process. Mapping the buffered
  * body into a typed error value is still left to the generated layer (see [HttpException.value]).
  *
+ * The cap is a hard truncation, not just an OOM guard: an error body larger than
+ * [HttpException.DEFAULT_SNAPSHOT_BYTES] is preserved only up to that many bytes, and the excess
+ * is discarded with no marker. This is harmless for a log-line snapshot, but a downstream
+ * consumer that deserializes the buffered body (e.g. the generated layer parsing it into
+ * [HttpException.value]) must tolerate a structurally incomplete payload — a JSON object cut
+ * mid-token will not parse. Callers that need the full error body must read it from the live
+ * response before this step runs rather than relying on the buffered copy.
+ *
  * ## Thread-safety
  *
  * Stateless; safe to share across concurrent requests and reuse as a singleton.
