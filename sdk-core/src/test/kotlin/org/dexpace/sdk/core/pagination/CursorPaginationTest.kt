@@ -149,15 +149,39 @@ class CursorPaginationTest {
     @Test
     fun `cursor with special characters is URL encoded in next request`() {
         // Opaque cursors may contain `=` `+` `/` characters (base64) — the rebuilder must
-        // URL-encode them so the server sees the original value unmangled. A custom query
-        // param name (e.g. `page_token`) covers token-style APIs that reuse this strategy.
+        // URL-encode them so the server sees the original value unmangled.
         val rawCursor = "a+b/c="
         val encoded = "a%2Bb%2Fc%3D"
         val client = StubHttpClient()
         client.on("https://api.example.com/items") { req ->
             textResponse(req, "items=one\ncursor=$rawCursor")
         }
-        client.on("https://api.example.com/items?page_token=$encoded") { req ->
+        client.on("https://api.example.com/items?cursor=$encoded") { req ->
+            textResponse(req, "items=two\ncursor=")
+        }
+
+        val (items, cursor) = buildCachedExtractors()
+        val strategy = CursorPaginationStrategy(items, cursor)
+        val paginator = Paginator(client, initialRequest(), strategy)
+        assertEquals(listOf("one", "two"), paginator.iterateAll().toList())
+        assertEquals(
+            listOf(
+                "https://api.example.com/items",
+                "https://api.example.com/items?cursor=$encoded",
+            ),
+            client.receivedUrls,
+        )
+    }
+
+    @Test
+    fun `custom query-param name is used for the next-page cursor`() {
+        // Token-style APIs (next_page_token, pageToken, …) are served by setting
+        // cursorQueryParam; the next request must carry the cursor under that name.
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            textResponse(req, "items=one\ncursor=tok1")
+        }
+        client.on("https://api.example.com/items?page_token=tok1") { req ->
             textResponse(req, "items=two\ncursor=")
         }
 
@@ -168,7 +192,7 @@ class CursorPaginationTest {
         assertEquals(
             listOf(
                 "https://api.example.com/items",
-                "https://api.example.com/items?page_token=$encoded",
+                "https://api.example.com/items?page_token=tok1",
             ),
             client.receivedUrls,
         )
