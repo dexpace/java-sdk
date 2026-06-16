@@ -271,6 +271,10 @@ Shipped pillar/step implementations live in `http.pipeline.steps`: `DefaultRedir
 `DefaultRetryStep`, `AuthStep` (+ `BearerTokenAuthStep` / `KeyCredentialAuthStep`),
 `DefaultInstrumentationStep`, and the redirect/retry option types.
 
+For why this layer uses ordered stages with pillar-uniqueness rather than nested `HttpClient`
+decorators — and the one cost that buys (the `next.copy()` re-drive contract) — see
+[Pipeline Mechanism](pipelines.md#why-ordered-stages-not-nested-decorators).
+
 #### Recovery-aware primitives (`org.dexpace.sdk.core.pipeline`)
 
 A lower-level layer that threads a sealed `ResponseOutcome` so recovery steps observe and
@@ -346,8 +350,11 @@ Two complementary surfaces for walking multi-page responses.
 |-----------------------------------------------------------------|-----------------------------------------------------------------------|
 | `Paginator<T>`                                                  | Lazily iterates pages by re-issuing requests through an `HttpClient`; carries a `maxPages` safety cap |
 | `PaginationStrategy<T>`                                         | Computes the next-page request (or stops) from the current page       |
-| `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `TokenPaginationStrategy` / `LinkHeaderPaginationStrategy` | The four shipped strategies |
+| `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `LinkHeaderPaginationStrategy` | The shipped strategies |
 | `PagedIterable<T>`                                              | First/next-page fetcher abstraction over `PagedResponse`, with its own `maxPages` cap |
+
+Token-style APIs (`next_page_token`, `pageToken`, …) are handled by `CursorPaginationStrategy`
+constructed with the query-param name set (e.g. `"page_token"`), so no separate token strategy is needed.
 
 ### Serialization
 

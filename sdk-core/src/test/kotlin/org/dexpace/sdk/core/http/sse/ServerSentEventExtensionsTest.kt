@@ -25,7 +25,7 @@ class ServerSentEventExtensionsTest {
 
     private fun source(text: String): BufferedSource = Io.provider.source(text.toByteArray(Charsets.UTF_8))
 
-    // ----- A13 cases -----
+    // ----- readServerSentEvents() sequence behavior -----
 
     @Test
     fun `valid stream of two events yields the expected ServerSentEvent sequence`() {

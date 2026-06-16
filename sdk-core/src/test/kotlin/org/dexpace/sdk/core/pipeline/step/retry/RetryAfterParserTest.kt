@@ -102,6 +102,37 @@ class RetryAfterParserTest {
         )
     }
 
+    @Test
+    fun `Retry-After with a Java float type suffix is not honoured as numeric`() {
+        // `"30d".toDoubleOrNull()` returns 30.0, but `30d` is not a delta-seconds value. The
+        // strict numeric screen rejects it, and it is not a valid HTTP-date either, so it must
+        // fall through to null rather than parse as 30 seconds.
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "30d"), now))
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "30f"), now))
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "30D"), now))
+    }
+
+    @Test
+    fun `Retry-After hex-float form is not honoured as numeric`() {
+        // `"0x1p4".toDoubleOrNull()` returns 16.0; the strict screen rejects the hex-float
+        // grammar so it does not silently parse as a 16-second delay.
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "0x1p4"), now))
+    }
+
+    @Test
+    fun `Retry-After with a leading plus or exponent is not honoured as numeric`() {
+        // Signs and scientific notation are outside the delta-seconds grammar and must be
+        // rejected by the strict screen.
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "+30"), now))
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to "1e3"), now))
+        assertNull(RetryAfterParser.parse(headers("Retry-After" to ".5"), now))
+    }
+
+    @Test
+    fun `parseHeaderValue rejects a Retry-After float type suffix`() {
+        assertNull(RetryAfterParser.parseHeaderValue(HttpHeaderName.RETRY_AFTER, "30d", now))
+    }
+
     // endregion
 
     // region -- HTTP-date Retry-After --

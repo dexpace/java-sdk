@@ -24,4 +24,12 @@ public class NamedKeyCredential(public val name: String, public val key: String)
         require(name.isNotBlank()) { "name must not be blank" }
         require(key.isNotBlank()) { "key must not be blank" }
     }
+
+    /**
+     * Redacts the secret [key]. Without this override any log line, exception message, or
+     * debugger that stringifies the credential would expose the key; this emits `key=***`
+     * instead while keeping the non-secret [name] for diagnostics. Identity equality is
+     * unaffected.
+     */
+    override fun toString(): String = "NamedKeyCredential(name=$name, key=***)"
 }

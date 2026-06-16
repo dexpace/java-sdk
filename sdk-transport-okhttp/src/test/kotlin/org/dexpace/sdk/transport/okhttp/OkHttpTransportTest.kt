@@ -37,6 +37,7 @@ import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletionException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -46,6 +47,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -102,6 +104,61 @@ class OkHttpTransportTest {
         assertEquals("/echo", recorded.url.encodedPath)
     }
 
+    // -------- body-less methods that OkHttp requires a body for --------
+
+    @Test
+    fun executeBodylessPostSendsEmptyBody() {
+        // The SDK treats a body as optional for every method, so a body-less POST is a valid,
+        // publicly-constructible request. OkHttp's Request.Builder.method, however, rejects a
+        // null body for POST/PUT/PATCH. The adapter must substitute a zero-length body so the
+        // request dispatches with an empty payload instead of throwing IllegalArgumentException.
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.POST)
+                .url(server.url("/bodyless-post").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
+        assertEquals("/bodyless-post", recorded.url.encodedPath)
+    }
+
+    @Test
+    fun executeBodylessPutSendsEmptyBody() {
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.PUT)
+                .url(server.url("/bodyless-put").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
+    }
+
+    @Test
+    fun executeBodylessPatchSendsEmptyBody() {
+        server.enqueue(MockResponse.Builder().code(201).build())
+        val request =
+            Request.builder()
+                .method(Method.PATCH)
+                .url(server.url("/bodyless-patch").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(201, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
+    }
+
     // -------- async golden paths --------
 
     @Test
@@ -132,6 +189,29 @@ class OkHttpTransportTest {
         }
         val recorded = server.takeRequest()
         assertEquals(payload, recorded.body?.utf8())
+    }
+
+    // -------- async adaptation failures --------
+
+    @Test
+    fun executeAsyncDeliversAdaptationFailureThroughFuture() {
+        // A body on a method OkHttp forbids one for (GET) makes request adaptation throw
+        // synchronously inside executeAsync. The contract is that executeAsync completes
+        // exceptionally on error, so the failure must arrive through the returned future — a
+        // future-composing caller's .exceptionally/.handle would never observe a synchronous throw.
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/async-adapt-fail").toUrl())
+                .body(RequestBody.create("x".toByteArray()))
+                .build()
+        // Must return a future rather than throwing on the caller's thread.
+        val future = transport.executeAsync(request)
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        assertTrue(
+            ex.cause is IllegalArgumentException,
+            "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
+        )
     }
 
     // -------- headers round-trip --------
@@ -368,7 +448,7 @@ class OkHttpTransportTest {
 
     @Test
     fun asyncResponseThatLosesTheRaceIsClosed() {
-        // L1: the consumer can complete/cancel the returned future in the window *between* OkHttp
+        // The consumer can complete/cancel the returned future in the window *between* OkHttp
         // finishing the exchange and Callback.onResponse adapting it. In that race
         // `future.complete(adapted)` returns false and nothing else will ever close `adapted` — a
         // live connection — so the transport must close it. We reproduce the race deterministically
@@ -447,7 +527,7 @@ class OkHttpTransportTest {
 
     @Test
     fun proxyChallengeHandlerIsAcceptedAndIgnored() {
-        // M7: ProxyOptions.challengeHandler is not honoured by the OkHttp transport. Building a
+        // ProxyOptions.challengeHandler is not honoured by the OkHttp transport. Building a
         // transport with one set must be accepted (it logs a loud WARNING and falls back to Basic
         // auth from username/password) rather than throwing. We point the proxy at the
         // MockWebServer so the built transport still routes a normal request through it, proving

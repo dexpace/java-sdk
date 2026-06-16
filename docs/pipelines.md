@@ -19,6 +19,7 @@ composable request/response processing.
     - [Functional Interfaces](#functional-interfaces)
     - [Immutable Pipeline State](#immutable-pipeline-state)
     - [Step Ordering and Dependencies](#step-ordering-and-dependencies)
+    - [Why ordered stages, not nested decorators](#why-ordered-stages-not-nested-decorators)
 - [Usage Examples](#usage-examples)
 - [File Index](#file-index)
 
@@ -361,9 +362,14 @@ It retries only when the outcome is a `Failure` whose throwable is classified re
   `RetrySettings.retryableStatuses`.
 - A `NetworkException` (a transport failure with no response on the wire — always retryable).
 
-Idempotency is enforced independently of classification: a request is eligible only when its
-method is in `RetrySettings.retryableMethods` **or** its body is replayable. Non-idempotent
-methods (`POST`/`PATCH`) with a non-replayable body are never re-sent.
+Idempotency is enforced independently of classification, keyed off whether the request carries
+a body. A request **with a body** is eligible only when its body is replayable (a non-replayable
+body cannot be re-sent — the second `writeTo` would trip its consume-once guard). A request
+**with no body** is eligible only when its method is in `RetrySettings.retryableMethods`.
+Body-less retry safety keys off method idempotency, not off the absence of a body: a body-less
+non-idempotent request — a bare `POST`/`PATCH` to a trigger / activate-style endpoint — is
+therefore never re-sent, even though there is no payload to replay, because the server may
+already have applied the side effect.
 
 Waits between attempts use a `ScheduledExecutorService` plus `CompletableFuture.get`, never
 `Thread.sleep`, so virtual-thread carriers can unmount during the delay. An interrupt restores
@@ -483,6 +489,61 @@ RequestPipeline.steps (BeforeRequest):
 Retry is **not** a request step — it lives in `ResponsePipeline.recoverySteps` so it can observe
 the transport outcome and re-issue the request. Order recovery steps so retry runs before any
 status-to-exception mapping you do not want a transient failure to surface prematurely.
+
+### Why ordered stages, not nested decorators
+
+> This decision concerns the stage-based `http.pipeline` layer (`HttpPipeline`, `HttpStep`,
+> `Stage`) introduced under [Async Dispatch](#async-dispatch) and detailed in
+> `docs/architecture.md`, not the recovery-aware `pipeline` primitives above.
+
+A common alternative to a step list is to nest cross-cutting concerns as `HttpClient`
+decorators — `RedirectClient(RetryClient(AuthClient(LoggingClient(transport))))` — where each
+wrapper calls `inner.execute(request)`. The `http.pipeline` layer deliberately uses an ordered
+list of `HttpStep`s keyed by a `Stage` enum instead, with five cross-cutting **pillar** stages
+(`REDIRECT` → `RETRY` → `AUTH` → `LOGGING` → `SERDE`, the last currently reserved/unused) that
+admit exactly one step each, plus the terminal `SEND` slot — also a singleton, but the transport
+hop itself rather than a configurable pillar. The reasons:
+
+- **Deterministic, inspectable ordering.** `Stage.order` is the single source of truth for run
+  order: lower-ordered stages run first (closer to the caller), higher ones run last (closer to
+  the wire). `HttpPipelineBuilder.build()` flattens the stages in that fixed order, and the
+  resulting `HttpPipeline.steps` is an unmodifiable, ordered list you can read back to see
+  exactly what runs and in what sequence. A decorator tower encodes the same order implicitly in
+  constructor nesting, which is harder to assemble correctly and impossible to enumerate after
+  the fact.
+- **One place to reason about precedence.** Because the order lives in the `Stage` enum rather
+  than scattered across nesting sites, "does auth run before or after the retry loop?" is
+  answered by reading one enum, not by tracing who-wrapped-whom across call sites. Sparse `order`
+  values (100s apart) and interleaved non-pillar stages (`PRE_AUTH`, `POST_LOGGING`, …) leave
+  room to slot user steps at a precise point without renumbering or rebuilding the tower. The
+  surgical `insertAfter` / `insertBefore` / `replace` edits operate against this declared order.
+- **Pillar-uniqueness invariants.** Redirect, retry, auth, logging, and serde are concerns you
+  want *exactly one* of — two retry layers or two auth layers is almost always a bug. A pillar
+  stage enforces that: installing a second step in a pillar replaces the first and emits a
+  `pipeline.pillar.replaced` SLF4J warning (`HttpPipelineBuilder`). The shipped pillar steps go
+  further and lock their slot at the type level — `RedirectStep`, `RetryStep`, `AuthStep`, and
+  `InstrumentationStep` each declare `final override val stage`, so a subclass cannot relocate
+  itself out of its pillar. Nested decorators cannot express "there is exactly one auth layer";
+  nothing stops a caller wrapping `AuthClient` twice.
+- **Sync/async mirroring.** The async layer (`AsyncHttpStep`, `AsyncHttpPipeline`,
+  `AsyncHttpPipelineBuilder`) reuses the identical `Stage` semantics and shares the staging
+  policy via the internal `StagedSteps<S>` helper, so a step occupies the same ordered slot in
+  both the blocking and the `CompletableFuture`-returning pipeline. Keeping order in the data
+  (`Stage`) rather than in the control flow (constructor nesting) is what lets both runtimes
+  share one ordering definition instead of each re-deriving it.
+
+**The cost: the re-drive contract.** A decorator re-invokes downstream with a plain
+`inner.execute(request)`, which is hard to get wrong. A stage step instead receives a
+`PipelineNext` and calls `next.process()`; a step that needs to drive the downstream chain **more
+than once** — retry re-attempting, redirect following a hop, auth retrying after a 401 — must
+call `next.copy().process()` rather than reusing `next`. `PipelineNext` advances an internal
+cursor, so re-using the same instance resumes *past* the steps already visited on the previous
+pass instead of re-running the whole tail. Forgetting `copy()` fails silently — the second
+attempt skips steps rather than throwing — which is strictly more error-prone than a decorator's
+re-call. The shipped pillar steps follow the contract (`DefaultRetryStep`, `DefaultRedirectStep`,
+and `AuthStep` all re-drive via `next.copy().process()`); custom wrapping steps at the
+REDIRECT / RETRY / AUTH stages must do the same. See `PipelineNext.copy` and the `HttpStep`
+contract for the normative wording.
 
 ---
 
