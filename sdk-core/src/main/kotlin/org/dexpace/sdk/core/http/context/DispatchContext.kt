@@ -58,10 +58,9 @@ public data class DispatchContext(
          * (`traceId:spanId`). This portion is not call-unique on its own — the no-op context
          * shares constant ids, an inbound trace shares a trace id across spans, and a span id
          * may be reused across sibling calls — so [mintCallKey] appends a process-unique
-         * counter to it for the actual key. Retained as the fallback derivation that
-         * [RequestContext] and [ExchangeContext] use when constructed directly.
+         * counter to it for the actual key.
          */
-        internal fun deriveCallKey(instrumentationContext: InstrumentationContext): String =
+        private fun deriveCallKey(instrumentationContext: InstrumentationContext): String =
             instrumentationContext.traceId.value + ":" + instrumentationContext.spanId.value
 
         /**
@@ -76,8 +75,12 @@ public data class DispatchContext(
          * process-unique counter to [deriveCallKey]'s trace/span derivation
          * (`traceId:spanId:n`). The counter disambiguates calls that would otherwise share a
          * trace/span pair, so distinct calls never collide in [ContextStore].
+         *
+         * Shared with [RequestContext] and [ExchangeContext], which mint the same call-unique
+         * default key when constructed directly off-chain (rather than promoted from a
+         * [DispatchContext]), so every link in the chain is collision-safe by default.
          */
-        private fun mintCallKey(instrumentationContext: InstrumentationContext): String =
+        internal fun mintCallKey(instrumentationContext: InstrumentationContext): String =
             deriveCallKey(instrumentationContext) + ":" + mintCounter.incrementAndGet()
     }
 }
