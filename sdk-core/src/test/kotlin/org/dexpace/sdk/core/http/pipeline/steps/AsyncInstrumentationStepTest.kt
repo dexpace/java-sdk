@@ -132,6 +132,47 @@ class AsyncInstrumentationStepTest {
     }
 
     @Test
+    fun `response body preview honours the declared ISO-8859-1 charset`() {
+        // Mirrors the sync InstrumentationStepTest assertion: 0xE9 is 'é' in ISO-8859-1; decoded
+        // as UTF-8 (the old hardcoded assumption) it would be U+FFFD. This pins that the async
+        // step passes mediaType() through to BodyPreview rather than regressing to UTF-8.
+        val fakeSlf4j = FakeSlf4jLogger("test.async.instrumentation.charset")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val latin1 = MediaType.parse("text/plain;charset=ISO-8859-1")
+        val bytes = "café".toByteArray(Charsets.ISO_8859_1)
+        val fakeAsync =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.OK)
+                        .body(ResponseBody.create(Io.provider.source(bytes), latin1, bytes.size.toLong()))
+                        .build(),
+                )
+            }
+        val pipeline =
+            AsyncHttpPipelineBuilder(fakeAsync)
+                .append(
+                    DefaultAsyncInstrumentationStep(
+                        options = HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                        logger = clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.sendAsync(getRequest("https://api.example.com/x")).join()
+        response.close()
+
+        val responseRecord =
+            fakeSlf4j.records.first { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.response" }
+            }
+        val preview = responseRecord.keyValues.first { it.key == "response.body.preview" }.value
+        assertEquals("café", preview)
+    }
+
+    @Test
     fun `known-length response body is wrapped and bounded to the preview cap`() {
         // A known-length body larger than bodyPreviewMaxBytes is wrapped: the capture is bounded
         // to the cap, while the caller still streams the full body via source().
