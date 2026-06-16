@@ -21,9 +21,9 @@ import java.io.IOException
  *
  * ## HTTPS-only
  *
- * The HTTPS requirement guards credential **stamping**: before a credential is attached
- * [process] rejects non-HTTPS schemes, before any token fetch or header stamp, to prevent
- * credential leakage over plaintext. The check is case-insensitive (`HTTPS`/`https`/`HtTpS`
+ * The HTTPS requirement guards credential **stamping**: on the path that attaches a
+ * credential, [process] rejects non-HTTPS schemes before any token fetch or header stamp,
+ * to prevent credential leakage over plaintext. The check is case-insensitive (`HTTPS`/`https`/`HtTpS`
  * all pass). Failure throws [IllegalStateException] naming the concrete step type and the
  * offending scheme. The guard is *not* applied when no credential is being attached — see
  * Cross-origin redirects, where a marker-suppressed re-issue is forwarded credential-free
@@ -65,13 +65,10 @@ public abstract class AuthStep : HttpStep {
         request: Request,
         next: PipelineNext,
     ): Response {
-        // A cross-origin redirect re-issue is marked by DefaultRedirectStep; do NOT re-stamp
-        // the caller's credential onto a server-chosen foreign host. The marker is stripped so
-        // it never reaches the wire. This branch is evaluated BEFORE the HTTPS guard: no
-        // credential is attached here, so the plaintext credential-leak the guard protects
-        // against cannot occur, and a cross-origin hop the redirect step deliberately followed
-        // (including an opted-in HTTPS->HTTP downgrade) must not be turned into a hard failure.
-        // The HTTPS guard applies only on the credential-stamping branch below.
+        // A cross-origin redirect re-issue is marked by DefaultRedirectStep; skip re-stamping the
+        // caller's credential onto a server-chosen foreign host, and strip the marker so it never
+        // reaches the wire. Deliberately evaluated before the HTTPS guard: no credential is attached
+        // here, so an intentionally allowed downgrade hop is forwarded instead of hard-failing.
         val authorized =
             if (CrossOriginRedirectMarker.isMarked(request)) {
                 request.newBuilder()
