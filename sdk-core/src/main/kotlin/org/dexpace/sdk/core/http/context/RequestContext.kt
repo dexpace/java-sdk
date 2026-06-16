@@ -18,11 +18,12 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * [DispatchContext] it was promoted from.
  *
  * In the normal flow the [callKey] is supplied by [DispatchContext.toRequestContext] so the
- * whole chain shares one store slot. When this context is constructed directly off-chain, the
- * [callKey] defaults to a freshly minted, call-unique key (`traceId:spanId:n`) — the same
- * collision-safe derivation [DispatchContext] uses — so two directly-constructed contexts that
- * share a trace/span id never collide in [ContextStore]. Two such default-constructed instances
- * are therefore not structurally equal; pin an explicit [callKey] if you need equality.
+ * whole chain shares one store slot. When this context is constructed directly off-chain it
+ * defaults to a freshly minted, call-unique key (`traceId:spanId:n`) via
+ * [DispatchContext.mintCallKey] — see [DispatchContext] for why the trace/span pair alone is not
+ * a collision-safe store key. One consequence of the minted default: two default-constructed
+ * instances are not structurally equal, since each mints a distinct key — pin an explicit
+ * [callKey] if you need equality.
  */
 public data class RequestContext(
     override val instrumentationContext: InstrumentationContext,
