@@ -7,9 +7,6 @@
 
 package org.dexpace.sdk.core.generics
 
-import kotlin.contracts.ExperimentalContracts
-import kotlin.contracts.contract
-
 /**
  * Asserts that a required builder field [value] has been set, returning it non-null.
  *
@@ -38,13 +35,7 @@ import kotlin.contracts.contract
  * @return [value], guaranteed non-null.
  * @throws IllegalStateException If [value] is `null`.
  */
-@OptIn(ExperimentalContracts::class)
 public fun <T : Any> checkRequired(
     name: String,
     value: T?,
-): T {
-    contract {
-        returns() implies (value != null)
-    }
-    return checkNotNull(value) { "$name is required" }
-}
+): T = checkNotNull(value) { "$name is required" }
