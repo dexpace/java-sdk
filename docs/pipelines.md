@@ -486,9 +486,10 @@ status-to-exception mapping you do not want a transient failure to surface prema
 A common alternative to a step list is to nest cross-cutting concerns as `HttpClient`
 decorators — `RedirectClient(RetryClient(AuthClient(LoggingClient(transport))))` — where each
 wrapper calls `inner.execute(request)`. The `http.pipeline` layer deliberately uses an ordered
-list of `HttpStep`s keyed by a `Stage` enum instead, with five **pillar** stages
-(`REDIRECT` → `RETRY` → `AUTH` → `LOGGING` → `SERDE`) that admit exactly one step each. The
-reasons:
+list of `HttpStep`s keyed by a `Stage` enum instead, with five cross-cutting **pillar** stages
+(`REDIRECT` → `RETRY` → `AUTH` → `LOGGING` → `SERDE`, the last currently reserved/unused) that
+admit exactly one step each, plus the terminal `SEND` slot — also a singleton, but the transport
+hop itself rather than a configurable pillar. The reasons:
 
 - **Deterministic, inspectable ordering.** `Stage.order` is the single source of truth for run
   order: lower-ordered stages run first (closer to the caller), higher ones run last (closer to
