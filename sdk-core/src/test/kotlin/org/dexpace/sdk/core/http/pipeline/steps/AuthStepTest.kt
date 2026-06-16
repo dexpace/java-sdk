@@ -519,15 +519,16 @@ class AuthStepTest {
     // ----------------- 401 + WWW-Authenticate handling -----------------
 
     @Test
-    fun `401 with WWW-Authenticate returns the 401 unchanged by default`() {
-        val provider = BearerTokenProvider { _, _ -> BearerToken("tk", null) }
+    fun `401 with WWW-Authenticate returns the 401 unchanged when the step does not override the challenge hook`() {
+        // KeyCredentialAuthStep does not override authorizeRequestOnChallenge, so it exercises
+        // the AuthStep base default (returns null → no retry). The 401 surfaces unchanged.
         val fake =
             FakeHttpClient()
                 .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
 
         val pipeline =
             HttpPipelineBuilder(fake)
-                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .append(KeyCredentialAuthStep(KeyCredential("k")))
                 .build()
 
         val response = pipeline.send(getHttpsRequest())

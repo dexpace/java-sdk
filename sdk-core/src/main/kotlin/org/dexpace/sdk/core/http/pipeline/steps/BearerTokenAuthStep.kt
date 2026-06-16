@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.auth.BearerToken
 import org.dexpace.sdk.core.http.auth.BearerTokenProvider
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Clock
 import java.time.Duration
 import java.util.concurrent.locks.ReentrantLock
@@ -37,6 +38,19 @@ import kotlin.concurrent.withLock
  * to decide when to refresh pre-emptively (default 30 seconds). A token whose `expiresAt`
  * is `now + 29s` with the default margin is considered expired and is refreshed.
  *
+ * ## Eviction on 401
+ *
+ * The refresh margin only covers *local* expiry. A server may revoke a token before its
+ * advertised expiry, and the cached token would otherwise keep being stamped until the
+ * margin elapsed. To handle this, [authorizeRequestOnChallenge] evicts the rejected token
+ * on a 401 + `WWW-Authenticate` response and re-stamps the request with a freshly fetched
+ * one, so the single retry driven by [AuthStep] carries a new credential. Eviction is an
+ * *additional* trigger layered on top of the margin check — it does not change pre-emptive
+ * refresh. Only the token that produced the 401 is evicted; a token a concurrent request
+ * already refreshed in the meantime is left in place. The retry runs regardless of HTTP
+ * method (the in-step hook is not gated by retry-safety), so a non-idempotent POST is
+ * re-authenticated too.
+ *
  * ## Errors from [provider]
  *
  *  - Throws → propagated. The exception is **not** cached, so a subsequent request
@@ -46,8 +60,9 @@ import kotlin.concurrent.withLock
  *
  * ## Open for subclassing
  *
- * Users wanting to override [authorizeRequestOnChallenge] (e.g. force a token refresh on
- * 401) can extend this class.
+ * Eviction-on-401 is built in. Users wanting to customise challenge handling further (e.g.
+ * inspect the `WWW-Authenticate` scheme before deciding to refresh) can override
+ * [authorizeRequestOnChallenge].
  *
  * Thread-safety: see Caching above.
  * Cancellation: token fetch may block; the [provider] is expected to respect interrupts.
@@ -70,6 +85,40 @@ public open class BearerTokenAuthStep
             return request.newBuilder()
                 .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "Bearer ${token.token}")
                 .build()
+        }
+
+        /**
+         * On a 401 challenge, evict the token that was just rejected and re-stamp [request]
+         * with a freshly fetched one so [AuthStep]'s single retry carries a new credential.
+         *
+         * Eviction is scoped to the exact token that produced the 401 (matched against the
+         * `Authorization` header [request] carried): if a concurrent request already refreshed
+         * the cache, that newer token is preserved and reused for the retry rather than being
+         * discarded. The subsequent [currentToken] call then re-fetches only when the cache is
+         * actually empty, so a 401 storm across threads still funnels through the same
+         * double-checked-locking fetch as the expiry-margin path.
+         */
+        override fun authorizeRequestOnChallenge(
+            request: Request,
+            response: Response,
+        ): Request {
+            evictRejectedToken(request.headers.get(HttpHeaderName.AUTHORIZATION))
+            return authorizeRequest(request)
+        }
+
+        /**
+         * Clears [cachedToken] iff it is still the token whose stamped header is [rejectedHeader].
+         * Guarded by the same [lock] as the refresh path so the read-compare-clear is atomic
+         * against a concurrent refresh.
+         */
+        private fun evictRejectedToken(rejectedHeader: String?) {
+            if (rejectedHeader == null) return
+            lock.withLock {
+                val current = cachedToken ?: return
+                if ("Bearer ${current.token}" == rejectedHeader) {
+                    cachedToken = null
+                }
+            }
         }
 
         private fun currentToken(): BearerToken {

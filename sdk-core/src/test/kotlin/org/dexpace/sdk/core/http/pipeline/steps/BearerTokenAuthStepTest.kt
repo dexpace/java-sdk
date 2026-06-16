@@ -13,10 +13,15 @@ import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.pipeline.HttpPipelineBuilder
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FakeHttpClient
 import org.dexpace.sdk.core.testing.FixedClock
+import org.dexpace.sdk.io.OkioIoProvider
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -27,6 +32,13 @@ class BearerTokenAuthStepTest {
     private val futureExpiry: Instant = Instant.parse("2099-01-01T00:00:00Z")
     private val nowInstant: Instant = Instant.parse("2026-01-01T12:00:00Z")
     private val clock = FixedClock(nowInstant)
+
+    @BeforeTest
+    fun setUp() {
+        // The 401-challenge retry path closes the 401 response body; tests that exercise it
+        // need an installed IoProvider so body materialization succeeds.
+        Io.installProvider(OkioIoProvider)
+    }
 
     // ---- B14: fresh-token validation does NOT apply refreshMargin ----
 
@@ -172,11 +184,128 @@ class BearerTokenAuthStepTest {
         assertEquals(2, calls, "provider must have been called again after prior exception")
     }
 
+    // ---- Evict-on-401 ----
+
+    @Test
+    fun `401 challenge evicts the cached token and the retry carries a freshly fetched one`() {
+        // A non-expiring token would normally be cached forever (no expiry margin ever fires).
+        // The server rejects the first attempt with a 401 + WWW-Authenticate; the step must
+        // evict the stale token and re-fetch so the single retry carries the fresh credential.
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        val response = pipeline.send(getRequest())
+
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount, "exactly one retry after the 401")
+        assertEquals(2, fetches.get(), "the 401 must trigger a re-fetch (eviction), not reuse the cached token")
+        // First attempt carries the stale token; the retry carries the freshly fetched one.
+        assertEquals("Bearer token-1", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        assertEquals("Bearer token-2", fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
+    @Test
+    fun `401 eviction works for a non-idempotent POST`() {
+        // The in-step challenge hook is NOT gated by retry-safety, so a POST (non-idempotent)
+        // still re-authenticates after a 401. A replayable body lets the retry re-send.
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        val response = pipeline.send(postRequest())
+
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount, "the POST must be retried once after re-authentication")
+        assertEquals(2, fetches.get())
+        assertEquals("Bearer token-2", fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
+    @Test
+    fun `after a 401 eviction the next independent request still sees the refreshed token cached`() {
+        // The retry re-fetches and re-caches; a subsequent unrelated request must reuse that
+        // refreshed token rather than fetching a third time.
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+                .enqueue { status(200) }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        pipeline.send(getRequest()) // 401 → evict → retry with token-2
+        pipeline.send(getRequest()) // reuses cached token-2
+
+        assertEquals(2, fetches.get(), "the refreshed token is cached; no third fetch")
+        assertEquals("Bearer token-2", fake.requests[2].headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
+    @Test
+    fun `repeated 401s surface the second 401 without a second retry`() {
+        // The base AuthStep retries exactly once. If the freshly fetched token is ALSO rejected,
+        // the second 401 is surfaced as the operation result (no infinite refresh loop), and the
+        // provider is consulted once per attempt (twice total).
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        val response = pipeline.send(getRequest())
+
+        assertEquals(401, response.status.code, "the second 401 is surfaced, not retried again")
+        assertEquals(2, fake.callCount)
+        assertEquals(2, fetches.get())
+    }
+
     // ---- Helpers ----
 
     private fun getRequest(): Request =
         Request.builder()
             .method(Method.GET)
             .url("https://api.example.com/resource")
+            .build()
+
+    private fun postRequest(): Request =
+        Request.builder()
+            .method(Method.POST)
+            .url("https://api.example.com/resource")
+            // RequestBody.create(String) is replayable, so the non-idempotent retry can re-send.
+            .body(RequestBody.create("payload"))
             .build()
 }
