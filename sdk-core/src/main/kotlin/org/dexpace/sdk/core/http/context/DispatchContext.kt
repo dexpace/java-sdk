@@ -24,13 +24,16 @@ import java.util.concurrent.atomic.AtomicLong
  * under the **same** [callKey], so downstream observers see the latest snapshot and
  * concurrent calls — even ones sharing a trace id — never collide (see [CallContext]).
  *
- * The default [callKey] is derived from the trace and span ids (`traceId:spanId`), which is
- * adequate when the span id is genuinely per-call. Untraced calls share constant no-op ids,
- * so [default] mints a process-unique key instead; supply an explicit [callKey] to override.
+ * The default [callKey] appends a process-unique counter to the trace/span derivation
+ * (`traceId:spanId:n`), so it is call-unique even when the span id is not. The trace and span
+ * ids alone are not a safe key: the no-op context shares constant ids across untraced calls,
+ * an inbound W3C trace shares a trace id across spans, and a tracer may reuse a span id across
+ * sibling calls — all of which would otherwise collide in [ContextStore]. Supply an explicit
+ * [callKey] to override (e.g. to re-key onto an existing chain).
  */
 public data class DispatchContext(
     override val instrumentationContext: InstrumentationContext,
-    override val callKey: String = deriveCallKey(instrumentationContext),
+    override val callKey: String = mintCallKey(instrumentationContext),
 ) : CallContext {
     /**
      * Promotes this dispatch context into a [RequestContext] bound to [request] and stores
@@ -51,25 +54,29 @@ public data class DispatchContext(
         private val mintCounter: AtomicLong = AtomicLong()
 
         /**
-         * Derives the default store key for [instrumentationContext] from its trace and span
-         * ids (`traceId:spanId`). Unique per call only when the span id is per-call; the
-         * no-op context shares constant ids, so [default] does not use this derivation.
+         * Derives the trace/span portion of a store key for [instrumentationContext]
+         * (`traceId:spanId`). This portion is not call-unique on its own — the no-op context
+         * shares constant ids, an inbound trace shares a trace id across spans, and a span id
+         * may be reused across sibling calls — so [mintCallKey] appends a process-unique
+         * counter to it for the actual key. Retained as the fallback derivation that
+         * [RequestContext] and [ExchangeContext] use when constructed directly.
          */
         internal fun deriveCallKey(instrumentationContext: InstrumentationContext): String =
             instrumentationContext.traceId.value + ":" + instrumentationContext.spanId.value
 
         /**
          * A dispatch context with a no-op instrumentation context; used when tracing is
-         * disabled. Mints a process-unique [callKey] because the no-op context's trace and
-         * span ids are shared constants — two untraced calls would otherwise collide in
-         * [ContextStore].
+         * disabled. The primary constructor's default [callKey] already mints a process-unique
+         * key, so this just constructs one with the no-op context.
          */
-        public fun default(): DispatchContext =
-            DispatchContext(
-                instrumentationContext = NoopInstrumentationContext,
-                callKey = mintCallKey(NoopInstrumentationContext),
-            )
+        public fun default(): DispatchContext = DispatchContext(NoopInstrumentationContext)
 
+        /**
+         * Mints a call-unique store key by appending a monotonically increasing,
+         * process-unique counter to [deriveCallKey]'s trace/span derivation
+         * (`traceId:spanId:n`). The counter disambiguates calls that would otherwise share a
+         * trace/span pair, so distinct calls never collide in [ContextStore].
+         */
         private fun mintCallKey(instrumentationContext: InstrumentationContext): String =
             deriveCallKey(instrumentationContext) + ":" + mintCounter.incrementAndGet()
     }

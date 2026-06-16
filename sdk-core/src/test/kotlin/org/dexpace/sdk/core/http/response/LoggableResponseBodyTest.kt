@@ -12,7 +12,9 @@ import org.dexpace.sdk.core.io.Buffer
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
+import org.junit.jupiter.api.assertTimeoutPreemptively
 import java.io.IOException
+import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -50,7 +52,7 @@ class LoggableResponseBodyTest {
         }
     }
 
-    // ----- H2: source() that throws before entering .use {} -----
+    // ----- source() that throws before entering .use {} -----
 
     @Test
     fun `when delegate source() itself throws close() still closes the delegate`() {
@@ -164,7 +166,7 @@ class LoggableResponseBodyTest {
         )
     }
 
-    // ----- A12: additional failure-semantics tests -----
+    // ----- additional failure-semantics tests -----
 
     @Test
     fun `source() after drainError is set re-throws the cached exception`() {
@@ -269,7 +271,7 @@ class LoggableResponseBodyTest {
         )
     }
 
-    // ----- H1: bounded capture + live-tail behavior -----
+    // ----- bounded capture + live-tail behavior -----
 
     @Test
     fun `over-cap body returns the full bytes to the consumer while snapshot is bounded`() {
@@ -373,5 +375,121 @@ class LoggableResponseBodyTest {
             assertNull(errors[i], "Thread $i got unexpected error: ${errors[i]}")
             assertEquals(payload, results[i], "Thread $i got unexpected data")
         }
+    }
+
+    // ----- bounded drain must not spin on a zero-read source -----
+
+    @Test
+    fun `drain on a zero-read source fails fast instead of spinning forever`() {
+        // A delegate Source that returns 0 for a positive byteCount violates the Source.read
+        // contract. The bounded drain subtracts the read count from `remaining`, so a 0-read
+        // is a no-op that loops forever. The drain must instead fail fast with an IOException,
+        // and source() must re-throw it (rather than hang the caller / worker / completion thread).
+        val seed = Io.provider.buffer().also { it.writeUtf8("ignored") }
+        val zeroReadSource =
+            object : BufferedSource by seed.peek() {
+                override fun read(
+                    sink: Buffer,
+                    byteCount: Long,
+                ): Long = 0L
+
+                override fun close() {}
+            }
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = null
+
+                override fun contentLength(): Long = -1
+
+                override fun source(): BufferedSource = zeroReadSource
+
+                override fun close() {}
+            }
+        val wrapper = LoggableResponseBody(delegate)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5)) {
+            // The drain must terminate; it must not spin on the zero-read.
+            val ex = assertFailsWith<IOException> { wrapper.source() }
+            assertNotNull(ex)
+        }
+
+        // The drain failure is cached as an IOException and surfaced via captureException.
+        val captured = wrapper.captureException
+        assertNotNull(captured, "a zero-read drain must cache a failure, not truncate silently")
+        assertTrue(
+            captured is IOException,
+            "the cached drain failure must be an IOException, got: ${captured::class}",
+        )
+        // The partial snapshot is still available (documented failure semantics).
+        assertEquals(0, wrapper.snapshot().size, "no bytes were read before the contract violation")
+    }
+
+    // ----- over-cap live tail must be closed exactly once -----
+
+    /**
+     * A delegate that returns the SAME [BufferedSource] instance on every [source] call and whose
+     * [close] actually closes that instance, counting underlying closes. Models a BYO transport
+     * whose `source()` returns one source and whose `close()` closes it — the case where routing
+     * the live-tail close separately from the delegate close double-closes the socket.
+     */
+    private class SharedSourceBody(
+        private val text: String,
+        sourceCloseCount: AtomicInteger,
+    ) : ResponseBody() {
+        private val backing: BufferedSource = Io.provider.buffer().also { it.writeUtf8(text) }
+        private val shared: BufferedSource =
+            object : BufferedSource by backing {
+                override fun close() {
+                    sourceCloseCount.incrementAndGet()
+                }
+            }
+
+        override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+        override fun contentLength(): Long = text.toByteArray(Charsets.UTF_8).size.toLong()
+
+        override fun source(): BufferedSource = shared
+
+        override fun close() {
+            shared.close()
+        }
+    }
+
+    @Test
+    fun `over-cap source then close closes the underlying source exactly once`() {
+        // Over-cap: the wrapper retains delegate.source() as the live tail and hands it out inside
+        // a one-shot stream. Closing that stream and then closing the wrapper must not close the
+        // same underlying source twice (some sockets / streams throw on double-close).
+        val sourceCloseCount = AtomicInteger(0)
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes > cap
+        val wrapper = LoggableResponseBody.bounded(SharedSourceBody(payload, sourceCloseCount), Io.provider, 5L)
+
+        wrapper.source().use { it.readUtf8() }
+        wrapper.close()
+
+        assertEquals(
+            1,
+            sourceCloseCount.get(),
+            "the underlying source must be closed exactly once across the one-shot stream and wrapper close",
+        )
+    }
+
+    @Test
+    fun `over-cap close then source close closes the underlying source exactly once`() {
+        // The reverse order: wrapper.close() first, then closing the already-handed-out one-shot
+        // stream. Whichever path closes the delegate first wins; the second must be a no-op.
+        val sourceCloseCount = AtomicInteger(0)
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes > cap
+        val wrapper = LoggableResponseBody.bounded(SharedSourceBody(payload, sourceCloseCount), Io.provider, 5L)
+
+        val tail = wrapper.source()
+        wrapper.close()
+        tail.close()
+
+        assertEquals(
+            1,
+            sourceCloseCount.get(),
+            "the underlying source must be closed exactly once regardless of close ordering",
+        )
     }
 }

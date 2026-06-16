@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.request
 
 import org.dexpace.sdk.core.generics.Builder
+import org.dexpace.sdk.core.generics.checkRequired
 import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import java.net.MalformedURLException
@@ -251,8 +252,8 @@ public data class Request private constructor(
          */
         override fun build(): Request =
             Request(
-                method = checkNotNull(method) { "Method is required." },
-                url = checkNotNull(url) { "URL is required." },
+                method = checkRequired("method", method),
+                url = checkRequired("url", url),
                 headers = headersBuilder.build(),
                 body = body,
             )

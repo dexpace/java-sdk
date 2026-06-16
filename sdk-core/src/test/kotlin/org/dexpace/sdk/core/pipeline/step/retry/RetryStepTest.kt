@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
@@ -21,6 +22,7 @@ import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -167,6 +169,18 @@ class RetryStepTest {
             .build()
     }
 
+    private fun requestPostBodyless(): Request =
+        Request.builder()
+            .url("https://api.example.com/resource")
+            .method(Method.POST)
+            .build()
+
+    private fun requestPutBodyless(): Request =
+        Request.builder()
+            .url("https://api.example.com/resource")
+            .method(Method.PUT)
+            .build()
+
     private fun response(
         status: Int,
         headers: Headers = Headers.builder().build(),
@@ -246,6 +260,39 @@ class RetryStepTest {
         val out = step.invoke(outcome)
         assertSame(outcome, out, "Outcome must be unchanged when an idempotent method carries a non-replayable body")
         assertTrue(client.calls.isEmpty())
+    }
+
+    @Test
+    fun `503 with body-less POST is not retried because POST is non-idempotent`() {
+        // Body-less retry safety keys off METHOD idempotency, not off the absence of a body. A
+        // bare POST has no payload to re-send, but it is non-idempotent, so it must NOT be retried
+        // — a second POST could duplicate a side effect the server already applied. Exercises the
+        // body == null branch of canRetry on a non-idempotent method. Mirrors the
+        // `body-less POST is NOT retried` case in the http.pipeline DefaultRetryStep suite.
+        val client = FakeClient()
+        val request = requestPostBodyless()
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
+        val out = step.invoke(outcome)
+        assertSame(outcome, out, "Outcome must be unchanged — a body-less POST is non-idempotent")
+        assertTrue(client.calls.isEmpty(), "body-less POST must not be re-dispatched")
+    }
+
+    @Test
+    fun `503 with body-less PUT is retried because PUT is idempotent`() {
+        // Control for the body == null branch: with no body the gate falls through to method
+        // idempotency. PUT is idempotent, so a body-less PUT is retry-safe and retries normally —
+        // here the single retry succeeds. Mirrors the `body-less PUT IS retried` control in the
+        // http.pipeline DefaultRetryStep suite.
+        val ok = response(SC_OK)
+        val client = FakeClient(listOf(Canned.Ok(ok)))
+        val request = requestPutBodyless()
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
+        val out = step.invoke(outcome)
+        assertTrue(out is ResponseOutcome.Success, "body-less PUT must retry — PUT is idempotent")
+        assertSame(ok, (out as ResponseOutcome.Success).response)
+        assertEquals(1, client.calls.size)
     }
 
     @Test
@@ -597,11 +644,114 @@ class RetryStepTest {
 
     // endregion
 
+    // region -- per-attempt retry-count header --
+
+    @Test
+    fun `attempt header is absent by default`() {
+        // Opt-in feature: with the default settings no attempt header is stamped on retries.
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(out is ResponseOutcome.Success)
+        // Two retried sends were made; neither carries the attempt header.
+        assertEquals(2, client.calls.size)
+        client.calls.forEach { call ->
+            assertNull(call.headers.get(DEFAULT_ATTEMPT_HEADER), "no attempt header should be stamped by default")
+        }
+    }
+
+    @Test
+    fun `attempt header is stamped with the attempt ordinal on each send via attempt()`() {
+        // attempt() drives the initial send too, so we can observe the full ordinal sequence:
+        // the original send is attempt 1, the first retry is 2, the second retry is 3.
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .attemptHeaderName(DEFAULT_ATTEMPT_HEADER)
+                .build()
+        val step = RetryStep(client, settings, requestGet())
+
+        val response = step.attempt()
+        assertEquals(SC_OK, response.status.code)
+        assertEquals(3, client.calls.size)
+        assertEquals("1", client.calls[0].headers.get(DEFAULT_ATTEMPT_HEADER))
+        assertEquals("2", client.calls[1].headers.get(DEFAULT_ATTEMPT_HEADER))
+        assertEquals("3", client.calls[2].headers.get(DEFAULT_ATTEMPT_HEADER))
+    }
+
+    @Test
+    fun `attempt header uses the configured header name`() {
+        val custom = HttpHeaderName.fromString("X-My-Retry-Count")
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .attemptHeaderName(custom)
+                .build()
+        val step = RetryStep(client, settings, requestGet())
+
+        val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        assertTrue(out is ResponseOutcome.Success)
+        // invoke() does not control the external initial send (ordinal 1), so the retried sends
+        // it dispatches start at ordinal 2. Two retries fire here under the configured name.
+        assertEquals(2, client.calls.size)
+        assertEquals("2", client.calls[0].headers.get(custom))
+        assertEquals("3", client.calls[1].headers.get(custom))
+    }
+
+    @Test
+    fun `attempt header is stamped on a per-attempt copy and does not mutate the template request`() {
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_OK)),
+                ),
+            )
+        val request = requestGet()
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .attemptHeaderName(DEFAULT_ATTEMPT_HEADER)
+                .build()
+        val step = RetryStep(client, settings, request)
+
+        step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
+        // The retried request copy carries the header; the immutable template never gains it.
+        assertEquals("2", client.calls[0].headers.get(DEFAULT_ATTEMPT_HEADER))
+        assertNull(request.headers.get(DEFAULT_ATTEMPT_HEADER), "template request must stay unmodified")
+    }
+
+    // endregion
+
     private companion object {
         // HTTP status code constants for tests.
         private const val SC_OK = 200
         private const val SC_NOT_FOUND = 404
         private const val SC_SERVICE_UNAVAILABLE = 503
+
+        // Header used by the per-attempt retry-count tests.
+        private val DEFAULT_ATTEMPT_HEADER: HttpHeaderName = HttpHeaderName.fromString("X-Retry-Attempt")
 
         private const val DEFAULT_MAX_ATTEMPTS = 3
         private const val DEFAULT_MAX_ATTEMPTS_TIMEOUT = 3

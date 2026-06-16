@@ -142,9 +142,15 @@ internal object BodyPublishers {
      * therefore re-reads the body, so the body must be replayable for the resent request to
      * carry the correct bytes. If [body] is not already replayable it is buffered once into an
      * in-memory copy via [SdkRequestBody.toReplayable]. A body that cannot be made replayable
-     * (its `toReplayable` throws) falls back to a single eager byte-array publisher — correct
-     * for the first send and harmless on a resend — rather than a one-shot pipe that would
-     * corrupt the body on resubscribe.
+     * (its `toReplayable` throws mid-write) has already been partially consumed and cannot be
+     * recovered — the bytes drained by the failed buffering attempt are gone and `writeTo`
+     * cannot be driven a second time on a consume-once body. This method therefore fails with a
+     * checked [IOException] that wraps the original cause rather than masking it (a second
+     * `writeTo` would trip a consume-once guard and surface an `IllegalStateException`) or
+     * shipping a truncated body. Surfacing it as a checked [IOException] keeps the transport's
+     * `@Throws(IOException)` contract intact and matches the eager path, which already propagates
+     * a mid-write failure as an [IOException]; callers that need resilience here must supply a
+     * replayable body.
      *
      * For each subscription the supplier:
      *  1. creates a fresh [PipedOutputStream] / [PipedInputStream] pair;
@@ -169,16 +175,22 @@ internal object BodyPublishers {
                 try {
                     body.toReplayable()
                 } catch (e: IOException) {
-                    // The body could not be buffered into a replayable copy. A one-shot pipe
-                    // would corrupt the body on the JDK's resubscribe, so fall back to a single
-                    // eager byte-array publisher: the body has already been partially consumed
-                    // by the failed buffering attempt, but emitting whatever was captured is
-                    // strictly better than handing back a stream that is wrong on resend.
+                    // toReplayable drained the body once and failed mid-write; a consume-once
+                    // body has already flipped its guard, so a second writeTo would trip that
+                    // guard and surface an IllegalStateException that masks this IOException. The
+                    // partially captured bytes are local to toReplayable and gone. Rethrow as a
+                    // checked IOException wrapping the cause — honouring the transport's
+                    // @Throws(IOException) contract and matching the eager path — rather than
+                    // re-driving the body or shipping a truncated copy.
                     log.atVerbose()
                         .event("transport.jdkhttp.body.replayable.failed")
                         .field("error.message", e.message ?: "")
-                        .log("could not buffer streaming body as replayable; falling back to eager publisher")
-                    return HttpRequest.BodyPublishers.ofByteArray(bufferToByteArray(body))
+                        .log("could not buffer streaming body as replayable; failing the request")
+                    throw IOException(
+                        "streaming request body could not be buffered for the JDK transport and " +
+                            "has been partially consumed; supply a replayable body",
+                        e,
+                    )
                 }
             }
         return HttpRequest.BodyPublishers.ofInputStream { newSubscriptionStream(replayable) }

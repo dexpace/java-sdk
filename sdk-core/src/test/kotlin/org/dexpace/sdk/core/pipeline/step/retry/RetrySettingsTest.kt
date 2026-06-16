@@ -61,4 +61,30 @@ class RetrySettingsTest {
                 .build()
         assertEquals(Duration.ofSeconds(8), settings.maxDelay)
     }
+
+    // --- Canonical shared defaults (one source of truth for both retry stacks) --------------
+
+    @Test
+    fun `defaults match the canonical shared constants`() {
+        val settings = RetrySettings.defaults()
+        assertEquals(Duration.ofSeconds(30), settings.totalTimeout, "totalTimeout")
+        assertEquals(RetrySettings.DEFAULT_INITIAL_DELAY, settings.initialDelay, "initialDelay")
+        assertEquals(Duration.ofMillis(200), settings.initialDelay, "initialDelay value")
+        assertEquals(RetrySettings.DEFAULT_MAX_DELAY, settings.maxDelay, "maxDelay")
+        assertEquals(Duration.ofSeconds(8), settings.maxDelay, "maxDelay value")
+        assertEquals(RetrySettings.DEFAULT_DELAY_MULTIPLIER, settings.delayMultiplier, "delayMultiplier")
+        assertEquals(2.0, settings.delayMultiplier, "delayMultiplier value")
+        assertEquals(RetrySettings.DEFAULT_JITTER, settings.jitter, "jitter")
+        assertEquals(0.2, settings.jitter, "jitter value")
+        assertEquals(RetrySettings.DEFAULT_MAX_ATTEMPTS, settings.maxAttempts, "maxAttempts")
+        assertEquals(3, settings.maxAttempts, "maxAttempts value")
+    }
+
+    @Test
+    fun `default retryable statuses include 408 and the common retryable codes`() {
+        // The reconciled stance: 408 IS retryable, matching RetryUtils / HttpException.retryable
+        // and the stage-based DefaultRetryStep. The two stacks must agree on the 408 question.
+        val statuses = RetrySettings.DEFAULT_RETRYABLE_STATUSES
+        assertEquals(setOf(408, 429, 500, 502, 503, 504), statuses.toSet())
+    }
 }

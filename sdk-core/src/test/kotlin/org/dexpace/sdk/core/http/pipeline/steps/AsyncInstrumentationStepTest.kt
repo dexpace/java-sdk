@@ -364,7 +364,7 @@ class AsyncInstrumentationStepTest {
 
     @Test
     fun `http_response event carries trace_id from MDC set by span scope`() {
-        // B5: verify that the response event captured by FakeSlf4jLogger carries trace.id.
+        // Verify that the response event captured by FakeSlf4jLogger carries trace.id.
         // We set up MDC before the pipeline call so the MdcSnapshot capture inside the
         // use{} block picks up the trace.id installed by the span's makeCurrentWithLoggingContext.
         installBasicMdcAdapter()
@@ -403,7 +403,7 @@ class AsyncInstrumentationStepTest {
 
     @Test
     fun `processAsync handles a synchronous throw from next as a failed future`() {
-        // B13: a next step whose processAsync throws synchronously must be normalised to a
+        // A next step whose processAsync throws synchronously must be normalised to a
         // failed future; failure event emitted; span ended with the throwable.
         val fakeSlf4j = FakeSlf4jLogger("test.async.sync.throw")
         val clientLogger = ClientLogger.forTesting(fakeSlf4j)
