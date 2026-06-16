@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
+import org.dexpace.sdk.core.http.auth.AuthChallengeParser
 import org.dexpace.sdk.core.http.auth.BearerToken
 import org.dexpace.sdk.core.http.auth.BearerTokenProvider
 import org.dexpace.sdk.core.http.common.HttpHeaderName
@@ -50,6 +51,11 @@ import kotlin.concurrent.withLock
  * already refreshed in the meantime is left in place. The retry runs regardless of HTTP
  * method (the in-step hook is not gated by retry-safety), so a non-idempotent POST is
  * re-authenticated too.
+ *
+ * Eviction only fires when the `WWW-Authenticate` header actually advertises a `Bearer`
+ * challenge. A 401 carrying only a non-bearer challenge (e.g. `Basic`) — or an unparseable
+ * one — is surfaced unchanged, because refreshing the bearer token would not satisfy it: the
+ * retry would just be rejected again, at the cost of a wasted token fetch and round trip.
  *
  * A request that reaches the challenge hook carrying **no** `Authorization` header is a
  * cross-origin redirect re-issue whose credential the AUTH stage deliberately suppressed
@@ -98,13 +104,19 @@ public open class BearerTokenAuthStep
          * On a 401 challenge, evict the token that was just rejected and re-stamp [request]
          * with a freshly fetched one so [AuthStep]'s single retry carries a new credential.
          *
-         * Returns `null` — surfacing the 401 unchanged with no retry — when [request] carried no
-         * `Authorization` header. A request reaches this hook credential-free only when the AUTH
-         * stage deliberately suppressed stamping, i.e. a cross-origin redirect re-issue (see
-         * [CrossOriginRedirectMarker]). Re-stamping there would attach the caller's bearer token
-         * to a server-chosen foreign host and re-drive it through the chain, leaking the token
-         * cross-origin and bypassing the HTTPS guard that only [AuthStep.process]'s first pass
-         * enforces. Refusing to re-stamp preserves that suppression.
+         * Returns `null` — surfacing the 401 unchanged with no retry — in two cases:
+         *
+         *  - [request] carried no `Authorization` header. A request reaches this hook
+         *    credential-free only when the AUTH stage deliberately suppressed stamping, i.e. a
+         *    cross-origin redirect re-issue (see [CrossOriginRedirectMarker]). Re-stamping there
+         *    would attach the caller's bearer token to a server-chosen foreign host and re-drive it
+         *    through the chain, leaking the token cross-origin and bypassing the HTTPS guard that
+         *    only [AuthStep.process]'s first pass enforces. Refusing to re-stamp preserves that
+         *    suppression.
+         *  - [response]'s `WWW-Authenticate` header does not advertise a `Bearer` challenge.
+         *    Refreshing the bearer token cannot satisfy a `Basic`/`Digest`-only (or unparseable)
+         *    challenge, so the retry would only earn a second 401 after a wasted fetch and round
+         *    trip; the original 401 is surfaced instead.
          *
          * Otherwise eviction is scoped to the exact token that produced the 401 (matched against
          * the `Authorization` header [request] carried): if a concurrent request already refreshed
@@ -120,8 +132,22 @@ public open class BearerTokenAuthStep
             // No credential on the rejected request means stamping was suppressed (cross-origin
             // redirect). Do not re-attach one: surface the 401 unchanged.
             val rejectedHeader = request.headers.get(HttpHeaderName.AUTHORIZATION) ?: return null
+            // A token refresh can only satisfy a Bearer challenge; surface anything else unchanged
+            // rather than burning a fetch + retry that the server will just reject again.
+            if (!offersBearerChallenge(response)) return null
             evictRejectedToken(rejectedHeader)
             return authorizeRequest(request)
+        }
+
+        /**
+         * Returns `true` when [response]'s `WWW-Authenticate` header advertises a `Bearer`
+         * challenge. A header with only non-bearer challenges (or one that does not parse) returns
+         * `false`. [AuthStep] guarantees the header is present before this hook runs; the explicit
+         * null-guard keeps the method correct if called from elsewhere.
+         */
+        private fun offersBearerChallenge(response: Response): Boolean {
+            val header = response.headers.get(HttpHeaderName.WWW_AUTHENTICATE) ?: return false
+            return AuthChallengeParser.parse(header).any { it.scheme == BEARER_SCHEME }
         }
 
         /**
@@ -198,5 +224,9 @@ public open class BearerTokenAuthStep
             // Default refresh margin: refresh the bearer token 30 seconds before its expiry
             // so an in-flight request never carries a near-expired credential.
             private const val DEFAULT_REFRESH_MARGIN_SECONDS = 30L
+
+            // Lower-cased `Bearer` scheme name; AuthChallengeParser normalises schemes to lower
+            // case, so the eviction gate compares against this constant.
+            private const val BEARER_SCHEME = "bearer"
         }
     }

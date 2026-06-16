@@ -331,6 +331,57 @@ class BearerTokenAuthStepTest {
         assertNull(fake.requests.single().headers.get(HttpHeaderName.AUTHORIZATION))
     }
 
+    @Test
+    fun `401 advertising only a non-bearer challenge is surfaced unchanged without eviction or refetch`() {
+        // A token refresh cannot satisfy a Basic-only challenge, so the step must NOT evict,
+        // refetch, or retry: the 401 surfaces unchanged after the single initial fetch.
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Basic realm=\"x\"") }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        val response = pipeline.send(getRequest())
+
+        assertEquals(401, response.status.code, "a non-bearer 401 must surface unchanged")
+        assertEquals(1, fake.callCount, "no retry for a challenge a token refresh cannot satisfy")
+        assertEquals(1, fetches.get(), "only the initial stamp fetched; the 401 must not trigger a refetch")
+        assertEquals("Bearer token-1", fake.requests.single().headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
+    @Test
+    fun `401 advertising both a non-bearer and a bearer challenge still evicts and retries`() {
+        // The eviction gate matches the Bearer challenge anywhere in a multi-challenge header,
+        // so a `Basic, Bearer` 401 still refreshes the token and retries.
+        val fetches = AtomicInteger(0)
+        val provider =
+            BearerTokenProvider { _, _ ->
+                BearerToken("token-${fetches.incrementAndGet()}", futureExpiry)
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Basic realm=\"x\", Bearer realm=\"y\"") }
+                .enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope"), clock = clock))
+                .build()
+
+        val response = pipeline.send(getRequest())
+
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount, "the bearer challenge in the multi-challenge header triggers one retry")
+        assertEquals(2, fetches.get())
+        assertEquals("Bearer token-2", fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION))
+    }
+
     // ---- Helpers ----
 
     private fun getRequest(): Request =
