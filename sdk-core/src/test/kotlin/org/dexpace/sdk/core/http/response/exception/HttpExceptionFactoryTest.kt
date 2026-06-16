@@ -27,6 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class HttpExceptionFactoryTest {
@@ -224,7 +225,7 @@ class HttpExceptionFactoryTest {
                 body = null,
                 value = payload,
             ) {}
-        assertEquals(payload, ex.value)
+        assertSame(payload, ex.value, "value must be carried through as the same instance")
         assertEquals(true, ex.isRetryable, "429 is retryable")
     }
 

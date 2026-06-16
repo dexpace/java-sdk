@@ -35,12 +35,14 @@ public open class BadRequestException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -54,12 +56,14 @@ public open class UnauthorizedException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -73,12 +77,14 @@ public open class ForbiddenException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -91,12 +97,14 @@ public open class NotFoundException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -109,12 +117,14 @@ public open class MethodNotAllowedException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -128,12 +138,14 @@ public open class RequestTimeoutException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -147,12 +159,14 @@ public open class ConflictException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -165,12 +179,14 @@ public open class GoneException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -183,12 +199,14 @@ public open class PayloadTooLargeException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -201,12 +219,14 @@ public open class UnsupportedMediaTypeException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -220,12 +240,14 @@ public open class UnprocessableEntityException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -239,12 +261,14 @@ public open class TooManyRequestsException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -258,12 +282,14 @@ public open class InternalServerErrorException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -276,12 +302,14 @@ public open class BadGatewayException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -295,12 +323,14 @@ public open class ServiceUnavailableException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -313,12 +343,14 @@ public open class GatewayTimeoutException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -334,12 +366,14 @@ public open class ClientErrorException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )
 
 /**
@@ -355,10 +389,12 @@ public open class ServerErrorException
         response: Response,
         message: String? = null,
         cause: Throwable? = null,
+        value: Any? = null,
     ) : HttpException(
             status = response.status,
             headers = response.headers,
             body = response.body,
             message = message,
             cause = cause,
+            value = value,
         )

@@ -13,18 +13,24 @@ import org.dexpace.sdk.core.http.context.DispatchContext
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.NotFoundException
 import org.dexpace.sdk.core.http.response.exception.Retryable
 import org.dexpace.sdk.core.http.response.exception.ServiceUnavailableException
 import org.dexpace.sdk.core.http.response.exception.TooManyRequestsException
+import org.dexpace.sdk.core.io.BufferedSource
+import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
 import org.dexpace.sdk.core.pipeline.ResponsePipeline
+import org.dexpace.sdk.io.OkioIoProvider
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -34,6 +40,11 @@ import kotlin.test.assertTrue
  * surfaces as the matching typed [HttpException], while a success response passes through.
  */
 class ThrowOnHttpErrorStepTest {
+    @BeforeTest
+    fun installProvider() {
+        Io.installProvider(OkioIoProvider)
+    }
+
     // ---- the step in isolation ----------------------------------------------------------
 
     @Test
@@ -109,9 +120,8 @@ class ThrowOnHttpErrorStepTest {
 
     @Test
     fun `the mapped failure is Retryable so the retry classifier can key off it`() {
-        // End-to-end check of the #23 / #37 seam: the error path emits an HttpException, and
-        // that exception is Retryable, which is exactly what RetryStep.isClassifiedRetryable
-        // matches on.
+        // The error path emits an HttpException that is Retryable, which is exactly what
+        // RetryStep.isClassifiedRetryable matches on.
         val pipeline = ResponsePipeline(responseSteps = listOf(ThrowOnHttpErrorStep))
         val result = pipeline.apply(ResponseOutcome.Success(response(Status.BAD_GATEWAY)), ctx())
 
@@ -120,9 +130,59 @@ class ThrowOnHttpErrorStepTest {
         assertTrue(retryable.isRetryable, "502 must classify as retryable through the interface")
     }
 
+    @Test
+    fun `error body stays readable on the Failure after the pipeline closes the response`() {
+        // The pipeline closes the in-hand response as soon as the step throws. The step buffers
+        // the error body first, so bodySnapshot()/string() still work on the thrown exception
+        // even though the original transport body is closed by close-before-propagate.
+        val payload = """{"error":"boom"}"""
+        val original = closeTrackingBody(payload)
+        val pipeline = ResponsePipeline(responseSteps = listOf(ThrowOnHttpErrorStep))
+
+        val result =
+            pipeline.apply(
+                ResponseOutcome.Success(response(Status.INTERNAL_SERVER_ERROR, body = original)),
+                ctx(),
+            )
+
+        assertTrue(original.closed, "the pipeline must close the original transport body")
+        val failure = assertIs<ResponseOutcome.Failure>(result)
+        val error = assertIs<HttpException>(failure.error)
+
+        val snapshot = assertNotNull(error.bodySnapshot(), "buffered body must be snapshot-able")
+        assertEquals(payload, String(snapshot, Charsets.UTF_8))
+        // Replayable: the buffered body can be read again as the primary stream.
+        val streamed = error.body!!.source().use { it.readUtf8() }
+        assertEquals(payload, streamed)
+    }
+
     // ---- helpers ------------------------------------------------------------------------
 
     private fun ctx(): DispatchContext = DispatchContext.default()
+
+    /**
+     * A response body that records when it is closed, so a test can prove the pipeline closed
+     * the original transport body while the buffered copy on the exception remains readable.
+     */
+    private class CloseTrackingBody(
+        private val bytes: ByteArray,
+    ) : ResponseBody() {
+        var closed: Boolean = false
+            private set
+
+        override fun mediaType() = null
+
+        override fun contentLength(): Long = bytes.size.toLong()
+
+        override fun source(): BufferedSource = Io.provider.source(bytes)
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    private fun closeTrackingBody(content: String): CloseTrackingBody =
+        CloseTrackingBody(content.toByteArray(Charsets.UTF_8))
 
     private fun request(): Request =
         Request.builder()
@@ -133,11 +193,15 @@ class ThrowOnHttpErrorStepTest {
     private fun response(
         status: Status,
         headers: Headers = Headers.Builder().build(),
-    ): Response =
-        Response.builder()
-            .request(request())
-            .protocol(Protocol.HTTP_1_1)
-            .status(status)
-            .headers(headers)
-            .build()
+        body: ResponseBody? = null,
+    ): Response {
+        val builder =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(status)
+                .headers(headers)
+        if (body != null) builder.body(body)
+        return builder.build()
+    }
 }
