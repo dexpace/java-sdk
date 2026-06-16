@@ -61,9 +61,8 @@ class FuturesTest {
 
     @Test
     fun `unwrap walks an arbitrarily-deep wrapper chain to the leaf`() {
-        // 20 levels: matches the deep-chain test pattern in RetryUtilsTest after M4 removed
-        // the MAX_DEPTH cap. The HashSet-based cycle guard replaces the depth cap, so a
-        // long-but-acyclic chain unwraps fully to the IOException leaf.
+        // 20 levels: unwrap has no fixed depth cap — a HashSet-based cycle guard replaces any
+        // MAX_DEPTH limit, so a long-but-acyclic chain unwraps fully to the IOException leaf.
         val leaf = IOException("leaf")
         var current: Throwable = leaf
         repeat(20) { current = CompletionException("wrap-$it", current) }

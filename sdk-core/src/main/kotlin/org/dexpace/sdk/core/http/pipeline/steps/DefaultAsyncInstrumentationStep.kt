@@ -308,13 +308,13 @@ public class DefaultAsyncInstrumentationStep
                     if (requestBody != null) {
                         val preview = requestBody.snapshot(options.bodyPreviewMaxBytes)
                         ev.field("request.body.size", preview.size.toLong())
-                            .field("request.body.preview", utf8Preview(preview))
+                            .field("request.body.preview", BodyPreview.render(preview, requestBody.mediaType()))
                     }
                     val responseBody = response.body
                     if (responseBody is LoggableResponseBody) {
                         val preview = responseBody.snapshot(options.bodyPreviewMaxBytes)
                         ev.field("response.body.size", preview.size.toLong())
-                            .field("response.body.preview", utf8Preview(preview))
+                            .field("response.body.preview", BodyPreview.render(preview, responseBody.mediaType()))
                         responseBody.captureException?.let {
                             ev.field("response.body.drain_error", it.javaClass.simpleName ?: "Throwable")
                         }
@@ -346,7 +346,7 @@ public class DefaultAsyncInstrumentationStep
                 if (shouldCaptureBody() && requestBody != null) {
                     val preview = requestBody.snapshot(options.bodyPreviewMaxBytes)
                     ev.field("request.body.size", preview.size.toLong())
-                        .field("request.body.preview", utf8Preview(preview))
+                        .field("request.body.preview", BodyPreview.render(preview, requestBody.mediaType()))
                 }
                 ev.log()
             } catch (t: Throwable) {
@@ -415,13 +415,6 @@ public class DefaultAsyncInstrumentationStep
         }
 
         private fun elapsedMillis(startNanos: Long): Double = (clock.monotonic() - startNanos) / NANOS_PER_MILLI_DOUBLE
-
-        private fun utf8Preview(bytes: ByteArray): String {
-            if (bytes.isEmpty()) return ""
-            // Defensive: a snapshot that ends mid-UTF-8 codepoint shouldn't crash the log line.
-            // String(bytes, charset) replaces invalid sequences rather than throwing.
-            return String(bytes, Charsets.UTF_8)
-        }
 
         private fun emitInstrumentationError(
             event: String,

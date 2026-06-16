@@ -23,15 +23,27 @@ import java.io.InputStream
  * For parametric targets (`List<MyDto>`, `Map<String, MyDto>`) the raw [Class] token is
  * insufficient; adapter modules expose their own type-reference entry points (e.g.
  * `sdk-serde-jackson`'s `JacksonSerde.deserializeAs`).
+ *
+ * Implementations surface decode failures as [DeserializationException] (a [SerdeException]
+ * subtype), chaining the backing codec's error as the cause, so callers catch a single stable SDK
+ * type without naming the underlying library.
  */
 public interface Deserializer {
-    /** Decode a complete document of [type] from the in-memory [input] string. */
+    /**
+     * Decode a complete document of [type] from the in-memory [input] string.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [type].
+     */
     public fun <T> deserialize(
         input: String,
         type: Class<T>,
     ): T
 
-    /** Decode a complete document of [type] from the in-memory [input] byte array. */
+    /**
+     * Decode a complete document of [type] from the in-memory [input] byte array.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [type].
+     */
     public fun <T> deserialize(
         input: ByteArray,
         type: Class<T>,
@@ -40,6 +52,9 @@ public interface Deserializer {
     /**
      * Decode a complete document of [type] by streaming from [inputStream]. The implementation owns
      * reading to EOF but **does not** close the stream — the caller retains ownership.
+     *
+     * @throws DeserializationException if the payload is malformed or does not match [type]. A
+     *   genuine stream-read [java.io.IOException] propagates unwrapped.
      */
     public fun <T> deserialize(
         inputStream: InputStream,

@@ -788,7 +788,7 @@ class DigestChallengeHandlerTest {
         assertEquals(threadCount * iterationsPerThread, collected.max())
     }
 
-    // ---- AtomicLong overflow safety (H4) ----------------------------------------
+    // ---- AtomicLong overflow safety ----------------------------------------
 
     @Test
     fun `nc counter past Int MAX_VALUE stays positive and well-formed`() {
