@@ -22,9 +22,9 @@ import org.dexpace.sdk.core.http.response.Response
  * - End of stream: response carries a `null` or absent next cursor.
  *
  * The strategy is **stateless**: it relies on a single [extractor] to pull both the items
- * and the next cursor out of the response in one pass — see [CursorResult] — and on
- * [RequestRebuilder] to mutate the initial request's URL with the new cursor query
- * parameter.
+ * and the next cursor out of the response in one pass — see [CursorResult] — and rewrites the
+ * initial request's URL, setting the cursor query parameter to the new value, for the next
+ * page.
  *
  * ## Single read
  *
@@ -57,7 +57,9 @@ public class CursorPaginationStrategy<T>
         @Deprecated(
             message =
                 "Two body-reading lambdas drain the single-use response body twice per page. " +
-                    "Pass a single extractor returning a CursorResult instead.",
+                    "Pass a single extractor returning a CursorResult instead. The suggested " +
+                    "replacement only changes the API shape: collapse the two lambdas into one " +
+                    "that reads the body a single time, otherwise it still double-drains.",
             replaceWith =
                 ReplaceWith(
                     "CursorPaginationStrategy({ response -> " +
