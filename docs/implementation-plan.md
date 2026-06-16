@@ -372,8 +372,8 @@ defaults (per Square: `FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMEST
 
 ### WU-9: Pagination primitives
 
-**Status: shipped.** `Page`, `Paginator`, `PaginationStrategy`, and the four strategies
-(`Cursor` / `PageNumber` / `LinkHeader` / `Token`) are in `sdk-core/.../pagination`, alongside
+**Status: shipped.** `Page`, `Paginator`, `PaginationStrategy`, and the three strategies
+(`Cursor` / `PageNumber` / `LinkHeader`) are in `sdk-core/.../pagination`, alongside
 helper types `SimplePage` and `RequestRebuilder`. `Paginator` gained a `maxPages` safety cap
 (default `Long.MAX_VALUE`) beyond the original sketch, to bound runaway iteration against servers
 that never advance their cursor.
@@ -390,7 +390,6 @@ link-header strategies without over-engineering. Sync first; async adapter follo
   - `CursorPaginationStrategy<T>(cursorPath, itemsPath, parser)` — read `next_cursor` from body
   - `PageNumberPaginationStrategy<T>(pageParam, itemsPath, parser)` — increment page number
   - `LinkHeaderPaginationStrategy<T>(itemsPath, parser)` — RFC 5988 `Link: <url>; rel="next"`
-  - `TokenPaginationStrategy<T>(tokenPath, tokenParam, itemsPath, parser)` — token in body, sent as query param
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pagination/PaginatorTests.kt` (test) — table-driven tests against MockWebServer fixtures.
 
 **Acceptance criteria:**

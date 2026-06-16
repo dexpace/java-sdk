@@ -8,19 +8,25 @@
 package org.dexpace.sdk.serde.jackson
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import org.dexpace.sdk.core.serde.DeserializationException
+import org.dexpace.sdk.core.serde.SerdeException
+import org.dexpace.sdk.core.serde.SerializationException
 import org.dexpace.sdk.core.serde.Tristate
 import org.dexpace.sdk.core.serde.deserialize
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import java.util.Optional
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -227,6 +233,139 @@ class JacksonSerdeTest {
         val serde = JacksonSerde.from(mapper)
         // The same mapper instance is exposed via the `mapper` property.
         assertTrue(serde.mapper === mapper)
+    }
+
+    // ----- SPI error wrapping (#22): Jackson exception types must not leak across the Serde SPI -----
+
+    // An object the mapper cannot serialize (self-referential cycle) forces a write-side failure
+    // without depending on any field annotation.
+    class SelfReferential {
+        @Suppress("unused")
+        val self: SelfReferential get() = this
+    }
+
+    @Test
+    fun `deserialize from malformed JSON string surfaces SerdeException not a Jackson type`() {
+        val serde = JacksonSerde.withDefaults()
+        val ex =
+            assertFailsWith<DeserializationException> {
+                serde.deserializer.deserialize("""{"tag": """, Inner::class.java)
+            }
+        assertTrue(
+            SerdeException::class.java.isInstance(ex),
+            "DeserializationException must be a SerdeException",
+        )
+        assertFalse(
+            JsonProcessingException::class.java.isInstance(ex),
+            "SPI boundary must not leak com.fasterxml.* exception types",
+        )
+        // The originating Jackson failure is preserved as the cause for diagnostics.
+        assertNotNull(ex.cause)
+        assertTrue(
+            JsonProcessingException::class.java.isInstance(ex.cause),
+            "original Jackson cause must be chained",
+        )
+    }
+
+    @Test
+    fun `deserialize from malformed JSON byte array surfaces SerdeException`() {
+        val serde = JacksonSerde.withDefaults()
+        assertFailsWith<DeserializationException> {
+            serde.deserializer.deserialize("""not json at all""".toByteArray(), Inner::class.java)
+        }
+    }
+
+    @Test
+    fun `deserialize from malformed JSON input stream surfaces SerdeException`() {
+        val serde = JacksonSerde.withDefaults()
+        assertFailsWith<DeserializationException> {
+            serde.deserializer.deserialize(
+                ByteArrayInputStream("""{"tag": 1, """.toByteArray()),
+                Inner::class.java,
+            )
+        }
+    }
+
+    @Test
+    fun `deserializeAs with malformed JSON surfaces SerdeException across all overloads`() {
+        val serde = JacksonSerde.withDefaults()
+        val ref = object : TypeReference<Inner>() {}
+        assertFailsWith<DeserializationException> { serde.deserializeAs("""{bad""", ref) }
+        assertFailsWith<DeserializationException> { serde.deserializeAs("""{bad""".toByteArray(), ref) }
+        assertFailsWith<DeserializationException> {
+            serde.deserializeAs(ByteArrayInputStream("""{bad""".toByteArray()), ref)
+        }
+    }
+
+    @Test
+    fun `type-mismatch payload surfaces SerdeException`() {
+        val serde = JacksonSerde.withDefaults()
+        // score is an Int field; an object value is a hard mismatch Jackson raises as
+        // MismatchedInputException (a JsonProcessingException subtype).
+        val ex =
+            assertFailsWith<DeserializationException> {
+                serde.deserializer.deserialize("""{"tag":"t","score":{"nested":1}}""", Inner::class.java)
+            }
+        assertTrue(JsonProcessingException::class.java.isInstance(ex.cause))
+    }
+
+    @Test
+    fun `serialize of an unserializable value surfaces SerializationException`() {
+        val serde = JacksonSerde.withDefaults()
+        val ex =
+            assertFailsWith<SerializationException> {
+                serde.serializer.serialize(SelfReferential())
+            }
+        assertTrue(
+            SerdeException::class.java.isInstance(ex),
+            "SerializationException must be a SerdeException",
+        )
+        assertFalse(
+            JsonProcessingException::class.java.isInstance(ex),
+            "SPI boundary must not leak Jackson types",
+        )
+        assertNotNull(ex.cause)
+    }
+
+    @Test
+    fun `serialize-to-byte-array of an unserializable value surfaces SerializationException`() {
+        val serde = JacksonSerde.withDefaults()
+        assertFailsWith<SerializationException> {
+            serde.serializer.serializeToByteArray(SelfReferential())
+        }
+    }
+
+    @Test
+    fun `serialize-to-stream of an unserializable value surfaces SerializationException`() {
+        val serde = JacksonSerde.withDefaults()
+        assertFailsWith<SerializationException> {
+            serde.serializer.serialize(SelfReferential(), ByteArrayOutputStream())
+        }
+    }
+
+    @Test
+    fun `serialize-to-buffer of an unserializable value surfaces SerializationException`() {
+        val serde = JacksonSerde.withDefaults()
+        assertFailsWith<SerializationException> {
+            serde.serializer.serialize(SelfReferential(), ByteArray(4096))
+        }
+    }
+
+    @Test
+    fun `serialize-to-buffer preserves IndexOutOfBoundsException contract and does not wrap it`() {
+        val serde = JacksonSerde.withDefaults()
+        // A bad offset is a programming error, not a serde failure: it must remain an
+        // IndexOutOfBoundsException, never get re-wrapped as a SerdeException.
+        val tooSmall = ByteArray(0)
+        val ex = assertFailsWith<IndexOutOfBoundsException> { serde.serializer.serialize(Inner("a", 1), tooSmall) }
+        assertFalse(
+            SerdeException::class.java.isInstance(ex),
+            "a bad-offset error must not be re-wrapped as a SerdeException",
+        )
+        assertFalse(
+            SerdeException::class.java.isInstance(ex.cause),
+            "an IndexOutOfBoundsException must not chain a SerdeException cause",
+        )
     }
 
     private class TrackingOutputStream(private val sink: ByteArrayOutputStream) : java.io.OutputStream() {

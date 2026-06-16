@@ -909,6 +909,65 @@ class AuthStepTest {
         )
     }
 
+    @Test
+    fun `marker-suppressed cross-origin redirect to an http host is forwarded credential-free without throwing`() {
+        // REDIRECT wraps AUTH. With allowSchemeDowngrade=true the redirect step deliberately
+        // follows an HTTPS -> HTTP cross-origin hop and marks the re-issued request so AUTH does
+        // not re-stamp the credential. The HTTPS guard in AUTH protects credential STAMPING; it
+        // must not fire on the marker-suppressed re-issue (no credential is being attached), so
+        // the intentionally-allowed downgrade must NOT turn into an IllegalStateException.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("super-secret", null) }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(302).header("Location", "http://evil.example.com/v2") }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep(HttpRedirectOptions(allowSchemeDowngrade = true)))
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        // No exception: the HTTPS guard must not reject the marker-suppressed http re-issue.
+        val response = pipeline.send(getHttpsRequest())
+        assertEquals(200, response.status.code)
+
+        // Hop 0 — the HTTPS seed origin legitimately carries the credential.
+        assertEquals("Bearer super-secret", fake.requests[0].headers.get(HttpHeaderName.AUTHORIZATION))
+        // Hop 1 — foreign http host: NEITHER the credential NOR the internal marker reaches the wire.
+        assertNull(
+            fake.requests[1].headers.get(HttpHeaderName.AUTHORIZATION),
+            "credential must not follow a cross-origin redirect to an http host",
+        )
+        assertNull(
+            fake.requests[1].headers.get(CrossOriginRedirectMarker.MARKER_HEADER),
+            "internal cross-origin marker must be stripped before the wire",
+        )
+        assertEquals("http", fake.requests[1].url.protocol)
+    }
+
+    @Test
+    fun `unmarked plaintext http credential-stamping request is still rejected by the HTTPS guard`() {
+        // The fix only suppresses the HTTPS guard on the marker-suppressed branch (where no
+        // credential is attached). A genuine plaintext http request that would have its credential
+        // STAMPED must still be rejected, or the fix would open a real credential-leak path.
+        val provider = BearerTokenProvider { _, _ -> BearerToken("super-secret", null) }
+        val fake = FakeHttpClient().enqueue { status(200) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(BearerTokenAuthStep(provider, listOf("scope")))
+                .build()
+
+        val request = Request.builder().method(Method.GET).url("http://api.example.com/x").build()
+        val ex = assertFailsWith<IllegalStateException> { pipeline.send(request) }
+
+        val msg = ex.message ?: ""
+        assertTrue(msg.contains("HTTPS"), "missing HTTPS mention: $msg")
+        assertTrue(msg.contains("http"), "missing scheme: $msg")
+        // The guard must fire before any wire write.
+        assertEquals(0, fake.callCount)
+    }
+
     // ----------------- Helpers -----------------
 
     private fun getHttpsRequest(): Request =

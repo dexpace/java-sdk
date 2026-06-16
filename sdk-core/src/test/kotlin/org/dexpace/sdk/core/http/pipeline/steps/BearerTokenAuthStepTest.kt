@@ -41,10 +41,10 @@ class BearerTokenAuthStepTest {
         Io.installProvider(OkioIoProvider)
     }
 
-    // ---- B14: fresh-token validation does NOT apply refreshMargin ----
+    // ---- fresh-token validation does NOT apply refreshMargin ----
 
     /**
-     * B14: A provider that returns a token whose expiresAt is within the refreshMargin of
+     * A provider that returns a token whose expiresAt is within the refreshMargin of
      * `now` is considered misbehaving — it minted a token that would immediately be treated
      * as expired on the next request. The [BearerTokenAuthStep] must throw
      * [IllegalStateException] even though the token is technically not yet expired (it is

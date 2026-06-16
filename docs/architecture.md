@@ -271,6 +271,10 @@ Shipped pillar/step implementations live in `http.pipeline.steps`: `DefaultRedir
 `DefaultRetryStep`, `AuthStep` (+ `BearerTokenAuthStep` / `KeyCredentialAuthStep`),
 `DefaultInstrumentationStep`, and the redirect/retry option types.
 
+For why this layer uses ordered stages with pillar-uniqueness rather than nested `HttpClient`
+decorators — and the one cost that buys (the `next.copy()` re-drive contract) — see
+[Pipeline Mechanism](pipelines.md#why-ordered-stages-not-nested-decorators).
+
 #### Recovery-aware primitives (`org.dexpace.sdk.core.pipeline`)
 
 A lower-level layer that threads a sealed `ResponseOutcome` so recovery steps observe and
@@ -346,8 +350,11 @@ Two complementary surfaces for walking multi-page responses.
 |-----------------------------------------------------------------|-----------------------------------------------------------------------|
 | `Paginator<T>`                                                  | Lazily iterates pages by re-issuing requests through an `HttpClient`; carries a `maxPages` safety cap |
 | `PaginationStrategy<T>`                                         | Computes the next-page request (or stops) from the current page       |
-| `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `TokenPaginationStrategy` / `LinkHeaderPaginationStrategy` | The four shipped strategies |
+| `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `LinkHeaderPaginationStrategy` | The shipped strategies |
 | `PagedIterable<T>`                                              | First/next-page fetcher abstraction over `PagedResponse`, with its own `maxPages` cap |
+
+Token-style APIs (`next_page_token`, `pageToken`, …) are handled by `CursorPaginationStrategy`
+constructed with the query-param name set (e.g. `"page_token"`), so no separate token strategy is needed.
 
 ### Serialization
 
@@ -575,8 +582,8 @@ responds in a uniform way:
    subsequent blocking call also surfaces it.
 3. Throws `InterruptedIOException` (or the operation's natural failure exception with
    `InterruptedException` added as a suppressed cause).
-4. Classifies the interruption as **non-retryable** — `HttpResponseException.isRetryable`
-   returns `false` for an interrupt-driven failure.
+4. Classifies the interruption as **non-retryable** — an interrupt-driven failure is not a
+   `Retryable` condition, so the retry step never re-issues it.
 
 Loops bounded by user input (retry attempts, paged iteration, server-sent-event
 consumption, drain loops in body logging) check `Thread.currentThread().isInterrupted` at
@@ -653,8 +660,8 @@ they should construct a fresh one.
 |----------------------|-------------------------------------------------------------------------------------------------|
 | `io`                 | Source, Sink, BufferedSource, BufferedSink, Buffer, IoProvider, Io, TeeSink (internal)          |
 | `http.request`       | Request, RequestBody, FileRequestBody, LoggableRequestBody, Method                              |
-| `http.response`      | Response, ResponseBody, LoggableResponseBody, Status, HttpResponseException                     |
-| `http.response.exception` | HttpException, HttpExceptionFactory, RequestTimeoutException (and siblings), NetworkException |
+| `http.response`      | Response, ResponseBody, LoggableResponseBody, Status                                            |
+| `http.response.exception` | HttpException, HttpExceptionFactory, Retryable, RequestTimeoutException (and siblings), NetworkException |
 | `http.common`        | Headers, MediaType, CommonMediaTypes, Protocol, ETag, HttpRange, RequestConditions             |
 | `http.auth`          | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
 | `http.context`       | CallContext, DispatchContext, RequestContext, ExchangeContext, ContextStore                     |

@@ -17,15 +17,32 @@ import java.io.OutputStream
  * fresh `ByteArray`, stream into a caller-owned `OutputStream`, or stream into a caller-owned
  * scratch buffer. Stream / buffer overloads do **not** close their targets — the caller retains
  * ownership.
+ *
+ * Implementations surface encode failures as [SerializationException] (a [SerdeException] subtype),
+ * chaining the backing codec's error as the cause, so callers catch a single stable SDK type
+ * without naming the underlying library.
  */
 public interface Serializer {
-    /** Encode [input] and return the result as a new string. */
+    /**
+     * Encode [input] and return the result as a new string.
+     *
+     * @throws SerializationException if [input] cannot be encoded.
+     */
     public fun serialize(input: Any): String
 
-    /** Encode [input] and return the result as a freshly-allocated byte array. */
+    /**
+     * Encode [input] and return the result as a freshly-allocated byte array.
+     *
+     * @throws SerializationException if [input] cannot be encoded.
+     */
     public fun serializeToByteArray(input: Any): ByteArray
 
-    /** Stream [input]'s encoding into [outputStream]. The caller owns closing the stream. */
+    /**
+     * Stream [input]'s encoding into [outputStream]. The caller owns closing the stream.
+     *
+     * @throws SerializationException if [input] cannot be encoded. A genuine stream-write
+     *   [java.io.IOException] propagates unwrapped.
+     */
     public fun serialize(
         input: Any,
         outputStream: OutputStream,
@@ -38,6 +55,7 @@ public interface Serializer {
      * @throws IndexOutOfBoundsException when [offset] is negative or beyond [buffer]'s length, or
      *   when the encoded payload does not fit in the remaining space (`buffer.size - offset`). The
      *   buffer contents are unspecified after an overflow throw.
+     * @throws SerializationException if [input] cannot be encoded.
      */
     public fun serialize(
         input: Any,

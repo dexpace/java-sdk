@@ -166,10 +166,16 @@ public class LoggingEvent internal constructor(
 
         val builder = logger.slf4j.atLevel(logger.slf4jLevel(level))
 
-        // Global context first so per-event fields can override on the SLF4J side.
+        // Global context first so per-event fields can override on the SLF4J side. A global-context
+        // key that is also a per-event field is skipped here and emitted once below from `fields`,
+        // letting the per-event value win. SLF4J's addKeyValue APPENDS rather than replaces, so
+        // emitting both would put two KeyValuePairs with the same name on the event — invalid
+        // duplicate-key JSON in JSON appenders. This mirrors the MDC dedup guard below.
         val gc = logger.globalContext
         if (gc.isNotEmpty()) {
+            val perEventKeys = fields
             for ((k, v) in gc) {
+                if (perEventKeys?.containsKey(k) == true) continue
                 builder.addKeyValue(k, renderForLog(v))
             }
         }

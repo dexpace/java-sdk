@@ -941,7 +941,7 @@ class RedirectStepTest {
 
     @Test
     fun `stripping userinfo preserves percent-encoding in path and query`() {
-        // L3: clearing the userinfo must not re-encode the Location. A path segment carrying
+        // Clearing the userinfo must not re-encode the Location. A path segment carrying
         // %2F and a query value carrying %26 must survive verbatim — rebuilding via URI's
         // decoded multi-arg constructor would turn %2F into '/' and %26 into '&', silently
         // changing the path/query structure of the reissued request.
@@ -962,6 +962,77 @@ class RedirectStepTest {
         val target = reissued.url.toString()
         assertTrue(target.contains("/a%2Fb"), "encoded path segment %2F must be preserved: $target")
         assertTrue(target.contains("x=%26"), "encoded query value %26 must be preserved: $target")
+    }
+
+    @Test
+    fun `stripping userinfo preserves an IPv6 literal host with brackets, port, path, and query`() {
+        // An IPv6 literal authority carries its host inside square brackets in the URI
+        // (URI.getHost() returns "[2001:db8::1]"), and the userinfo-stripping rebuild appends
+        // that bracketed host verbatim. Clearing the userinfo must leave the IPv6 host, its
+        // port, the path, and the query byte-exact — the brackets in particular must survive.
+        val fake =
+            FakeHttpClient()
+                .enqueue {
+                    status(302).header(
+                        "Location",
+                        "https://user:pass@[2001:db8::1]:8443/v2/resource?q=1",
+                    )
+                }.enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/v1"))
+
+        // Pin that the redirect was actually followed exactly once, so a regression that skips
+        // the reissue fails on these assertions rather than an IndexOutOfBoundsException below.
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount)
+
+        val reissued = fake.requests[1]
+        assertNull(reissued.url.userInfo, "userinfo must be stripped from an IPv6 Location")
+        // The bracketed IPv6 literal host and port are preserved exactly.
+        assertEquals("[2001:db8::1]", reissued.url.host, "IPv6 literal host (with brackets) must be preserved")
+        assertEquals(8443, reissued.url.port, "port must be preserved")
+        assertEquals("/v2/resource", reissued.url.path, "path must be preserved")
+        assertEquals("q=1", reissued.url.query, "query must be preserved")
+        // The reissued target is byte-exact apart from the dropped userinfo.
+        assertEquals("https://[2001:db8::1]:8443/v2/resource?q=1", reissued.url.toString())
+    }
+
+    @Test
+    fun `IPv6 literal host without userinfo passes through with brackets preserved`() {
+        // The early-return branch (no userinfo to strip) hands the resolved IPv6 URI through
+        // unchanged via toURL(); confirm the bracketed host, port, path, and query survive on
+        // that non-rebuilding path too.
+        val fake =
+            FakeHttpClient()
+                .enqueue {
+                    status(302).header(
+                        "Location",
+                        "https://[2001:db8::1]:8443/v2/resource?q=1",
+                    )
+                }.enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRedirectStep())
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/v1"))
+
+        assertEquals(200, response.status.code)
+        assertEquals(2, fake.callCount)
+
+        val reissued = fake.requests[1]
+        assertNull(reissued.url.userInfo, "no userinfo was present")
+        assertEquals("[2001:db8::1]", reissued.url.host, "IPv6 literal host (with brackets) must be preserved")
+        assertEquals(8443, reissued.url.port, "port must be preserved")
+        assertEquals("/v2/resource", reissued.url.path, "path must be preserved")
+        assertEquals("q=1", reissued.url.query, "query must be preserved")
+        assertEquals("https://[2001:db8::1]:8443/v2/resource?q=1", reissued.url.toString())
     }
 
     // ----------------- Other non-3xx status codes don't trigger redirect -----------------

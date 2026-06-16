@@ -617,9 +617,9 @@ class InstrumentationStepTest {
     }
 
     @Test
-    fun `empty body produces empty utf8 preview`() {
-        // utf8Preview takes a fast empty branch on a zero-length array. Send a request that
-        // results in a zero-byte response body so the preview hits the empty path.
+    fun `empty body produces empty preview`() {
+        // The preview renderer takes a fast empty branch on a zero-length array. Send a request
+        // that results in a zero-byte response body so the preview hits the empty path.
         val fake = FakeHttpClient().enqueue { status(200).body("", MediaType.parse("text/plain")) }
         val pipeline =
             HttpPipelineBuilder(fake)
@@ -633,6 +633,119 @@ class InstrumentationStepTest {
         assertTrue(body is LoggableResponseBody)
         assertEquals(0, body.snapshot().size)
         response.close()
+    }
+
+    @Test
+    fun `response body preview honours the declared ISO-8859-1 charset`() {
+        // 0xE9 is 'é' in ISO-8859-1. Decoded as UTF-8 (the old hardcoded assumption) it would be
+        // the U+FFFD replacement char, so this pins charset-aware decoding end to end.
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val latin1 = MediaType.parse("text/plain;charset=ISO-8859-1")
+        val bytes = "café".toByteArray(Charsets.ISO_8859_1)
+        val fake =
+            FakeHttpClient().enqueue {
+                status(200).body(ResponseBody.create(Io.provider.source(bytes), latin1, bytes.size.toLong()))
+            }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/x"))
+        response.close()
+
+        assertEquals("café", responsePreview(fakeSlf4j))
+    }
+
+    @Test
+    fun `response body preview without a declared charset defaults to UTF-8`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        // No charset parameter — documented default is UTF-8. body(String, ...) encodes as UTF-8.
+        val fake = FakeHttpClient().enqueue { status(200).body("résumé", MediaType.parse("text/plain")) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/x"))
+        response.close()
+
+        assertEquals("résumé", responsePreview(fakeSlf4j))
+    }
+
+    @Test
+    fun `binary response body is summarised by size and not rendered as text`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        // gzip-shaped bytes including a NUL — must not be decoded into replacement characters.
+        val binary = byteArrayOf(0x1f, 0x8b.toByte(), 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03)
+        val mediaType = MediaType.parse("application/gzip")
+        val fake =
+            FakeHttpClient().enqueue {
+                status(200).body(ResponseBody.create(Io.provider.source(binary), mediaType, binary.size.toLong()))
+            }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/x"))
+        response.close()
+
+        val preview = responsePreview(fakeSlf4j)
+        assertEquals("[binary ${binary.size} bytes captured]", preview)
+        assertFalse(preview.contains('�'), "binary body must not be logged as replacement characters")
+    }
+
+    @Test
+    fun `request body preview honours the declared ISO-8859-1 charset`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val latin1 = MediaType.parse("text/plain;charset=ISO-8859-1")
+        val bytes = "naïve".toByteArray(Charsets.ISO_8859_1)
+        val fake = FakeHttpClient().enqueue { status(200).body("ok", MediaType.parse("text/plain")) }
+        val draining = DrainingClient(fake)
+        val pipeline =
+            HttpPipelineBuilder(draining)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val req =
+            Request.builder()
+                .method(Method.POST)
+                .url("https://api.example.com/echo")
+                .body(RequestBody.create(bytes, latin1))
+                .build()
+        val response = pipeline.send(req)
+        response.close()
+
+        assertEquals("naïve", requestPreview(fakeSlf4j))
     }
 
     @Test
@@ -790,6 +903,24 @@ class InstrumentationStepTest {
     }
 
     // -- Helpers --------------------------------------------------------------------------------
+
+    /** Extracts the `response.body.preview` field value from the latest `http.response` event. */
+    private fun responsePreview(slf4j: FakeSlf4jLogger): String = previewField(slf4j, "response.body.preview")
+
+    /** Extracts the `request.body.preview` field value from the latest `http.response` event. */
+    private fun requestPreview(slf4j: FakeSlf4jLogger): String = previewField(slf4j, "request.body.preview")
+
+    private fun previewField(
+        slf4j: FakeSlf4jLogger,
+        key: String,
+    ): String {
+        val record =
+            slf4j.records.last { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.response" }
+            }
+        return record.keyValues.firstOrNull { it.key == key }?.value as? String
+            ?: fail("expected '$key' field on the http.response event")
+    }
 
     private fun getRequest(url: String): Request =
         Request.builder()

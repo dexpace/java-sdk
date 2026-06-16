@@ -13,12 +13,13 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.pipeline.step.retry.BackoffCalculator
 import org.dexpace.sdk.core.pipeline.step.retry.RetryAfterParser
+import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import org.dexpace.sdk.core.util.Clock
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.time.Duration
-import java.util.concurrent.ThreadLocalRandom
 
 /**
  * Default [RetryStep]. Drives an iterative retry loop with classified failure detection,
@@ -40,21 +41,25 @@ import java.util.concurrent.ThreadLocalRandom
  *  4. Sleeps via [Clock.sleep]; an interrupt during sleep throws [InterruptedIOException]
  *     with the original [InterruptedException] and any accumulated prior failures attached
  *     as suppressed — retries are NOT resumed after an interrupt.
- *  5. Caps `tryCount` at [MAX_SHIFT_TRY_COUNT] before computing `1L shl tryCount` so the
- *     left-shift can never overflow (the resulting delay is clamped to [HttpRetryOptions.maxDelay]
- *     anyway, so the cap is invisible to callers).
+ *  5. Computes the exponential delay through the shared [BackoffCalculator], which saturates
+ *     rather than overflows on extreme attempt counts and clamps to [HttpRetryOptions.maxDelay].
  *
  * ## Body replayability
  *
- * Eligibility is gated on re-sendability. A body-less request is retried only when its method
- * is idempotent; a body-bearing request is retried only when its body is replayable — a
- * non-replayable body physically cannot be re-sent (the second `writeTo` trips the body's
- * consume-once guard and surfaces as a confusing wrapped [IllegalStateException] that masks the
- * real failure). A replayable body is re-sendable regardless of method; making the re-sent
- * request idempotent (for a non-idempotent method, e.g. via an idempotency key) is the caller's
- * responsibility. When the request is not re-sendable the loop runs exactly one attempt and
- * returns the response (or rethrows the exception) as-is. This mirrors
- * `pipeline.step.retry.RetryStep.canRetry`.
+ * Eligibility is gated on re-sendability, keyed off whether the request carries a body:
+ *  - **No body** — retried only when the method is idempotent ([IDEMPOTENT_METHODS]). Body-less
+ *    retry safety keys off method idempotency, NOT off the absence of a body, so a body-less
+ *    non-idempotent request — e.g. a bare `POST` to a trigger / activate-style endpoint — is NOT
+ *    retried even though there is no payload to re-send: replaying it could duplicate the side
+ *    effect the server may already have applied.
+ *  - **Has a body** — retried only when the body is replayable. A non-replayable body physically
+ *    cannot be re-sent (the second `writeTo` trips the body's consume-once guard and surfaces as
+ *    a confusing wrapped [IllegalStateException] that masks the real failure). A replayable body
+ *    is re-sendable regardless of method; making the re-sent request idempotent (for a
+ *    non-idempotent method, e.g. via an idempotency key) is the caller's responsibility.
+ *
+ * When the request is not re-sendable the loop runs exactly one attempt and returns the response
+ * (or rethrows the exception) as-is. This mirrors `pipeline.step.retry.RetryStep.canRetry`.
  *
  * ## Delay precedence (highest to lowest)
  *
@@ -64,8 +69,12 @@ import java.util.concurrent.ThreadLocalRandom
  *     parsed from the response (response path only). A negative or unparseable value
  *     falls through; a value of zero produces an immediate retry.
  *  3. [HttpRetryOptions.fixedDelay] — if set, every retry waits exactly this duration.
- *  4. Exponential backoff: `baseDelay * (1L shl tryCount)` clamped to `maxDelay`, with
- *     ±5% random jitter via [ThreadLocalRandom].
+ *  4. Exponential backoff computed by the shared [BackoffCalculator]:
+ *     `baseDelay * 2.0^tryCount` clamped to `maxDelay`, with symmetric ±10% jitter
+ *     ([RetrySettings.DEFAULT_JITTER]). This is the same calculator the recovery-aware
+ *     `pipeline.step.retry.RetryStep` uses, so both stacks share one backoff formula and one
+ *     set of defaults. The deadline-shrinking that the calculator also offers is disabled here
+ *     (this stage-based step carries no total-timeout budget).
  *
  * ## Failure handling
  *
@@ -140,6 +149,33 @@ public open class DefaultRetryStep
          * construction; a verbose log records the clamp so callers can spot config bugs.
          */
         private val options: HttpRetryOptions = clampOptions(options)
+
+        /**
+         * The [options]' exponential parameters expressed as a [RetrySettings] view so the shared
+         * [BackoffCalculator] can compute this stack's schedule. Built once per step instance:
+         *  - `initialDelay` / `maxDelay` come from the options.
+         *  - `delayMultiplier` (2.0) and `jitter` (0.2) are the canonical shared constants — the
+         *    options object does not expose its own multiplier/jitter, so the SDK defaults apply.
+         *    If [HttpRetryOptions] ever gains configurable multiplier/jitter knobs, this view must
+         *    read them from the options instead of the constants, or the new knobs are silently
+         *    ignored on this stack.
+         *  - `totalTimeout = ZERO` disables the deadline cap: the stage-based step has no budget.
+         * The `fixedDelay` path never consults this view; it short-circuits in [backoffOrFixed].
+         *
+         * Building this view also validates the delay magnitudes eagerly: [RetrySettings.builder]
+         * rejects a negative `baseDelay`/`maxDelay` and one larger than the calculator's
+         * ~292-year nanosecond ceiling. [HttpRetryOptions] performs no such range check, so a
+         * pathological delay surfaces as an [IllegalArgumentException] here, at step construction,
+         * rather than later at delay-computation time.
+         */
+        private val backoffSettings: RetrySettings =
+            RetrySettings.builder()
+                .initialDelay(this.options.baseDelay)
+                .maxDelay(this.options.maxDelay)
+                .delayMultiplier(RetrySettings.DEFAULT_DELAY_MULTIPLIER)
+                .jitter(RetrySettings.DEFAULT_JITTER)
+                .totalTimeout(Duration.ZERO)
+                .build()
 
         /**
          * Sends [request] through the downstream pipeline with automatic retry on retryable failures.
@@ -246,11 +282,14 @@ public open class DefaultRetryStep
 
         /**
          * Returns `true` when [request] may be re-sent. A body-less request is retry-safe only
-         * when its method is idempotent; a body-bearing request is retry-safe only when its body
-         * is replayable — a non-replayable body cannot be re-sent (the second
-         * `RequestBody.writeTo` trips the body's consume-once guard and surfaces as a confusing
-         * wrapped [IllegalStateException]). Making a re-sent body-bearing request idempotent is
-         * the caller's responsibility. Mirrors `pipeline.step.retry.RetryStep.canRetry`.
+         * when its method is idempotent ([IDEMPOTENT_METHODS]) — the gate keys off method
+         * idempotency, not off the absence of a body, so a body-less non-idempotent request (a
+         * bare `POST`) is NOT retry-safe even though there is no payload to re-send. A body-bearing
+         * request is retry-safe only when its body is replayable — a non-replayable body cannot be
+         * re-sent (the second `RequestBody.writeTo` trips the body's consume-once guard and
+         * surfaces as a confusing wrapped [IllegalStateException]). Making a re-sent body-bearing
+         * request idempotent is the caller's responsibility. Mirrors
+         * `pipeline.step.retry.RetryStep.canRetry`.
          */
         private fun isRetrySafe(request: Request): Boolean {
             val body = request.body ?: return request.method in IDEMPOTENT_METHODS
@@ -429,51 +468,16 @@ public open class DefaultRetryStep
             }
 
         /**
-         * Returns [HttpRetryOptions.fixedDelay] if set, otherwise the exponential-backoff
-         * delay for [tryCount]. The shift count is capped at [MAX_SHIFT_TRY_COUNT] so the
-         * `1L shl tryCount` term never overflows; the result is always clamped to [HttpRetryOptions.maxDelay]
-         * anyway, so the cap is invisible in practice.
+         * Returns [HttpRetryOptions.fixedDelay] if set, otherwise the exponential-backoff delay
+         * for [tryCount]. The backoff is computed by the shared [BackoffCalculator] from
+         * [backoffSettings] so this stack and the recovery-aware `RetryStep` share one formula.
+         *
+         * [tryCount] is 0-indexed here (`0` = the delay before the first retry), whereas
+         * [BackoffCalculator.computeDelay] is 1-indexed (`1` = first retry); the `+ 1` bridges
+         * the two so both produce `baseDelay`, `2·baseDelay`, `4·baseDelay`, … capped at `maxDelay`.
          */
-        private fun backoffOrFixed(tryCount: Int): Duration = options.fixedDelay ?: exponentialBackoff(tryCount)
-
-        /**
-         * `baseDelay * (1L shl tryCount)` clamped to `maxDelay`, plus a ±5% jitter sampled
-         * from [ThreadLocalRandom]. Pure function of [tryCount] and the configured options.
-         */
-        private fun exponentialBackoff(tryCount: Int): Duration {
-            val baseNanos = options.baseDelay.toNanos()
-            if (baseNanos == 0L) return Duration.ZERO
-            val maxNanos = options.maxDelay.toNanos()
-            val safeShift = tryCount.coerceAtMost(MAX_SHIFT_TRY_COUNT)
-            // 1L shl 30 ~= 1e9 — multiplying by 800ms (8e8 ns) overflows. Cap on the long
-            // multiply itself: if `baseNanos * (1L shl safeShift)` would overflow, clamp.
-            val multiplier = 1L shl safeShift
-            val scaled =
-                if (baseNanos > 0 && multiplier > Long.MAX_VALUE / baseNanos) {
-                    Long.MAX_VALUE
-                } else {
-                    baseNanos * multiplier
-                }
-            val clamped = scaled.coerceAtMost(maxNanos)
-            val jittered = applyJitter(clamped)
-            // Guarantee a non-negative result — jitter could push us under zero if the caller
-            // configured pathological options (e.g. baseDelay equal to negative epsilon).
-            return Duration.ofNanos(jittered.coerceAtLeast(0L))
-        }
-
-        /**
-         * Applies a ±5% jitter to [nanos]. Sample is drawn from [ThreadLocalRandom] which is
-         * per-thread, so there is no cross-thread contention on the retry hot path.
-         */
-        private fun applyJitter(nanos: Long): Long {
-            if (nanos == 0L) return 0L
-            // 5% of nanos, used as the magnitude bound on the random sample.
-            val jitterMagnitude = nanos / JITTER_DIVISOR
-            if (jitterMagnitude == 0L) return nanos
-            // ThreadLocalRandom.nextLong(origin, bound) is inclusive of origin, exclusive of bound.
-            val offset = ThreadLocalRandom.current().nextLong(-jitterMagnitude, jitterMagnitude + 1L)
-            return nanos + offset
-        }
+        private fun backoffOrFixed(tryCount: Int): Duration =
+            options.fixedDelay ?: BackoffCalculator.computeDelay(tryCount + 1, backoffSettings)
 
         // --------------- Retry-After parsing ---------------
 
@@ -573,22 +577,14 @@ public open class DefaultRetryStep
 
         public companion object {
             /**
-             * Default [HttpRetryOptions.maxRetries] applied when the caller passes a negative
-             * value. Matches Azure Core's `RetryOptions` default.
+             * Default retry count applied when the caller passes a negative
+             * [HttpRetryOptions.maxRetries], and the value baked into the no-arg
+             * [HttpRetryOptions] default. `2` retries on top of the initial send is the SDK's
+             * canonical budget — `initial + DEFAULT_MAX_RETRIES == 3`, matching
+             * [RetrySettings.DEFAULT_MAX_ATTEMPTS] so both retry stacks default to the same
+             * number of total sends.
              */
-            public const val DEFAULT_MAX_RETRIES: Int = 3
-
-            /**
-             * Upper bound on `tryCount` used for the `1L shl tryCount` term in
-             * [DefaultRetryStep.exponentialBackoff]. `1L shl 30` ~= 1.07e9 — the scaled delay is
-             * always clamped to [HttpRetryOptions.maxDelay] long before this bound is hit, so the
-             * cap is a paranoid guard against integer overflow rather than a behavior knob.
-             */
-            public const val MAX_SHIFT_TRY_COUNT: Int = 30
-
-            // Jitter is ±5% of the computed delay; expressed as the divisor (nanos / 20) to
-            // avoid an extra multiplication on the hot path. See [applyJitter].
-            private const val JITTER_DIVISOR = 20L
+            public const val DEFAULT_MAX_RETRIES: Int = 2
 
             // Nanoseconds in one millisecond — used to convert monotonic-clock deltas to ms
             // for retry log events.

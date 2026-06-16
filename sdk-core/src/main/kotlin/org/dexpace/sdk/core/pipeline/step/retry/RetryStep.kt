@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.NetworkException
+import org.dexpace.sdk.core.http.response.exception.Retryable
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
 import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
 import java.io.InterruptedIOException
@@ -31,14 +32,16 @@ import java.util.concurrent.TimeUnit
  *
  * ## Semantics
  *
- *  - On a [ResponseOutcome.Failure] whose throwable is an [HttpException] with `retryable =
+ * Retry eligibility is classified off the [Retryable] interface, not concrete exception types:
+ *  - On a [ResponseOutcome.Failure] whose throwable is an [HttpException] with `isRetryable =
  *    true` AND whose status is in [RetrySettings.retryableStatuses], the step schedules a
  *    retry — provided the request is idempotency-safe (see [canRetry]).
- *  - On a [ResponseOutcome.Failure] whose throwable is a [NetworkException], the step always
- *    schedules a retry (network-level failures had no response, so the server never saw the
- *    request — replay is safe modulo the body-replayability check).
- *  - On any other outcome (other throwable types or a [ResponseOutcome.Success]), the step
- *    is a pass-through.
+ *  - On a [ResponseOutcome.Failure] whose throwable is a [NetworkException] (always
+ *    [Retryable.isRetryable]), the step always schedules a retry (network-level failures had no
+ *    response, so the server never saw the request — replay is safe modulo the body-
+ *    replayability check).
+ *  - On any other outcome (a non-[Retryable] throwable, a [Retryable] whose flag is `false`, or
+ *    a [ResponseOutcome.Success]), the step is a pass-through.
  *
  * ## Idempotency
  *
@@ -55,6 +58,14 @@ import java.util.concurrent.TimeUnit
  * body slipped through a method-only check and tripped the consume-once guard on resend. This
  * is a deliberate departure from Square's `RetryInterceptor`, which retries on status alone and
  * silently double-sends a body it cannot replay on transport timeouts.
+ *
+ * ## Per-attempt header
+ *
+ * When [RetrySettings.attemptHeaderName] is configured (it is `null` by default), every send is
+ * stamped with that header carrying the 1-based attempt ordinal (`1` for the original send, `2`
+ * for the first retry, …) on a fresh per-attempt copy of the request, so servers and proxies can
+ * observe the retry count. The header is set on a copy via [Request.newBuilder]; the captured
+ * template is never mutated, and any idempotency key already on the request is left untouched.
  *
  * ## Cancellation
  *
@@ -142,9 +153,11 @@ public class RetryStep
          */
         @Throws(Throwable::class)
         public fun attempt(): Response {
+            // The original send is attempt ordinal 1 — stamp it when the feature is enabled so
+            // the very first request carries the same observable counter the retries will.
             val initial: ResponseOutcome =
                 try {
-                    ResponseOutcome.Success(httpClient.execute(request))
+                    ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal = 1)))
                 } catch (t: Throwable) {
                     ResponseOutcome.Failure(t)
                 }
@@ -172,7 +185,9 @@ public class RetryStep
                     is AttemptStep.Abort -> return ResponseOutcome.Failure(readyState.error)
                     is AttemptStep.Proceed -> {
                         state.attempt += 1
-                        val outcome = executeOnce()
+                        // state.attempt is now the 1-based ordinal of the send about to happen:
+                        // the original was 1, so the first retry dispatched here is 2.
+                        val outcome = executeOnce(state.attempt)
                         if (outcome is ResponseOutcome.Success) return outcome
                         val nextError = (outcome as ResponseOutcome.Failure).error
                         if (!isClassifiedRetryable(nextError)) return outcome
@@ -268,16 +283,38 @@ public class RetryStep
          * Executes the request once via the captured transport, converting any throwable
          * raised by the transport into a [ResponseOutcome.Failure]. Preserves the interrupt
          * flag if the transport raises an [InterruptedException] mid-send.
+         *
+         * @param attemptOrdinal The 1-based ordinal of this send, stamped onto the per-attempt
+         *  request copy when [RetrySettings.attemptHeaderName] is configured.
          */
-        private fun executeOnce(): ResponseOutcome =
+        private fun executeOnce(attemptOrdinal: Int): ResponseOutcome =
             try {
-                ResponseOutcome.Success(httpClient.execute(request))
+                ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal)))
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 ResponseOutcome.Failure(e)
             } catch (t: Throwable) {
                 ResponseOutcome.Failure(t)
             }
+
+        /**
+         * Returns a per-attempt copy of [request] carrying the configured
+         * [RetrySettings.attemptHeaderName] set to [attemptOrdinal]. When no attempt header is
+         * configured the original [request] is returned unchanged — the no-op path allocates
+         * nothing, so the common (feature-off) case pays no cost. The returned copy is built via
+         * [Request.newBuilder] so the immutable template the step captured is never mutated; any
+         * idempotency key the caller stamped is preserved verbatim because only this single
+         * header is replaced.
+         */
+        private fun stampAttempt(
+            request: Request,
+            attemptOrdinal: Int,
+        ): Request {
+            val header = settings.attemptHeaderName ?: return request
+            return request.newBuilder()
+                .setHeader(header.caseSensitiveName, attemptOrdinal.toString())
+                .build()
+        }
 
         /**
          * Blocks the calling thread for [delay] without pinning a carrier thread under Loom.
@@ -332,21 +369,26 @@ public class RetryStep
         }
 
         /**
-         * Returns true when [error] is an SDK-classified retryable condition AND, for
-         * [HttpException], the status is in [RetrySettings.retryableStatuses].
+         * Returns true when [error] is an SDK-classified retryable condition. Classification
+         * keys off the [Retryable] interface rather than concrete exception types: a non-
+         * [Retryable] throwable is never retried, and a [Retryable] is retried only when its
+         * [Retryable.isRetryable] flag is set. An [HttpException] carries an additional gate —
+         * its status must also be in [RetrySettings.retryableStatuses] — so the caller can
+         * narrow which retryable statuses this step actually re-issues. A [NetworkException]
+         * (no response, hence no status) passes once its flag is set.
          */
-        private fun isClassifiedRetryable(error: Throwable): Boolean =
-            when (error) {
-                is NetworkException -> error.retryable
-                is HttpException -> error.retryable && settings.retryableStatuses.contains(error.status.code)
-                else -> false
-            }
+        private fun isClassifiedRetryable(error: Throwable): Boolean {
+            if (error !is Retryable || !error.isRetryable) return false
+            return error !is HttpException || settings.retryableStatuses.contains(error.status.code)
+        }
 
         /**
          * Returns true when [request] is safe to retry. A body-less request is retry-safe only
-         * when its method is in [RetrySettings.retryableMethods] (idempotent); a body-bearing
-         * request is retry-safe only when its body is replayable — a non-replayable body cannot
-         * be re-sent (the second `writeTo` trips the consume-once guard). Ensuring a re-sent
+         * when its method is in [RetrySettings.retryableMethods] (idempotent) — the gate keys off
+         * method idempotency, not off the absence of a body, so a body-less non-idempotent request
+         * (a bare `POST`) is NOT retried even though there is no payload to re-send. A body-bearing
+         * request is retry-safe only when its body is replayable — a non-replayable body cannot be
+         * re-sent (the second `writeTo` trips the consume-once guard). Ensuring a re-sent
          * body-bearing request is idempotent is the caller's responsibility.
          */
         private fun canRetry(request: Request): Boolean {
