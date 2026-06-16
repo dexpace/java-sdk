@@ -21,13 +21,10 @@ plugins {
     signing
 }
 
-// Coordinates. The group and version are the same for every published module and match the
-// values declared on the root project; keeping the single literal here makes a coordinate
-// change a one-file edit instead of a nine-file edit. The root `build.gradle.kts` still declares
-// its own `group`/`version`, so a version bump must update both literals until they are sourced
-// from one place (e.g. a `gradle.properties` entry read by both).
-group = "org.dexpace"
-version = "0.0.1-alpha.1"
+// Coordinates (`group`/`version`) are not set here. Gradle applies them from the repository-root
+// `gradle.properties` to the root project and every subproject, so each consuming module already
+// carries the shared `org.dexpace` coordinates and current version by the time this plugin runs —
+// a coordinate bump is a one-line edit in that file.
 
 // The `library` publication is built from the `java` software component, which only exists once a
 // `java`/`java-library`/`kotlin("jvm")` plugin is applied. Every current consumer applies
