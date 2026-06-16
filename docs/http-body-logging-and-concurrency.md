@@ -14,6 +14,7 @@ and the concurrency decisions behind them.
     - [Architecture](#architecture)
     - [LoggableRequestBody — Tee-Write Strategy](#loggablerequestbody--tee-write-strategy)
     - [LoggableResponseBody — Drain-Once Strategy](#loggableresponsebody--drain-once-strategy)
+    - [Logged body size vs. the body the consumer receives](#logged-body-size-vs-the-body-the-consumer-receives)
     - [Reading a Snapshot](#reading-a-snapshot)
 - [Internal Stream Utilities](#internal-stream-utilities)
 - [Concurrency Design](#concurrency-design)
@@ -239,6 +240,45 @@ retains whatever bytes were read before the failure and caches the exception:
 - `snapshot()` / `snapshot(maxBytes)` **always return** the partial bytes — useful for
   post-mortem logging that records "what we got" alongside the exception.
 - `captureException` surfaces the cached exception (or `null`) without triggering a drain.
+
+### Logged body size vs. the body the consumer receives
+
+When `HttpLogLevel.BODY_AND_HEADERS` is enabled, the instrumentation step
+(`DefaultInstrumentationStep` / `DefaultAsyncInstrumentationStep`) wraps the response body in a
+`LoggableResponseBody` bounded to `HttpInstrumentationOptions.bodyPreviewMaxBytes` (default
+8 KiB, `DEFAULT_BODY_PREVIEW_MAX_BYTES`). Two consequences follow that are easy to miss when
+reading the logs:
+
+**1. The body delivered downstream can be larger than the logged preview.** The cap bounds only
+the in-memory *capture*, not the body. For a response larger than `bodyPreviewMaxBytes`, the
+step buffers the preview prefix and the wrapper then streams the full body to the consumer — it
+replays the captured prefix and continues from the live tail (see the bounded-capture diagram
+above). The preview you see in the log is a prefix; the consumer still reads every byte.
+
+**2. The logged size fields measure different things.** The step emits two size-related fields
+on the `http.response` event, and they are not the same number for an over-cap body:
+
+| Field                     | Source                                       | What it reports                                                                 |
+|---------------------------|----------------------------------------------|---------------------------------------------------------------------------------|
+| `response.body.size`      | `loggableBody.snapshot(bodyPreviewMaxBytes)` | Size of the **captured preview** — bounded by `bodyPreviewMaxBytes`             |
+| `response.body.preview`   | the same captured bytes, decoded as UTF-8    | The preview text (a prefix for an over-cap body)                                |
+| `response.content.length` | `response.body.contentLength()`              | The body's **true** length when the origin declared one (`Content-Length`); `-1` for unknown-length / streaming bodies |
+
+So `response.body.size` is the *captured/preview* size, **not** necessarily the full body size.
+When a body exceeds the cap, `response.body.size` saturates near `bodyPreviewMaxBytes` while
+`response.content.length` still shows the real length. Read `content.length` (not
+`body.size`) when you need the full size, and treat `body.preview` as a prefix that may be
+truncated. The two agree only when the whole body fit within the cap — exactly the case where
+`contentLength()` itself returns the captured size (see **`contentLength()`** above).
+
+**Streaming / unknown-length bodies (async path).** `DefaultAsyncInstrumentationStep` skips the
+capture entirely when `contentLength() < 0`, because the bounded drain would run on the
+future-completion thread and a slow producer could stall it. Such bodies stream to the consumer
+unwrapped, so they carry **no** `response.body.size` / `response.body.preview` fields at all —
+absence of those fields is expected for chunked or streaming responses, not a logging bug. The
+synchronous `DefaultInstrumentationStep` drains known-length and unknown-length bodies alike (it
+runs on the caller's thread), but the size-vs-preview distinction above applies to it just the
+same.
 
 ### Reading a Snapshot
 

@@ -47,6 +47,18 @@ import org.dexpace.sdk.core.instrumentation.metrics.NoopMeter
  * return large downloads, server-sent events, gRPC, or chunked encodings whose size is unknown
  * ahead of time. [HttpLogLevel.BODY_AND_HEADERS] is intended for diagnostic builds against
  * small JSON/text payloads.
+ *
+ * Because the capture is a bounded preview, the logged `response.body.size` /
+ * `response.body.preview` fields describe the **captured preview**, not necessarily the full
+ * body: for a body larger than [bodyPreviewMaxBytes] the consumer still receives every byte
+ * while those fields reflect only the preview prefix. The separate `response.content.length`
+ * field carries the body's true length when the origin declared one. See
+ * `docs/http-body-logging-and-concurrency.md` ("Logged body size vs. the body the consumer
+ * receives").
+ *
+ * @property bodyPreviewMaxBytes Upper bound, in bytes, on the in-memory body capture under
+ *   [HttpLogLevel.BODY_AND_HEADERS]. Bounds the preview, not the body the consumer sees; the
+ *   logged `*.body.size` fields are capped by it. Defaults to [DEFAULT_BODY_PREVIEW_MAX_BYTES].
  */
 public class HttpInstrumentationOptions
     @JvmOverloads
