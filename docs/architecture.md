@@ -538,6 +538,7 @@ are mandatory. The `java {}` block governs `compileJava` and keeps Gradle's JVM-
 between `compileJava` and `compileKotlin` happy; a module that sets only the Kotlin toolchain and
 `jvmTarget` but omits the `java {}` block will trip that validation or compile its Java sources at
 the wrong level.
+
 The root build registers a `plugins.withId("org.jetbrains.kotlin.jvm")` callback that sets
 `jvmTarget` to `JVM_1_8` for every Kotlin module by default. A module that bumps only the
 toolchain — say to JDK 21 — but leaves `jvmTarget` at the inherited `1.8` will compile *against*
