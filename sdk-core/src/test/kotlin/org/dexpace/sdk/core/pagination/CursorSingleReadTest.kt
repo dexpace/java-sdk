@@ -14,7 +14,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /**
@@ -105,63 +104,6 @@ class CursorSingleReadTest {
         val end = CursorResult(listOf("last"), null)
         assertEquals(listOf("last"), end.items)
         assertNull(end.nextCursor)
-    }
-
-    @Test
-    @Suppress("DEPRECATION")
-    fun `deprecated two-lambda constructor still paginates for back-compat`() {
-        // The legacy two-lambda constructor is retained but deprecated; it delegates to the
-        // single-pass path. This proves existing callers keep working. The two lambdas read
-        // disjoint parts of the response (items from the body, cursor from a header) so the
-        // single-use body is not the thing being drained twice — that double-drain trap is
-        // exactly what the deprecation steers callers away from.
-        val client = StubHttpClient()
-        client.on("https://api.example.com/items") { req ->
-            textResponse(req, "a,b", extraHeaders = mapOf("X-Next-Cursor" to "more"))
-        }
-        client.on("https://api.example.com/items?cursor=more") { req ->
-            textResponse(req, "c")
-        }
-
-        val itemsExtractor: (Response) -> List<String> = { resp ->
-            val body = resp.body!!.source().use { it.readUtf8() }
-            if (body.isEmpty()) emptyList() else body.split(",")
-        }
-        val cursorExtractor: (Response) -> String? = { resp ->
-            resp.headers.get("X-Next-Cursor")
-        }
-
-        val strategy = CursorPaginationStrategy(itemsExtractor, cursorExtractor)
-        val paginator = Paginator(client, initialRequest(), strategy)
-
-        assertEquals(listOf("a", "b", "c"), paginator.iterateAll().toList())
-        assertEquals(2, client.callCount)
-    }
-
-    @Test
-    @Suppress("DEPRECATION")
-    fun `deprecated two-lambda constructor double-drains when both lambdas read the body`() {
-        // Documents the hazard the single-pass API exists to remove: when both legacy lambdas
-        // read the body, the single-use response is drained twice and the second read fails.
-        val client = StubHttpClient()
-        client.on("https://api.example.com/items") { req ->
-            singleUseResponse(req, "items=a,b\ncursor=")
-        }
-
-        val itemsExtractor: (Response) -> List<String> = { resp ->
-            val body = resp.body!!.source().use { it.readUtf8() }
-            body.substringAfter("items=").substringBefore('\n').split(",")
-        }
-        val cursorExtractor: (Response) -> String? = { resp ->
-            // Second read of the same single-use body — this is the double-drain.
-            resp.body!!.source().use { it.readUtf8() }
-            null
-        }
-
-        val strategy = CursorPaginationStrategy(itemsExtractor, cursorExtractor)
-        val paginator = Paginator(client, initialRequest(), strategy)
-
-        assertFailsWith<IllegalStateException> { paginator.iterateAll().toList() }
     }
 
     @Test

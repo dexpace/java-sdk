@@ -47,37 +47,6 @@ public class CursorPaginationStrategy<T>
         private val extractor: (Response) -> CursorResult<T>,
         private val cursorQueryParam: String = "cursor",
     ) : PaginationStrategy<T> {
-        /**
-         * Creates a strategy from two body-reading lambdas.
-         *
-         * @deprecated Each lambda drains the single-use response body separately, so the body
-         *   is read twice per page. Use the single-pass [extractor] constructor that returns a
-         *   [CursorResult] instead.
-         */
-        @Deprecated(
-            message =
-                "Two body-reading lambdas drain the single-use response body twice per page. " +
-                    "Pass a single extractor returning a CursorResult instead. The suggested " +
-                    "replacement only changes the API shape: collapse the two lambdas into one " +
-                    "that reads the body a single time, otherwise it still double-drains.",
-            replaceWith =
-                ReplaceWith(
-                    "CursorPaginationStrategy({ response -> " +
-                        "CursorResult(itemsExtractor(response), cursorExtractor(response)) }, " +
-                        "cursorQueryParam)",
-                    "org.dexpace.sdk.core.pagination.CursorResult",
-                ),
-        )
-        @JvmOverloads
-        public constructor(
-            itemsExtractor: (Response) -> List<T>,
-            cursorExtractor: (Response) -> String?,
-            cursorQueryParam: String = "cursor",
-        ) : this(
-            extractor = { response -> CursorResult(itemsExtractor(response), cursorExtractor(response)) },
-            cursorQueryParam = cursorQueryParam,
-        )
-
         override fun parse(
             response: Response,
             initialRequest: Request,
