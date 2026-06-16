@@ -232,7 +232,7 @@ class OkioBufferedSourceTest {
         assertFailsWith<IllegalStateException> { slice.readByte() }
     }
 
-    // ----- close-flag isolation (H6) -----
+    // ----- close-flag isolation -----
 
     @Test
     fun `closing a peek view does not prevent root from closing its delegate`() {

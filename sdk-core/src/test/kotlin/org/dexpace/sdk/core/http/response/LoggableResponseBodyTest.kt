@@ -52,7 +52,7 @@ class LoggableResponseBodyTest {
         }
     }
 
-    // ----- H2: source() that throws before entering .use {} -----
+    // ----- source() that throws before entering .use {} -----
 
     @Test
     fun `when delegate source() itself throws close() still closes the delegate`() {
@@ -166,7 +166,7 @@ class LoggableResponseBodyTest {
         )
     }
 
-    // ----- A12: additional failure-semantics tests -----
+    // ----- additional failure-semantics tests -----
 
     @Test
     fun `source() after drainError is set re-throws the cached exception`() {
@@ -271,7 +271,7 @@ class LoggableResponseBodyTest {
         )
     }
 
-    // ----- H1: bounded capture + live-tail behavior -----
+    // ----- bounded capture + live-tail behavior -----
 
     @Test
     fun `over-cap body returns the full bytes to the consumer while snapshot is bounded`() {

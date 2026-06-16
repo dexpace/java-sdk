@@ -941,7 +941,7 @@ class RedirectStepTest {
 
     @Test
     fun `stripping userinfo preserves percent-encoding in path and query`() {
-        // L3: clearing the userinfo must not re-encode the Location. A path segment carrying
+        // Clearing the userinfo must not re-encode the Location. A path segment carrying
         // %2F and a query value carrying %26 must survive verbatim — rebuilding via URI's
         // decoded multi-arg constructor would turn %2F into '/' and %26 into '&', silently
         // changing the path/query structure of the reissued request.
