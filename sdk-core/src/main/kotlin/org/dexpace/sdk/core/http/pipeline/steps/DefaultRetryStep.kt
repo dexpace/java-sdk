@@ -156,6 +156,9 @@ public open class DefaultRetryStep
          *  - `initialDelay` / `maxDelay` come from the options.
          *  - `delayMultiplier` (2.0) and `jitter` (0.2) are the canonical shared constants — the
          *    options object does not expose its own multiplier/jitter, so the SDK defaults apply.
+         *    If [HttpRetryOptions] ever gains configurable multiplier/jitter knobs, this view must
+         *    read them from the options instead of the constants, or the new knobs are silently
+         *    ignored on this stack.
          *  - `totalTimeout = ZERO` disables the deadline cap: the stage-based step has no budget.
          * The `fixedDelay` path never consults this view; it short-circuits in [backoffOrFixed].
          *
