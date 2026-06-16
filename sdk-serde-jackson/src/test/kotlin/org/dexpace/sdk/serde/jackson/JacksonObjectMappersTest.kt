@@ -125,4 +125,45 @@ class JacksonObjectMappersTest {
             mapper.readValue<Numbers>("""{"count":1.5,"ratio":2.0}""")
         }
     }
+
+    @Test
+    fun `boolean for a floating-point field is rejected, not coerced`() {
+        val mapper = JacksonObjectMappers.defaultObjectMapper()
+        // Symmetric with the boolean<->integer rejections: true must not become 1.0.
+        assertFailsWith<MismatchedInputException> {
+            mapper.readValue<Numbers>("""{"count":1,"ratio":true}""")
+        }
+    }
+
+    @Test
+    fun `empty string for an integer field is rejected, not coerced to null or zero`() {
+        val mapper = JacksonObjectMappers.defaultObjectMapper()
+        // Jackson otherwise turns "" into a null/zero scalar, masking a malformed payload.
+        assertFailsWith<MismatchedInputException> {
+            mapper.readValue<Numbers>("""{"count":"","ratio":1.5}""")
+        }
+    }
+
+    @Test
+    fun `empty string for a floating-point field is rejected, not coerced to null or zero`() {
+        val mapper = JacksonObjectMappers.defaultObjectMapper()
+        assertFailsWith<MismatchedInputException> {
+            mapper.readValue<Numbers>("""{"count":5,"ratio":""}""")
+        }
+    }
+
+    @Test
+    fun `empty string for a boolean field is rejected, not coerced to null`() {
+        val mapper = JacksonObjectMappers.defaultObjectMapper()
+        assertFailsWith<MismatchedInputException> {
+            mapper.readValue<Flag>("""{"enabled":""}""")
+        }
+    }
+
+    @Test
+    fun `empty string still binds to a string field`() {
+        val mapper = JacksonObjectMappers.defaultObjectMapper()
+        // "" is a legitimate string value: the lockdown must not reject it for a textual target.
+        assertEquals(Label(""), mapper.readValue<Label>("""{"text":""}"""))
+    }
 }
