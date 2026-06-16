@@ -24,7 +24,6 @@ import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.transport.jdkhttp.internal.BodyPublishers
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.UncheckedIOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URL
@@ -349,9 +348,9 @@ class JdkHttpTransportTest {
         // copy: toReplayable's internal writeTo throws, and the body — like the SDK's
         // consume-once bodies — has already flipped its consumed guard. The adapter must NOT
         // attempt a second writeTo (which would trip the guard and surface an
-        // IllegalStateException, masking the real cause and escaping the @Throws(IOException)
-        // contract). It must instead fail loudly with a clear UncheckedIOException that wraps
-        // the original IOException.
+        // IllegalStateException, masking the real cause). It must instead fail with a checked
+        // IOException — honouring execute's @Throws(IOException) contract, and matching the eager
+        // path — that carries a clear message and preserves the original IOException as its cause.
         val body = PartialThenFailingBody(CommonMediaTypes.APPLICATION_OCTET_STREAM)
         val request =
             Request.builder()
@@ -363,17 +362,18 @@ class JdkHttpTransportTest {
             assertFails {
                 transport.execute(request).close()
             }
+        // IOException is checked; UncheckedIOException and IllegalStateException are
+        // RuntimeExceptions, so asserting `is IOException` rules out both a contract-bypassing
+        // unchecked throw and the IllegalStateException masking failure mode.
         assertTrue(
-            ex is UncheckedIOException,
-            "expected UncheckedIOException, got ${ex::class}: ${ex.message}",
+            ex is IOException,
+            "expected a checked IOException, got ${ex::class}: ${ex.message}",
         )
         assertTrue(
             ex.message?.contains("supply a replayable body") == true,
             "message must explain the body could not be buffered, was: ${ex.message}",
         )
         val cause = ex.cause
-        // UncheckedIOException is a RuntimeException, so `is IOException` already excludes a
-        // re-wrapped IllegalStateException/UncheckedIOException — the masking failure mode.
         assertTrue(
             cause is IOException,
             "the original IOException must be preserved as the cause, was: ${cause?.let { it::class }}",
