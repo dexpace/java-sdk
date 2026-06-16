@@ -21,10 +21,17 @@ root `check` task — see `build.gradle.kts`). Detekt is skipped on the two non-
 system toolchain when a module targets a non-8 toolchain; see those build scripts for the upstream issue and
 re-enable conditions. It runs everywhere else, including `sdk-transport-okhttp`.
 
+`check` (so a plain `./gradlew build`) also runs the R8 shrink-survival guard in the test-only
+`sdk-shrink-test` module. That step **requires a JDK 11 toolchain** (Gradle auto-provisions one if absent)
+and network access to **Google's Maven repo** to fetch `com.android.tools:r8`. An offline build, or one
+that cannot provision JDK 11, will fail on `:sdk-shrink-test:r8Run`; scope the build (e.g. build specific
+modules) to skip it. See that module's `build.gradle.kts` for the pipeline.
+
 ## Repository Layout
 
-Nine Gradle modules (see `settings.gradle.kts`). `gradle/libs.versions.toml` is the single source of truth
-for dependency and plugin versions. Group `org.dexpace`, version `0.0.1-alpha.1`.
+Ten Gradle modules (see `settings.gradle.kts`). `gradle/libs.versions.toml` is the single source of truth
+for dependency and plugin versions. Group `org.dexpace`, version `0.0.1-alpha.1`. (The tenth,
+`sdk-shrink-test`, is a test-only, unpublished R8 shrink-survival guard — not listed below.)
 
 | Module | Purpose | JVM target |
 |---|---|---|

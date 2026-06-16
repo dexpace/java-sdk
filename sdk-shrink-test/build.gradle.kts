@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipFile
@@ -13,24 +15,61 @@ plugins {
     // Kotlin only — no kover, no maven-publish, no signing. This module produces no published
     // artifact and contributes no coverage; it is a build-time regression guard. The root build
     // therefore does NOT add it to the kover aggregate, and `apiValidation.ignoredProjects`
-    // (root build.gradle.kts) keeps it out of the binary-compatibility snapshot. Java-8 bytecode,
-    // explicit-API strict mode, ktlint, and detekt are all inherited from the root build and left
-    // ON — the shrink harness honours the same conventions as the published modules.
+    // (root build.gradle.kts) keeps it out of the binary-compatibility snapshot. Explicit-API
+    // strict mode and ktlint are inherited from the root build and left ON; detekt is disabled
+    // below for the same JDK-25-toolchain reason as the other non-Java-8 modules.
     kotlin("jvm")
 }
 
 group = "org.dexpace"
 version = "0.0.1-alpha.1"
 
+// This module targets JDK 11, not the root's Java-8 default. It depends on sdk-transport-jdkhttp
+// (Java-11 bytecode) so it can exercise that transport through R8, and the whole shrink pipeline
+// already runs on a JDK 11 (R8 itself is Java-11 bytecode, and the shrunk program runs on the same
+// 11 launcher) — so a downstream consumer that uses the jdkhttp transport is, by construction, an
+// 11+ consumer. Override all three knobs the way sdk-transport-jdkhttp documents (S2.12 — Toolchain
+// discipline): the toolchain, the `java {}` source/target, and every Kotlin compile task's target.
+kotlin {
+    jvmToolchain(11)
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(11))
+    }
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
+// Detekt is disabled here for the same reason as sdk-transport-jdkhttp and sdk-async-virtualthreads:
+// detekt 1.23.x crashes parsing the JDK 25+ system toolchain version when a module targets a non-8
+// toolchain (detekt/detekt#8714). Re-enable when detekt 1.23.x embeds Kotlin >= 2.1.20 or the build
+// moves to detekt 2.x. ktlint and explicit-API strict mode stay on.
+tasks.matching { it.name == "detekt" }.configureEach {
+    enabled = false
+}
+
 // The shrink harness exercises the SDK exactly as a downstream consumer would: it depends on the
-// published modules (core, the Okio I/O adapter, the OkHttp transport, the Jackson serde) and
+// published modules (core, the Okio I/O adapter, both reference transports, the Jackson serde) and
 // their real transitive runtime dependencies, then bundles the lot into a single program for R8
-// to shrink. MockWebServer drives a genuine in-process HTTP round-trip so the shrunk program
-// proves the transport still works end-to-end, not merely that its classes survived.
+// to shrink. MockWebServer drives a genuine in-process HTTP round-trip through each transport so
+// the shrunk program proves they still work end-to-end, not merely that their classes survived.
+//
+// Both transports are included so the harness guards each one's shipped keep-rules symmetrically:
+// dropping a rule from either sdk-transport-okhttp or sdk-transport-jdkhttp would fail this module.
+// Depending on the Java-11 jdkhttp module is why this module itself targets JDK 11 (see above).
 dependencies {
     implementation(project(":sdk-core"))
     implementation(project(":sdk-io-okio3"))
     implementation(project(":sdk-transport-okhttp"))
+    implementation(project(":sdk-transport-jdkhttp"))
     implementation(project(":sdk-serde-jackson"))
     implementation(libs.okhttp.mockwebserver.junit5)
 
@@ -47,7 +86,7 @@ dependencies {
 // ---------------------------------------------------------------------------------------------
 // R8 shrink-survival pipeline
 //
-//   buildShrinkInputJar  -> fat jar: consumer program + SDK + okio + okhttp + jackson + stdlib
+//   buildShrinkInputJar  -> fat jar: consumer program + SDK + okio + transports + jackson + stdlib
 //   r8Shrink             -> runs R8 in full mode over that jar with the SHIPPED consumer rules
 //   r8Run                -> runs the shrunk program and asserts it prints the success sentinel
 //
@@ -83,6 +122,7 @@ val shippedConsumerRulePaths: List<String> =
         "META-INF/proguard/sdk-core.pro",
         "META-INF/proguard/sdk-io-okio3.pro",
         "META-INF/proguard/sdk-transport-okhttp.pro",
+        "META-INF/proguard/sdk-transport-jdkhttp.pro",
         "META-INF/proguard/sdk-serde-jackson.pro",
     )
 
@@ -201,13 +241,25 @@ val r8Run by tasks.registering(JavaExec::class) {
 
     val captured = ByteArrayOutputStream()
     standardOutput = captured
+    // Capture rather than inherit stderr too, so a stack trace from a failing shrunk run is folded
+    // into the diagnostic below instead of racing the captured stdout to the console.
+    errorOutput = captured
+    // Do not let a non-zero exit abort the task before doLast: if the shrunk program throws (the
+    // SDK did not survive shrinking), JavaExec's default behaviour would fail here and discard the
+    // captured output — exactly the diagnostic we need. We assert success ourselves in doLast.
+    isIgnoreExitValue = true
+    // `executionResult` is a member of JavaExec, but inside `doLast` the lambda receiver is the bare
+    // Task; capture the provider here so the exit code is reachable when the action runs.
+    val execResult = executionResult
 
     doLast {
         val output = captured.toString("UTF-8")
         logger.lifecycle(output.trim())
-        check(output.contains(successSentinel)) {
-            "The R8-shrunk consumer did not print the success sentinel. The SDK did not survive " +
-                "shrinking with its shipped keep-rules. Program output was:\n$output"
+        val exitValue = execResult.get().exitValue
+        check(exitValue == 0 && output.contains(successSentinel)) {
+            "The R8-shrunk consumer did not survive shrinking with its shipped keep-rules " +
+                "(exit code $exitValue). The SDK surface a downstream R8 build relies on was " +
+                "stripped or broken. Program output was:\n$output"
         }
         resultMarker.get().asFile.writeText("ok\n")
     }

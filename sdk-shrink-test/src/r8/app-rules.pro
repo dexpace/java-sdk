@@ -13,6 +13,14 @@
 
 # Target a desktop/server JVM, not Android: emit classfiles, do not require a min API, and keep
 # enough debug info that a stack trace from the shrunk run is legible.
+#
+# Obfuscation (member/class renaming) is deliberately OFF. This harness guards SHRINK survival:
+# that R8's dead-code elimination does not strip the SDK's reflective and SPI surface. It does not
+# guard obfuscation survival, because renaming would also rename the third-party libraries bundled
+# here (OkHttp, Okio, Jackson), each of which ships its own consumer keep-rules that a real
+# obfuscating consumer applies — reproducing that whole closure is out of scope for this module.
+# The SDK's own shipped rules use `-keep ... { *; }`, which already pins names against renaming, so
+# enabling obfuscation here would mostly test the bundled libraries' rules, not the SDK's.
 -dontobfuscate
 -keepattributes SourceFile,LineNumberTable
 
