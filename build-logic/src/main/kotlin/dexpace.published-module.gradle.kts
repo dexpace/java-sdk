@@ -23,54 +23,65 @@ plugins {
 
 // Coordinates. The group and version are the same for every published module and match the
 // values declared on the root project; keeping the single literal here makes a coordinate
-// change a one-file edit instead of a nine-file edit.
+// change a one-file edit instead of a nine-file edit. The root `build.gradle.kts` still declares
+// its own `group`/`version`, so a version bump must update both literals until they are sourced
+// from one place (e.g. a `gradle.properties` entry read by both).
 group = "org.dexpace"
 version = "0.0.1-alpha.1"
 
-publishing {
-    publications {
-        create<MavenPublication>("library") {
-            from(components["java"])
-            pom {
-                name.set(project.name)
-                description.set("Dexpace Java SDK — ${project.name}")
-                url.set("https://github.com/dexpace/java-sdk")
-                licenses {
-                    license {
-                        name.set("MIT License")
-                        url.set("https://github.com/dexpace/java-sdk/blob/main/LICENSE")
-                        distribution.set("repo")
-                    }
-                }
-                developers {
-                    developer {
-                        id.set("dexpace")
-                        name.set("Dexpace SDK Team")
-                    }
-                }
-                scm {
-                    connection.set("scm:git:https://github.com/dexpace/java-sdk.git")
-                    developerConnection.set("scm:git:ssh://github.com/dexpace/java-sdk.git")
+// The `library` publication is built from the `java` software component, which only exists once a
+// `java`/`java-library`/`kotlin("jvm")` plugin is applied. Every current consumer applies
+// `kotlin("jvm")`, but this plugin neither applies nor requires one, so the whole publication +
+// signing setup is guarded on the Kotlin JVM plugin. Without the guard, a module that opted in
+// without a Java/Kotlin plugin would fail with an opaque "SoftwareComponent with name java not
+// found".
+pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+    publishing {
+        publications {
+            create<MavenPublication>("library") {
+                from(components["java"])
+                pom {
+                    name.set(project.name)
+                    description.set("Dexpace Java SDK — ${project.name}")
                     url.set("https://github.com/dexpace/java-sdk")
+                    licenses {
+                        license {
+                            name.set("MIT License")
+                            url.set("https://github.com/dexpace/java-sdk/blob/main/LICENSE")
+                            distribution.set("repo")
+                        }
+                    }
+                    developers {
+                        developer {
+                            id.set("dexpace")
+                            name.set("Dexpace SDK Team")
+                        }
+                    }
+                    scm {
+                        connection.set("scm:git:https://github.com/dexpace/java-sdk.git")
+                        developerConnection.set("scm:git:ssh://github.com/dexpace/java-sdk.git")
+                        url.set("https://github.com/dexpace/java-sdk")
+                    }
                 }
             }
         }
-    }
-    repositories {
-        // Local staging repository. CI must override this to publish to a real remote.
-        maven {
-            name = "local"
-            url = uri(rootProject.layout.buildDirectory.dir("staging-repo"))
+        repositories {
+            // Local staging repository. CI must override this to publish to a real remote.
+            maven {
+                name = "local"
+                url = uri(rootProject.layout.buildDirectory.dir("staging-repo"))
+            }
         }
     }
-}
 
-signing {
-    isRequired = (System.getenv("CI") == "true")
-    val signingKey = project.findProperty("signing.key") as String? ?: System.getenv("SIGNING_KEY")
-    val signingPassword = project.findProperty("signing.password") as String? ?: System.getenv("SIGNING_PASSWORD")
-    if (!signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
+    signing {
+        isRequired = (System.getenv("CI") == "true")
+        val signingKey = project.findProperty("signing.key") as String? ?: System.getenv("SIGNING_KEY")
+        val signingPassword =
+            project.findProperty("signing.password") as String? ?: System.getenv("SIGNING_PASSWORD")
+        if (!signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
+            useInMemoryPgpKeys(signingKey, signingPassword)
+        }
+        sign(publishing.publications["library"])
     }
-    sign(publishing.publications["library"])
 }
