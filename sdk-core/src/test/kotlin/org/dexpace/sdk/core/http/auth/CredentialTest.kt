@@ -76,6 +76,10 @@ class CredentialTest {
         val rendered = cred.toString()
         assertFalse(rendered.contains("another-secret"), "toString must not contain the raw apiKey")
         assertTrue(rendered.contains("apiKey=***"), "toString must redact the apiKey")
+        assertTrue(
+            rendered.contains(HttpHeaderName.AUTHORIZATION.toString()),
+            "toString should keep the default headerName for diagnostics",
+        )
     }
 
     // ----------------- NamedKeyCredential -----------------
