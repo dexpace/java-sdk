@@ -69,6 +69,22 @@ class BodyPreviewTest {
     }
 
     @Test
+    fun `text body declared as UTF-16 is decoded despite NUL padding`() {
+        // UTF-16BE pads ASCII with NUL bytes ('A' = 0x00 0x41), which the NUL heuristic would
+        // otherwise treat as binary. An explicitly declared wide charset must still decode.
+        val bytes = "café".toByteArray(StandardCharsets.UTF_16BE)
+        val preview = BodyPreview.render(bytes, MediaType.parse("text/plain;charset=UTF-16BE"))
+        assertEquals("café", preview)
+        assertFalse(preview.contains("[binary"), "declared UTF-16 text must not be summarised as binary")
+    }
+
+    @Test
+    fun `text body declared as UTF-16LE is decoded despite NUL padding`() {
+        val bytes = "hello".toByteArray(StandardCharsets.UTF_16LE)
+        assertEquals("hello", BodyPreview.render(bytes, MediaType.parse("text/plain;charset=UTF-16LE")))
+    }
+
+    @Test
     fun `isProbablyText accepts plain ASCII and latin-1 high bytes`() {
         assertTrue(BodyPreview.isProbablyText("plain ascii text".toByteArray(StandardCharsets.US_ASCII)))
         assertTrue(BodyPreview.isProbablyText("café".toByteArray(StandardCharsets.ISO_8859_1)))
