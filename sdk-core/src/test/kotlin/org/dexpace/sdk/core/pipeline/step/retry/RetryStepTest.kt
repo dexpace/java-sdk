@@ -167,6 +167,18 @@ class RetryStepTest {
             .build()
     }
 
+    private fun requestPostBodyless(): Request =
+        Request.builder()
+            .url("https://api.example.com/resource")
+            .method(Method.POST)
+            .build()
+
+    private fun requestPutBodyless(): Request =
+        Request.builder()
+            .url("https://api.example.com/resource")
+            .method(Method.PUT)
+            .build()
+
     private fun response(
         status: Int,
         headers: Headers = Headers.builder().build(),
@@ -246,6 +258,39 @@ class RetryStepTest {
         val out = step.invoke(outcome)
         assertSame(outcome, out, "Outcome must be unchanged when an idempotent method carries a non-replayable body")
         assertTrue(client.calls.isEmpty())
+    }
+
+    @Test
+    fun `503 with body-less POST is not retried because POST is non-idempotent`() {
+        // Body-less retry safety keys off METHOD idempotency, not off the absence of a body. A
+        // bare POST has no payload to re-send, but it is non-idempotent, so it must NOT be retried
+        // — a second POST could duplicate a side effect the server already applied. Exercises the
+        // body == null branch of canRetry on a non-idempotent method. Mirrors the
+        // `body-less POST is NOT retried` case in the http.pipeline DefaultRetryStep suite.
+        val client = FakeClient()
+        val request = requestPostBodyless()
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
+        val out = step.invoke(outcome)
+        assertSame(outcome, out, "Outcome must be unchanged — a body-less POST is non-idempotent")
+        assertTrue(client.calls.isEmpty(), "body-less POST must not be re-dispatched")
+    }
+
+    @Test
+    fun `503 with body-less PUT is retried because PUT is idempotent`() {
+        // Control for the body == null branch: with no body the gate falls through to method
+        // idempotency. PUT is idempotent, so a body-less PUT is retry-safe and retries normally —
+        // here the single retry succeeds. Mirrors the `body-less PUT IS retried` control in the
+        // http.pipeline DefaultRetryStep suite.
+        val ok = response(SC_OK)
+        val client = FakeClient(listOf(Canned.Ok(ok)))
+        val request = requestPutBodyless()
+        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
+        val out = step.invoke(outcome)
+        assertTrue(out is ResponseOutcome.Success, "body-less PUT must retry — PUT is idempotent")
+        assertSame(ok, (out as ResponseOutcome.Success).response)
+        assertEquals(1, client.calls.size)
     }
 
     @Test

@@ -691,7 +691,8 @@ class RetryStepTest {
         // bare POST (no payload to re-send) is non-idempotent, so it must NOT be retried even on a
         // retryable status — a second POST could duplicate a side effect the server already
         // applied. The 503 is returned as-is after exactly one attempt. This exercises the
-        // body == null branch of isRetrySafe on a non-idempotent method.
+        // body == null branch of isRetrySafe on a non-idempotent method. Mirrored by the
+        // `body-less POST is not retried` case in the pipeline.step.retry RetryStep suite.
         val fake =
             FakeHttpClient()
                 .enqueue { status(503) }
@@ -717,6 +718,7 @@ class RetryStepTest {
     fun `body-less PUT IS retried because PUT is idempotent`() {
         // Control for the body == null branch: with no body the gate falls through to method
         // idempotency. PUT is idempotent, so a body-less PUT is retry-safe and retries normally.
+        // Mirrored by the `body-less PUT is retried` case in the pipeline.step.retry RetryStep suite.
         val fake =
             FakeHttpClient()
                 .enqueue { status(503) }
