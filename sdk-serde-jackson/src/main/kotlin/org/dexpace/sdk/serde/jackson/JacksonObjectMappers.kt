@@ -95,12 +95,14 @@ public object JacksonObjectMappers {
      * so the rejection holds regardless of how a given scalar target consults coercion config:
      *
      *  - string → integer / floating-point / boolean (the headline `"5"` → numeric case),
+     *  - floating-point → integer (the lossy `1.5` → `1` narrowing),
      *  - boolean ↔ integer,
      *  - integer / floating-point / boolean → string.
      *
      * Untouched on purpose: numeric **widening** (an integer JSON value into a floating-point
      * field) stays legal because it is a representation-preserving conversion, not a shape mismatch;
-     * and genuinely typed values bind exactly as before.
+     * and genuinely typed values bind exactly as before. The inverse — a floating-point JSON value
+     * into an integer field — is rejected because it silently truncates (`1.5` → `1`).
      */
     private fun applyStrictScalarCoercion(builder: JsonMapper.Builder) {
         fun JsonMapper.Builder.failOn(
@@ -112,8 +114,14 @@ public object JacksonObjectMappers {
             }
 
         builder
-            // string "5"/"1.5"/"true" must not flow into numeric or boolean fields.
-            .failOn(LogicalType.Integer, CoercionInputShape.String, CoercionInputShape.Boolean)
+            // string "5"/"1.5"/"true" must not flow into numeric or boolean fields, and a
+            // floating-point value must not be lossily narrowed into an integer field (1.5 -> 1).
+            .failOn(
+                LogicalType.Integer,
+                CoercionInputShape.String,
+                CoercionInputShape.Boolean,
+                CoercionInputShape.Float,
+            )
             .failOn(LogicalType.Float, CoercionInputShape.String)
             .failOn(LogicalType.Boolean, CoercionInputShape.String, CoercionInputShape.Integer)
             // a non-string scalar must not be stringified into a textual field.

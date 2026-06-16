@@ -116,4 +116,13 @@ class JacksonObjectMappersTest {
         // int -> double is a numeric widening, not a cross-shape coercion: it must keep working.
         assertEquals(Numbers(1, 2.0), mapper.readValue<Numbers>("""{"count":1,"ratio":2}"""))
     }
+
+    @Test
+    fun `floating-point for an integer field is rejected, not truncated`() {
+        val mapper = JacksonObjectMappers.defaultObjectMapper()
+        // 1.5 -> Int would silently truncate to 1; the lossy narrowing must fail loudly instead.
+        assertFailsWith<MismatchedInputException> {
+            mapper.readValue<Numbers>("""{"count":1.5,"ratio":2.0}""")
+        }
+    }
 }

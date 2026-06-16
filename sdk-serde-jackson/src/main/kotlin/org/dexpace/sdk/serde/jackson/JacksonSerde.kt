@@ -112,10 +112,13 @@ public class JacksonSerde private constructor(
 internal class JacksonSerializer internal constructor(
     private val mapper: ObjectMapper,
 ) : Serializer {
+    /** @throws SerializationException if [input] cannot be encoded. */
     override fun serialize(input: Any): String = serializing { mapper.writeValueAsString(input) }
 
+    /** @throws SerializationException if [input] cannot be encoded. */
     override fun serializeToByteArray(input: Any): ByteArray = serializing { mapper.writeValueAsBytes(input) }
 
+    /** @throws SerializationException if [input] cannot be encoded. */
     override fun serialize(
         input: Any,
         outputStream: OutputStream,
@@ -129,6 +132,11 @@ internal class JacksonSerializer internal constructor(
         }
     }
 
+    /**
+     * @throws IndexOutOfBoundsException for a bad [offset] or overflow (thrown unwrapped, outside
+     *   the encode wrapper).
+     * @throws SerializationException if [input] cannot be encoded.
+     */
     override fun serialize(
         input: Any,
         buffer: ByteArray,
@@ -168,16 +176,19 @@ internal class JacksonSerializer internal constructor(
 internal class JacksonDeserializer internal constructor(
     private val mapper: ObjectMapper,
 ) : Deserializer {
+    /** @throws DeserializationException if [input] is malformed or does not match [type]. */
     override fun <T> deserialize(
         input: String,
         type: Class<T>,
     ): T = deserializing { mapper.readValue(input, type) }
 
+    /** @throws DeserializationException if [input] is malformed or does not match [type]. */
     override fun <T> deserialize(
         input: ByteArray,
         type: Class<T>,
     ): T = deserializing { mapper.readValue(input, type) }
 
+    /** @throws DeserializationException if the payload is malformed or does not match [type]. */
     override fun <T> deserialize(
         inputStream: InputStream,
         type: Class<T>,
