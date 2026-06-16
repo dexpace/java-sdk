@@ -77,6 +77,17 @@ class HttpLogLevelTest {
         )
     }
 
+    @Test
+    fun `whitespace-only value returns the supplied default`() {
+        // Configuration only treats an exactly-empty env string as absent, so a whitespace-only
+        // value is returned as-is; fromEnv's own trim collapses it to "" and falls to the default.
+        val cfg = configWithEnv("MY_PRODUCT_LOG_LEVEL" to "   ")
+        assertEquals(
+            HttpLogLevel.HEADERS,
+            HttpLogLevel.fromEnv("MY_PRODUCT_LOG_LEVEL", cfg, HttpLogLevel.HEADERS),
+        )
+    }
+
     // ----- Unrecognized value falls back to the supplied default -----
 
     @Test
