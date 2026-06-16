@@ -362,9 +362,14 @@ It retries only when the outcome is a `Failure` whose throwable is classified re
   `RetrySettings.retryableStatuses`.
 - A `NetworkException` (a transport failure with no response on the wire — always retryable).
 
-Idempotency is enforced independently of classification: a request is eligible only when its
-method is in `RetrySettings.retryableMethods` **or** its body is replayable. Non-idempotent
-methods (`POST`/`PATCH`) with a non-replayable body are never re-sent.
+Idempotency is enforced independently of classification, keyed off whether the request carries
+a body. A request **with a body** is eligible only when its body is replayable (a non-replayable
+body cannot be re-sent — the second `writeTo` would trip its consume-once guard). A request
+**with no body** is eligible only when its method is in `RetrySettings.retryableMethods`.
+Body-less retry safety keys off method idempotency, not off the absence of a body: a body-less
+non-idempotent request — a bare `POST`/`PATCH` to a trigger / activate-style endpoint — is
+therefore never re-sent, even though there is no payload to replay, because the server may
+already have applied the side effect.
 
 Waits between attempts use a `ScheduledExecutorService` plus `CompletableFuture.get`, never
 `Thread.sleep`, so virtual-thread carriers can unmount during the delay. An interrupt restores
