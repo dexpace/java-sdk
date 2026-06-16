@@ -85,9 +85,12 @@ Layered, from the bottom up:
 
 - **Java 8 bytecode everywhere except** `sdk-transport-jdkhttp` (11) and `sdk-async-virtualthreads` (21).
   Avoid `InputStream.transferTo` (9+), `Thread.threadId()` (19+), records, sealed `permits` in Java-8
-  modules. A module that genuinely needs a newer JDK must override **both** `jvmToolchain(N)` **and**
+  modules. A module that genuinely needs a newer JDK must override **all three** of `jvmToolchain(N)`,
+  the `java { sourceCompatibility / targetCompatibility = VERSION_N + toolchain }` block, and
   `compilerOptions { jvmTarget.set(JvmTarget.JVM_N) }` in its own build script — overriding only the
-  toolchain produces Java-8-format bytecode referencing newer stdlib symbols (`NoSuchMethodError` on JDK 8).
+  toolchain produces Java-8-format bytecode referencing newer stdlib symbols (`NoSuchMethodError` on JDK 8),
+  and omitting the `java {}` block trips Gradle's `compileJava`/`compileKotlin` JVM-target validation. See
+  `docs/architecture.md` (Cross-Compile Toolchain Discipline).
 - **MIT license header in every source file.** Each `.kt`, `.java`, and `.kts` file starts with the 6-line
   `Copyright (c) 2026 dexpace and Omar Aljarrah` / `SPDX-License-Identifier: MIT` block — copy it from any
   existing file when creating new ones. Nothing enforces this automatically; it is a review convention.
