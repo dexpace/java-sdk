@@ -18,13 +18,16 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * chain's [callKey] from the [RequestContext] it was promoted from.
  *
  * As the terminal link this is the context whose [close] should be called to evict the
- * chain's [ContextStore] entry. The [callKey] defaults to the trace/span derivation when
- * constructed directly; in the normal flow it is supplied by
- * [RequestContext.toExchangeContext].
+ * chain's [ContextStore] entry. In the normal flow the [callKey] is supplied by
+ * [RequestContext.toExchangeContext]. When this context is constructed directly off-chain, the
+ * [callKey] defaults to a freshly minted, call-unique key (`traceId:spanId:n`) — the same
+ * collision-safe derivation [DispatchContext] uses — so two directly-constructed contexts that
+ * share a trace/span id never collide in [ContextStore]. Two such default-constructed instances
+ * are therefore not structurally equal; pin an explicit [callKey] if you need equality.
  */
 public data class ExchangeContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
     val response: Response,
-    override val callKey: String = DispatchContext.deriveCallKey(instrumentationContext),
+    override val callKey: String = DispatchContext.mintCallKey(instrumentationContext),
 ) : CallContext
