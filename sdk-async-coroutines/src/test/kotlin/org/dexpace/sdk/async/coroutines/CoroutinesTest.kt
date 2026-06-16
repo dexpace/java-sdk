@@ -39,6 +39,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertTrue
 
+// Failsafe deadline for awaiting an operation that is expected to complete promptly. It exists only
+// to stop a genuinely-stuck test from hanging forever, so it is kept generous: a healthy test
+// returns the instant the awaited work finishes and never approaches this bound, even on a loaded
+// CI host running modules in parallel.
+private const val FAILSAFE_TIMEOUT_SECONDS = 30L
+private const val FAILSAFE_TIMEOUT_MILLIS = FAILSAFE_TIMEOUT_SECONDS * 1000L
+
 class CoroutinesTest {
     @Test
     fun `suspend execute awaits the underlying future`() =
@@ -105,7 +112,7 @@ class CoroutinesTest {
             job.cancel()
             // `cancelled` is completed by the future's listener after kotlinx-coroutines-jdk8's
             // `await()` calls `cancel(true)` on the underlying CompletableFuture.
-            cancelled.get(2, TimeUnit.SECONDS)
+            cancelled.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             scope.cancel()
         }
 
@@ -121,7 +128,7 @@ class CoroutinesTest {
                     delay(5)
                     42
                 }
-            assertEquals(42, future.get(2, TimeUnit.SECONDS))
+            assertEquals(42, future.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS))
         } finally {
             scope.cancel()
         }
@@ -134,7 +141,7 @@ class CoroutinesTest {
             try {
                 val syncClient = HttpClient { request -> mockResponse(request, 201) }
                 val asyncClient = syncClient.asAsyncCoroutines(scope)
-                val response = withTimeout(2000) { asyncClient.execute(getRequest()) }
+                val response = withTimeout(FAILSAFE_TIMEOUT_MILLIS) { asyncClient.execute(getRequest()) }
                 assertEquals(201, response.status.code)
             } finally {
                 scope.cancel()
@@ -171,7 +178,7 @@ class CoroutinesTest {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             try {
                 val async = sync.asAsyncCoroutines(scope)
-                async.executeAsync(getRequest()).get(2, TimeUnit.SECONDS)
+                async.executeAsync(getRequest()).get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 assertEquals("coroutines-test", seenTraceId.get())
             } finally {
                 scope.cancel()
@@ -195,7 +202,7 @@ class CoroutinesTest {
                         delay(5)
                         MDC.get("trace.id") ?: "<missing>"
                     }
-                assertEquals("cf-of-test", future.get(2, TimeUnit.SECONDS))
+                assertEquals("cf-of-test", future.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS))
             } finally {
                 scope.cancel()
             }

@@ -26,6 +26,7 @@ concerns.
 - [Cross-Cutting Design Decisions](#cross-cutting-design-decisions)
     - [Zero Dependencies](#zero-dependencies)
     - [JDK 8 Compatibility](#jdk-8-compatibility)
+    - [Cross-Compile Toolchain Discipline](#cross-compile-toolchain-discipline)
     - [Immutability and Builders](#immutability-and-builders)
     - [Virtual Thread Safety](#virtual-thread-safety)
     - [Internal Visibility](#internal-visibility)
@@ -504,6 +505,45 @@ All code targets Java 8 bytecode (`jvmTarget = "1.8"`). Specific implications:
   `@Suppress("DEPRECATION")`
 - `ReentrantLock` (Java 5+) replaces `synchronized` for future-proofing with virtual threads
 - No `java.net.http.HttpClient` (Java 11+); the `HttpClient` interface is transport-agnostic
+
+### Cross-Compile Toolchain Discipline
+
+Most modules compile against Java 8 bytecode, but two need a newer JDK: `sdk-transport-jdkhttp`
+targets 11 (`java.net.http.HttpClient` was finalised in JEP 321) and `sdk-async-virtualthreads`
+targets 21 (virtual threads). Each of those modules raises its target by overriding **two**
+things in its own build script:
+
+```kotlin
+kotlin {
+    jvmToolchain(21)                       // which JDK compiles the module
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_21)    // which bytecode version it emits
+    }
+}
+```
+
+(`sdk-transport-jdkhttp` does the same with `11`/`JVM_11`.) **Both** overrides are mandatory.
+The root build registers a `plugins.withId("org.jetbrains.kotlin.jvm")` callback that sets
+`jvmTarget` to `JVM_1_8` for every Kotlin module by default. A module that bumps only the
+toolchain — say to JDK 21 — but leaves `jvmTarget` at the inherited `1.8` will compile *against*
+the JDK 21 standard library while *emitting* Java-8-format class files. The result links fine on
+the build machine but references methods that do not exist on a Java 8 runtime, so a downstream
+Java 8 consumer fails at call time with `NoSuchMethodError`. Setting `jvmTarget` to match the
+toolchain makes the Kotlin compiler reject newer-than-target stdlib references at compile time
+instead, turning that runtime failure into a build error.
+
+This per-module override is the current, deliberately safe arrangement. The discipline matters
+under a hypothetical future consolidation onto a single newer toolchain (for build speed, or to
+sidestep the detekt-1.23.x crash on JDK 25+). If every module were compiled by, say, JDK 17 while
+the Java-8-target modules kept `jvmTarget = JVM_1_8`, those modules would again be compiling
+against a newer stdlib than they emit bytecode for. Guarding that arrangement requires a
+`--release 8` / `-Xjdk-release=8` flag on the Java-8-target modules so the compiler bounds the
+*visible* API to Java 8, not just the bytecode version. As long as each module that needs a newer
+runtime carries its own matched `jvmToolchain` + `jvmTarget` pair, no `--release` guard is needed;
+adopt one only if the toolchain is ever unified.
 
 ### Immutability and Builders
 

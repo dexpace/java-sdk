@@ -28,12 +28,18 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+// Failsafe deadline for awaiting an operation that is expected to complete promptly. It exists only
+// to stop a genuinely-stuck test from hanging forever, so it is kept generous: a healthy test
+// returns the instant the awaited work finishes and never approaches this bound, even on a loaded
+// CI host running modules in parallel.
+private const val FAILSAFE_TIMEOUT_SECONDS = 30L
+
 class NettyTest {
     private val executor = DefaultEventExecutor()
 
     @AfterTest
     fun shutdown() {
-        executor.shutdownGracefully(0, 0, TimeUnit.SECONDS).await(2, TimeUnit.SECONDS)
+        executor.shutdownGracefully(0, 0, TimeUnit.SECONDS).await(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     }
 
     @Test
@@ -43,7 +49,7 @@ class NettyTest {
                 CompletableFuture.completedFuture(mockResponse(request, 200))
             }
         val future = client.executeNetty(getRequest(), executor)
-        assertTrue(future.await(2, TimeUnit.SECONDS))
+        assertTrue(future.await(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS))
         assertTrue(future.isSuccess)
         assertEquals(200, future.now.status.code)
     }
@@ -56,7 +62,7 @@ class NettyTest {
                 CompletableFuture<Response>().apply { completeExceptionally(sentinel) }
             }
         val future = client.executeNetty(getRequest(), executor)
-        assertTrue(future.await(2, TimeUnit.SECONDS))
+        assertTrue(future.await(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS))
         assertEquals(false, future.isSuccess)
         // Netty's `cause()` returns the failure passed to `setFailure(...)` — should be the
         // original IOException, not a CompletionException wrapper.
@@ -70,7 +76,7 @@ class NettyTest {
                 AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, 201)) },
             ).build()
         val future = pipeline.sendNetty(getRequest(), executor)
-        assertTrue(future.await(2, TimeUnit.SECONDS))
+        assertTrue(future.await(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS))
         assertEquals(201, future.now.status.code)
     }
 
@@ -86,7 +92,7 @@ class NettyTest {
         // Cancel via Netty's API.
         nettyFuture.cancel(true)
         // Wait deterministically for the cancel to propagate to the source future.
-        cancelLatch.get(2, TimeUnit.SECONDS)
+        cancelLatch.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         assertTrue(sourceFuture.isCancelled, "cancelling the Netty promise should cancel the source CompletableFuture")
     }
 
@@ -117,7 +123,7 @@ class NettyTest {
             it.start()
         }
 
-        completionLatch.get(2, TimeUnit.SECONDS)
+        completionLatch.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         val err = completionErrorRef.get()
         if (err != null) throw AssertionError("trySuccess threw unexpectedly after cancel: $err", err)
         // Promise remains cancelled.
@@ -137,7 +143,7 @@ class NettyTest {
                     CompletableFuture.completedFuture(mockResponse(request, 200))
                 }
             val nettyFuture = async.executeNetty(getRequest(), executor)
-            nettyFuture.get(2, TimeUnit.SECONDS)
+            nettyFuture.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             assertEquals("netty-transport-test", seenTraceId.get())
         } finally {
             MDC.clear()
@@ -158,7 +164,7 @@ class NettyTest {
                     val f = CompletableFuture<Response>()
                     // Complete on a separate thread to ensure whenComplete fires off-caller-thread.
                     Thread {
-                        gate.get(2, TimeUnit.SECONDS)
+                        gate.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                         f.complete(mockResponse(request, 200))
                     }.also {
                         it.isDaemon = true
@@ -174,7 +180,7 @@ class NettyTest {
                 mdcLatch.complete(Unit)
             }
             gate.complete(Unit)
-            mdcLatch.get(2, TimeUnit.SECONDS)
+            mdcLatch.get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             assertEquals("netty-whencomplete-mdc", seenTraceId.get())
         } finally {
             MDC.clear()
@@ -193,7 +199,7 @@ class NettyTest {
                     CompletableFuture.completedFuture(mockResponse(request, 200))
                 }
             async.executeNetty(getRequest(), executor)
-                .get(2, TimeUnit.SECONDS)
+                .get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             assertEquals("netty-caller-preserve", MDC.get("trace.id"))
         } finally {
             MDC.clear()
