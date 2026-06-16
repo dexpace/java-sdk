@@ -41,7 +41,12 @@ plugins {
 // `group` and `version` are set once in `gradle.properties` and applied by Gradle to the root
 // project and every subproject — see that file.
 
-// Coverage: aggregate every Kover-enabled subproject through this root project's reports.
+// Coverage: aggregate every Kover-enabled *library* subproject through this root project's
+// reports. `sdk-example` is deliberately absent: it is sample code built around a `main()`, and
+// folding it into the aggregate would drag the 80% line-coverage floor down for code that exists
+// to be read and run, not unit-tested to the library standard. The example does not apply the
+// Kover plugin, so it contributes nothing to these reports; its own smoke test still runs under
+// `build` and proves the sample assembles and executes end-to-end.
 dependencies {
     kover(project(":sdk-core"))
     kover(project(":sdk-io-okio3"))
@@ -82,12 +87,15 @@ tasks.named("check") {
     dependsOn(tasks.named("koverVerify"))
 }
 
-// Keep the test-only shrink-survival module out of the binary-compatibility snapshot. It ships no
-// public artifact, so it needs no committed `.api` file; without this exclusion apiCheck would
-// demand one (and apiDump would generate a spurious snapshot for an unpublished module). Mirrors
-// how the module is also left out of the kover aggregate below.
+// Keep the unpublished modules out of the binary-compatibility snapshot. Neither ships a public
+// artifact, so neither needs a committed `.api` file; without these exclusions apiCheck would
+// demand one (and apiDump would generate a spurious snapshot for an unpublished module). Both are
+// also left out of the kover aggregate above.
+//   - `sdk-shrink-test`: the test-only R8 shrink-survival guard.
+//   - `sdk-example`: the runnable end-to-end usage sample (an `application` module, no stable ABI).
 apiValidation {
     ignoredProjects += "sdk-shrink-test"
+    ignoredProjects += "sdk-example"
 }
 
 allprojects {

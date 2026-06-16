@@ -29,9 +29,10 @@ modules) to skip it. See that module's `build.gradle.kts` for the pipeline.
 
 ## Repository Layout
 
-Ten Gradle modules (see `settings.gradle.kts`). `gradle/libs.versions.toml` is the single source of truth
-for dependency and plugin versions. Group `org.dexpace`, version `0.0.1-alpha.1`. (The tenth,
-`sdk-shrink-test`, is a test-only, unpublished R8 shrink-survival guard — not listed below.)
+Eleven Gradle modules (see `settings.gradle.kts`). `gradle/libs.versions.toml` is the single source of
+truth for dependency and plugin versions. Group `org.dexpace`, version `0.0.1-alpha.1`. (Two are
+unpublished and not listed below: `sdk-shrink-test`, a test-only R8 shrink-survival guard, and
+`sdk-example`, a runnable end-to-end usage sample.)
 
 | Module | Purpose | JVM target |
 |---|---|---|
