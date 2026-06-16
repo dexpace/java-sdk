@@ -38,6 +38,13 @@ import java.nio.charset.StandardCharsets
  * Handlers are typically stateless and shared across requests; the built-in factories return
  * stateless instances. A stateful handler must guard its own state.
  *
+ * ## Nullability
+ *
+ * A handler that may legitimately produce `null` (e.g. an absent-but-valid payload) should be typed
+ * `ResponseHandler<T?>` so the nullability is visible to Kotlin and Java callers alike; otherwise a
+ * `null` slips through a non-null `T` as a platform value. [ParsedResponse.value] memoizes a `null`
+ * result correctly either way.
+ *
  * @param T The typed result this handler produces.
  */
 public fun interface ResponseHandler<out T> {
@@ -87,10 +94,13 @@ public fun interface ResponseHandler<out T> {
                     val body = it.body ?: return@use
                     val source = body.source()
                     // Pump into a throwaway scratch buffer (cleared each round) so the connection
-                    // is released without materializing the whole body in memory.
-                    val scratch = Io.provider.buffer()
-                    while (source.read(scratch, DRAIN_CHUNK_BYTES) != -1L) {
-                        scratch.clear()
+                    // is released without materializing the whole body in memory. The buffer is
+                    // closed deterministically so its segments are recycled even if the drain
+                    // throws mid-stream, rather than leaning on the GC.
+                    Io.provider.buffer().use { scratch ->
+                        while (source.read(scratch, DRAIN_CHUNK_BYTES) != -1L) {
+                            scratch.clear()
+                        }
                     }
                 }
             }

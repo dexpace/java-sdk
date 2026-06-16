@@ -84,8 +84,12 @@ public class ParsedResponse<out T> internal constructor(
      * just [IOException]. Handlers commonly throw **unchecked** exceptions (the Jackson `jsonHandler`
      * throws `SerdeException`), so callers should not assume the only escape is [IOException].
      *
-     * @return The parsed value (which may be `null` if the handler produces `null`).
-     * @throws IOException If the handler failed with an [IOException] — cached and re-thrown.
+     * @return The parsed value (which may be `null` if the handler is typed `ResponseHandler<T?>`
+     *   and produces `null`).
+     * @throws IOException If the handler failed with an [IOException] — cached and re-thrown. The
+     *   `@Throws` declaration covers only the checked surface for Java callers; the handler may also
+     *   propagate **unchecked** exceptions (e.g. `SerdeException` from the Jackson `jsonHandler`),
+     *   which are memoized and re-thrown the same way.
      */
     @Throws(IOException::class)
     public fun value(): T {
