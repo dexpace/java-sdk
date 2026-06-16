@@ -36,3 +36,8 @@ include("sdk-serde-jackson")
 // downstream shrinking with its shipped consumer keep-rules. Kept out of the kover aggregate and
 // the binary-compatibility snapshot (see root build.gradle.kts).
 include("sdk-shrink-test")
+
+// Runnable end-to-end usage sample: an `application`-plugin module that wires an IoProvider,
+// a transport, a serde, and a full HTTP pipeline against an embedded server. Unpublished,
+// excluded from the binary-compatibility and coverage gates (see root build.gradle.kts).
+include("sdk-example")
