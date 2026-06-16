@@ -103,10 +103,24 @@ public class OkHttpTransport private constructor(
     /**
      * Asynchronously executes [request]. Returns a [CompletableFuture] that completes with
      * the [Response] on success or completes exceptionally with the transport failure on
-     * error. Cancelling the future cancels the underlying OkHttp [Call].
+     * error — including a request-adaptation failure, which runs on the calling thread but is
+     * delivered through the future rather than thrown synchronously. Cancelling the future
+     * cancels the underlying OkHttp [Call].
      */
     override fun executeAsync(request: Request): CompletableFuture<Response> {
-        val okRequest = requestAdapter.adapt(request)
+        val okRequest =
+            try {
+                requestAdapter.adapt(request)
+            } catch (e: Exception) {
+                // The async contract is that errors arrive through the returned future. Request
+                // adaptation runs on the caller's thread and can throw (e.g. a method/body
+                // mismatch OkHttp rejects), so route the failure into a completed-exceptionally
+                // future instead of throwing synchronously where a future-composing caller's
+                // .exceptionally/.handle would never observe it. Errors (OOM and other JVM-fatal
+                // conditions) are left to propagate up the caller's stack rather than be packaged
+                // into a future that may never be awaited.
+                return failedFuture(e)
+            }
         val call = client.newCall(okRequest)
         val future = CompletableFuture<Response>()
         call.enqueue(
@@ -147,6 +161,14 @@ public class OkHttpTransport private constructor(
         }
         return future
     }
+
+    /**
+     * A future already completed exceptionally with [t]. Routes a synchronous request-adaptation
+     * failure through the async contract's single error channel rather than throwing on the
+     * caller's thread. ([CompletableFuture.failedFuture] is JDK 9+; this module targets Java 8.)
+     */
+    private fun failedFuture(t: Throwable): CompletableFuture<Response> =
+        CompletableFuture<Response>().apply { completeExceptionally(t) }
 
     /**
      * Best-effort close on a discard path. Used when an adapted [Response] loses the race to a

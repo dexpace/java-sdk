@@ -344,9 +344,11 @@ public class RetryStep
 
         /**
          * Returns true when [request] is safe to retry. A body-less request is retry-safe only
-         * when its method is in [RetrySettings.retryableMethods] (idempotent); a body-bearing
-         * request is retry-safe only when its body is replayable — a non-replayable body cannot
-         * be re-sent (the second `writeTo` trips the consume-once guard). Ensuring a re-sent
+         * when its method is in [RetrySettings.retryableMethods] (idempotent) — the gate keys off
+         * method idempotency, not off the absence of a body, so a body-less non-idempotent request
+         * (a bare `POST`) is NOT retried even though there is no payload to re-send. A body-bearing
+         * request is retry-safe only when its body is replayable — a non-replayable body cannot be
+         * re-sent (the second `writeTo` trips the consume-once guard). Ensuring a re-sent
          * body-bearing request is idempotent is the caller's responsibility.
          */
         private fun canRetry(request: Request): Boolean {

@@ -568,6 +568,25 @@ class LoggingEventTest {
     }
 
     @Test
+    fun `per-event field overrides globalContext key and is emitted exactly once`() {
+        // A key carried by both the logger's globalContext and a per-event field() must be
+        // emitted once, with the per-event value winning. Two KeyValuePair entries with the
+        // same key serialise to invalid duplicate-key JSON in JSON appenders.
+        val (logger, fake) = enabledLogger(mapOf("region" to "global"))
+        logger.atInfo().field("region", "event").log()
+
+        val rec = fake.records.single()
+        val regionEntries = rec.keyValues.filter { it.key == "region" }
+        assertEquals(
+            1,
+            regionEntries.size,
+            "expected exactly one region entry; a second from globalContext would be a duplicate KeyValuePair",
+        )
+        // The per-event field wins over the globalContext value.
+        assertEquals("event", regionEntries.single().value)
+    }
+
+    @Test
     fun `MDC keys absent from globalContext are still folded`() {
         // Guard the collision fix against over-skipping: an MDC key NOT present in
         // globalContext must continue to be folded into the event.

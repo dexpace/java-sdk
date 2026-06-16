@@ -271,6 +271,10 @@ Shipped pillar/step implementations live in `http.pipeline.steps`: `DefaultRedir
 `DefaultRetryStep`, `AuthStep` (+ `BearerTokenAuthStep` / `KeyCredentialAuthStep`),
 `DefaultInstrumentationStep`, and the redirect/retry option types.
 
+For why this layer uses ordered stages with pillar-uniqueness rather than nested `HttpClient`
+decorators — and the one cost that buys (the `next.copy()` re-drive contract) — see
+[Pipeline Mechanism](pipelines.md#why-ordered-stages-not-nested-decorators).
+
 #### Recovery-aware primitives (`org.dexpace.sdk.core.pipeline`)
 
 A lower-level layer that threads a sealed `ResponseOutcome` so recovery steps observe and

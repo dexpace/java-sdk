@@ -127,7 +127,8 @@ public class JdkHttpTransport private constructor(
     /**
      * Asynchronously executes [request]. Returns a [CompletableFuture] that completes with
      * the [Response] on success or completes exceptionally with the transport failure on
-     * error.
+     * error — including a request-adaptation failure, which runs on the calling thread but is
+     * delivered through the future rather than thrown synchronously.
      *
      * Cancelling the returned future cancels the underlying JDK exchange, and a response that
      * arrives in the cancellation race window is closed so its connection is not leaked (see
@@ -137,7 +138,19 @@ public class JdkHttpTransport private constructor(
      * completions to release the body's connection back to the pool.
      */
     override fun executeAsync(request: Request): CompletableFuture<Response> {
-        val jdkRequest = requestAdapter.adapt(request, responseTimeout)
+        val jdkRequest =
+            try {
+                requestAdapter.adapt(request, responseTimeout)
+            } catch (e: Exception) {
+                // The async contract is that errors arrive through the returned future. Request
+                // adaptation runs on the caller's thread and can throw (e.g. a CONNECT request the
+                // JDK client rejects), so route the failure into a failed future instead of
+                // throwing synchronously where a future-composing caller's .exceptionally/.handle
+                // would never observe it. Errors (OOM and other JVM-fatal conditions) are left to
+                // propagate up the caller's stack rather than be packaged into a future that may
+                // never be awaited.
+                return CompletableFuture.failedFuture<Response>(e)
+            }
         val inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
         return bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
     }
