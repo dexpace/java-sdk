@@ -56,6 +56,10 @@ public abstract interface class org/dexpace/sdk/core/generics/Builder {
 	public abstract fun build ()Ljava/lang/Object;
 }
 
+public final class org/dexpace/sdk/core/generics/BuilderChecksKt {
+	public static final fun checkRequired (Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+}
+
 public final class org/dexpace/sdk/core/http/auth/AuthChallengeParser {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/http/auth/AuthChallengeParser;
 	public static final fun parse (Ljava/lang/String;)Ljava/util/List;
