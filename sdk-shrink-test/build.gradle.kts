@@ -87,8 +87,11 @@ val shippedConsumerRulePaths: List<String> =
     )
 
 // Bundle the consumer program and its entire runtime classpath into one jar — the program R8 will
-// shrink. Service-loader manifests are concatenated; other duplicates (e.g. repeated module
-// metadata, signature files) are dropped so the merged jar stays valid.
+// shrink. `DuplicatesStrategy.EXCLUDE` keeps only the first occurrence of any duplicated path and
+// skips the rest; it does not merge. That includes service-loader manifests — colliding
+// `META-INF/services/<iface>` entries are NOT concatenated, only the first wins. It happens not to
+// matter for the current classpath (no colliding service files), but a future dependency that
+// ships one would need explicit concatenation (e.g. a Shadow `ServiceFileTransformer`) here.
 val buildShrinkInputJar by tasks.registering(Jar::class) {
     group = "shrink"
     description = "Bundles the consumer program and its runtime classpath into the R8 input jar."

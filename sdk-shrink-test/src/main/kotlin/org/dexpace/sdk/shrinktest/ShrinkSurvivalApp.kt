@@ -26,10 +26,9 @@ import org.dexpace.sdk.transport.okhttp.OkHttpTransport
  * seams — the same surface the shipped `META-INF/proguard` consumer rules protect — and prints
  * [SUCCESS_SENTINEL] on a clean run.
  *
- * The harness runs this twice: once from the un-shrunk jar to establish the baseline, and once
- * from the R8-shrunk jar. Because the shrunk run performs a real HTTP round-trip and a real JSON
- * round-trip, it proves not merely that the kept classes still exist but that their members
- * remain wired correctly after tree-shaking and (potential) renaming.
+ * The harness runs this from the R8-shrunk jar. Because that run performs a real HTTP round-trip
+ * and a real JSON round-trip, it proves not merely that the kept classes still exist but that their
+ * members remain wired correctly after tree-shaking and (potential) renaming.
  */
 public object ShrinkSurvivalApp {
     /** Printed verbatim to stdout once every exercise below has passed. */

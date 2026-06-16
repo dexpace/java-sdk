@@ -66,5 +66,9 @@
 # Kotlin emits @Metadata on every class; reflective Kotlin tooling (including Jackson's Kotlin
 # module) reads it to recover constructor parameter names and nullability. Strip it and
 # data-class binding silently degrades, so keep the annotation across the toolkit.
+#
+# Scope note: `-keepattributes` is a global directive. Because this file ships under
+# META-INF/proguard, depending on sdk-core adds these attributes to the consumer's *entire*
+# program, not just the SDK's classes.
 -keepattributes RuntimeVisibleAnnotations,AnnotationDefault
 -keep class kotlin.Metadata { *; }

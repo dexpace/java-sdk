@@ -20,6 +20,13 @@
 # conventional — and the only safe — consumer recommendation is to keep the databind, core, and
 # annotation packages wholesale, retain the attributes Jackson reflects over, and keep every
 # annotation enum intact.
+#
+# Scope note: because this file ships under META-INF/proguard, R8/AGP applies it to the consumer's
+# entire program, not just the SDK's classes. The wholesale Jackson `-keep` rules below therefore
+# exempt the consumer's *entire* Jackson surface from shrinking — including any Jackson the app uses
+# directly, elsewhere. The `-keepattributes` directive is likewise global: it adds these attributes
+# to the whole consumer build, not only to SDK classes. An app that wants tighter shrinking can
+# override these rules in its own configuration.
 -keepattributes Signature,*Annotation*,EnclosingMethod,InnerClasses
 -keep class com.fasterxml.jackson.databind.** { *; }
 -keep class com.fasterxml.jackson.core.** { *; }
