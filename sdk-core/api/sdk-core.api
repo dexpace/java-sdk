@@ -793,7 +793,6 @@ public class org/dexpace/sdk/core/http/pipeline/steps/DefaultRedirectStep : org/
 public class org/dexpace/sdk/core/http/pipeline/steps/DefaultRetryStep : org/dexpace/sdk/core/http/pipeline/steps/RetryStep {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/DefaultRetryStep$Companion;
 	public static final field DEFAULT_MAX_RETRIES I
-	public static final field MAX_SHIFT_TRY_COUNT I
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;)V
@@ -2163,7 +2162,10 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetryAfterParser {
 
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings {
 	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$Companion;
+	public static final field DEFAULT_DELAY_MULTIPLIER D
 	public static final field DEFAULT_INITIAL_DELAY Ljava/time/Duration;
+	public static final field DEFAULT_JITTER D
+	public static final field DEFAULT_MAX_ATTEMPTS I
 	public static final field DEFAULT_MAX_DELAY Ljava/time/Duration;
 	public static final field DEFAULT_RETRYABLE_METHODS Ljava/util/Set;
 	public static final field DEFAULT_RETRYABLE_STATUSES Ljava/util/Set;

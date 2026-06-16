@@ -389,13 +389,21 @@ and carries:
 | `maxDelay`          | `8s`                      | Cap on the scaled delay                                       |
 | `maxAttempts`       | `3`                       | Total attempts including the first send; `1` disables retries |
 | `jitter`            | `0.2`                     | Symmetric jitter fraction in `[0.0, 1.0]`                     |
-| `retryableStatuses` | `{429, 500, 502, 503, 504}` | Status codes that trigger a retry on an `HttpException`     |
+| `retryableStatuses` | `{408, 429, 500, 502, 503, 504}` | Status codes that trigger a retry on an `HttpException` |
 | `retryableMethods`  | `{GET, HEAD, OPTIONS, PUT, DELETE}` | Methods retryable by RFC 9110; others need a replayable body |
 | `scheduler`         | `null`                    | Optional caller scheduler; `null` uses a daemon scheduler     |
 
-`408` (Request Timeout) is intentionally excluded from the default `retryableStatuses` — a
-server-side 408 usually means the client was slow to send and is unlikely to improve on retry.
-Callers that disagree can opt in via the builder.
+These are the SDK's canonical retry defaults: the stage-based `DefaultRetryStep` (and its
+`HttpRetryOptions`) share the same base delay (`200ms`), max delay (`8s`), multiplier (`2.0`),
+jitter (`0.2`), retryable-status policy, and total send budget (3 attempts). Both stacks compute
+their exponential schedule through the one `BackoffCalculator`, so the two cannot drift apart;
+the only intentional difference is that the stage-based step has no `totalTimeout` deadline.
+`HttpRetryOptions` counts *retries* (`maxRetries`, default `2`) while `RetrySettings` counts
+*total attempts* (`maxAttempts`, default `3`) — both default to the same 3 sends.
+
+`408` (Request Timeout) **is** retryable by default, matching
+`RetryUtils.isRetryable`/`HttpException.retryable` and the stage-based step. Callers wanting a
+stricter posture can pass a tighter `retryableStatuses` set to the builder.
 
 ---
 

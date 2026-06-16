@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.HttpHeaderName
+import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import org.dexpace.sdk.core.util.RetryUtils
 import java.time.Duration
 import java.util.Collections
@@ -40,12 +41,15 @@ public fun interface HttpRetryDelayProvider {
 }
 
 /**
- * Configuration for [DefaultRetryStep]. Defaults mirror Azure Core's retry policy:
- *  - [maxRetries] = 3
- *  - [baseDelay] = 800ms (exponentially scaled per attempt)
- *  - [maxDelay] = 8s (cap on the scaled delay)
+ * Configuration for [DefaultRetryStep]. The numeric defaults are the SDK's canonical retry
+ * defaults, shared with the recovery-aware [RetrySettings] so both retry stacks compute the
+ * same backoff schedule (via [org.dexpace.sdk.core.pipeline.step.retry.BackoffCalculator]):
+ *  - [maxRetries] = 2 (initial send + 2 retries = 3 total attempts, matching
+ *    [RetrySettings.DEFAULT_MAX_ATTEMPTS]).
+ *  - [baseDelay] = 200ms (= [RetrySettings.DEFAULT_INITIAL_DELAY]; exponentially scaled per attempt).
+ *  - [maxDelay] = 8s (= [RetrySettings.DEFAULT_MAX_DELAY]; cap on the scaled delay).
  *  - [fixedDelay] = null (exponential backoff is used; when non-null it overrides the
- *    backoff entirely and every retry waits exactly [fixedDelay])
+ *    backoff entirely and every retry waits exactly [fixedDelay]).
  *  - [retryAfterHeaders] = `Retry-After`, `retry-after-ms`, `x-ms-retry-after-ms` —
  *    parsed in declared order; the first present wins. Drop the Microsoft-specific
  *    variants by passing a tighter list for stricter posture.
@@ -54,15 +58,20 @@ public fun interface HttpRetryDelayProvider {
  *    anywhere in the cause chain, per [RetryUtils.isRetryable].
  *  - [delayFromCondition] = null delay (falls through to `Retry-After` parsing, then backoff).
  *
+ * The exponential schedule, multiplier (2.0), and symmetric jitter (0.2) are sourced from the
+ * shared [RetrySettings] constants and applied by `BackoffCalculator`, so this stack and the
+ * recovery-aware stack cannot drift apart. The one intentional difference is the deadline: this
+ * stage-based step has no total-timeout budget, so it never shrinks a delay against one.
+ *
  * The companion [HttpRetryOptions.fixed] factory builds an options instance whose delay
  * never grows — useful for test injection or high-throughput retry against flaky endpoints.
  */
 public class HttpRetryOptions
     @JvmOverloads
     constructor(
-        public val maxRetries: Int = 3,
-        public val baseDelay: Duration = Duration.ofMillis(DEFAULT_BASE_DELAY_MS),
-        public val maxDelay: Duration = Duration.ofSeconds(DEFAULT_MAX_DELAY_SECONDS),
+        public val maxRetries: Int = DEFAULT_MAX_RETRIES,
+        public val baseDelay: Duration = RetrySettings.DEFAULT_INITIAL_DELAY,
+        public val maxDelay: Duration = RetrySettings.DEFAULT_MAX_DELAY,
         public val fixedDelay: Duration? = null,
         public val retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS,
         public val shouldRetryCondition: HttpRetryConditionPredicate =
@@ -72,10 +81,9 @@ public class HttpRetryOptions
         public val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
     ) {
         public companion object {
-            // Default exponential-backoff parameters tuned to favour fast first-retry while
-            // bounding cumulative latency. Aligned with Azure Core's RetryOptions defaults.
-            private const val DEFAULT_BASE_DELAY_MS = 800L
-            private const val DEFAULT_MAX_DELAY_SECONDS = 8L
+            // The default retry count is the canonical SDK budget, kept in one place on
+            // DefaultRetryStep (initial send + DEFAULT_MAX_RETRIES == RetrySettings.DEFAULT_MAX_ATTEMPTS).
+            private const val DEFAULT_MAX_RETRIES = DefaultRetryStep.DEFAULT_MAX_RETRIES
 
             /**
              * The three `Retry-After` header forms parsed by [DefaultRetryStep]. Order matters —
