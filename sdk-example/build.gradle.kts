@@ -38,7 +38,10 @@ dependencies {
 
     // MockWebServer ships in the OkHttp project as a generic embedded HTTP server. The sample
     // drives it from `main()` so the end-to-end exchange runs deterministically with no network.
-    implementation(libs.okhttp.mockwebserver.junit5)
+    // The plain `mockwebserver3` artifact is used (not the `-junit5` variant): the sample manages
+    // the server lifecycle by hand from `main()` and the smoke test, so no JUnit 5 extension — and
+    // none of the JUnit it would drag onto the runtime classpath — is needed here.
+    implementation(libs.okhttp.mockwebserver)
     // okhttp-tls mints a self-signed certificate so the embedded server can speak HTTPS — the
     // AUTH pillar step refuses to stamp credentials over plaintext, so the sample uses TLS exactly
     // as a production caller would. `OkHttpClient` is configured directly here, hence the explicit

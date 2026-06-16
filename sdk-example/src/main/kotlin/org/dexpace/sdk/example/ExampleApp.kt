@@ -139,7 +139,11 @@ public fun buildPipeline(transport: HttpClient): HttpPipeline =
     HttpPipelineBuilder(transport)
         // REDIRECT pillar — follow 3xx responses within a hop budget.
         .append(DefaultRedirectStep())
-        // RETRY pillar — exponential backoff that honours `Retry-After`.
+        // RETRY pillar — exponential backoff that honours `Retry-After`. This re-sends a request
+        // when its method is idempotent or its body is replayable; the sample's POST carries a
+        // replayable (in-memory) body, so it qualifies. A real caller retrying a non-idempotent
+        // write should pair this with an idempotency key (see `IdempotencyKeyStep`) so a retried
+        // POST cannot create a duplicate server-side.
         .append(DefaultRetryStep())
         // AUTH pillar — stamp a static API key into the `Authorization` header.
         .append(
