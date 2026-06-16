@@ -761,6 +761,8 @@ public class org/dexpace/sdk/core/http/pipeline/steps/BearerTokenAuthStep : org/
 	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	protected fun authorizeRequest (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
+	protected fun authorizeRequestOnChallenge (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/request/Request;
+	protected fun bearerHeaderValue (Ljava/lang/String;)Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncInstrumentationStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {

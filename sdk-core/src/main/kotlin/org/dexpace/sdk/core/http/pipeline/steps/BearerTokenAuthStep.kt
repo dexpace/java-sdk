@@ -7,10 +7,12 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
+import org.dexpace.sdk.core.http.auth.AuthChallengeParser
 import org.dexpace.sdk.core.http.auth.BearerToken
 import org.dexpace.sdk.core.http.auth.BearerTokenProvider
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Clock
 import java.time.Duration
 import java.util.concurrent.locks.ReentrantLock
@@ -37,6 +39,29 @@ import kotlin.concurrent.withLock
  * to decide when to refresh pre-emptively (default 30 seconds). A token whose `expiresAt`
  * is `now + 29s` with the default margin is considered expired and is refreshed.
  *
+ * ## Eviction on 401
+ *
+ * The refresh margin only covers *local* expiry. A server may revoke a token before its
+ * advertised expiry, and the cached token would otherwise keep being stamped until the
+ * margin elapsed. To handle this, [authorizeRequestOnChallenge] evicts the rejected token
+ * on a 401 + `WWW-Authenticate` response and re-stamps the request with a freshly fetched
+ * one, so the single retry driven by [AuthStep] carries a new credential. Eviction is an
+ * *additional* trigger layered on top of the margin check — it does not change pre-emptive
+ * refresh. Only the token that produced the 401 is evicted; a token a concurrent request
+ * already refreshed in the meantime is left in place. The retry runs regardless of HTTP
+ * method (the in-step hook is not gated by retry-safety), so a non-idempotent POST is
+ * re-authenticated too.
+ *
+ * Eviction only fires when the `WWW-Authenticate` header actually advertises a `Bearer`
+ * challenge. A 401 carrying only a non-bearer challenge (e.g. `Basic`) — or an unparseable
+ * one — is surfaced unchanged, because refreshing the bearer token would not satisfy it: the
+ * retry would just be rejected again, at the cost of a wasted token fetch and round trip.
+ *
+ * A request that reaches the challenge hook carrying **no** `Authorization` header is a
+ * cross-origin redirect re-issue whose credential the AUTH stage deliberately suppressed
+ * (see [CrossOriginRedirectMarker]). In that case the hook re-stamps nothing and surfaces the
+ * 401 unchanged, so the caller's token is never attached to a server-chosen foreign host.
+ *
  * ## Errors from [provider]
  *
  *  - Throws → propagated. The exception is **not** cached, so a subsequent request
@@ -46,8 +71,11 @@ import kotlin.concurrent.withLock
  *
  * ## Open for subclassing
  *
- * Users wanting to override [authorizeRequestOnChallenge] (e.g. force a token refresh on
- * 401) can extend this class.
+ * Eviction-on-401 is built in. Users wanting to customise challenge handling further (e.g.
+ * inspect the `WWW-Authenticate` scheme before deciding to refresh) can override
+ * [authorizeRequestOnChallenge]. A subclass that changes the stamped header format by
+ * overriding [authorizeRequest] must also override [bearerHeaderValue] so the eviction match
+ * keeps recognising the rejected token.
  *
  * Thread-safety: see Caching above.
  * Cancellation: token fetch may block; the [provider] is expected to respect interrupts.
@@ -68,9 +96,83 @@ public open class BearerTokenAuthStep
         override fun authorizeRequest(request: Request): Request {
             val token = currentToken()
             return request.newBuilder()
-                .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, "Bearer ${token.token}")
+                .setHeader(HttpHeaderName.AUTHORIZATION.caseSensitiveName, bearerHeaderValue(token.token))
                 .build()
         }
+
+        /**
+         * On a 401 challenge, evict the token that was just rejected and re-stamp [request]
+         * with a freshly fetched one so [AuthStep]'s single retry carries a new credential.
+         *
+         * Returns `null` — surfacing the 401 unchanged with no retry — in two cases:
+         *
+         *  - [request] carried no `Authorization` header. A request reaches this hook
+         *    credential-free only when the AUTH stage deliberately suppressed stamping, i.e. a
+         *    cross-origin redirect re-issue (see [CrossOriginRedirectMarker]). Re-stamping there
+         *    would attach the caller's bearer token to a server-chosen foreign host and re-drive it
+         *    through the chain, leaking the token cross-origin and bypassing the HTTPS guard that
+         *    only [AuthStep.process]'s first pass enforces. Refusing to re-stamp preserves that
+         *    suppression.
+         *  - [response]'s `WWW-Authenticate` header does not advertise a `Bearer` challenge.
+         *    Refreshing the bearer token cannot satisfy a `Basic`/`Digest`-only (or unparseable)
+         *    challenge, so the retry would only earn a second 401 after a wasted fetch and round
+         *    trip; the original 401 is surfaced instead.
+         *
+         * Otherwise eviction is scoped to the exact token that produced the 401 (matched against
+         * the `Authorization` header [request] carried): if a concurrent request already refreshed
+         * the cache, that newer token is preserved and reused for the retry rather than being
+         * discarded. The subsequent [currentToken] call then re-fetches only when the cache is
+         * actually empty, so a 401 storm across threads still funnels through the same
+         * double-checked-locking fetch as the expiry-margin path.
+         */
+        override fun authorizeRequestOnChallenge(
+            request: Request,
+            response: Response,
+        ): Request? {
+            // No credential on the rejected request means stamping was suppressed (cross-origin
+            // redirect). Do not re-attach one: surface the 401 unchanged.
+            val rejectedHeader = request.headers.get(HttpHeaderName.AUTHORIZATION) ?: return null
+            // A token refresh can only satisfy a Bearer challenge; surface anything else unchanged
+            // rather than burning a fetch + retry that the server will just reject again.
+            if (!offersBearerChallenge(response)) return null
+            evictRejectedToken(rejectedHeader)
+            return authorizeRequest(request)
+        }
+
+        /**
+         * Returns `true` when [response]'s `WWW-Authenticate` header advertises a `Bearer`
+         * challenge. A header with only non-bearer challenges (or one that does not parse) returns
+         * `false`. [AuthStep] guarantees the header is present before this hook runs; the explicit
+         * null-guard keeps the method correct if called from elsewhere.
+         */
+        private fun offersBearerChallenge(response: Response): Boolean {
+            val header = response.headers.get(HttpHeaderName.WWW_AUTHENTICATE) ?: return false
+            return AuthChallengeParser.parse(header).any { it.scheme == BEARER_SCHEME }
+        }
+
+        /**
+         * Clears [cachedToken] iff it is still the token whose stamped header is [rejectedHeader].
+         * Guarded by the same [lock] as the refresh path so the read-compare-clear is atomic
+         * against a concurrent refresh. Routes the comparison through [bearerHeaderValue] so it
+         * stays in lock-step with the value [authorizeRequest] stamps.
+         */
+        private fun evictRejectedToken(rejectedHeader: String) {
+            lock.withLock {
+                val current = cachedToken ?: return
+                if (bearerHeaderValue(current.token) == rejectedHeader) {
+                    cachedToken = null
+                }
+            }
+        }
+
+        /**
+         * The `Authorization` header value for [token]. Single source of truth shared by
+         * [authorizeRequest] (stamping) and [evictRejectedToken] (the eviction match), so the two
+         * never drift. A subclass that overrides [authorizeRequest] to emit a different header
+         * format must override this too, or eviction will stop matching and a rejected token will
+         * be re-fetched but never cleared.
+         */
+        protected open fun bearerHeaderValue(token: String): String = "Bearer $token"
 
         private fun currentToken(): BearerToken {
             // Fast path: lock-free volatile read; return the cached token if it's still valid.
@@ -122,5 +224,9 @@ public open class BearerTokenAuthStep
             // Default refresh margin: refresh the bearer token 30 seconds before its expiry
             // so an in-flight request never carries a near-expired credential.
             private const val DEFAULT_REFRESH_MARGIN_SECONDS = 30L
+
+            // Lower-cased `Bearer` scheme name; AuthChallengeParser normalises schemes to lower
+            // case, so the eviction gate compares against this constant.
+            private const val BEARER_SCHEME = "bearer"
         }
     }
