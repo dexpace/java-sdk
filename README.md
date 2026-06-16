@@ -19,6 +19,20 @@ Written in Kotlin, targeting JDK 8 bytecode. `sdk-core` has zero runtime depende
 
 Current version `0.0.1-alpha.1`. The public API is stabilising and breaking changes between alpha releases are expected. External pull requests are welcome.
 
+## Contents
+
+[Quick start](#quick-start) ·
+[Design principles](#design-principles) ·
+[Modules](#modules) ·
+[Documentation](#documentation) ·
+[Usage](#usage) ·
+[Pipeline stages](#pipeline-stages) ·
+[Package map](#package-map-sdk-core) ·
+[Shrinking with R8 / ProGuard](#shrinking-with-r8--proguard) ·
+[Building](#building) ·
+[Dependencies](#dependencies) ·
+[License](#license)
+
 ## Quick start
 
 ```kotlin
@@ -47,7 +61,7 @@ pipeline.send(request).use { response ->
 }
 ```
 
-The rest of this document covers the moving parts: transports, the async pipeline, runtime adapters, and body logging.
+For a complete, runnable version of this wiring — an `IoProvider`, a transport, a serde, and a full pipeline driven against an embedded server — see the `sdk-example` module and run `./gradlew :sdk-example:run`. The rest of this document covers the moving parts: transports, the async pipeline, runtime adapters, and body logging.
 
 ## Design principles
 
@@ -72,6 +86,8 @@ The rest of this document covers the moving parts: transports, the async pipelin
 | `sdk-serde-jackson` | Jackson 2.18 implementation of `Serde` with SDK-correct defaults (`FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`) + `Tristate<T>` ser/de. | Java 8 |
 
 Each adapter module depends on `sdk-core` and exactly one third-party library. JDK 8 or newer is the baseline, with the two exceptions in the table: `sdk-transport-jdkhttp` needs JDK 11 and `sdk-async-virtualthreads` needs JDK 21. Local builds use Gradle 9.3.1 and Kotlin 2.3.21.
+
+Two further modules build but are never published: `sdk-example`, the runnable end-to-end sample above, and `sdk-shrink-test`, a test-only harness that runs R8 against a consumer of the SDK to verify the toolkit survives downstream shrinking.
 
 ## Documentation
 
@@ -269,6 +285,16 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 Token-style APIs (`next_page_token`, `pageToken`, …) are served by `CursorPaginationStrategy`:
 construct it with the desired query-param name, e.g. `CursorPaginationStrategy(items, extractor, "page_token")`.
 
+## Shrinking with R8 / ProGuard
+
+Every published jar carries its own consumer keep-rules under `META-INF/proguard/`. R8 and the
+Android Gradle Plugin apply rules packaged there automatically, so a downstream application that
+shrinks its build inherits them with no extra configuration. The rules protect the parts a shrinker
+cannot prove reachable on its own: the SPI seams wired at runtime (`IoProvider`, the transport
+clients, the serde) and the immutable HTTP models and `Tristate` that reflective serializers bind by
+walking constructors and Kotlin metadata. The test-only `sdk-shrink-test` module runs R8 against a
+consumer of the SDK on every build to keep those rules honest.
+
 ## Building
 
 ```bash
@@ -290,6 +316,7 @@ All of these break the build:
 - ktlint and detekt with `ignoreFailures = false`. Detekt is skipped on `sdk-async-virtualthreads` and `sdk-transport-jdkhttp`, whose JDK 21 / JDK 11 toolchains run analysis on a JDK 25 system JVM that detekt 1.23.x cannot parse; both build scripts link the upstream issue and the re-enable conditions. It runs everywhere else, including the JDK 8 transports.
 - `kotlinx-binary-compatibility-validator` gates the public API surface against committed `.api` snapshots.
 - Aggregate Kover line coverage has an 80% floor.
+- The `sdk-shrink-test` R8 guard, wired into `check`, fails the build if the shipped consumer keep-rules stop protecting the toolkit under shrinking. It needs a JDK 11 toolchain and fetches `com.android.tools:r8` from Google's Maven repo.
 
 ## Dependencies
 
