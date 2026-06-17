@@ -97,7 +97,20 @@ public object AuthChallengeParser {
         // param (likely the next challenge's scheme).
         while (true) {
             cursor.skipOws()
-            if (!cursor.hasMore() || cursor.peek() != ',') break
+            if (!cursor.hasMore()) break
+            if (cursor.peek() != ',') {
+                // After a valid auth-param the grammar only permits a comma
+                // (another param or the next challenge) or end-of-input. Anything
+                // else is a stray trailing token with no separating comma — e.g.
+                // `Bearer realm="x" garbage`. RFC 7235 §2.1 has no production for
+                // it, so the tail is malformed. Skip it to the next top-level
+                // comma so it is not silently misread as a phantom second
+                // challenge's scheme on the next outer iteration, then emit this
+                // challenge with the params parsed before the garbage — matching
+                // the parser's lenient "preserve prior params" recovery contract.
+                cursor.recoverToNextChallenge()
+                break
+            }
             // Save position before consuming the comma — if what follows is the
             // next scheme rather than a param of THIS challenge, we need to leave
             // the comma in place for the outer loop.
