@@ -94,6 +94,28 @@ public class Configuration internal constructor(
         default: Duration,
     ): Duration = get(name)?.let { parseDuration(it) } ?: default
 
+    /**
+     * Resolve a per-phase [Timeout] from the well-known timeout keys
+     * ([CONNECT_TIMEOUT], [READ_TIMEOUT], [WRITE_TIMEOUT], [REQUEST_TIMEOUT]).
+     *
+     * The connect and request phases fall back to the matching phase of [default] (which itself
+     * defaults to [Timeout.NONE]) when their key is missing or unparseable. The read and write
+     * phases are only pinned when their key is present and parses — otherwise they are left unset so
+     * the resulting [Timeout] applies its own request-timeout inheritance. Configuration issues never
+     * throw here: a bad value behaves as if the key were absent.
+     */
+    @JvmOverloads
+    public fun getTimeout(default: Timeout = Timeout.NONE): Timeout {
+        val builder =
+            Timeout
+                .builder()
+                .connectTimeout(getDuration(CONNECT_TIMEOUT, default.connectTimeout))
+                .requestTimeout(getDuration(REQUEST_TIMEOUT, default.requestTimeout))
+        get(READ_TIMEOUT)?.let { parseDuration(it) }?.let { builder.readTimeout(it) }
+        get(WRITE_TIMEOUT)?.let { parseDuration(it) }?.let { builder.writeTimeout(it) }
+        return builder.build()
+    }
+
     public companion object {
         // Well-known keys. `const val` so callers reference them as `Configuration.MAX_RETRY_ATTEMPTS`
         // from both Kotlin and Java without going through `Companion`.
@@ -112,6 +134,30 @@ public class Configuration internal constructor(
 
         /** Standard environment variable for the comma-separated no-proxy host list. */
         public const val NO_PROXY: String = "NO_PROXY"
+
+        /**
+         * Connection-establishment timeout for [getTimeout]. Parsed by [getDuration], so it accepts
+         * ISO-8601 (`PT5S`) or shorthand (`5s`, `500ms`). `0` (or an empty value) means no limit.
+         */
+        public const val CONNECT_TIMEOUT: String = "CONNECT_TIMEOUT"
+
+        /**
+         * Response-read timeout for [getTimeout]. When unset, the read phase inherits
+         * [REQUEST_TIMEOUT]. Same value grammar as [CONNECT_TIMEOUT].
+         */
+        public const val READ_TIMEOUT: String = "READ_TIMEOUT"
+
+        /**
+         * Request-write timeout for [getTimeout]. When unset, the write phase inherits
+         * [REQUEST_TIMEOUT]. Same value grammar as [CONNECT_TIMEOUT].
+         */
+        public const val WRITE_TIMEOUT: String = "WRITE_TIMEOUT"
+
+        /**
+         * End-to-end request timeout for [getTimeout]. The read and write phases inherit this value
+         * unless their own keys are set. Same value grammar as [CONNECT_TIMEOUT].
+         */
+        public const val REQUEST_TIMEOUT: String = "REQUEST_TIMEOUT"
 
         @Volatile
         private var global: Configuration = Configuration(emptyMap())

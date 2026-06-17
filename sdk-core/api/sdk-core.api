@@ -22,12 +22,16 @@ public final class org/dexpace/sdk/core/client/HttpClient$DefaultImpls {
 }
 
 public final class org/dexpace/sdk/core/config/Configuration {
+	public static final field CONNECT_TIMEOUT Ljava/lang/String;
 	public static final field Companion Lorg/dexpace/sdk/core/config/Configuration$Companion;
 	public static final field HTTPS_PROXY Ljava/lang/String;
 	public static final field HTTP_PROXY Ljava/lang/String;
 	public static final field LOG_LEVEL Ljava/lang/String;
 	public static final field MAX_RETRY_ATTEMPTS Ljava/lang/String;
 	public static final field NO_PROXY Ljava/lang/String;
+	public static final field READ_TIMEOUT Ljava/lang/String;
+	public static final field REQUEST_TIMEOUT Ljava/lang/String;
+	public static final field WRITE_TIMEOUT Ljava/lang/String;
 	public final fun get (Ljava/lang/String;)Ljava/lang/String;
 	public final fun get (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun get$default (Lorg/dexpace/sdk/core/config/Configuration;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
@@ -36,6 +40,9 @@ public final class org/dexpace/sdk/core/config/Configuration {
 	public static final fun getGlobalConfiguration ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun getInt (Ljava/lang/String;I)I
 	public final fun getProperty (Ljava/lang/String;)Ljava/lang/String;
+	public final fun getTimeout ()Lorg/dexpace/sdk/core/config/Timeout;
+	public final fun getTimeout (Lorg/dexpace/sdk/core/config/Timeout;)Lorg/dexpace/sdk/core/config/Timeout;
+	public static synthetic fun getTimeout$default (Lorg/dexpace/sdk/core/config/Configuration;Lorg/dexpace/sdk/core/config/Timeout;ILjava/lang/Object;)Lorg/dexpace/sdk/core/config/Timeout;
 	public static final fun setGlobalConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)V
 }
 
@@ -50,6 +57,42 @@ public final class org/dexpace/sdk/core/config/ConfigurationBuilder {
 	public final fun envSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun propsSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun put (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
+}
+
+public final class org/dexpace/sdk/core/config/Timeout {
+	public static final field Companion Lorg/dexpace/sdk/core/config/Timeout$Companion;
+	public static final field NONE Lorg/dexpace/sdk/core/config/Timeout;
+	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;ZZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
+	public static final fun defaults ()Lorg/dexpace/sdk/core/config/Timeout;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConnectTimeout ()Ljava/time/Duration;
+	public final fun getEffectiveReadTimeout ()Ljava/time/Duration;
+	public final fun getEffectiveWriteTimeout ()Ljava/time/Duration;
+	public final fun getReadTimeout ()Ljava/time/Duration;
+	public final fun getRequestTimeout ()Ljava/time/Duration;
+	public final fun getWriteTimeout ()Ljava/time/Duration;
+	public fun hashCode ()I
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
+	public static final fun ofRequest (Ljava/time/Duration;)Lorg/dexpace/sdk/core/config/Timeout;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/config/Timeout$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
+	public final fun defaults ()Lorg/dexpace/sdk/core/config/Timeout;
+	public final fun ofRequest (Ljava/time/Duration;)Lorg/dexpace/sdk/core/config/Timeout;
+}
+
+public final class org/dexpace/sdk/core/config/Timeout$TimeoutBuilder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/config/Timeout;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/config/Timeout;
+	public final fun connectTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
+	public final fun readTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
+	public final fun requestTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
+	public final fun writeTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/core/config/Timeout$TimeoutBuilder;
 }
 
 public abstract interface class org/dexpace/sdk/core/generics/Builder {
