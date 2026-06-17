@@ -48,6 +48,7 @@ import com.fasterxml.jackson.module.kotlin.KotlinModule
  *  - [JavaTimeModule]  — `java.time.*` (Instant, OffsetDateTime, LocalDate, ...).
  *  - [Jdk8Module]      — `Optional<T>`, `OptionalInt/Long/Double`, parameter-name introspection.
  *  - [TristateModule]  — `Tristate<T>` (Absent / Null / Present) ser/de.
+ *  - [JsonFieldModule] — `JsonField<T>` (Missing / Null / Known / Raw) + `RawJson` ser/de.
  *
  * Each call to [defaultObjectMapper] returns a **fresh** mapper instance; sharing or mutating a
  * cached singleton would be a foot-gun (mappers carry mutable caches that interact poorly with
@@ -71,6 +72,7 @@ public object JacksonObjectMappers {
                 .addModule(JavaTimeModule())
                 .addModule(Jdk8Module())
                 .addModule(TristateModule())
+                .addModule(JsonFieldModule())
                 .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
         applyStrictScalarCoercion(builder)
         val mapper = builder.build()
