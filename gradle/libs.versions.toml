@@ -11,7 +11,11 @@ jackson = "2.18.2"
 junit-jupiter = "5.10.2"
 # R8 is used only by the test-only sdk-shrink-test module to verify the SDK survives consumer-side
 # shrinking. It is fetched from Google's Maven repo and never enters a published artifact.
-r8 = "8.9.35"
+# Pinned to a release whose Kotlin-metadata support covers the Kotlin version this project compiles
+# with (2.3): the 8.9.x line only parsed @Metadata up to Kotlin 2.1 and emitted Info/Warning noise on
+# every shrink run. R8 9.x is still Java-11 bytecode, so the JDK-11 launcher in sdk-shrink-test is
+# unchanged.
+r8 = "9.1.31"
 kover = "0.9.8"
 binary-compatibility-validator = "0.16.3"
 ktlint-plugin = "12.1.1"
