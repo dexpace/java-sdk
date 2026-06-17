@@ -1033,6 +1033,7 @@ public final class org/dexpace/sdk/core/http/request/Method : java/lang/Enum {
 	public static final field TRACE Lorg/dexpace/sdk/core/http/request/Method;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public final fun getMethod ()Ljava/lang/String;
+	public final fun getPermitsRequestBody ()Z
 	public fun toString ()Ljava/lang/String;
 	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Method;
 	public static fun values ()[Lorg/dexpace/sdk/core/http/request/Method;

@@ -37,7 +37,9 @@ import java.net.URL
  * @property method HTTP method on the wire.
  * @property url Fully-resolved target URL.
  * @property headers Request headers; may be empty but never `null`.
- * @property body Request body, or `null` for methods without a payload (typical for GET/HEAD).
+ * @property body Request body, or `null` for methods without a payload. A non-`null` body is
+ *   only valid on a method that permits one ([Method.permitsRequestBody]); building a `GET`,
+ *   `HEAD`, or `TRACE` request with a body throws `IllegalArgumentException`.
  */
 @ConsistentCopyVisibility
 public data class Request private constructor(
@@ -247,16 +249,30 @@ public data class Request private constructor(
         /**
          * Builds the [Request].
          *
+         * A body set on a method that forbids one ([Method.permitsRequestBody] is `false` —
+         * `GET`, `HEAD`, `TRACE`) is rejected here rather than passed to a transport: the two
+         * reference transports disagree on the case (OkHttp throws, the JDK builder drops the
+         * body and may consume a single-use stream for nothing), so the SDK fails fast at
+         * construction with one consistent error instead.
+         *
          * @return The built request.
          * @throws IllegalStateException If a required field is missing.
+         * @throws IllegalArgumentException If a body is set on a method that forbids one
+         *         ([Method.GET], [Method.HEAD], or [Method.TRACE]).
          */
-        override fun build(): Request =
-            Request(
-                method = checkRequired("method", method),
+        override fun build(): Request {
+            val resolvedMethod = checkRequired("method", method)
+            require(body == null || resolvedMethod.permitsRequestBody) {
+                "$resolvedMethod must not carry a request body; remove the body or use a " +
+                    "method that permits one (e.g. POST/PUT/PATCH)."
+            }
+            return Request(
+                method = resolvedMethod,
                 url = checkRequired("url", url),
                 headers = headersBuilder.build(),
                 body = body,
             )
+        }
     }
 
     public companion object {
