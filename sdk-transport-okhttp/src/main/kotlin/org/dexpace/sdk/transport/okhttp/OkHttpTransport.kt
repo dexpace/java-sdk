@@ -369,7 +369,8 @@ public class OkHttpTransport private constructor(
                         "The OkHttp transport does not honour ProxyOptions.challengeHandler; it is " +
                             "ignored. Proxy authentication falls back to Basic auth derived from " +
                             "ProxyOptions.username / ProxyOptions.password. Supply those credentials, " +
-                            "or use a transport that supports a custom proxy challenge handler.",
+                            "or for Digest proxy auth pass a pre-configured OkHttpClient with your own " +
+                            "proxyAuthenticator to create().",
                     )
             }
             val javaType =
