@@ -258,6 +258,103 @@ class HeadersTest {
         assertNull(headers.get("X-Trace-Id"))
     }
 
+    // ---- name validation (request/header-splitting guard) -----------------------
+
+    @Test
+    fun `add rejects a name containing a line feed`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil\nInjected", "v")
+        }
+    }
+
+    @Test
+    fun `add rejects a name containing a carriage return`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil\rInjected", "v")
+        }
+    }
+
+    @Test
+    fun `add rejects a name containing CRLF`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil\r\nInjected: 1", "v")
+        }
+    }
+
+    @Test
+    fun `add rejects a name containing a NUL`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil\u0000Injected", "v")
+        }
+    }
+
+    @Test
+    fun `add rejects a name containing a DEL control character`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil\u007FInjected", "v")
+        }
+    }
+
+    @Test
+    fun `add list overload rejects a name containing CR or LF`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil\nInjected", listOf("v"))
+        }
+    }
+
+    @Test
+    fun `set rejects a name containing a line feed`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set("X-Evil\nInjected", "v")
+        }
+    }
+
+    @Test
+    fun `set rejects a name containing a carriage return`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set("X-Evil\rInjected", "v")
+        }
+    }
+
+    @Test
+    fun `set list overload rejects a name containing a NUL`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().set("X-Evil\u0000Injected", listOf("v"))
+        }
+    }
+
+    @Test
+    fun `add rejects a blank name`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("   ", "v")
+        }
+    }
+
+    @Test
+    fun `the name rejection message names the offending header`() {
+        val thrown =
+            assertFailsWith<IllegalArgumentException> {
+                Headers.builder().add("X-Trace-Id\nInjected", "v")
+            }
+        assertTrue(
+            thrown.message?.lowercase()?.contains("x-trace-id") == true,
+            "message should name the header, got: ${thrown.message}",
+        )
+    }
+
+    @Test
+    fun `normal names without control characters are accepted`() {
+        val headers =
+            Headers.builder()
+                .add("X-Plain", "a")
+                // Surrounding whitespace is trimmed by name normalisation, not rejected.
+                .set("  Authorization  ", "Bearer t")
+                .build()
+
+        assertEquals("a", headers.get("X-Plain"))
+        assertEquals("Bearer t", headers.get("Authorization"))
+    }
+
     // ---- accessors & equality coverage ------------------------------------------
 
     @Test

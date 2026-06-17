@@ -160,6 +160,7 @@ public data class Headers private constructor(
             values: List<String>,
         ): Builder =
             apply {
+                validateName(name)
                 validateValues(name, values)
                 headersMap.computeIfAbsent(sanitizeName(name)) { mutableListOf() }.addAll(values)
             }
@@ -218,6 +219,7 @@ public data class Headers private constructor(
             values: List<String>,
         ): Builder =
             apply {
+                validateName(name)
                 validateValues(name, values)
                 headersMap[sanitizeName(name)] = values.toMutableList()
             }
@@ -333,5 +335,43 @@ public data class Headers private constructor(
                 }
             }
         }
+
+        /**
+         * Rejects header names that cannot legally appear on the wire before they reach a transport.
+         *
+         * An embedded carriage return (`\r`) or line feed (`\n`) in a name is the same
+         * request/header-splitting vector guarded against for values: once the name is serialised an
+         * attacker could inject a new header or a second request. A NUL or any other ASCII control
+         * character is likewise illegal in an RFC 7230 field-name (`token`) and is rejected by — or
+         * silently dropped at — the transport layer, so the two reference transports diverge (OkHttp
+         * throws unchecked, the JDK transport drops the header) when such a name slips through.
+         * Validating here at the transport-agnostic model layer fails fast and uniformly.
+         *
+         * Note [sanitizeName] trims surrounding whitespace and lower-cases, but it never removes an
+         * *interior* control character, so this check is the only thing standing between a malformed
+         * name and the transport. A blank name has no canonical form and is rejected as well.
+         *
+         * Policy: reject the C0 control range and DEL (code points `0x00`-`0x1F` and `0x7F`), which
+         * covers CR, LF, and NUL. This is intentionally narrower than RFC 7230's full `tchar`
+         * allow-list — restricting names to `tchar` only would reject some non-ASCII names that
+         * certain transports accept, whereas the control-character set is illegal everywhere and
+         * covers the splitting/injection surface.
+         */
+        private fun validateName(name: String) {
+            require(name.isNotBlank()) { "Header name must not be blank." }
+            name.forEach { ch ->
+                require(ch.code > LAST_C0_CONTROL && ch.code != DEL_CONTROL) {
+                    "Header name '$name' must not contain control characters " +
+                        "(carriage return, line feed, NUL, or other C0/DEL bytes); " +
+                        "such characters enable request/header splitting."
+                }
+            }
+        }
+
+        /** Highest code point in the C0 control range (US, `0x1F`); everything at or below is illegal. */
+        private const val LAST_C0_CONTROL: Int = 0x1F
+
+        /** The DEL control character (`0x7F`), the lone control code above the C0 range. */
+        private const val DEL_CONTROL: Int = 0x7F
     }
 }

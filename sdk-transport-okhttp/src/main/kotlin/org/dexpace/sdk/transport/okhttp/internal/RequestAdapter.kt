@@ -51,9 +51,10 @@ internal class RequestAdapter(
                 continue
             }
             for (value in values) {
-                // Header names/values are validated upstream by Headers.Builder (CR/LF and other
-                // illegal characters are rejected at construction), so addHeader receives only
-                // well-formed values here.
+                // Header names and values are validated upstream by Headers.Builder: names reject
+                // control characters (CR/LF, NUL, the rest of the C0/DEL range) and values reject
+                // CR/LF, so addHeader receives only well-formed input here and never throws on a
+                // malformed name or value.
                 builder.addHeader(rawName, value)
             }
         }
