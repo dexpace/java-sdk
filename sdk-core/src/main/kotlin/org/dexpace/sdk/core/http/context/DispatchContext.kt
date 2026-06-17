@@ -34,18 +34,21 @@ import java.util.concurrent.atomic.AtomicLong
 public data class DispatchContext(
     override val instrumentationContext: InstrumentationContext,
     override val callKey: String = mintCallKey(instrumentationContext),
+    override val callOptions: CallOptions = CallOptions.NONE,
 ) : CallContext {
     /**
      * Promotes this dispatch context into a [RequestContext] bound to [request] and stores
-     * the new context in [ContextStore] under this chain's [callKey]. After promotion this
-     * dispatch context becomes an intermediate link and must not be closed independently —
-     * close the returned [RequestContext] (or its own successor) instead.
+     * the new context in [ContextStore] under this chain's [callKey]. The chain's [callOptions]
+     * are carried forward unchanged. After promotion this dispatch context becomes an
+     * intermediate link and must not be closed independently — close the returned
+     * [RequestContext] (or its own successor) instead.
      */
     public fun toRequestContext(request: Request): RequestContext =
         RequestContext(
             instrumentationContext = instrumentationContext,
             request = request,
             callKey = callKey,
+            callOptions = callOptions,
         ).also {
             ContextStore.set(it.callKey, it)
         }

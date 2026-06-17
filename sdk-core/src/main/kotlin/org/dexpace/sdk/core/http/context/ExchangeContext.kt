@@ -31,4 +31,5 @@ public data class ExchangeContext(
     val request: Request,
     val response: Response,
     override val callKey: String = DispatchContext.mintCallKey(instrumentationContext),
+    override val callOptions: CallOptions = CallOptions.NONE,
 ) : CallContext
