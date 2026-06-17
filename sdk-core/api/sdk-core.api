@@ -1977,6 +1977,48 @@ public abstract interface class org/dexpace/sdk/core/io/Source : java/io/Closeab
 	public abstract fun read (Lorg/dexpace/sdk/core/io/Buffer;J)J
 }
 
+public final class org/dexpace/sdk/core/lifecycle/LeakDetector {
+	public static final field CAPTURE_STACK_PROPERTY Ljava/lang/String;
+	public static final field Companion Lorg/dexpace/sdk/core/lifecycle/LeakDetector$Companion;
+	public static final field DEFAULT_THREAD_NAME Ljava/lang/String;
+	public static final field ENABLE_PROPERTY Ljava/lang/String;
+	public static final field systemDefault Lorg/dexpace/sdk/core/lifecycle/LeakDetector;
+	public synthetic fun <init> (ZZLorg/dexpace/sdk/core/lifecycle/LeakListener;Ljava/lang/String;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun drainManually ()I
+	public static final fun loggingListener ()Lorg/dexpace/sdk/core/lifecycle/LeakListener;
+	public final fun track (Ljava/lang/Object;Ljava/lang/String;)Lorg/dexpace/sdk/core/lifecycle/LeakTracker;
+	public final fun trackCloseable (Ljava/lang/AutoCloseable;Ljava/lang/String;)Ljava/lang/AutoCloseable;
+}
+
+public final class org/dexpace/sdk/core/lifecycle/LeakDetector$Builder {
+	public fun <init> ()V
+	public final fun build ()Lorg/dexpace/sdk/core/lifecycle/LeakDetector;
+	public final fun captureCreationStack (Z)Lorg/dexpace/sdk/core/lifecycle/LeakDetector$Builder;
+	public final fun enabled (Z)Lorg/dexpace/sdk/core/lifecycle/LeakDetector$Builder;
+	public final fun listener (Lorg/dexpace/sdk/core/lifecycle/LeakListener;)Lorg/dexpace/sdk/core/lifecycle/LeakDetector$Builder;
+	public final fun startReaperThread (Z)Lorg/dexpace/sdk/core/lifecycle/LeakDetector$Builder;
+	public final fun threadName (Ljava/lang/String;)Lorg/dexpace/sdk/core/lifecycle/LeakDetector$Builder;
+}
+
+public final class org/dexpace/sdk/core/lifecycle/LeakDetector$Companion {
+	public final fun loggingListener ()Lorg/dexpace/sdk/core/lifecycle/LeakListener;
+}
+
+public abstract interface class org/dexpace/sdk/core/lifecycle/LeakListener {
+	public abstract fun onLeak (Lorg/dexpace/sdk/core/lifecycle/LeakReport;)V
+}
+
+public final class org/dexpace/sdk/core/lifecycle/LeakReport {
+	public synthetic fun <init> (Ljava/lang/String;[Ljava/lang/StackTraceElement;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getCreationStack ()[Ljava/lang/StackTraceElement;
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun summary ()Ljava/lang/String;
+}
+
+public abstract interface class org/dexpace/sdk/core/lifecycle/LeakTracker {
+	public abstract fun closed ()V
+}
+
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
 	public fun <init> (Lkotlin/jvm/functions/Function1;)V
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
