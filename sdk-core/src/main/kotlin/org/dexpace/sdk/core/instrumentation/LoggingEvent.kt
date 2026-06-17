@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.instrumentation
 
 import org.slf4j.MDC
+import org.slf4j.spi.LoggingEventBuilder
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -133,6 +134,11 @@ public class LoggingEvent internal constructor(
     /**
      * Sets the structured event-name tag emitted under the [EVENT_KEY] key. An empty name
      * clears any previously set value rather than emitting `event=""`.
+     *
+     * The name tag is authoritative for the [EVENT_KEY] (`"event"`) key: when a non-empty name
+     * is set, any `"event"` key arriving from the logger's global context, the folded MDC, or a
+     * per-event [field] is suppressed so the event carries the `"event"` key exactly once. When
+     * no name is set (or it was cleared), a user-supplied `"event"` key passes through unchanged.
      */
     public fun event(name: String): LoggingEvent {
         if (!enabled) return this
@@ -166,51 +172,19 @@ public class LoggingEvent internal constructor(
 
         val builder = logger.slf4j.atLevel(logger.slf4jLevel(level))
 
-        // Global context first so per-event fields can override on the SLF4J side. A global-context
-        // key that is also a per-event field is skipped here and emitted once below from `fields`,
-        // letting the per-event value win. SLF4J's addKeyValue APPENDS rather than replaces, so
-        // emitting both would put two KeyValuePairs with the same name on the event — invalid
-        // duplicate-key JSON in JSON appenders. This mirrors the MDC dedup guard below.
-        val gc = logger.globalContext
-        if (gc.isNotEmpty()) {
-            val perEventKeys = fields
-            for ((k, v) in gc) {
-                if (perEventKeys?.containsKey(k) == true) continue
-                builder.addKeyValue(k, renderForLog(v))
-            }
-        }
+        // When `event(name)` set a non-empty name, the dedicated [EVENT_KEY] tag is authoritative:
+        // any `"event"` key arriving from the global context, MDC, or a per-event `field(...)` is
+        // skipped so the name tag is the single `event` entry. SLF4J's addKeyValue APPENDS rather
+        // than replaces, so emitting both would put two KeyValuePairs named `event` on the event —
+        // invalid duplicate-key JSON in JSON appenders. `null` means no name tag is emitted, so the
+        // user's `"event"` key (if any) passes through normally.
+        val eventNameTag = eventName
+        val reservedEventKey = if (eventNameTag != null) EVENT_KEY else null
 
-        // Fold SLF4J MDC into the structured event so trace.id / span.id set by an
-        // enclosing TracingScope reaches log backends as structured fields. Only keys
-        // in the logger's mdcKeys allow-list are folded (default: "trace.id", "span.id").
-        // Pass mdcKeys = null on ClientLogger to fold everything (backwards-compat).
-        // A key emitted from MDC is skipped if it is ALREADY emitted by this event, whether
-        // via a per-event `field(...)` (added below) or via the logger's globalContext
-        // (emitted above). Folding such a key again would put a second KeyValuePair on the
-        // event with the same name, which JSON appenders render as invalid duplicate-key
-        // JSON — exactly the failure this guard prevents. Both lookups are O(1).
-        val mdcMap = MDC.getCopyOfContextMap()
-        if (mdcMap != null) {
-            val perEventKeys = fields
-            val allowedMdcKeys = logger.mdcKeys
-            for ((k, v) in mdcMap) {
-                if (v == null) continue
-                // Skip keys already emitted via the per-event fields or the global context
-                // (duplicate-key JSON guard). A null allow-list means "all keys" (unfiltered).
-                val alreadyEmitted = perEventKeys?.containsKey(k) == true || gc.containsKey(k)
-                if (!alreadyEmitted && (allowedMdcKeys == null || allowedMdcKeys.contains(k))) {
-                    builder.addKeyValue(k, v)
-                }
-            }
-        }
-
-        eventName?.let { builder.addKeyValue(EVENT_KEY, it) }
-
-        fields?.let {
-            for ((k, v) in it) {
-                builder.addKeyValue(k, renderForLog(v))
-            }
-        }
+        emitGlobalContext(builder, logger.globalContext, reservedEventKey)
+        emitMdc(builder, logger, reservedEventKey)
+        eventNameTag?.let { builder.addKeyValue(EVENT_KEY, it) }
+        emitFields(builder, reservedEventKey)
 
         cause?.let { builder.setCause(it) }
 
@@ -218,6 +192,67 @@ public class LoggingEvent internal constructor(
     }
 
     // -- Internals -------------------------------------------------------------------------------
+
+    /**
+     * Emits the logger's global context. A global-context key that is also a per-event field is
+     * skipped here and emitted once below from `fields`, letting the per-event value win. SLF4J's
+     * addKeyValue APPENDS rather than replaces, so emitting both would put two KeyValuePairs with
+     * the same name on the event — invalid duplicate-key JSON in JSON appenders. The reserved
+     * [EVENT_KEY] is skipped when an event-name tag is set so the tag stays authoritative.
+     */
+    private fun emitGlobalContext(
+        builder: LoggingEventBuilder,
+        gc: Map<String, Any?>,
+        reservedEventKey: String?,
+    ) {
+        if (gc.isEmpty()) return
+        val perEventKeys = fields
+        for ((k, v) in gc) {
+            if (k == reservedEventKey || perEventKeys?.containsKey(k) == true) continue
+            builder.addKeyValue(k, renderForLog(v))
+        }
+    }
+
+    /**
+     * Folds SLF4J MDC into the structured event so trace.id / span.id set by an enclosing
+     * TracingScope reaches log backends as structured fields. Only keys in the logger's mdcKeys
+     * allow-list are folded (default: "trace.id", "span.id"); a `null` allow-list folds everything
+     * (backwards-compat). A key already emitted by this event — via a per-event `field(...)`, the
+     * global context, or the authoritative event-name tag — is skipped so JSON appenders never see
+     * a duplicate-key entry. All lookups are O(1).
+     */
+    private fun emitMdc(
+        builder: LoggingEventBuilder,
+        logger: ClientLogger,
+        reservedEventKey: String?,
+    ) {
+        val mdcMap = MDC.getCopyOfContextMap() ?: return
+        val perEventKeys = fields
+        val gc = logger.globalContext
+        val allowedMdcKeys = logger.mdcKeys
+        for ((k, v) in mdcMap) {
+            if (v == null || k == reservedEventKey) continue
+            val alreadyEmitted = perEventKeys?.containsKey(k) == true || gc.containsKey(k)
+            if (!alreadyEmitted && (allowedMdcKeys == null || allowedMdcKeys.contains(k))) {
+                builder.addKeyValue(k, v)
+            }
+        }
+    }
+
+    /**
+     * Emits the per-event fields. The reserved [EVENT_KEY] is skipped when an event-name tag is set
+     * so the tag — already emitted by [log] — remains the single `event` entry.
+     */
+    private fun emitFields(
+        builder: LoggingEventBuilder,
+        reservedEventKey: String?,
+    ) {
+        val map = fields ?: return
+        for ((k, v) in map) {
+            if (k == reservedEventKey) continue
+            builder.addKeyValue(k, renderForLog(v))
+        }
+    }
 
     private fun putField(
         key: String,
