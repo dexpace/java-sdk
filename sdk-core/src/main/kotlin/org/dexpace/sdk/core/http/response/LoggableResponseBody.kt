@@ -210,8 +210,14 @@ public class LoggableResponseBody
          */
         @Throws(IOException::class)
         private fun closeDelegateOnce() {
-            if (!delegateClosed) {
+            if (delegateClosed) return
+            // Flip the guard whether or not close() succeeds: a delegate whose handle is not safe
+            // to close twice must still see exactly one close even when that close throws. Marking
+            // it closed in a finally also matches the drain-path error handler, which marks the
+            // delegate closed after a failed source close so a later close() is a no-op.
+            try {
                 delegate.close()
+            } finally {
                 delegateClosed = true
             }
         }

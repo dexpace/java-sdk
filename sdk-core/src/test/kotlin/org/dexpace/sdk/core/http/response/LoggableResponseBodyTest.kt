@@ -475,6 +475,42 @@ class LoggableResponseBodyTest {
     }
 
     @Test
+    fun `delegate whose close throws is invoked only once across two close calls`() {
+        // Over-cap path: the one-shot source close and the wrapper close both funnel through the
+        // single-close guard. If the first close() throws, the guard must still flip so the second
+        // close() is a no-op — a delegate whose handle is not safe to close twice must see exactly
+        // one close even when that close fails.
+        val delegateCloseCount = AtomicInteger(0)
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes > cap
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+                override fun contentLength(): Long = payload.toByteArray(Charsets.UTF_8).size.toLong()
+
+                override fun source(): BufferedSource = Io.provider.buffer().also { it.writeUtf8(payload) }
+
+                override fun close() {
+                    delegateCloseCount.incrementAndGet()
+                    throw IOException("delegate close failed")
+                }
+            }
+        val wrapper = LoggableResponseBody.bounded(delegate, Io.provider, 5L)
+
+        val tail = wrapper.source()
+        // First close reaches the delegate and throws; the guard must still flip.
+        assertFailsWith<IOException> { tail.close() }
+        // Second close must be a no-op — the delegate is not closed again.
+        wrapper.close()
+
+        assertEquals(
+            1,
+            delegateCloseCount.get(),
+            "a delegate whose close() throws must still be closed exactly once across two close() calls",
+        )
+    }
+
+    @Test
     fun `over-cap close then source close closes the underlying source exactly once`() {
         // The reverse order: wrapper.close() first, then closing the already-handed-out one-shot
         // stream. Whichever path closes the delegate first wins; the second must be a no-op.
