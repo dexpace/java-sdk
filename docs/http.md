@@ -438,6 +438,59 @@ headers.get("content-type")     // "application/json" (case-insensitive)
 headers.values("Cache-Control") // ["no-cache", "no-store"]
 ```
 
+### QueryParams
+
+`QueryParams` is an immutable, insertion-ordered, multi-valued model of a URL query string —
+the `?name=value&...` portion of a URL. It mirrors `Headers` in shape (private constructor,
+mutable `Builder`, multi-value semantics) but differs in two ways: names are **case-sensitive**
+(query-parameter names are opaque to HTTP, so `?page=1` and `?Page=1` are distinct), and values
+may be **empty or value-less** (`?flag` and `?flag=` both occur in the wild).
+
+```kotlin
+@ConsistentCopyVisibility
+data class QueryParams private constructor(
+    private val paramsMap: Map<String, List<String>>
+)
+```
+
+**API:**
+
+| Method           | Description                                                                |
+|------------------|----------------------------------------------------------------------------|
+| `get(name)`      | First value for the name, or `null` if absent (`""` for a value-less param)|
+| `values(name)`   | All values for the name (unmodifiable), or empty list                      |
+| `contains(name)` | Whether any value is present for the name                                  |
+| `names()`        | Immutable, insertion-ordered snapshot of all parameter names               |
+| `entries()`      | Immutable snapshot as `Map.Entry<String, List<String>>`                    |
+| `size()`         | Total number of values across all names (derived, not tracked)             |
+| `isEmpty()`      | Whether there are no parameters                                            |
+| `encode()`       | `application/x-www-form-urlencoded` wire form (UTF-8), without leading `?` |
+| `newBuilder()`   | Returns a pre-filled `Builder` for modification                            |
+
+The model stores **decoded** names and values. `QueryParams.parse(query)` is the inverse of
+`encode()` — it decodes a raw query string (with or without a leading `?`) back into a
+`QueryParams`, tolerating value-less params, empty segments, and malformed percent-encoding
+(which falls back to the raw text rather than throwing). `parse(encode(...))` round-trips
+names, values, and order.
+
+**Builder:**
+
+```kotlin
+val params = QueryParams.builder()
+    .add("tag", "a")
+    .add("tag", "b")          // multi-value
+    .set("page", "2")         // replaces any existing "page"
+    .build()
+
+params.values("tag")          // ["a", "b"]
+params.get("page")            // "2"
+params.encode()               // "tag=a&tag=b&page=2"
+```
+
+Pagination's `RequestRebuilder` and the `PageNumber`/`Cursor`/`LinkHeader` strategies use
+`QueryParams` internally for query manipulation, replacing the previous `split('&')` string
+surgery (which only handled single-valued params).
+
 ### MediaType
 
 `MediaType` represents a parsed MIME type with optional parameters:
@@ -749,6 +802,51 @@ Specific API choices driven by JDK 8 targeting:
 | `java.net.http.HttpClient` (Java 11+) | `HttpClient` interface (transport-agnostic) |
 | `HttpHeaders` (Java 11+)              | Custom `Headers` class                      |
 
+### Request URL Model
+
+`Request` stores its target as a single resolved `java.net.URL` (a string-backed container),
+**not** a fully deconstructed URL value object (scheme / host / port / path-segments / query).
+Structured query manipulation is layered on top via the `QueryParams` multimap rather than
+folded into the URL type itself.
+
+**Decision: keep `java.net.URL` as the URL container; layer `QueryParams` for query
+manipulation.**
+
+Two models were weighed:
+
+1. **Resolved `java.net.URL` + a `QueryParams` layer (chosen).** The URL stays an opaque,
+   already-resolved string container; when a component needs to read or rewrite the query, it
+   parses `url.query` into a `QueryParams`, mutates through the builder, and re-encodes
+   (see `pagination/RequestRebuilder`). Path, host, port, userInfo, and fragment are spliced
+   back verbatim.
+2. **A fully deconstructed `Url` value object.** Every component (scheme, host, port,
+   path-segments, query) modelled as typed fields, assembled into a string only at the
+   transport edge.
+
+Rationale for (1):
+
+- **DNS-free equality is preserved trivially.** `Request` equality compares `url.toExternalForm()`
+  — a pure string comparison that performs **no** network I/O — because `java.net.URL.equals` /
+  `hashCode` resolve the host via DNS (blocking, and wrong for virtual hosts sharing an address).
+  Keeping the resolved-URL container means that contract carries over unchanged. A deconstructed
+  model would have to re-establish equivalent textual equality across all its components, with
+  more surface area for it to drift.
+- **The query string is where the real manipulation pressure is.** Pagination, request signing,
+  and parameter projection all manipulate the **query**, not the host or path. `QueryParams`
+  puts a structured, multi-valued, well-tested model exactly where it is needed without forcing a
+  rewrite of how every transport consumes a URL.
+- **Transports already speak `java.net.URL` / strings.** Both reference transports (OkHttp, JDK
+  `HttpClient`) accept a resolved URL or string directly. A deconstructed model would add an
+  assembly step at every transport boundary for no functional gain today.
+- **No premature generality.** A deconstructed model earns its cost when path templating and
+  per-segment encoding become first-class concerns (e.g. an operation/path-template SPI). Until
+  then it is speculative structure. `QueryParams` is the runtime primitive a future path/URL
+  model would compose with, not something it would have to replace.
+
+The trade-off accepted is that path-segment / host manipulation still goes through string work
+(as in `RequestRebuilder.rebuildUrl`). That is deliberate: it is rare, localised, and not worth
+a deconstructed URL type pre-1.0.
+
 ---
 
 ## Usage Examples
@@ -860,6 +958,7 @@ exchangeCtx.close()
 | `NetworkException.kt`      | `http.response.exception`| public     | Transport-level failure (IOException sibling)|
 | `HttpExceptionFactory.kt`  | `http.response.exception`| public     | `Response` → typed exception dispatcher      |
 | `Headers.kt`               | `http.common`            | public     | Immutable multi-map + builder                |
+| `QueryParams.kt`           | `http.common`            | public     | Immutable query-string multi-map + builder   |
 | `MediaType.kt`             | `http.common`            | public     | Parsed MIME type with charset extraction     |
 | `CommonMediaTypes.kt`      | `http.common`            | public     | Media type constants                         |
 | `Protocol.kt`              | `http.common`            | public     | HTTP protocol version enum                   |
