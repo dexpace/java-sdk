@@ -50,7 +50,13 @@ public class PageNumberPaginationStrategy<T>
             // Empty page → end of stream. Defensive against servers that "succeed" with an
             // empty list rather than 404 / a sentinel field once you've paged off the end.
             if (items.isEmpty()) {
-                return SimplePage(items = items, hasNext = false, nextRequest = null)
+                return SimplePage(
+                    items = items,
+                    hasNext = false,
+                    nextRequest = null,
+                    statusCode = response.status.code,
+                    headers = response.headers,
+                )
             }
 
             val executedUrl = response.request.url
@@ -59,7 +65,13 @@ public class PageNumberPaginationStrategy<T>
             val nextPage: Int = executedPage + 1
             val nextRequest: Request =
                 RequestRebuilder.withQueryParam(initialRequest, pageParam, nextPage.toString())
-            return SimplePage(items = items, hasNext = true, nextRequest = nextRequest)
+            return SimplePage(
+                items = items,
+                hasNext = true,
+                nextRequest = nextRequest,
+                statusCode = response.status.code,
+                headers = response.headers,
+            )
         }
 
         private fun parsePageOrDefault(

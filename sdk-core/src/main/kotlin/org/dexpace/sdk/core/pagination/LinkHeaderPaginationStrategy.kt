@@ -59,7 +59,9 @@ public class LinkHeaderPaginationStrategy<T>
             val linkValues: List<String> = response.headers.values(linkHeader)
             val combined: String =
                 if (linkValues.isEmpty()) "" else linkValues.joinToString(separator = ",")
-            val nextUrlString: String? = if (combined.isEmpty()) null else extractNextUrl(combined)
+            val links: Map<String, String> =
+                if (combined.isEmpty()) emptyMap() else extractLinks(combined)
+            val nextUrlString: String? = links["next"]
             // Resolve the (possibly relative) next-link target against the originating page's
             // URL. A target that cannot be parsed into a valid URL ends the stream instead of
             // aborting the whole iteration with a MalformedURLException.
@@ -72,7 +74,17 @@ public class LinkHeaderPaginationStrategy<T>
                 } else {
                     null
                 }
-            return SimplePage(items = items, hasNext = hasNext, nextRequest = nextRequest)
+            return SimplePage(
+                items = items,
+                hasNext = hasNext,
+                nextRequest = nextRequest,
+                statusCode = response.status.code,
+                headers = response.headers,
+                nextLink = nextUrlString,
+                previousLink = links["prev"] ?: links["previous"],
+                firstLink = links["first"],
+                lastLink = links["last"],
+            )
         }
 
         /**
@@ -105,18 +117,20 @@ public class LinkHeaderPaginationStrategy<T>
 
         /**
          * Parses an RFC 5988 `Link` header value (possibly the concatenation of multiple
-         * header values) and returns the URL of the first link-value whose `rel` parameter
-         * contains the token `next`, or `null` if no such link-value exists.
+         * header values) into a map from lower-cased relation token to URL. When a relation
+         * appears on more than one link-value, the first occurrence wins. A link-value that
+         * declares several space-separated relation types is recorded under each of them.
          */
-        private fun extractNextUrl(header: String): String? {
+        private fun extractLinks(header: String): Map<String, String> {
+            val out: MutableMap<String, String> = LinkedHashMap()
             for (entry in splitLinkValues(header)) {
                 val parsed = parseLinkValue(entry) ?: continue
-                val rels = parsed.second
-                if (rels.any { it.equals("next", ignoreCase = true) }) {
-                    return parsed.first
+                val url = parsed.first
+                for (rel in parsed.second) {
+                    out.putIfAbsent(rel.lowercase(), url)
                 }
             }
-            return null
+            return out
         }
 
         /**

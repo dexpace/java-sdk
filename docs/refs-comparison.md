@@ -230,8 +230,8 @@ below records where each scheme's design was sourced from:
 ### Pagination
 
 `Paginator<T>` + `Page<T>` ship in `sdk-core`, driven by a `PaginationStrategy` (cursor,
-page-number, token, link-header), and `http.paging.PagedIterable` wraps the result. Reference
-designs we drew on:
+page-number, token, link-header). `Page<T>` carries the items plus the response envelope
+(`statusCode`, `headers`) and HATEOAS links / continuation token. Reference designs we drew on:
 
 - **Square**: `SyncPagingIterable<T>` (`Iterable<T>` lazy iterator), `SyncPage<T>` (per-page holder), `BiDirectionalPage<T>` (forward + backward cursors), `CustomPager<T>` (user-implementation stub for HATEOAS).
 - **gax**: `PagedListResponse<RequestT, ResponseT, ResourceT>` driven by `PagedListDescriptor` (`injectToken`, `extractNextToken`, `extractResources`). `iterateAll()` returns lazy `Iterable<ResourceT>`. `FixedSizeCollection` repaginates to consumer-chosen page sizes.
@@ -333,7 +333,7 @@ adapters where noted):
 - **Idempotency-key step.** Auto-injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH`; caller-set header wins; pluggable key strategy. [`pipeline/step/IdempotencyKeyStep.kt`]
 - **Auth.** `Credential` family + RFC 7235 challenge parsing + Basic/Digest/Composite `ChallengeHandler`s + `AuthStep` pillar. [`http/auth/`, `http/pipeline/steps/`]
 - **`sdk-serde-jackson` adapter.** Kotlin + JSR-310 + Jdk8 modules; `FAIL_ON_UNKNOWN_PROPERTIES` and `WRITE_DATES_AS_TIMESTAMPS` disabled; `Tristate<T>` via `TristateModule`.
-- **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationStrategy` (cursor / page-number / token / link-header) with a `maxPages` cap; `PagedIterable` wrapper.
+- **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationStrategy` (cursor / page-number / token / link-header) with a `maxPages` cap; `Page<T>` exposes per-page status / headers / HATEOAS links.
 - **Client identity header.** `ClientIdentityStep` building the `dexpace-sdk/<ver> jvm/<javaver>` token line.
 - **Tracer event vocabulary + metrics seam.** `HttpTracer` with named retry/request/response events; `Meter`/`LongCounter`/`DoubleHistogram` separate from tracing.
 - **SSE streaming.** WHATWG reader in `sdk-core`; backpressured `Flux<ServerSentEvent>` in `sdk-async-reactor`.

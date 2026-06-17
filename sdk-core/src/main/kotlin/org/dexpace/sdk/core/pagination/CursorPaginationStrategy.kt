@@ -60,6 +60,13 @@ public class CursorPaginationStrategy<T>
                 } else {
                     null
                 }
-            return SimplePage(items = result.items, hasNext = hasNext, nextRequest = nextRequest)
+            return SimplePage(
+                items = result.items,
+                hasNext = hasNext,
+                nextRequest = nextRequest,
+                statusCode = response.status.code,
+                headers = response.headers,
+                continuationToken = if (hasNext) nextCursor else null,
+            )
         }
     }
