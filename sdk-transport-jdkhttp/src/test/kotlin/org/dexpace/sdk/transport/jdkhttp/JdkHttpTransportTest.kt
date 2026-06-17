@@ -162,11 +162,49 @@ class JdkHttpTransportTest {
                 .build()
         // Must return a future rather than throwing on the caller's thread.
         val future = transport.executeAsync(request)
+        // Completion is synchronous, not merely eventual: the future is already completed
+        // exceptionally on return, before anything is awaited.
+        assertTrue(
+            future.isCompletedExceptionally,
+            "adaptation failure must complete the future exceptionally synchronously on return",
+        )
         val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
         assertTrue(
             ex.cause is IllegalArgumentException,
             "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
         )
+        // Assert the message so an unrelated IllegalArgumentException cannot satisfy the test.
+        // RequestAdapter rejects CONNECT with "java.net.http.HttpClient does not support
+        // user-issued CONNECT requests."
+        assertTrue(
+            ex.cause?.message?.contains("does not support user-issued CONNECT requests") == true,
+            "expected the JDK CONNECT-rejection message, was: ${ex.cause?.message}",
+        )
+    }
+
+    @Test
+    fun `executeAsyncDeliversDispatchFailureThroughFuture`() {
+        // `sendAsync` does not promise that every failure arrives through its returned future:
+        // on a closed `java.net.http.HttpClient` it throws synchronously on the caller's thread.
+        // The dispatch path runs after a successful adaptation, so this exercises the post-adapt
+        // guard specifically — the failure must still arrive through the returned future, not be
+        // thrown on the caller's thread. `HttpClient` became `AutoCloseable` in JDK 21 (JEP 461);
+        // on older runtimes there is no close hook to trigger this, so the case is skipped.
+        val client = HttpClient.newHttpClient()
+        val closeable = client as? AutoCloseable ?: return // JDK 21+ only; no close hook earlier.
+        closeable.close()
+        val closedTransport = JdkHttpTransport.create(client)
+
+        val request = simpleGet("/async-dispatch-fail")
+        // Must return a future rather than throwing on the caller's thread.
+        val future = closedTransport.executeAsync(request)
+        assertTrue(
+            future.isCompletedExceptionally,
+            "a synchronous sendAsync throw must complete the future exceptionally synchronously",
+        )
+        // The closed-client throw is an unchecked exception; surface it as the future's cause
+        // rather than letting it escape executeAsync on the caller's thread.
+        assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
     }
 
     // -------- headers round-trip --------
