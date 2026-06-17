@@ -7,24 +7,16 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
-import org.dexpace.sdk.core.http.common.Headers
-import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpStep
 import org.dexpace.sdk.core.http.pipeline.AsyncPipelineNext
 import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.LoggableRequestBody
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.LoggableResponseBody
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
-import org.dexpace.sdk.core.instrumentation.LoggingEvent
 import org.dexpace.sdk.core.instrumentation.MdcSnapshot
 import org.dexpace.sdk.core.instrumentation.Span
-import org.dexpace.sdk.core.instrumentation.UrlRedactor
 import org.dexpace.sdk.core.instrumentation.makeCurrentWithLoggingContext
-import org.dexpace.sdk.core.instrumentation.metrics.DoubleHistogram
-import org.dexpace.sdk.core.instrumentation.metrics.LongCounter
-import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
@@ -33,8 +25,9 @@ import java.util.concurrent.CompletionException
 /**
  * Async counterpart of [DefaultInstrumentationStep]. Emits the same `http.request` /
  * `http.response` / failure events, drives the same span and metric lifecycle, and is
- * configured with the same [HttpInstrumentationOptions]. The only structural difference
- * is that [processAsync] returns a [CompletableFuture] composed via `.handle` so the
+ * configured with the same [HttpInstrumentationOptions]. The emit / redact / preview / metrics
+ * logic is shared with the sync step via [InstrumentationEmitters]; the only structural
+ * difference is that [processAsync] returns a [CompletableFuture] composed via `.handle` so the
  * response event fires on the completion thread.
  *
  * ## Span-thread caveat
@@ -49,11 +42,11 @@ import java.util.concurrent.CompletionException
  *
  * ## Body capture / failure semantics
  *
- * Mostly identical to the sync step — see its KDoc. One difference: the response-body drain
- * runs on the future-completion thread here, so an **unknown-length** (streaming) response
- * body (`contentLength() < 0`) is left unwrapped — draining it could block the completion
- * thread on a slow/idle producer. Known-length bodies are wrapped and bounded to the preview
- * size as in the sync step.
+ * Identical to the sync step — see its KDoc and [InstrumentationEmitters]. As there, an
+ * **unknown-length** (streaming) response body (`contentLength() < 0`) is left unwrapped:
+ * the response-body drain runs on the future-completion thread here, and draining a slow / idle
+ * producer would stall that thread. Known-length bodies are wrapped and bounded to the preview
+ * size.
  *
  * ## Thread-safety
  *
@@ -69,40 +62,21 @@ public class DefaultAsyncInstrumentationStep
     ) : AsyncHttpStep {
         override val stage: Stage = Stage.LOGGING
 
-        // Lazily constructed so a step instance never installed in a pipeline doesn't pay
-        // the counter/histogram registration cost. `PUBLICATION` mode avoids the synchronized
-        // block that the default `SYNCHRONIZED` mode uses for first-read coordination — that
-        // monitor would pin a virtual-thread carrier during init (see CLAUDE.md "ReentrantLock
-        // over synchronized"). With OTel meter implementations being idempotent on register-by-
-        // name, racing initializers cost at most one redundant registration that is discarded.
-        private val requestCounter: LongCounter by lazy(LazyThreadSafetyMode.PUBLICATION) {
-            options.meter.counter(
-                name = "http.client.request.count",
-                description = "Total HTTP requests sent through this pipeline.",
-                unit = "{request}",
-            )
-        }
-        private val latencyHistogram: DoubleHistogram by lazy(LazyThreadSafetyMode.PUBLICATION) {
-            options.meter.histogram(
-                name = "http.client.request.duration",
-                description = "End-to-end duration of the downstream pipeline per request.",
-                unit = "ms",
-            )
-        }
+        private val emitters = InstrumentationEmitters(options, clock, logger)
 
         override fun processAsync(
             request: Request,
             next: AsyncPipelineNext,
         ): CompletableFuture<Response> {
-            val redactedUrl = safeRedact(request)
+            val redactedUrl = emitters.safeRedact(request)
             val span =
                 options.tracer.startSpan(
                     name = "http ${request.method.name}",
-                    attributes = spanAttributes(request, redactedUrl),
+                    attributes = emitters.spanAttributes(request, redactedUrl),
                 )
             val startNanos = clock.monotonic()
 
-            val (outgoing, wrappedRequestBody) = buildOutgoingRequest(request)
+            val (outgoing, wrappedRequestBody) = emitters.wrapRequestBody(request)
 
             // Synchronous portion is wrapped in the MDC-aware scope. The scope closes BEFORE
             // the future's continuation runs — so the response/failure events emitted in
@@ -114,15 +88,15 @@ public class DefaultAsyncInstrumentationStep
                 span.makeCurrentWithLoggingContext().use {
                     // Capture after the scope has pushed trace.id / span.id so the snapshot carries them.
                     mdc = MdcSnapshot.capture()
-                    emitRequestEvent(outgoing, redactedUrl)
+                    emitters.emitRequestEvent(outgoing, redactedUrl)
                     try {
                         next.processAsync(outgoing)
                     } catch (e: Throwable) {
                         // Synchronous throw from the next step (e.g. argument validation).
                         // Normalise to a failed future so callers get the uniform async contract.
-                        val elapsedMs = elapsedMillis(startNanos)
-                        emitFailureEvent(outgoing, redactedUrl, e, elapsedMs, wrappedRequestBody)
-                        recordMetrics(
+                        val elapsedMs = emitters.elapsedMillis(startNanos)
+                        emitters.emitFailureEvent(outgoing, redactedUrl, e, elapsedMs, wrappedRequestBody)
+                        emitters.recordMetrics(
                             request,
                             statusCode = -1,
                             elapsedMs,
@@ -150,30 +124,6 @@ public class DefaultAsyncInstrumentationStep
         }
 
         /**
-         * Wraps the request body in a [LoggableRequestBody] when body capture is enabled.
-         * Returns the (possibly rewritten) outgoing request and the wrapper (or null when
-         * capture is disabled or the original request has no body).
-         */
-        private fun buildOutgoingRequest(request: Request): Pair<Request, LoggableRequestBody?> {
-            val requestBody = request.body
-            val wrappedRequestBody =
-                if (shouldCaptureBody() && requestBody != null) {
-                    // Cap the request-side tap so a multi-GB upload only mirrors a bounded preview
-                    // into memory while still streaming the full payload to the transport.
-                    LoggableRequestBody.bounded(requestBody, Io.provider, options.bodyPreviewMaxBytes.toLong())
-                } else {
-                    null
-                }
-            val outgoing =
-                if (wrappedRequestBody != null) {
-                    request.newBuilder().body(wrappedRequestBody).build()
-                } else {
-                    request
-                }
-            return outgoing to wrappedRequestBody
-        }
-
-        /**
          * Handles completion of the downstream future (either success or failure).
          * Emits the appropriate instrumentation events, records metrics, ends the span,
          * and returns the (possibly logging-wrapped) response on success or re-throws on failure.
@@ -196,13 +146,13 @@ public class DefaultAsyncInstrumentationStep
             redactedUrl: String,
             wrappedRequestBody: LoggableRequestBody?,
         ): Response {
-            val elapsedMs = elapsedMillis(startNanos)
+            val elapsedMs = emitters.elapsedMillis(startNanos)
             if (err != null) {
                 // CompletableFuture wraps with CompletionException; unwrap so events see the original.
                 val cause = Futures.unwrap(err)
                 mdc.withMdc {
-                    emitFailureEvent(outgoing, redactedUrl, cause, elapsedMs, wrappedRequestBody)
-                    recordMetrics(
+                    emitters.emitFailureEvent(outgoing, redactedUrl, cause, elapsedMs, wrappedRequestBody)
+                    emitters.recordMetrics(
                         request,
                         statusCode = -1,
                         elapsedMs,
@@ -211,7 +161,7 @@ public class DefaultAsyncInstrumentationStep
                     span.end(cause)
                 }
                 // Re-throw via the future graph — handle's return becomes the new value/completion.
-                // B4: The CompletionException wrap is correct per CompletableFuture.join() semantics:
+                // The CompletionException wrap is correct per CompletableFuture.join() semantics:
                 // join() rethrows a stored CompletionException as-is and the unwrap chain via
                 // Futures.unwrap exposes the original cause. RuntimeException / Error are rethrown
                 // directly since join() would not re-wrap them. Callers should use Futures.unwrap()
@@ -223,221 +173,12 @@ public class DefaultAsyncInstrumentationStep
                 }
             } else {
                 return mdc.withMdc {
-                    val wrapped = wrapResponseForLogging(raw!!)
-                    emitResponseEvent(outgoing, wrapped, redactedUrl, elapsedMs, wrappedRequestBody)
-                    recordMetrics(request, statusCode = wrapped.status.code, elapsedMs, errorType = null)
+                    val wrapped = emitters.wrapResponseForLogging(raw!!)
+                    emitters.emitResponseEvent(outgoing, wrapped, redactedUrl, elapsedMs, wrappedRequestBody)
+                    emitters.recordMetrics(request, statusCode = wrapped.status.code, elapsedMs, errorType = null)
                     span.end()
                     wrapped
                 }
             }
-        }
-
-        // ===== Helpers duplicated from DefaultInstrumentationStep =====
-        // Duplication is intentional for this commit.
-        // TODO(omar 2026-08-01): extract InstrumentationEmitters shared helper used by both DefaultInstrumentationStep and DefaultAsyncInstrumentationStep
-
-        private fun shouldCaptureBody(): Boolean = options.logLevel == HttpLogLevel.BODY_AND_HEADERS
-
-        private fun wrapResponseForLogging(response: Response): Response {
-            val responseBody = response.body
-            if (!shouldCaptureBody() || responseBody == null) return response
-            // The bounded drain below runs on the future-completion thread. For an unknown-length
-            // (streaming) body the read could block on a slow/idle producer and stall the
-            // completion thread, so we skip body capture entirely for contentLength() < 0 — the
-            // body streams to the caller unwrapped with no preview. Known-length bodies are safe
-            // to drain up to the bounded preview size.
-            if (responseBody.contentLength() < 0L) return response
-            // Bound the in-memory capture to the preview size. The full body still streams to the
-            // caller via the wrapper's live tail; only a preview prefix is buffered.
-            val wrapped = LoggableResponseBody.bounded(responseBody, Io.provider, options.bodyPreviewMaxBytes.toLong())
-            // Force drain so we have bytes to log. Done here (not in the event emit) so a logging
-            // failure can't mask the drain error from the caller — they still get the wrapped body
-            // with the cached exception surfaced on source().
-            try {
-                wrapped.snapshot(options.bodyPreviewMaxBytes)
-            } catch (t: Throwable) {
-                // Drain itself records the exception on the wrapper; capture for emit, but don't
-                // let it propagate — the caller will see it on next source() call.
-                logger.atWarning()
-                    .event("http.instrumentation.response_drain_failed")
-                    .field("error.type", t.javaClass.simpleName ?: "Throwable")
-                    .cause(t)
-                    .log()
-            }
-            return response.newBuilder().body(wrapped).build()
-        }
-
-        private fun emitRequestEvent(
-            request: Request,
-            redactedUrl: String,
-        ) {
-            if (options.logLevel == HttpLogLevel.NONE) return
-            try {
-                val ev =
-                    logger.atInfo()
-                        .event("http.request")
-                        .field("http.request.method", request.method.name)
-                        .field("url.full", redactedUrl)
-                        .field("request.content.length", request.body?.contentLength() ?: -1L)
-                appendHeadersFields(ev, request.headers, prefix = "http.request.header.")
-                ev.log()
-            } catch (t: Throwable) {
-                emitInstrumentationError("http.instrumentation.emit_request_failed", "request_event", t)
-            }
-        }
-
-        private fun emitResponseEvent(
-            request: Request,
-            response: Response,
-            redactedUrl: String,
-            elapsedMs: Double,
-            requestBody: LoggableRequestBody?,
-        ) {
-            if (options.logLevel == HttpLogLevel.NONE) return
-            try {
-                val ev =
-                    logger.atInfo()
-                        .event("http.response")
-                        .field("http.request.method", request.method.name)
-                        .field("url.full", redactedUrl)
-                        .field("http.response.status_code", response.status.code.toLong())
-                        .field("http.response.duration_ms", elapsedMs)
-                        .field("response.content.length", response.body?.contentLength() ?: -1L)
-                appendHeadersFields(ev, response.headers, prefix = "http.response.header.")
-                if (shouldCaptureBody()) {
-                    if (requestBody != null) {
-                        val preview = requestBody.snapshot(options.bodyPreviewMaxBytes)
-                        ev.field("request.body.size", preview.size.toLong())
-                            .field("request.body.preview", BodyPreview.render(preview, requestBody.mediaType()))
-                    }
-                    val responseBody = response.body
-                    if (responseBody is LoggableResponseBody) {
-                        val preview = responseBody.snapshot(options.bodyPreviewMaxBytes)
-                        ev.field("response.body.size", preview.size.toLong())
-                            .field("response.body.preview", BodyPreview.render(preview, responseBody.mediaType()))
-                        responseBody.captureException?.let {
-                            ev.field("response.body.drain_error", it.javaClass.simpleName ?: "Throwable")
-                        }
-                    }
-                }
-                ev.log()
-            } catch (t: Throwable) {
-                emitInstrumentationError("http.instrumentation.emit_response_failed", "response_event", t)
-            }
-        }
-
-        private fun emitFailureEvent(
-            request: Request,
-            redactedUrl: String,
-            cause: Throwable,
-            elapsedMs: Double,
-            requestBody: LoggableRequestBody?,
-        ) {
-            if (options.logLevel == HttpLogLevel.NONE) return
-            try {
-                val ev =
-                    logger.atWarning()
-                        .event("http.response")
-                        .field("http.request.method", request.method.name)
-                        .field("url.full", redactedUrl)
-                        .field("error.type", cause.javaClass.simpleName ?: "Throwable")
-                        .field("http.response.duration_ms", elapsedMs)
-                        .cause(cause)
-                if (shouldCaptureBody() && requestBody != null) {
-                    val preview = requestBody.snapshot(options.bodyPreviewMaxBytes)
-                    ev.field("request.body.size", preview.size.toLong())
-                        .field("request.body.preview", BodyPreview.render(preview, requestBody.mediaType()))
-                }
-                ev.log()
-            } catch (t: Throwable) {
-                emitInstrumentationError("http.instrumentation.emit_failure_failed", "failure_event", t)
-            }
-        }
-
-        private fun appendHeadersFields(
-            ev: LoggingEvent,
-            headers: Headers,
-            prefix: String,
-        ) {
-            // Iterate the headers actually present rather than the allow-list — the allow-list is
-            // usually larger than the headers on any one request.
-            for ((nameLower, values) in headers.entries()) {
-                val typed = HttpHeaderName.fromString(nameLower)
-                when {
-                    options.allowedHeaderNames.contains(typed) ->
-                        ev.field(prefix + nameLower, joinHeaderValues(values))
-                    options.isRedactedHeaderNamesLoggingEnabled ->
-                        ev.field(prefix + nameLower, "REDACTED")
-                    // else: silently omit
-                }
-            }
-        }
-
-        private fun joinHeaderValues(values: List<String>): String =
-            if (values.size == 1) values[0] else values.joinToString(", ")
-
-        private fun safeRedact(request: Request): String =
-            try {
-                UrlRedactor.redact(request.url, options.allowedQueryParamNames)
-            } catch (t: Throwable) {
-                "[malformed url]"
-            }
-
-        private fun spanAttributes(
-            request: Request,
-            redactedUrl: String,
-        ): Map<String, Any> =
-            mapOf(
-                "http.request.method" to request.method.name,
-                "url.full" to redactedUrl,
-            )
-
-        private fun recordMetrics(
-            request: Request,
-            statusCode: Int,
-            elapsedMs: Double,
-            errorType: String?,
-        ) {
-            val attrs: Map<String, Any> =
-                if (errorType != null) {
-                    mapOf(
-                        "http.request.method" to request.method.name,
-                        "error.type" to errorType,
-                    )
-                } else {
-                    mapOf(
-                        "http.request.method" to request.method.name,
-                        "http.response.status_code" to statusCode,
-                    )
-                }
-            requestCounter.add(1L, attrs)
-            latencyHistogram.record(elapsedMs, attrs)
-        }
-
-        private fun elapsedMillis(startNanos: Long): Double = (clock.monotonic() - startNanos) / NANOS_PER_MILLI_DOUBLE
-
-        private fun emitInstrumentationError(
-            event: String,
-            phase: String,
-            t: Throwable,
-        ) {
-            // Best-effort secondary log. If this also throws, swallow — we're inside the logging
-            // path already, and a thrown exception would corrupt the outer caller's flow.
-            try {
-                logger.atWarning()
-                    .event(event)
-                    .field("error.phase", phase)
-                    .field("error.type", t.javaClass.simpleName ?: "Throwable")
-                    .cause(t)
-                    .log()
-            } catch (_: Throwable) {
-                // Intentionally swallowed — logging is best-effort.
-            }
-        }
-
-        private companion object {
-            // Nanoseconds in one millisecond, expressed as Double so the division returns
-            // millisecond fractions (e.g. 1.234 ms) for high-resolution latency histograms.
-            private const val NANOS_PER_MILLI_DOUBLE = 1_000_000.0
         }
     }

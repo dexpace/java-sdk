@@ -183,6 +183,15 @@ public class LoggableResponseBody
          */
         public val captureException: Throwable? get() = drainError
 
+        /**
+         * Internal seam for instrumentation: true once the whole body fit within the capture cap
+         * and was drained in full. False before any drain runs, or once the cap was hit with bytes
+         * still pending (the over-cap path). Instrumentation uses this to decide whether the logged
+         * preview is the complete body or a truncated prefix, without re-reading the body.
+         */
+        @get:JvmSynthetic
+        internal val isFullyCaptured: Boolean get() = fullyCaptured
+
         @Throws(IOException::class)
         override fun close() {
             lock.withLock {

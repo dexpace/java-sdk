@@ -203,6 +203,42 @@ class AsyncInstrumentationStepTest {
     }
 
     @Test
+    fun `over-cap response body reports true actual_size and marks the preview truncated`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.async.instrumentation.size")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val payload = "z".repeat(100)
+        val fakeAsync =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(okResponseWithBody(request, 200, payload))
+            }
+        val pipeline =
+            AsyncHttpPipelineBuilder(fakeAsync)
+                .append(
+                    DefaultAsyncInstrumentationStep(
+                        options =
+                            HttpInstrumentationOptions(
+                                logLevel = HttpLogLevel.BODY_AND_HEADERS,
+                                bodyPreviewMaxBytes = 10,
+                            ),
+                        logger = clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.sendAsync(getRequest("https://api.example.com/data")).join()
+        response.close()
+
+        val event =
+            fakeSlf4j.records
+                .last { rec -> rec.keyValues.any { it.key == "event" && it.value == "http.response" } }
+                .keyValues
+                .associate { it.key to it.value }
+        assertEquals(10L, event["response.body.size"], "body.size is the capped preview size")
+        assertEquals(100L, event["response.body.actual_size"], "actual_size is the true body length")
+        assertEquals(true, event["response.body.preview_truncated"])
+    }
+
+    @Test
     fun `unknown-length response body is NOT wrapped in the async step`() {
         // The async drain runs on the completion thread; an unknown-length (streaming) body
         // (contentLength() < 0) is left unwrapped so a slow producer never blocks that thread.
