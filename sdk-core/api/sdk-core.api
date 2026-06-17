@@ -2273,6 +2273,43 @@ public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 	public abstract fun deserialize ([BLjava/lang/Class;)Ljava/lang/Object;
 }
 
+public abstract class org/dexpace/sdk/core/serde/OpenEnum {
+	protected fun <init> (Ljava/lang/String;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRawValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isUnknown ()Z
+	public final fun known ()Ljava/lang/Enum;
+	public final fun knownOrNull ()Ljava/lang/Enum;
+	protected abstract fun knownToValue (Ljava/lang/Enum;)Ljava/lang/Enum;
+	protected abstract fun resolveKnown (Ljava/lang/String;)Ljava/lang/Enum;
+	public fun toString ()Ljava/lang/String;
+	protected abstract fun unknownValue ()Ljava/lang/Enum;
+	public final fun value ()Ljava/lang/Enum;
+}
+
+public abstract class org/dexpace/sdk/core/serde/OpenUnion {
+	protected fun <init> (Ljava/lang/Object;)V
+	public final fun accept (Lorg/dexpace/sdk/core/serde/OpenUnion$Visitor;)Ljava/lang/Object;
+	protected abstract fun getArms ()Ljava/util/List;
+	public final fun getRawValue ()Ljava/lang/Object;
+	public final fun isUnknown ()Z
+}
+
+public final class org/dexpace/sdk/core/serde/OpenUnion$Arm {
+	public fun <init> (Ljava/lang/Object;Lkotlin/jvm/functions/Function2;)V
+	public final fun dispatch (Lorg/dexpace/sdk/core/serde/OpenUnion$Visitor;Ljava/lang/Object;)Ljava/lang/Object;
+	public final fun getValue ()Ljava/lang/Object;
+}
+
+public abstract interface class org/dexpace/sdk/core/serde/OpenUnion$Visitor {
+	public fun unknown (Ljava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class org/dexpace/sdk/core/serde/OpenUnion$Visitor$DefaultImpls {
+	public static fun unknown (Lorg/dexpace/sdk/core/serde/OpenUnion$Visitor;Ljava/lang/Object;)Ljava/lang/Object;
+}
+
 public abstract interface class org/dexpace/sdk/core/serde/Serde {
 	public abstract fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public abstract fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
