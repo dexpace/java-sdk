@@ -27,14 +27,23 @@ import java.util.regex.Pattern
  *
  * ## Proxy authentication
  *
- * Proxy auth is driven by [username] / [password]. The shipped transports apply them as follows:
- * - OkHttp transport: sets up **Basic** proxy authentication from [username] / [password].
- * - JDK transport: passes [username] / [password] to the `java.net.http` stack, which negotiates
- *   **Basic** or **Digest** with the proxy itself.
+ * Proxy auth is driven by [username] / [password]. **Both shipped transports authenticate the
+ * proxy with the Basic scheme only:**
+ * - OkHttp transport: its `proxyAuthenticator` emits `Proxy-Authorization: Basic …` from
+ *   [username] / [password].
+ * - JDK transport: installs a `java.net.Authenticator` on the `java.net.http` client. That
+ *   built-in integration answers Basic proxy challenges only; it does not implement Digest
+ *   proxy auth.
+ *
+ * Neither transport performs Digest (or any other non-Basic scheme) proxy authentication. To
+ * authenticate against a Digest-only proxy, supply your own pre-configured client — a
+ * `java.net.http.HttpClient` or `OkHttpClient` carrying your own authenticator — through the
+ * transport's `create(...)` entry point; the SDK uses such a client as-is and does not override
+ * its proxy authentication.
  *
  * [challengeHandler] is **currently not honoured by any shipped transport** — it is reserved for
  * a future pluggable proxy-auth mechanism. Setting it has no effect today (the transports ignore
- * it and log a warning), so supply [username] / [password] for proxy authentication.
+ * it and log a warning), so supply [username] / [password] for Basic proxy authentication.
  *
  * ## Bypass-all semantics (breaking change from pre-v2 API)
  *
