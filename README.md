@@ -98,6 +98,7 @@ Two further modules build but are never published: `sdk-example`, the runnable e
 | [I/O module](docs/io.md) | I/O contracts and the `IoProvider` seam |
 | [HTTP body logging and concurrency](docs/http-body-logging-and-concurrency.md) | Body logging system, concurrency model, thread safety |
 | [Pipeline mechanism](docs/pipelines.md) | Pipeline architecture, stages, step composition, async pipeline |
+| [Codegen design specs](docs/codegen/README.md) | Design specifications for the planned model-layer code generator |
 | [Style guides](styleguide/README.md) | Kotlin and Kotlin-on-JVM style guides this codebase follows |
 
 ## Usage
