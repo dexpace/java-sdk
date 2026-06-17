@@ -55,6 +55,15 @@ public interface CallContext : AutoCloseable {
     public val callKey: String
 
     /**
+     * Per-call options overlay for this chain: a per-phase timeout overlay, a
+     * response-validation decision, an optional ad-hoc credential, and typed extension
+     * attributes. Minted once at the head of the chain ([DispatchContext]) and carried forward
+     * unchanged by every promotion, so the dispatch / request / exchange phases all observe the
+     * same overrides. Defaults to [CallOptions.NONE] (inherit the client configuration).
+     */
+    public val callOptions: CallOptions
+
+    /**
      * Removes this context's chain from [ContextStore], but only if this context is still
      * the registered occupant of the slot. Eviction is conditional on identity
      * ([ContextStore.remove] with the expected value), so closing an earlier link whose

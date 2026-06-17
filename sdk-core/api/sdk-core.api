@@ -503,11 +503,96 @@ public final class org/dexpace/sdk/core/http/common/RequestConditions$Companion 
 public abstract interface class org/dexpace/sdk/core/http/context/CallContext : java/lang/AutoCloseable {
 	public fun close ()V
 	public abstract fun getCallKey ()Ljava/lang/String;
+	public abstract fun getCallOptions ()Lorg/dexpace/sdk/core/http/context/CallOptions;
 	public abstract fun getInstrumentationContext ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 }
 
 public final class org/dexpace/sdk/core/http/context/CallContext$DefaultImpls {
 	public static fun close (Lorg/dexpace/sdk/core/http/context/CallContext;)V
+}
+
+public final class org/dexpace/sdk/core/http/context/CallOption {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getName ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/http/context/CallOptions {
+	public static final field Companion Lorg/dexpace/sdk/core/http/context/CallOptions$Companion;
+	public static final field NONE Lorg/dexpace/sdk/core/http/context/CallOptions;
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/context/CallTimeout;Lorg/dexpace/sdk/core/http/context/ResponseValidation;Lorg/dexpace/sdk/core/http/auth/Credential;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun applyDefaults (Lorg/dexpace/sdk/core/http/context/CallOptions;)Lorg/dexpace/sdk/core/http/context/CallOptions;
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+	public final fun component1 ()Lorg/dexpace/sdk/core/http/context/CallTimeout;
+	public final fun component2 ()Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public final fun component3 ()Lorg/dexpace/sdk/core/http/auth/Credential;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun contains (Lorg/dexpace/sdk/core/http/context/CallOption;)Z
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun get (Lorg/dexpace/sdk/core/http/context/CallOption;)Ljava/lang/Object;
+	public final fun getAttributes ()Ljava/util/Map;
+	public final fun getCredentialOverride ()Lorg/dexpace/sdk/core/http/auth/Credential;
+	public final fun getOrDefault (Lorg/dexpace/sdk/core/http/context/CallOption;Ljava/lang/Object;)Ljava/lang/Object;
+	public final fun getResponseValidation ()Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public final fun getTimeout ()Lorg/dexpace/sdk/core/http/context/CallTimeout;
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/http/context/CallOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/http/context/CallOptions;)V
+	public final fun attribute (Lorg/dexpace/sdk/core/http/context/CallOption;Ljava/lang/Object;)Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/context/CallOptions;
+	public final fun credentialOverride (Lorg/dexpace/sdk/core/http/auth/Credential;)Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+	public final fun removeAttribute (Lorg/dexpace/sdk/core/http/context/CallOption;)Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+	public final fun responseValidation (Lorg/dexpace/sdk/core/http/context/ResponseValidation;)Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+	public final fun timeout (Lorg/dexpace/sdk/core/http/context/CallTimeout;)Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/context/CallOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/context/CallOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/context/CallTimeout {
+	public static final field Companion Lorg/dexpace/sdk/core/http/context/CallTimeout$Companion;
+	public static final field NONE Lorg/dexpace/sdk/core/http/context/CallTimeout;
+	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun applyDefaults (Lorg/dexpace/sdk/core/http/context/CallTimeout;)Lorg/dexpace/sdk/core/http/context/CallTimeout;
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+	public final fun component1 ()Ljava/time/Duration;
+	public final fun component2 ()Ljava/time/Duration;
+	public final fun component3 ()Ljava/time/Duration;
+	public final fun component4 ()Ljava/time/Duration;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCall ()Ljava/time/Duration;
+	public final fun getConnect ()Ljava/time/Duration;
+	public final fun getRead ()Ljava/time/Duration;
+	public final fun getWrite ()Ljava/time/Duration;
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+	public static final fun ofCall (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/context/CallTimeout;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/http/context/CallTimeout$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/http/context/CallTimeout;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/context/CallTimeout;
+	public final fun call (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+	public final fun connect (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+	public final fun read (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+	public final fun write (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/context/CallTimeout$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/context/CallTimeout$Builder;
+	public final fun ofCall (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/context/CallTimeout;
 }
 
 public final class org/dexpace/sdk/core/http/context/ContextStore {
@@ -521,15 +606,17 @@ public final class org/dexpace/sdk/core/http/context/ContextStore {
 
 public final class org/dexpace/sdk/core/http/context/DispatchContext : org/dexpace/sdk/core/http/context/CallContext {
 	public static final field Companion Lorg/dexpace/sdk/core/http/context/DispatchContext$Companion;
-	public fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun close ()V
 	public final fun component1 ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 	public final fun component2 ()Ljava/lang/String;
-	public final fun copy (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/context/DispatchContext;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/context/DispatchContext;Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/context/DispatchContext;
+	public final fun component3 ()Lorg/dexpace/sdk/core/http/context/CallOptions;
+	public final fun copy (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;)Lorg/dexpace/sdk/core/http/context/DispatchContext;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/context/DispatchContext;Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/context/DispatchContext;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getCallKey ()Ljava/lang/String;
+	public fun getCallOptions ()Lorg/dexpace/sdk/core/http/context/CallOptions;
 	public fun getInstrumentationContext ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 	public fun hashCode ()I
 	public final fun toRequestContext (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/context/RequestContext;
@@ -541,17 +628,19 @@ public final class org/dexpace/sdk/core/http/context/DispatchContext$Companion {
 }
 
 public final class org/dexpace/sdk/core/http/context/ExchangeContext : org/dexpace/sdk/core/http/context/CallContext {
-	public fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun close ()V
 	public final fun component1 ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 	public final fun component2 ()Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun component3 ()Lorg/dexpace/sdk/core/http/response/Response;
 	public final fun component4 ()Ljava/lang/String;
-	public final fun copy (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/context/ExchangeContext;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/context/ExchangeContext;Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/context/ExchangeContext;
+	public final fun component5 ()Lorg/dexpace/sdk/core/http/context/CallOptions;
+	public final fun copy (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;)Lorg/dexpace/sdk/core/http/context/ExchangeContext;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/context/ExchangeContext;Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/context/ExchangeContext;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getCallKey ()Ljava/lang/String;
+	public fun getCallOptions ()Lorg/dexpace/sdk/core/http/context/CallOptions;
 	public fun getInstrumentationContext ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getResponse ()Lorg/dexpace/sdk/core/http/response/Response;
@@ -560,21 +649,33 @@ public final class org/dexpace/sdk/core/http/context/ExchangeContext : org/dexpa
 }
 
 public final class org/dexpace/sdk/core/http/context/RequestContext : org/dexpace/sdk/core/http/context/CallContext {
-	public fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun close ()V
 	public final fun component1 ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 	public final fun component2 ()Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun component3 ()Ljava/lang/String;
-	public final fun copy (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/context/RequestContext;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/context/RequestContext;Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/context/RequestContext;
+	public final fun component4 ()Lorg/dexpace/sdk/core/http/context/CallOptions;
+	public final fun copy (Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;)Lorg/dexpace/sdk/core/http/context/RequestContext;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/context/RequestContext;Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Lorg/dexpace/sdk/core/http/context/CallOptions;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/context/RequestContext;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getCallKey ()Ljava/lang/String;
+	public fun getCallOptions ()Lorg/dexpace/sdk/core/http/context/CallOptions;
 	public fun getInstrumentationContext ()Lorg/dexpace/sdk/core/instrumentation/InstrumentationContext;
 	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
 	public fun hashCode ()I
 	public final fun toExchangeContext (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/context/ExchangeContext;
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/http/context/ResponseValidation : java/lang/Enum {
+	public static final field DISABLED Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public static final field ENABLED Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public static final field INHERIT Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public final fun applyDefault (Lorg/dexpace/sdk/core/http/context/ResponseValidation;)Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/context/ResponseValidation;
+	public static fun values ()[Lorg/dexpace/sdk/core/http/context/ResponseValidation;
 }
 
 public abstract interface class org/dexpace/sdk/core/http/paging/FirstPageFetcher {
@@ -1975,6 +2076,58 @@ public abstract interface class org/dexpace/sdk/core/io/Sink : java/io/Closeable
 
 public abstract interface class org/dexpace/sdk/core/io/Source : java/io/Closeable {
 	public abstract fun read (Lorg/dexpace/sdk/core/io/Buffer;J)J
+}
+
+public abstract interface class org/dexpace/sdk/core/operation/OperationParams {
+	public static final field Companion Lorg/dexpace/sdk/core/operation/OperationParams$Companion;
+	public static final field EMPTY_HEADERS Lorg/dexpace/sdk/core/http/common/Headers;
+	public static final field NONE Lorg/dexpace/sdk/core/operation/OperationParams;
+	public fun body ()Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public fun headers ()Lorg/dexpace/sdk/core/http/common/Headers;
+	public fun pathParams ()Ljava/util/List;
+	public fun queryParams ()Ljava/util/List;
+}
+
+public final class org/dexpace/sdk/core/operation/OperationParams$Companion {
+}
+
+public final class org/dexpace/sdk/core/operation/OperationParams$DefaultImpls {
+	public static fun body (Lorg/dexpace/sdk/core/operation/OperationParams;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static fun headers (Lorg/dexpace/sdk/core/operation/OperationParams;)Lorg/dexpace/sdk/core/http/common/Headers;
+	public static fun pathParams (Lorg/dexpace/sdk/core/operation/OperationParams;)Ljava/util/List;
+	public static fun queryParams (Lorg/dexpace/sdk/core/operation/OperationParams;)Ljava/util/List;
+}
+
+public final class org/dexpace/sdk/core/operation/PathParam {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/operation/PathParam;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/operation/PathParam;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/operation/PathParam;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/operation/QueryParam {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/operation/QueryParam;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/operation/QueryParam;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/operation/QueryParam;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/operation/RequestProjector {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/operation/RequestProjector;
+	public static final fun project (Ljava/net/URL;Lorg/dexpace/sdk/core/http/request/Method;Ljava/lang/String;Lorg/dexpace/sdk/core/operation/OperationParams;)Lorg/dexpace/sdk/core/http/request/Request;
+	public static final fun projectInto (Lorg/dexpace/sdk/core/http/context/DispatchContext;Ljava/net/URL;Lorg/dexpace/sdk/core/http/request/Method;Ljava/lang/String;Lorg/dexpace/sdk/core/operation/OperationParams;)Lorg/dexpace/sdk/core/http/context/RequestContext;
 }
 
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {

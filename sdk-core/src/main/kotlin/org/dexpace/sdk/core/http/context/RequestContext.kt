@@ -29,12 +29,14 @@ public data class RequestContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
     override val callKey: String = DispatchContext.mintCallKey(instrumentationContext),
+    override val callOptions: CallOptions = CallOptions.NONE,
 ) : CallContext {
     /**
      * Promotes this request context into an [ExchangeContext] bound to [response] and stores
-     * the new context in [ContextStore] under this chain's [callKey]. After promotion this
-     * request context becomes an intermediate link and must not be closed independently —
-     * close the returned [ExchangeContext] instead.
+     * the new context in [ContextStore] under this chain's [callKey]. The chain's [callOptions]
+     * are carried forward unchanged. After promotion this request context becomes an
+     * intermediate link and must not be closed independently — close the returned
+     * [ExchangeContext] instead.
      */
     public fun toExchangeContext(response: Response): ExchangeContext =
         ExchangeContext(
@@ -42,6 +44,7 @@ public data class RequestContext(
             request = request,
             response = response,
             callKey = callKey,
+            callOptions = callOptions,
         ).also {
             ContextStore.set(it.callKey, it)
         }
