@@ -47,19 +47,10 @@ import java.util.function.Function
  * configuration under last-write-wins semantics.
  */
 public class Configuration internal constructor(
-    private val overrides: Map<String, String>,
-    private val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
-    private val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
+    internal val overrides: Map<String, String>,
+    internal val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
+    internal val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
 ) {
-    /** A defensive copy of the explicit overrides, for prefilling a derived [ConfigurationBuilder]. */
-    internal fun overridesSnapshot(): Map<String, String> = overrides.toMap()
-
-    /** The environment-variable lookup seam, shared by reference into derived builders. */
-    internal fun envSource(): Function<String, String?> = envSource
-
-    /** The system-property lookup seam, shared by reference into derived builders. */
-    internal fun propsSource(): Function<String, String?> = propsSource
-
     /**
      * Returns a fresh [ConfigurationBuilder] preloaded with this instance's overrides and lookup
      * sources. Mutating the returned builder never affects this [Configuration]; the override map is

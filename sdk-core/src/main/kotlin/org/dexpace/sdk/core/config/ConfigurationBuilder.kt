@@ -37,9 +37,9 @@ public class ConfigurationBuilder : Builder<Configuration> {
      * [Configuration.withOptions].
      */
     public constructor(source: Configuration) {
-        overrides.putAll(source.overridesSnapshot())
-        envSource = source.envSource()
-        propsSource = source.propsSource()
+        overrides.putAll(source.overrides)
+        envSource = source.envSource
+        propsSource = source.propsSource
     }
 
     /**

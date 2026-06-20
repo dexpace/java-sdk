@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.config
 
 import java.time.Duration
+import java.util.function.Function
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -573,6 +574,17 @@ class ConfigurationTest {
         assertEquals("DEBUG", derived.get("LOG_LEVEL"))
         // The base, queried for the same key, still falls through to the property seam.
         assertEquals("INFO", base.get("LOG_LEVEL"))
+    }
+
+    @Test
+    fun `withOptions inherits the env and property seams by reference, not by copy`() {
+        val env = Function<String, String?> { null }
+        val props = Function<String, String?> { null }
+        val base = ConfigurationBuilder().envSource(env).propsSource(props).build()
+        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        // The pure read seams are inherited by reference; the override map is the only copied state.
+        assertSame(base.envSource, derived.envSource)
+        assertSame(base.propsSource, derived.propsSource)
     }
 
     @Test
