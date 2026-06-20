@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.util
 
 import java.util.Arrays
+import java.util.Objects
 
 /**
  * Deep, structural value-equality helpers for value types that hold arrays.
@@ -51,28 +52,19 @@ public object ValueEquality {
      *   primitive arrays are compared by their element values.
      * - An object array and a primitive array (e.g. `Array<Int>` vs `IntArray`) are **not**
      *   equal even with matching values, mirroring the JVM's distinct array types.
+     * - Floating-point elements follow `Arrays.equals`/`Double.equals` semantics rather than
+     *   `==`: two `NaN`s compare **equal**, while `0.0` and `-0.0` (and `0.0f`/`-0.0f`) compare
+     *   **unequal**. This holds for both primitive (`DoubleArray`/`FloatArray`) and boxed
+     *   (`Array<Double>`/`Array<Float>`) arrays, and [contentHashCode] hashes to match.
      * - Any other value is compared with [Any.equals].
+     *
+     * This is exactly the contract of `java.util.Objects.deepEquals`, to which it delegates.
      */
     @JvmStatic
     public fun contentEquals(
         a: Any?,
         b: Any?,
-    ): Boolean {
-        if (a === b) return true
-        if (a == null || b == null) return false
-        return when {
-            a is Array<*> && b is Array<*> -> Arrays.deepEquals(a, b)
-            a is BooleanArray && b is BooleanArray -> a.contentEquals(b)
-            a is ByteArray && b is ByteArray -> a.contentEquals(b)
-            a is CharArray && b is CharArray -> a.contentEquals(b)
-            a is ShortArray && b is ShortArray -> a.contentEquals(b)
-            a is IntArray && b is IntArray -> a.contentEquals(b)
-            a is LongArray && b is LongArray -> a.contentEquals(b)
-            a is FloatArray && b is FloatArray -> a.contentEquals(b)
-            a is DoubleArray && b is DoubleArray -> a.contentEquals(b)
-            else -> a == b
-        }
-    }
+    ): Boolean = Objects.deepEquals(a, b)
 
     /**
      * Returns a content-based hash code for [value], consistent with [contentEquals].
@@ -80,6 +72,11 @@ public object ValueEquality {
      * `null` hashes to `0`. Arrays hash by their content — object arrays recurse so nested
      * and multi-dimensional arrays contribute a deep hash; primitive arrays hash by their
      * element values. Any other value uses its own [Any.hashCode].
+     *
+     * [contentEquals] delegates to `java.util.Objects.deepEquals`, whereas this method mirrors
+     * `java.util.Arrays.deepHashCode` element-wise — the two do not share an implementation and
+     * are kept deliberately in lockstep, so any change to either must preserve the contract that
+     * content-equal values hash equal.
      */
     @JvmStatic
     public fun contentHashCode(value: Any?): Int =

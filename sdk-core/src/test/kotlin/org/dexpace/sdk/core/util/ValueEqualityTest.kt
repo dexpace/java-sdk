@@ -164,6 +164,105 @@ class ValueEqualityTest {
         assertFalse(ValueEquality.contentEquals(intArrayOf(1), "not-an-array"))
     }
 
+    // ---- floating-point special values ---------------------------------------------------
+
+    @Test
+    fun `NaN elements compare equal in primitive floating-point arrays`() {
+        assertTrue(ValueEquality.contentEquals(doubleArrayOf(Double.NaN), doubleArrayOf(Double.NaN)))
+        assertTrue(ValueEquality.contentEquals(floatArrayOf(Float.NaN), floatArrayOf(Float.NaN)))
+        assertEquals(
+            ValueEquality.contentHashCode(doubleArrayOf(Double.NaN)),
+            ValueEquality.contentHashCode(doubleArrayOf(Double.NaN)),
+        )
+        assertEquals(
+            ValueEquality.contentHashCode(floatArrayOf(Float.NaN)),
+            ValueEquality.contentHashCode(floatArrayOf(Float.NaN)),
+        )
+    }
+
+    @Test
+    fun `NaN elements compare equal in boxed floating-point arrays`() {
+        assertTrue(ValueEquality.contentEquals(arrayOf(Double.NaN), arrayOf(Double.NaN)))
+        assertTrue(ValueEquality.contentEquals(arrayOf(Float.NaN), arrayOf(Float.NaN)))
+        assertEquals(
+            ValueEquality.contentHashCode(arrayOf(Double.NaN)),
+            ValueEquality.contentHashCode(arrayOf(Double.NaN)),
+        )
+        assertEquals(
+            ValueEquality.contentHashCode(arrayOf(Float.NaN)),
+            ValueEquality.contentHashCode(arrayOf(Float.NaN)),
+        )
+    }
+
+    @Test
+    fun `positive and negative zero are unequal in primitive floating-point arrays`() {
+        assertFalse(ValueEquality.contentEquals(doubleArrayOf(0.0), doubleArrayOf(-0.0)))
+        assertFalse(ValueEquality.contentEquals(floatArrayOf(0.0f), floatArrayOf(-0.0f)))
+        assertNotEquals(
+            ValueEquality.contentHashCode(doubleArrayOf(0.0)),
+            ValueEquality.contentHashCode(doubleArrayOf(-0.0)),
+        )
+        assertNotEquals(
+            ValueEquality.contentHashCode(floatArrayOf(0.0f)),
+            ValueEquality.contentHashCode(floatArrayOf(-0.0f)),
+        )
+    }
+
+    @Test
+    fun `positive and negative zero are unequal in boxed floating-point arrays`() {
+        assertFalse(ValueEquality.contentEquals(arrayOf(0.0), arrayOf(-0.0)))
+        assertFalse(ValueEquality.contentEquals(arrayOf(0.0f), arrayOf(-0.0f)))
+        assertNotEquals(
+            ValueEquality.contentHashCode(arrayOf(0.0)),
+            ValueEquality.contentHashCode(arrayOf(-0.0)),
+        )
+        assertNotEquals(
+            ValueEquality.contentHashCode(arrayOf(0.0f)),
+            ValueEquality.contentHashCode(arrayOf(-0.0f)),
+        )
+    }
+
+    @Test
+    fun `NaN survives recursion through nested arrays`() {
+        // arrayOf(doubleArrayOf(...)) drives the deepEquals/deepHashCode recursion seam, so this
+        // proves NaN/-0.0 semantics carry through the nested path, not just at the top level.
+        val a = arrayOf<Any>(doubleArrayOf(1.0, Double.NaN), floatArrayOf(Float.NaN))
+        val b = arrayOf<Any>(doubleArrayOf(1.0, Double.NaN), floatArrayOf(Float.NaN))
+        assertTrue(ValueEquality.contentEquals(a, b))
+        assertEquals(ValueEquality.contentHashCode(a), ValueEquality.contentHashCode(b))
+
+        val different = arrayOf<Any>(doubleArrayOf(1.0, Double.NaN), floatArrayOf(2.0f))
+        assertFalse(ValueEquality.contentEquals(a, different))
+    }
+
+    @Test
+    fun `NaN composes with ordinary elements in the same array`() {
+        assertTrue(
+            ValueEquality.contentEquals(
+                doubleArrayOf(1.0, Double.NaN, 2.0),
+                doubleArrayOf(1.0, Double.NaN, 2.0),
+            ),
+        )
+        assertFalse(
+            ValueEquality.contentEquals(
+                doubleArrayOf(1.0, Double.NaN, 2.0),
+                doubleArrayOf(1.0, Double.NaN, 3.0),
+            ),
+        )
+    }
+
+    @Test
+    fun `non-canonical NaN bit patterns compare equal and hash equal`() {
+        // A signaling-NaN bit pattern canonicalizes under doubleToLongBits, so it must compare
+        // equal to the canonical Double.NaN — a guarantee a generated value type relies on.
+        val signaling = Double.fromBits(0x7ff0000000000001L)
+        assertTrue(ValueEquality.contentEquals(doubleArrayOf(signaling), doubleArrayOf(Double.NaN)))
+        assertEquals(
+            ValueEquality.contentHashCode(doubleArrayOf(signaling)),
+            ValueEquality.contentHashCode(doubleArrayOf(Double.NaN)),
+        )
+    }
+
     // ---- equals / hashCode consistency ---------------------------------------------------
 
     @Test
