@@ -207,14 +207,15 @@ public class LoggableResponseBody
          * both through this single guard prevents a double-close on a delegate whose [source]
          * returns the same instance and whose [close] closes it (some sockets / streams throw on
          * double-close). Callers must hold [lock].
+         *
+         * The guard flips in a `finally`, so a delegate whose `close()` throws is still marked
+         * closed: the failing close propagates to the caller, but the delegate is never closed a
+         * second time. This matches the drain path, which likewise marks the delegate closed after
+         * a best-effort source close so a later [close] is a no-op.
          */
         @Throws(IOException::class)
         private fun closeDelegateOnce() {
             if (delegateClosed) return
-            // Flip the guard whether or not close() succeeds: a delegate whose handle is not safe
-            // to close twice must still see exactly one close even when that close throws. Marking
-            // it closed in a finally also matches the drain-path error handler, which marks the
-            // delegate closed after a failed source close so a later close() is a no-op.
             try {
                 delegate.close()
             } finally {
@@ -242,10 +243,11 @@ public class LoggableResponseBody
          * the source was never obtained, so the delegate remains open and a subsequent [close]
          * will still close it.
          *
-         * If EOF is reached within the cap the body is fully captured: the source is closed and
-         * [fullyCaptured] is set, preserving the fully-repeatable behavior. If the cap is hit with
-         * bytes still pending the delegate is **left open** and retained as [liveTail] so the
-         * consumer still receives the rest of the body via [source].
+         * If EOF is reached within the cap the body is fully captured: the source is closed
+         * (best-effort — a close failure does not become a [drainError], since the capture already
+         * succeeded) and [fullyCaptured] is set, preserving the fully-repeatable behavior. If the
+         * cap is hit with bytes still pending the delegate is **left open** and retained as
+         * [liveTail] so the consumer still receives the rest of the body via [source].
          *
          * If `provider.buffer()` throws (rare; would indicate a misconfigured provider), the error
          * is cached in [drainError] and an empty buffer is used as the fallback capture so
@@ -278,8 +280,19 @@ public class LoggableResponseBody
                     remaining -= n
                 }
                 if (fullyCaptured) {
-                    // Whole body captured: close the source (and via ownership the delegate).
-                    capturedSource.close()
+                    // Whole body captured: close the source (and via ownership the delegate). The
+                    // capture already succeeded, so a close failure here is best-effort cleanup, not
+                    // a drain failure — swallow it (as the read-failure handler below does) so the
+                    // complete captured body stays readable and is never reported as a [drainError].
+                    // Mark the delegate closed whether or not close() throws, so a later close() does
+                    // not close the same source a second time (some sockets / streams throw on
+                    // double-close).
+                    try {
+                        capturedSource.close()
+                    } catch (_: Throwable) {
+                        // Best-effort: the body is already fully captured; a close failure must not
+                        // poison it or leave the single-close guard unset.
+                    }
                     delegateClosed = true
                 } else {
                     // The cap was hit (or maxCaptureBytes was <= 0) with bytes still pending: retain
