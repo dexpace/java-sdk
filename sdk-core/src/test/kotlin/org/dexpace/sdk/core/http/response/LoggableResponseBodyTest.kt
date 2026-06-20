@@ -52,6 +52,34 @@ class LoggableResponseBodyTest {
         }
     }
 
+    /**
+     * A body that fits the (unbounded) cap and whose source's [close] throws every time it is
+     * called, counting invocations. Models a delegate whose handle is not safe to close twice and
+     * whose close can fail — exercises the full-capture path's best-effort, single-close behavior.
+     */
+    private fun fullyCapturedBodyWithThrowingClose(
+        text: String,
+        sourceCloseCount: AtomicInteger,
+    ): ResponseBody {
+        val backing = Io.provider.buffer().also { it.writeUtf8(text) }
+        val throwingOnClose =
+            object : BufferedSource by backing {
+                override fun close() {
+                    sourceCloseCount.incrementAndGet()
+                    throw IOException("source close failed")
+                }
+            }
+        return object : ResponseBody() {
+            override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+            override fun contentLength(): Long = text.toByteArray(Charsets.UTF_8).size.toLong()
+
+            override fun source(): BufferedSource = throwingOnClose
+
+            override fun close() {}
+        }
+    }
+
     // ----- source() that throws before entering .use {} -----
 
     @Test
@@ -163,6 +191,44 @@ class LoggableResponseBodyTest {
             0,
             delegateCloseCount.get(),
             "wrapper.close() must not call delegate.close() after a successful drain",
+        )
+    }
+
+    @Test
+    fun `fully captured body whose source close throws stays readable and is not poisoned`() {
+        // Full-capture path: the body fits the cap, so the drain reads it all and then closes the
+        // source. If that close throws, the capture itself already succeeded — the complete body is
+        // in the buffer — so source() must still return it and captureException must stay null. A
+        // close failure after a complete capture is best-effort cleanup, not a drain failure.
+        val sourceCloseCount = AtomicInteger(0)
+        val wrapper = LoggableResponseBody(fullyCapturedBodyWithThrowingClose("hello", sourceCloseCount))
+
+        assertEquals(
+            "hello",
+            wrapper.source().readUtf8(),
+            "a complete capture must stay readable even when the source close fails",
+        )
+        assertNull(
+            wrapper.captureException,
+            "a successful capture must not surface a drain error for a best-effort close failure",
+        )
+    }
+
+    @Test
+    fun `fully captured body whose source close throws is closed exactly once`() {
+        // The best-effort close must still happen exactly once: the drain closes the source and,
+        // because that close threw, the guard must be marked closed so a later wrapper.close() does
+        // not close the same source a second time (some sockets / streams throw on double-close).
+        val sourceCloseCount = AtomicInteger(0)
+        val wrapper = LoggableResponseBody(fullyCapturedBodyWithThrowingClose("hello", sourceCloseCount))
+
+        wrapper.source().readUtf8()
+        wrapper.close()
+
+        assertEquals(
+            1,
+            sourceCloseCount.get(),
+            "a fully-captured source whose close() throws must be closed exactly once across drain and wrapper close",
         )
     }
 
@@ -471,6 +537,42 @@ class LoggableResponseBodyTest {
             1,
             sourceCloseCount.get(),
             "the underlying source must be closed exactly once across the one-shot stream and wrapper close",
+        )
+    }
+
+    @Test
+    fun `delegate whose close throws is invoked only once across two close calls`() {
+        // Over-cap path: the one-shot source close and the wrapper close both funnel through the
+        // single-close guard. If the first close() throws, the guard must still flip so the second
+        // close() is a no-op — a delegate whose handle is not safe to close twice must see exactly
+        // one close even when that close fails.
+        val delegateCloseCount = AtomicInteger(0)
+        val payload = "abcdefghijklmnopqrstuvwxyz" // 26 bytes > cap
+        val delegate =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+                override fun contentLength(): Long = payload.toByteArray(Charsets.UTF_8).size.toLong()
+
+                override fun source(): BufferedSource = Io.provider.buffer().also { it.writeUtf8(payload) }
+
+                override fun close() {
+                    delegateCloseCount.incrementAndGet()
+                    throw IOException("delegate close failed")
+                }
+            }
+        val wrapper = LoggableResponseBody.bounded(delegate, Io.provider, 5L)
+
+        val tail = wrapper.source()
+        // First close reaches the delegate and throws; the guard must still flip.
+        assertFailsWith<IOException> { tail.close() }
+        // Second close must be a no-op — the delegate is not closed again.
+        wrapper.close()
+
+        assertEquals(
+            1,
+            delegateCloseCount.get(),
+            "a delegate whose close() throws must still be closed exactly once across two close() calls",
         )
     }
 
