@@ -269,11 +269,17 @@ public class LoggingEvent internal constructor(
      * The actual DEBUG emission, and its once-per-logger throttle, live on [ClientLogger] —
      * [LoggingEvent] is single-shot, so the "already warned" state has to outlive it. See
      * [ClientLogger.warnDroppedEventFieldOnce].
+     *
+     * The DEBUG check fronts the field-map probe: when DEBUG is off the diagnostic can never fire,
+     * so the [containsKey] lookup would be pure overhead on the hot path (this runs on every
+     * `log()` that set an event-name tag). `VERBOSE` maps to SLF4J `DEBUG`, the same level
+     * [ClientLogger.warnDroppedEventFieldOnce] re-checks before spending its once-per-logger guard.
      */
     private fun warnOnDroppedEventField(
         logger: ClientLogger,
         eventNameTag: String,
     ) {
+        if (!logger.canLog(LogLevel.VERBOSE)) return
         if (fields?.containsKey(EVENT_KEY) == true) logger.warnDroppedEventFieldOnce(eventNameTag)
     }
 
