@@ -55,6 +55,22 @@ public class ConfigurationBuilder : Builder<Configuration> {
             overrides[name] = value
         }
 
+    /**
+     * Remove the explicit override for [name], if one is set. This drops only the override layer:
+     * a later [Configuration.get] for [name] falls through to the environment-variable and
+     * system-property seams (and finally the caller's default) exactly as if the override had never
+     * been registered — it does **not** force the key to resolve to `null`. Removing a key that
+     * carries no override is a no-op. As the inverse of [put], this is what lets
+     * [Configuration.derive] un-pin an override inherited from the source instance.
+     *
+     * Kotlin's compiler-generated non-null parameter check raises `NullPointerException` when a
+     * Java caller passes `null` for [name], so no explicit guard is needed here.
+     */
+    public fun remove(name: String): ConfigurationBuilder =
+        apply {
+            overrides.remove(name)
+        }
+
     /** Test seam: override the environment-variable source. */
     public fun envSource(source: Function<String, String?>): ConfigurationBuilder = apply { envSource = source }
 

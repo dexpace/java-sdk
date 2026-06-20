@@ -56,6 +56,7 @@ public final class org/dexpace/sdk/core/config/ConfigurationBuilder : org/dexpac
 	public final fun envSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun propsSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun put (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
+	public final fun remove (Ljava/lang/String;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 }
 
 public abstract interface class org/dexpace/sdk/core/generics/Builder {

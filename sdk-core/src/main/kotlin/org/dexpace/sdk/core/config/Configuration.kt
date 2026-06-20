@@ -30,7 +30,7 @@ import java.util.function.Function
  * one, leaving the receiver untouched:
  *
  * ```java
- * Configuration base = new ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build();
+ * Configuration base = Configuration.builder().put("MAX_RETRY_ATTEMPTS", "3").build();
  * Configuration derived = base.derive(b -> b.put("LOG_LEVEL", "DEBUG"));
  * // base is unchanged; derived carries both overrides.
  * ```
@@ -67,8 +67,9 @@ public class Configuration internal constructor(
     /**
      * Derive a new immutable [Configuration] by applying [mutator] to a builder prefilled from this
      * instance, then building it. This [Configuration] is left unchanged (copy-on-write): the
-     * override map is copied before [mutator] runs, so overrides added or replaced inside [mutator]
-     * never leak back into the receiver. The env/property lookup seams are inherited by reference.
+     * override map is copied before [mutator] runs, so overrides added, replaced, or removed inside
+     * [mutator] never leak back into the receiver. The env/property lookup seams are inherited by
+     * reference.
      *
      * Kotlin's compiler-generated non-null parameter check raises `NullPointerException` when a Java
      * caller passes `null` for [mutator], so no explicit guard is needed here.
@@ -143,8 +144,8 @@ public class Configuration internal constructor(
     public companion object {
         /**
          * Returns a fresh empty [ConfigurationBuilder]. Java-friendly entry point matching the
-         * `Configuration.builder()` idiom every other SDK model exposes; build from scratch with this,
-         * or derive a reconfigured copy of an existing instance with [newBuilder] / [derive].
+         * `builder()` idiom every other SDK model exposes; build from scratch with this, or derive a
+         * reconfigured copy of an existing instance with [newBuilder] / [derive].
          */
         @JvmStatic
         public fun builder(): ConfigurationBuilder = ConfigurationBuilder()

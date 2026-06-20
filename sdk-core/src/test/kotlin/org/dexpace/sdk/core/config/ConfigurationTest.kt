@@ -373,6 +373,82 @@ class ConfigurationTest {
     }
 
     @Test
+    fun `builder remove deletes an existing override`() {
+        // Seams pinned absent, so a removed override leaves nothing to fall back to: get -> null.
+        val cfg =
+            ConfigurationBuilder()
+                .put("MAX_RETRY_ATTEMPTS", "3")
+                .remove("MAX_RETRY_ATTEMPTS")
+                .envSource { null }
+                .propsSource { null }
+                .build()
+        assertNull(cfg.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `builder remove of an absent key is a no-op`() {
+        // Removing a key that was never overridden must not throw and must not disturb other keys.
+        val cfg =
+            ConfigurationBuilder()
+                .put("A", "1")
+                .remove("NEVER_SET")
+                .envSource { null }
+                .propsSource { null }
+                .build()
+        assertEquals("1", cfg.get("A"))
+        assertNull(cfg.get("NEVER_SET"))
+    }
+
+    @Test
+    fun `builder remove drops only the override layer - env seam still resolves`() {
+        // remove un-pins the explicit override; it does NOT suppress the inherited env seam for
+        // that key. The key must still resolve via env after the override is gone.
+        val cfg =
+            ConfigurationBuilder()
+                .put("MAX_RETRY_ATTEMPTS", "3")
+                .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
+                .propsSource { null }
+                .remove("MAX_RETRY_ATTEMPTS")
+                .build()
+        assertEquals("5", cfg.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `builder remove drops only the override layer - property seam still resolves`() {
+        // Mirror of the env fall-through case, exercising the distinct system-property branch of
+        // get(): env is pinned absent, so the removed override falls through to the envToProp-
+        // normalized property lookup (MAX_RETRY_ATTEMPTS -> max.retry.attempts).
+        val cfg =
+            ConfigurationBuilder()
+                .put("MAX_RETRY_ATTEMPTS", "3")
+                .envSource { null }
+                .propsSource { name -> if (name == "max.retry.attempts") "9" else null }
+                .remove("MAX_RETRY_ATTEMPTS")
+                .build()
+        assertEquals("9", cfg.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `builder remove returns same instance for chaining`() {
+        val b = ConfigurationBuilder()
+        assertSame(b, b.remove("anything"))
+    }
+
+    @Test
+    fun `builder remove null name throws NullPointerException`() {
+        val method =
+            ConfigurationBuilder::class.java.getMethod(
+                "remove",
+                String::class.java,
+            )
+        val ex =
+            assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                method.invoke(ConfigurationBuilder(), null as String?)
+            }
+        assertTrue(ex.targetException is NullPointerException, "Expected NPE, got ${ex.targetException}")
+    }
+
+    @Test
     fun `builder test seams isolate from process env and sysprops`() {
         // Hermetic: neither the real env nor real sysprops should be touched.
         val cfg =
@@ -731,5 +807,63 @@ class ConfigurationTest {
         assertNull(first.get("B"))
         assertEquals("2", second.get("B"))
         assertNull(second.get("A"))
+    }
+
+    @Test
+    fun `derive removing an inherited override un-pins it without mutating the original`() {
+        val base =
+            ConfigurationBuilder()
+                .put("LOG_LEVEL", "DEBUG")
+                .envSource { null }
+                .propsSource { null }
+                .build()
+        val derived = base.derive { it.remove("LOG_LEVEL") }
+        // The derived copy no longer carries the override and, with seams pinned absent, resolves null.
+        assertNull(derived.get("LOG_LEVEL"))
+        // The base keeps its override: removal on the derived copy must not leak back.
+        assertEquals("DEBUG", base.get("LOG_LEVEL"))
+    }
+
+    @Test
+    fun `derive remove drops only the override and falls back to the inherited env seam`() {
+        // The crux of remove's contract across derivation: removing an inherited override un-pins
+        // the explicit value but does NOT suppress the inherited env seam for that key. The base
+        // forces "3"; the derived copy removes the override and so falls back to the env seam's "5".
+        val base =
+            ConfigurationBuilder()
+                .put("MAX_RETRY_ATTEMPTS", "3")
+                .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
+                .propsSource { null }
+                .build()
+        val derived = base.derive { it.remove("MAX_RETRY_ATTEMPTS") }
+        assertEquals("5", derived.get("MAX_RETRY_ATTEMPTS"))
+        // The base still resolves the explicit override it was built with.
+        assertEquals("3", base.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `derive remove drops only the override and falls back to the inherited property seam`() {
+        // Property-seam mirror of the env fall-through case: env pinned absent, so removing the
+        // inherited override on the derived copy lets the key resolve via the inherited,
+        // envToProp-normalized system-property seam (MAX_RETRY_ATTEMPTS -> max.retry.attempts).
+        val base =
+            ConfigurationBuilder()
+                .put("MAX_RETRY_ATTEMPTS", "3")
+                .envSource { null }
+                .propsSource { name -> if (name == "max.retry.attempts") "9" else null }
+                .build()
+        val derived = base.derive { it.remove("MAX_RETRY_ATTEMPTS") }
+        assertEquals("9", derived.get("MAX_RETRY_ATTEMPTS"))
+        // The base still resolves the explicit override it was built with.
+        assertEquals("3", base.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `derive remove of an absent override is a harmless no-op`() {
+        val base = ConfigurationBuilder().put("A", "1").envSource { null }.propsSource { null }.build()
+        val derived = base.derive { it.remove("NEVER_SET") }
+        assertEquals("1", derived.get("A"))
+        assertNull(derived.get("NEVER_SET"))
+        assertFalse(base === derived)
     }
 }
