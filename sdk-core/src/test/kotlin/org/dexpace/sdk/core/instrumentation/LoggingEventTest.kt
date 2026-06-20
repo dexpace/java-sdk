@@ -701,6 +701,28 @@ class LoggingEventTest {
     }
 
     @Test
+    fun `dropped colliding event field is reported at most once per logger`() {
+        // The misuse is a static call-site error: repeating it on the same logger (e.g. in a hot
+        // loop) must not flood DEBUG. The diagnostic fires once per logger; every event is still
+        // emitted with the name tag intact.
+        val (logger, fake) = enabledLogger()
+        repeat(3) {
+            logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+        }
+
+        assertEquals(
+            1,
+            fake.plainMessages.count { it.level == Level.DEBUG },
+            "expected the dropped-field diagnostic at most once per logger",
+        )
+        assertEquals(3, fake.records.size, "every structured event is still emitted")
+        fake.records.forEach { rec ->
+            val eventEntries = rec.keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+            assertEquals("request.start", eventEntries.single().value)
+        }
+    }
+
+    @Test
     fun `MDC keys absent from globalContext are still folded`() {
         // Guard the collision fix against over-skipping: an MDC key NOT present in
         // globalContext must continue to be folded into the event.

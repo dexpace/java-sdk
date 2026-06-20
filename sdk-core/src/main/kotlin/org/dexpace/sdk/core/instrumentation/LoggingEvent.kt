@@ -260,24 +260,21 @@ public class LoggingEvent internal constructor(
     }
 
     /**
-     * Surfaces, at DEBUG, the one case where the authoritative event-name tag silently swallows a
-     * caller value: a per-event `field(EVENT_KEY, …)` whose key collides with the name tag. That
-     * field is dropped by [emitFields], so the caller's value never reaches the backend; logging it
-     * here makes the misuse visible when DEBUG is on (idiomatic SLF4J parameterised logging formats
-     * the message only then). An ambient `EVENT_KEY` from the global context or MDC is expected to
-     * defer to the tag and is *not* flagged — only the explicit `field(...)` collision is.
+     * Surfaces the one case where the authoritative event-name tag silently swallows a caller
+     * value: a per-event `field(EVENT_KEY, …)` whose key collides with the name tag. That field is
+     * dropped by [emitFields], so the caller's value never reaches the backend. An ambient
+     * `EVENT_KEY` from the global context or MDC is expected to defer to the tag and is *not*
+     * flagged — only the explicit `field(...)` collision is.
+     *
+     * The actual DEBUG emission, and its once-per-logger throttle, live on [ClientLogger] —
+     * [LoggingEvent] is single-shot, so the "already warned" state has to outlive it. See
+     * [ClientLogger.warnDroppedEventFieldOnce].
      */
     private fun warnOnDroppedEventField(
         logger: ClientLogger,
         eventNameTag: String,
     ) {
-        if (fields?.containsKey(EVENT_KEY) != true) return
-        logger.slf4j.debug(
-            "LoggingEvent: dropped field \"{}\" because event(\"{}\") owns that key; " +
-                "rename the field to keep its value.",
-            EVENT_KEY,
-            eventNameTag,
-        )
+        if (fields?.containsKey(EVENT_KEY) == true) logger.warnDroppedEventFieldOnce(eventNameTag)
     }
 
     private fun putField(
