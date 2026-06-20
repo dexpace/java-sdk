@@ -58,9 +58,10 @@ internal class RequestAdapter(
             }
         }
         val methodToken = request.method.method
+        val body = request.body
         val okhttpBody =
             when {
-                request.body != null -> toOkHttpBody(request.body!!)
+                body != null -> toOkHttpBody(body)
                 // OkHttp rejects a null body for the methods it treats as requiring one. The
                 // SDK allows a body-less request for any method, so substitute an empty body
                 // here rather than letting Request.Builder.method throw.

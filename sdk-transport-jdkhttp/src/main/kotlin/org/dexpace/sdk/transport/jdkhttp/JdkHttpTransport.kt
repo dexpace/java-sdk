@@ -347,10 +347,9 @@ public class JdkHttpTransport private constructor(
                 },
             )
             clientBuilder.version(
-                if (httpVersion == HttpVersion.HTTP_2) {
-                    java.net.http.HttpClient.Version.HTTP_2
-                } else {
-                    java.net.http.HttpClient.Version.HTTP_1_1
+                when (httpVersion) {
+                    HttpVersion.HTTP_2 -> java.net.http.HttpClient.Version.HTTP_2
+                    HttpVersion.HTTP_1_1 -> java.net.http.HttpClient.Version.HTTP_1_1
                 },
             )
             proxy?.let { applyProxy(clientBuilder, it) }
@@ -376,14 +375,18 @@ public class JdkHttpTransport private constructor(
          *     [ProxyAuthenticator]. The JDK client picks up this authenticator at request
          *     time; it answers **only** proxy (407) challenges whose host/port match the
          *     configured proxy, returning `null` for origin-server (401) challenges so the
-         *     proxy credentials never leak to an origin host.
+         *     proxy credentials never leak to an origin host. The `java.net.http` client's
+         *     built-in handling of a registered `Authenticator` covers the **Basic** scheme
+         *     only — this transport does **not** perform Digest proxy authentication.
          *
          * A configured [ProxyOptions.challengeHandler] is **not** honoured by this transport:
          * `java.net.http.HttpClient` exposes no per-407 hook through which a custom
          * `ChallengeHandler` (e.g. Digest) could be invoked, so the handler is dropped with a
-         * loud warning rather than silently ignored. Proxy authentication falls back to the
-         * JDK's own username/password negotiation via [ProxyAuthenticator]. Consumers needing
-         * Digest proxy auth should use the OkHttp transport.
+         * loud warning rather than silently ignored. Proxy authentication falls back to Basic
+         * auth derived from [ProxyOptions.username] / [ProxyOptions.password] via
+         * [ProxyAuthenticator]. To authenticate against a Digest-only proxy, pass a
+         * pre-configured `java.net.http.HttpClient` carrying your own `Authenticator` to
+         * [create]; the SDK uses that client as-is.
          *
          * Credentials are deliberately never logged.
          */
@@ -397,8 +400,9 @@ public class JdkHttpTransport private constructor(
                     .log(
                         "ProxyOptions.challengeHandler is set but the JDK transport cannot invoke a " +
                             "custom ChallengeHandler: java.net.http.HttpClient exposes no per-407 hook. " +
-                            "The handler is ignored; proxy auth falls back to username/password via the " +
-                            "JDK's own auth negotiation. Use the OkHttp transport for Digest proxy auth.",
+                            "The handler is ignored; proxy auth falls back to Basic auth derived from " +
+                            "ProxyOptions.username / ProxyOptions.password. For Digest proxy auth, pass a " +
+                            "pre-configured java.net.http.HttpClient with your own Authenticator to create().",
                     )
             }
             if (options.type != ProxyOptions.Type.HTTP) {

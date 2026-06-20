@@ -49,6 +49,18 @@ import java.util.Collections
  * the returned outcome to decide whether to surface a [org.dexpace.sdk.core.http.response.Response]
  * or rethrow.
  *
+ * ## Close ownership of a discarded Success response
+ * The pipeline closes the in-hand [ResponseOutcome.Success] response on exactly one path: when
+ * a step *throws* while holding it. Both the success-path (`applyResponseSteps`) and the
+ * recovery chain (`invokeRecovery`) close-before-propagate, attaching any close error to the
+ * step's throwable as suppressed, so a throwing step never strands the open transport
+ * connection. The pipeline does **not** close the response on the path where a step is handed a
+ * [ResponseOutcome.Success] and deliberately *returns* a different outcome — a Success→Failure
+ * transform (e.g. status-to-typed-exception mapping) or a substitute [ResponseOutcome.Success].
+ * Returning a new outcome discards the original response without the pipeline observing it, so
+ * the step that performs that transform owns closing the response it drops. See
+ * [org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep] for the per-step contract.
+ *
  * @property responseSteps Steps applied on the success path; skipped on failures.
  * @property recoverySteps Recovery steps applied to every outcome.
  */
@@ -77,11 +89,9 @@ public class ResponsePipeline
             outcome: ResponseOutcome,
             context: DispatchContext,
         ): ResponseOutcome {
-            var current = applyResponseSteps(outcome, context)
-            for (recovery in recoverySteps) {
-                current = invokeRecovery(recovery, current)
+            return recoverySteps.fold(applyResponseSteps(outcome, context)) { current, recovery ->
+                invokeRecovery(recovery, current)
             }
-            return current
         }
 
         private fun applyResponseSteps(

@@ -108,16 +108,12 @@ public class LinkHeaderPaginationStrategy<T>
          * header values) and returns the URL of the first link-value whose `rel` parameter
          * contains the token `next`, or `null` if no such link-value exists.
          */
-        private fun extractNextUrl(header: String): String? {
-            for (entry in splitLinkValues(header)) {
-                val parsed = parseLinkValue(entry) ?: continue
-                val rels = parsed.second
-                if (rels.any { it.equals("next", ignoreCase = true) }) {
-                    return parsed.first
-                }
-            }
-            return null
-        }
+        private fun extractNextUrl(header: String): String? =
+            splitLinkValues(header)
+                .asSequence()
+                .mapNotNull { parseLinkValue(it) }
+                .firstOrNull { it.second.any { rel -> rel.equals("next", ignoreCase = true) } }
+                ?.first
 
         /**
          * Splits an RFC 5988 `Link` header into individual link-values. Commas inside

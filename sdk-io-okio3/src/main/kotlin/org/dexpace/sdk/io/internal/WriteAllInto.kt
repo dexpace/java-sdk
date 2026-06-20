@@ -37,9 +37,9 @@ internal fun writeAllInto(
             var total = 0L
             while (true) {
                 val read = source.read(tmp, SEGMENT_SIZE)
-                when {
-                    read == -1L -> break // EOF — normal termination
-                    read == 0L -> throw IOException(
+                when (read) {
+                    -1L -> break // EOF — normal termination
+                    0L -> throw IOException(
                         "Source returned 0 for byteCount=$SEGMENT_SIZE which violates the Source.read contract",
                     )
                     else -> {

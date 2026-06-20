@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.core.pipeline.step
 
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.context.DispatchContext
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
@@ -105,7 +106,7 @@ public object ThrowOnHttpErrorStep : ResponsePipelineStep {
                 readUpTo(source, cap)
             }
         return object : ResponseBody() {
-            override fun mediaType() = mediaType
+            override fun mediaType(): MediaType? = mediaType
 
             override fun contentLength(): Long = bytes.size.toLong()
 

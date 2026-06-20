@@ -80,6 +80,10 @@ public class VirtualThreadAsyncHttpClient internal constructor(
      * Shuts down the virtual-thread executor and waits for in-flight tasks to complete.
      * Idempotent: a second (or later) call returns immediately without touching the executor
      * or logging again.
+     *
+     * The `executor.closed` event is logged at DEBUG by design: closing the executor is a
+     * routine lifecycle event, not an operationally noteworthy condition that warrants a
+     * higher level.
      */
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

@@ -110,16 +110,10 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
     /**
      * Builds an immutable [HttpPipeline] in stage order. [Stage.SEND] is reserved for the
      * transport and is skipped.
-     *
-     * `arrayOfNulls<HttpStep>` then fill — Kotlin's `List.toTypedArray<T>()` is erased to
-     * `Array<Any?>` at runtime which fails the `Array<HttpStep>` cast.
      */
     public fun build(): HttpPipeline {
         val ordered = steps.flatten()
-        val array = arrayOfNulls<HttpStep>(ordered.size)
-        for ((i, s) in ordered.withIndex()) array[i] = s
-        @Suppress("UNCHECKED_CAST")
-        return HttpPipeline(httpClient, array as Array<HttpStep>)
+        return HttpPipeline(httpClient, Array(ordered.size) { ordered[it] })
     }
 
     public companion object {

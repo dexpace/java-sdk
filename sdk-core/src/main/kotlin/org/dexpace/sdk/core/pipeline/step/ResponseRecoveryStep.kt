@@ -32,6 +32,19 @@ import org.dexpace.sdk.core.pipeline.ResponseOutcome
  * [ResponseOutcome.Failure] and feeds it to the next recovery step. Implementations should
  * still avoid this path — surface errors as [ResponseOutcome.Failure] explicitly.
  *
+ * ## Close ownership when discarding a Success
+ * The [org.dexpace.sdk.core.pipeline.ResponsePipeline] closes the in-hand
+ * [ResponseOutcome.Success] response on exactly one path: when a step *throws*. A step that is
+ * handed a [ResponseOutcome.Success] and instead deliberately **returns** a different outcome
+ * — a [ResponseOutcome.Failure] (the Success→Failure transform, e.g. status-to-typed-exception
+ * mapping) or a different [ResponseOutcome.Success] (response substitution) — discards the
+ * original response, and the pipeline does **not** close it for you. That original
+ * [ResponseOutcome.Success.response] holds an open transport connection / body stream, so the
+ * step that drops it **owns closing it**: call `outcome.response.close()` on the response you
+ * are discarding before returning the replacement outcome, or the connection leaks. The
+ * "Replace" path above operates on a [ResponseOutcome.Failure], which carries no response, so
+ * there is nothing to close there.
+ *
  * ## Thread-safety
  * Steps are shared across concurrent requests. Implementations must be safe to invoke from
  * multiple threads.

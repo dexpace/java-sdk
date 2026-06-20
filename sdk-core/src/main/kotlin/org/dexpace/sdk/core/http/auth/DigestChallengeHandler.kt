@@ -96,41 +96,48 @@ public class DigestChallengeHandler
          * - it carries a `realm` and `nonce`.
          *
          * Ordering: we scan [preferredAlgorithms] first, then within that scan the
-         * challenges. This ensures SHA-256 wins over MD5 even when MD5 appears first
+         * candidates. This ensures SHA-256 wins over MD5 even when MD5 appears first
          * in the header.
          *
-         * Each `continue` skips a challenge that fails a specific validation gate
-         * (scheme, realm, nonce, qop, algorithm). Collapsing to a single composite
-         * predicate would obscure which validation rejected the candidate when
-         * debugging Digest interop.
+         * Per-challenge validation is delegated to [toCandidate]; this scan only applies
+         * the algorithm-priority ordering, independent of the order challenges arrived in.
          */
-        @Suppress("LoopWithTooManyJumpStatements")
         private fun pickChallenge(
             challenges: List<AuthenticateChallenge>,
         ): Pair<AuthenticateChallenge, DigestAlgorithm>? {
             // Find all challenges that match Digest with a satisfiable qop/realm/nonce
             // — we'll filter by algorithm preference below.
-            val candidates = ArrayList<Pair<AuthenticateChallenge, DigestAlgorithm>>(challenges.size)
-            for (challenge in challenges) {
-                if (!challenge.scheme.equals("Digest", ignoreCase = true)) continue
-                if (challenge.parameters["realm"] == null) continue
-                if (challenge.parameters["nonce"] == null) continue
-                if (!qopSupportsAuth(challenge.parameters["qop"])) continue
-                val algorithmName = challenge.parameters["algorithm"]
-                val algorithm =
-                    if (algorithmName == null) {
-                        DigestAlgorithm.MD5 // RFC 7616 §3.3: MD5 is the default when omitted.
-                    } else {
-                        DigestAlgorithm.fromString(algorithmName) ?: continue
-                    }
-                candidates.add(challenge to algorithm)
-            }
+            val candidates = challenges.mapNotNull(::toCandidate)
             // Pick the candidate whose algorithm appears earliest in our preference list.
             // Returns null when no candidate matches any preferred algorithm.
             for (preferred in preferredAlgorithms) {
                 candidates.firstOrNull { it.second == preferred }?.let { return it }
             }
             return null
+        }
+
+        /**
+         * Maps a single challenge to a satisfiable (challenge, algorithm) candidate, or null
+         * when it is not usable: it must be a `Digest` challenge carrying `realm`, `nonce`, and
+         * a supported `qop`. Its algorithm is then resolved — an absent `algorithm` parameter
+         * defaults to MD5 (RFC 7616 §3.3), and an unsupported one is declined.
+         */
+        private fun toCandidate(challenge: AuthenticateChallenge): Pair<AuthenticateChallenge, DigestAlgorithm>? {
+            val isInvalidChallenge =
+                !challenge.scheme.equals("Digest", ignoreCase = true) ||
+                    challenge.parameters["realm"] == null ||
+                    challenge.parameters["nonce"] == null ||
+                    !qopSupportsAuth(challenge.parameters["qop"])
+
+            if (isInvalidChallenge) {
+                return null
+            }
+
+            val algorithmName = challenge.parameters["algorithm"] ?: return challenge to DigestAlgorithm.MD5
+
+            return DigestAlgorithm.fromString(algorithmName)?.let {
+                challenge to it
+            }
         }
 
         /**
