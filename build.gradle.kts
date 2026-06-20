@@ -142,6 +142,11 @@ allprojects {
 
         dependencies {
             add("compileOnly", libs.slf4j.api)
+            // Modern nullability annotations on the compile classpath. kotlin-stdlib pins the ancient
+            // org.jetbrains:annotations:13.0 transitively, which lacks @UnknownNullability; Kotlin 2.4.0
+            // tooling materialises inferred platform types with that annotation and reports it as
+            // inaccessible against 13.0. compileOnly keeps it out of the published POM and ABI.
+            add("compileOnly", libs.jetbrains.annotations)
         }
     }
 
