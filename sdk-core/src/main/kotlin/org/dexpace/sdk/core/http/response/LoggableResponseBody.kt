@@ -97,7 +97,7 @@ public class LoggableResponseBody
         private var closed = false
 
         // True once the whole body fit within the cap and was drained into [captured]; the drain
-        // path closes the source via `.use {}` in that case, so [source] can hand out repeatable
+        // path closes the source (best-effort) in that case, so [source] can hand out repeatable
         // peek() views and close() must not double-close the delegate.
         @Volatile
         private var fullyCaptured = false
