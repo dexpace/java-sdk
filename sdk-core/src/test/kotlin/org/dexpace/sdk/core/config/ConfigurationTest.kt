@@ -531,20 +531,20 @@ class ConfigurationTest {
         assertEquals("hit", Configuration.getGlobalConfiguration().get("BRIDGE"))
     }
 
-    // ----- withOptions / newBuilder (copy-on-write derivation) -----
+    // ----- derive / newBuilder (copy-on-write derivation) -----
 
     @Test
-    fun `withOptions adds a new override on the derived configuration`() {
+    fun `derive adds a new override on the derived configuration`() {
         val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
-        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        val derived = base.derive { it.put("LOG_LEVEL", "DEBUG") }
         assertEquals("3", derived.get("MAX_RETRY_ATTEMPTS"))
         assertEquals("DEBUG", derived.get("LOG_LEVEL"))
     }
 
     @Test
-    fun `withOptions leaves the original configuration unchanged`() {
+    fun `derive leaves the original configuration unchanged`() {
         val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
-        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        val derived = base.derive { it.put("LOG_LEVEL", "DEBUG") }
         // The override added to the derived copy must not leak back into the receiver.
         assertNull(base.get("LOG_LEVEL"))
         assertEquals("3", base.get("MAX_RETRY_ATTEMPTS"))
@@ -553,21 +553,21 @@ class ConfigurationTest {
     }
 
     @Test
-    fun `withOptions can override an existing key without mutating the original`() {
+    fun `derive can override an existing key without mutating the original`() {
         val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
-        val derived = base.withOptions { it.put("MAX_RETRY_ATTEMPTS", "9") }
+        val derived = base.derive { it.put("MAX_RETRY_ATTEMPTS", "9") }
         assertEquals("9", derived.get("MAX_RETRY_ATTEMPTS"))
         assertEquals("3", base.get("MAX_RETRY_ATTEMPTS"))
     }
 
     @Test
-    fun `withOptions inherits the env and property lookup seams`() {
+    fun `derive inherits the env and property lookup seams`() {
         val base =
             ConfigurationBuilder()
                 .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
                 .propsSource { name -> if (name == "log.level") "INFO" else null }
                 .build()
-        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        val derived = base.derive { it.put("LOG_LEVEL", "DEBUG") }
         // Inherited env seam still resolves on the derived copy.
         assertEquals("5", derived.get("MAX_RETRY_ATTEMPTS"))
         // Explicit override on the derived copy wins over the inherited property seam.
@@ -577,22 +577,121 @@ class ConfigurationTest {
     }
 
     @Test
-    fun `withOptions inherits the env and property seams by reference, not by copy`() {
+    fun `derive override wins over the inherited env seam on the derived copy`() {
+        val base =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
+                .propsSource { null }
+                .build()
+        // The inherited env seam supplies "5"; the derived copy adds an explicit override for the
+        // same key. Override -> env precedence must hold across derivation.
+        val derived = base.derive { it.put("MAX_RETRY_ATTEMPTS", "9") }
+        assertEquals("9", derived.get("MAX_RETRY_ATTEMPTS"))
+        // The base, queried for the same key, still falls through to the inherited env seam.
+        assertEquals("5", base.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `derive inherits the env and property seams by reference, not by copy`() {
         val env = Function<String, String?> { null }
         val props = Function<String, String?> { null }
         val base = ConfigurationBuilder().envSource(env).propsSource(props).build()
-        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        val derived = base.derive { it.put("LOG_LEVEL", "DEBUG") }
         // The pure read seams are inherited by reference; the override map is the only copied state.
         assertSame(base.envSource, derived.envSource)
         assertSame(base.propsSource, derived.propsSource)
     }
 
     @Test
-    fun `withOptions with an empty mutator yields an equivalent independent configuration`() {
+    fun `derive replacing a source detaches only the derived copy from the shared seam`() {
+        val baseEnv = Function<String, String?> { null }
+        val newEnv = Function<String, String?> { name -> if (name == "MAX_RETRY_ATTEMPTS") "9" else null }
+        val base = ConfigurationBuilder().envSource(baseEnv).propsSource { null }.build()
+        val derived = base.derive { it.envSource(newEnv) }
+        // The derived copy swaps in the new seam...
+        assertSame(newEnv, derived.envSource)
+        // ...while the base keeps its original reference (copy-on-write, not aliased mutation).
+        assertSame(baseEnv, base.envSource)
+        // Behaviour follows the rebinding: derived resolves via newEnv, base does not.
+        assertEquals("9", derived.get("MAX_RETRY_ATTEMPTS"))
+        assertNull(base.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `derive preserves the empty-env skip-to-sysprop semantics on the derived copy`() {
+        val base =
+            ConfigurationBuilder()
+                .envSource { "" } // present-but-empty: must be treated as absent
+                .propsSource { name -> if (name == "max.retry.attempts") "7" else null }
+                .build()
+        val derived = base.derive { it.put("LOG_LEVEL", "DEBUG") }
+        // The empty-env skip is inherited: the derived copy still falls through to the sysprop seam.
+        assertEquals("7", derived.get("MAX_RETRY_ATTEMPTS"))
+        assertEquals("DEBUG", derived.get("LOG_LEVEL"))
+    }
+
+    @Test
+    fun `derive on a configuration with no overrides yields an override-only copy`() {
+        // Empty override map + pinned-absent seams: exercises the prefilled constructor's
+        // putAll(emptyMap) path hermetically, without touching the real process environment.
+        val base = ConfigurationBuilder().envSource { null }.propsSource { null }.build()
+        val derived = base.derive { it.put("LOG_LEVEL", "DEBUG") }
+        assertEquals("DEBUG", derived.get("LOG_LEVEL"))
+        assertNull(base.get("LOG_LEVEL"))
+        assertFalse(base === derived)
+    }
+
+    @Test
+    fun `derive chained twice accumulates overrides and leaves each level independent`() {
+        val base =
+            ConfigurationBuilder()
+                .put("A", "1")
+                .envSource { null }
+                .propsSource { null }
+                .build()
+        val d1 = base.derive { it.put("B", "2") }
+        val d2 =
+            d1.derive {
+                it.put("C", "3")
+                it.put("A", "9")
+            }
+        // d2 accumulates across both hops, with its own override shadowing the inherited A.
+        assertEquals("9", d2.get("A"))
+        assertEquals("2", d2.get("B"))
+        assertEquals("3", d2.get("C"))
+        // The intermediate d1 is unaffected by d2's later additions/overrides.
+        assertEquals("1", d1.get("A"))
+        assertEquals("2", d1.get("B"))
+        assertNull(d1.get("C"))
+        // The base never sees anything added downstream.
+        assertEquals("1", base.get("A"))
+        assertNull(base.get("B"))
+        assertNull(base.get("C"))
+    }
+
+    @Test
+    fun `derive with an empty mutator yields an equivalent independent configuration`() {
         val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
-        val derived = base.withOptions { /* no-op */ }
+        val derived = base.derive { /* no-op */ }
         assertFalse(base === derived)
         assertEquals("3", derived.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `derive null mutator throws NullPointerException`() {
+        // Force `null` past the Kotlin non-null param via reflection — mirrors a Java caller
+        // who hands in null. The compiler-generated non-null check must trigger, as the KDoc claims.
+        val method =
+            Configuration::class.java.getMethod(
+                "derive",
+                java.util.function.Consumer::class.java,
+            )
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val ex =
+            assertFailsWith<java.lang.reflect.InvocationTargetException> {
+                method.invoke(base, null as java.util.function.Consumer<ConfigurationBuilder>?)
+            }
+        assertTrue(ex.targetException is NullPointerException, "Expected NPE, got ${ex.targetException}")
     }
 
     @Test

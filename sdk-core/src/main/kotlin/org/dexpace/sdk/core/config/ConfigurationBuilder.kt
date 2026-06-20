@@ -17,7 +17,7 @@ import java.util.function.Function
  *
  * Implements the generic [Builder] contract so it can be folded by builder-style configuration code.
  * Construct empty for a configuration built from scratch, or via [Configuration.newBuilder] /
- * [Configuration.withOptions] to derive a reconfigured copy of an existing [Configuration].
+ * [Configuration.derive] to derive a reconfigured copy of an existing [Configuration].
  *
  * ## Thread-safety
  * Builders are *not* thread-safe — construct, configure, and [build] from a single thread. The
@@ -34,7 +34,7 @@ public class ConfigurationBuilder : Builder<Configuration> {
     /**
      * Creates a builder preloaded with [source]'s overrides and lookup sources. The override map is
      * copied, so mutating this builder never affects [source]. Used by [Configuration.newBuilder] and
-     * [Configuration.withOptions].
+     * [Configuration.derive].
      */
     public constructor(source: Configuration) {
         overrides.putAll(source.overrides)

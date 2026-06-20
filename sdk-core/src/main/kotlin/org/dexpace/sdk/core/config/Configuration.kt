@@ -22,15 +22,16 @@ import java.util.function.Function
  * Typed accessors (`getInt`, `getBoolean`, `getDuration`) return the provided default on parse failures —
  * configuration issues never throw at the lookup site.
  *
- * Constructed via [ConfigurationBuilder].
+ * Constructed via [ConfigurationBuilder]; derive a reconfigured copy of an existing instance with
+ * [derive] or [newBuilder].
  *
  * ## Deriving a reconfigured copy (copy-on-write)
- * [withOptions] returns a **new** immutable [Configuration] with a mutator applied on top of this
+ * [derive] returns a **new** immutable [Configuration] with a mutator applied on top of this
  * one, leaving the receiver untouched:
  *
  * ```java
  * Configuration base = new ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build();
- * Configuration derived = base.withOptions(b -> b.put("LOG_LEVEL", "DEBUG"));
+ * Configuration derived = base.derive(b -> b.put("LOG_LEVEL", "DEBUG"));
  * // base is unchanged; derived carries both overrides.
  * ```
  *
@@ -47,15 +48,18 @@ import java.util.function.Function
  * configuration under last-write-wins semantics.
  */
 public class Configuration internal constructor(
+    @get:JvmSynthetic
     internal val overrides: Map<String, String>,
+    @get:JvmSynthetic
     internal val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
+    @get:JvmSynthetic
     internal val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
 ) {
     /**
      * Returns a fresh [ConfigurationBuilder] preloaded with this instance's overrides and lookup
      * sources. Mutating the returned builder never affects this [Configuration]; the override map is
      * copied up front. Use this when you want to thread the builder through other configuration code
-     * before calling [ConfigurationBuilder.build]; prefer [withOptions] for the common
+     * before calling [ConfigurationBuilder.build]; prefer [derive] for the common
      * derive-in-one-call case.
      */
     public fun newBuilder(): ConfigurationBuilder = ConfigurationBuilder(this)
@@ -69,7 +73,7 @@ public class Configuration internal constructor(
      * Kotlin's compiler-generated non-null parameter check raises `NullPointerException` when a Java
      * caller passes `null` for [mutator], so no explicit guard is needed here.
      */
-    public fun withOptions(mutator: Consumer<ConfigurationBuilder>): Configuration {
+    public fun derive(mutator: Consumer<ConfigurationBuilder>): Configuration {
         val builder = newBuilder()
         mutator.accept(builder)
         return builder.build()
