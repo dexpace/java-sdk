@@ -65,13 +65,13 @@ public object Io {
     public fun installProvider(provider: IoProvider) {
         lock.withLock {
             val existing = installed
-            if (existing != null && existing !== provider) {
-                throw IllegalStateException(
-                    "An IoProvider (${existing::class.qualifiedName ?: existing::class}) is " +
-                        "already installed; refusing to overwrite with a different provider " +
-                        "(${provider::class.qualifiedName ?: provider::class}). " +
-                        "Use withProvider { ... } from org.dexpace.sdk.core.testing for scoped overrides.",
-                )
+            check(existing == null || existing === provider) {
+                val existingName = existing!!::class.qualifiedName ?: existing::class
+                val providerName = provider::class.qualifiedName ?: provider::class
+                "An IoProvider ($existingName) is " +
+                    "already installed; refusing to overwrite with a different provider " +
+                    "($providerName). " +
+                    "Use withProvider { ... } from org.dexpace.sdk.core.testing for scoped overrides."
             }
             installed = provider
         }

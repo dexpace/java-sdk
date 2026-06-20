@@ -347,10 +347,9 @@ public class JdkHttpTransport private constructor(
                 },
             )
             clientBuilder.version(
-                if (httpVersion == HttpVersion.HTTP_2) {
-                    java.net.http.HttpClient.Version.HTTP_2
-                } else {
-                    java.net.http.HttpClient.Version.HTTP_1_1
+                when (httpVersion) {
+                    HttpVersion.HTTP_2 -> java.net.http.HttpClient.Version.HTTP_2
+                    HttpVersion.HTTP_1_1 -> java.net.http.HttpClient.Version.HTTP_1_1
                 },
             )
             proxy?.let { applyProxy(clientBuilder, it) }

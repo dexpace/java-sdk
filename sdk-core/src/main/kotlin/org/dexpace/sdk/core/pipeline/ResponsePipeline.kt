@@ -89,11 +89,9 @@ public class ResponsePipeline
             outcome: ResponseOutcome,
             context: DispatchContext,
         ): ResponseOutcome {
-            var current = applyResponseSteps(outcome, context)
-            for (recovery in recoverySteps) {
-                current = invokeRecovery(recovery, current)
+            return recoverySteps.fold(applyResponseSteps(outcome, context)) { current, recovery ->
+                invokeRecovery(recovery, current)
             }
-            return current
         }
 
         private fun applyResponseSteps(

@@ -65,15 +65,8 @@ public class PageNumberPaginationStrategy<T>
         private fun parsePageOrDefault(
             raw: String?,
             fallback: Int,
-        ): Int {
-            if (raw.isNullOrEmpty()) return fallback
-            return try {
-                raw.toInt()
-            } catch (e: NumberFormatException) {
-                // Server echoed back a non-numeric "page" param — fall back rather than crash.
-                @Suppress("UNUSED_VARIABLE")
-                val ignored = e
-                fallback
-            }
-        }
+        ): Int =
+            // Null, empty, or a non-numeric "page" param echoed back by the server all fall back
+            // rather than crash.
+            raw?.toIntOrNull() ?: fallback
     }

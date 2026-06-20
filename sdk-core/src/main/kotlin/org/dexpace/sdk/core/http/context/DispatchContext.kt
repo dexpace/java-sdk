@@ -61,7 +61,7 @@ public data class DispatchContext(
          * counter to it for the actual key.
          */
         private fun deriveCallKey(instrumentationContext: InstrumentationContext): String =
-            instrumentationContext.traceId.value + ":" + instrumentationContext.spanId.value
+            "${instrumentationContext.traceId.value}:${instrumentationContext.spanId.value}"
 
         /**
          * A dispatch context with a no-op instrumentation context; used when tracing is
@@ -81,6 +81,6 @@ public data class DispatchContext(
          * [DispatchContext]), so every link in the chain is collision-safe by default.
          */
         internal fun mintCallKey(instrumentationContext: InstrumentationContext): String =
-            deriveCallKey(instrumentationContext) + ":" + mintCounter.incrementAndGet()
+            "${deriveCallKey(instrumentationContext)}:${mintCounter.incrementAndGet()}"
     }
 }
