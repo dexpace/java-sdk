@@ -653,6 +653,54 @@ class LoggingEventTest {
     }
 
     @Test
+    fun `dropping a colliding event field is surfaced at DEBUG`() {
+        // The field() value is silently swallowed by the authoritative name tag; a DEBUG
+        // diagnostic must surface that so the misuse is visible when debugging.
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+
+        val message = fake.plainMessages.single { it.level == Level.DEBUG }.message!!
+        assertContains(message, LoggingEvent.EVENT_KEY)
+        assertContains(message, "request.start")
+        // The structured event still carries the name-tag value exactly once (unchanged behaviour).
+        val eventEntries = fake.records.single().keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+        assertEquals("request.start", eventEntries.single().value)
+    }
+
+    @Test
+    fun `no DEBUG diagnostic when the level is disabled`() {
+        // The diagnostic must cost nothing visible when DEBUG is off — SLF4J's parameterised
+        // logging skips formatting, and nothing is recorded.
+        val fake = FakeSlf4jLogger(threshold = Level.INFO)
+        val logger = ClientLogger.forTesting(fake)
+        logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+
+        assertTrue(fake.plainMessages.isEmpty())
+    }
+
+    @Test
+    fun `no DEBUG diagnostic without a colliding field`() {
+        // Only the explicit field() collision is flagged: a plain event(name), or an ambient
+        // globalContext "event" key, must not emit the diagnostic.
+        val (loggerNoField, fakeNoField) = enabledLogger()
+        loggerNoField.atInfo().event("request.start").log()
+        assertTrue(fakeNoField.plainMessages.isEmpty())
+
+        val (loggerCtx, fakeCtx) = enabledLogger(mapOf(LoggingEvent.EVENT_KEY to "from-context"))
+        loggerCtx.atInfo().event("request.start").log()
+        assertTrue(fakeCtx.plainMessages.isEmpty())
+    }
+
+    @Test
+    fun `no DEBUG diagnostic when a user event field has no name tag`() {
+        // With no name tag set the user field is legitimately emitted, not dropped — so no warning.
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field(LoggingEvent.EVENT_KEY, "user-value").log()
+
+        assertTrue(fake.plainMessages.isEmpty())
+    }
+
+    @Test
     fun `MDC keys absent from globalContext are still folded`() {
         // Guard the collision fix against over-skipping: an MDC key NOT present in
         // globalContext must continue to be folded into the event.

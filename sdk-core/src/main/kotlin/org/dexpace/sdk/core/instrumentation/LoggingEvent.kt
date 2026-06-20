@@ -139,6 +139,10 @@ public class LoggingEvent internal constructor(
      * is set, any `"event"` key arriving from the logger's global context, the folded MDC, or a
      * per-event [field] is suppressed so the event carries the `"event"` key exactly once. When
      * no name is set (or it was cleared), a user-supplied `"event"` key passes through unchanged.
+     *
+     * A per-event `field("event", …)` whose value is dropped this way is reported once at DEBUG so
+     * the override is visible while debugging; ambient `"event"` keys from the global context or MDC
+     * defer to the tag silently.
      */
     public fun event(name: String): LoggingEvent {
         if (!enabled) return this
@@ -180,9 +184,11 @@ public class LoggingEvent internal constructor(
         // user's `"event"` key (if any) passes through normally.
         val eventNameTag = eventName
         val reservedEventKey = if (eventNameTag != null) EVENT_KEY else null
+        if (eventNameTag != null) warnOnDroppedEventField(logger, eventNameTag)
 
-        emitGlobalContext(builder, logger.globalContext, reservedEventKey)
-        emitMdc(builder, logger, reservedEventKey)
+        val gc = logger.globalContext
+        emitGlobalContext(builder, gc, reservedEventKey)
+        emitMdc(builder, gc, logger.mdcKeys, reservedEventKey)
         eventNameTag?.let { builder.addKeyValue(EVENT_KEY, it) }
         emitFields(builder, reservedEventKey)
 
@@ -215,21 +221,20 @@ public class LoggingEvent internal constructor(
 
     /**
      * Folds SLF4J MDC into the structured event so trace.id / span.id set by an enclosing
-     * TracingScope reaches log backends as structured fields. Only keys in the logger's mdcKeys
-     * allow-list are folded (default: "trace.id", "span.id"); a `null` allow-list folds everything
+     * TracingScope reaches log backends as structured fields. Only keys in [allowedMdcKeys] are
+     * folded (default: "trace.id", "span.id"); a `null` allow-list folds everything
      * (backwards-compat). A key already emitted by this event — via a per-event `field(...)`, the
-     * global context, or the authoritative event-name tag — is skipped so JSON appenders never see
-     * a duplicate-key entry. All lookups are O(1).
+     * global context ([gc]), or the authoritative event-name tag — is skipped so JSON appenders
+     * never see a duplicate-key entry. All lookups are O(1).
      */
     private fun emitMdc(
         builder: LoggingEventBuilder,
-        logger: ClientLogger,
+        gc: Map<String, Any?>,
+        allowedMdcKeys: Set<String>?,
         reservedEventKey: String?,
     ) {
         val mdcMap = MDC.getCopyOfContextMap() ?: return
         val perEventKeys = fields
-        val gc = logger.globalContext
-        val allowedMdcKeys = logger.mdcKeys
         for ((k, v) in mdcMap) {
             if (v == null || k == reservedEventKey) continue
             val alreadyEmitted = perEventKeys?.containsKey(k) == true || gc.containsKey(k)
@@ -252,6 +257,27 @@ public class LoggingEvent internal constructor(
             if (k == reservedEventKey) continue
             builder.addKeyValue(k, renderForLog(v))
         }
+    }
+
+    /**
+     * Surfaces, at DEBUG, the one case where the authoritative event-name tag silently swallows a
+     * caller value: a per-event `field(EVENT_KEY, …)` whose key collides with the name tag. That
+     * field is dropped by [emitFields], so the caller's value never reaches the backend; logging it
+     * here makes the misuse visible when DEBUG is on (idiomatic SLF4J parameterised logging formats
+     * the message only then). An ambient `EVENT_KEY` from the global context or MDC is expected to
+     * defer to the tag and is *not* flagged — only the explicit `field(...)` collision is.
+     */
+    private fun warnOnDroppedEventField(
+        logger: ClientLogger,
+        eventNameTag: String,
+    ) {
+        if (fields?.containsKey(EVENT_KEY) != true) return
+        logger.slf4j.debug(
+            "LoggingEvent: dropped field \"{}\" because event(\"{}\") owns that key; " +
+                "rename the field to keep its value.",
+            EVENT_KEY,
+            eventNameTag,
+        )
     }
 
     private fun putField(
