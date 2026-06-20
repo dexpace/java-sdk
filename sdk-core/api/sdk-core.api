@@ -28,6 +28,7 @@ public final class org/dexpace/sdk/core/config/Configuration {
 	public static final field LOG_LEVEL Ljava/lang/String;
 	public static final field MAX_RETRY_ATTEMPTS Ljava/lang/String;
 	public static final field NO_PROXY Ljava/lang/String;
+	public static final fun builder ()Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun derive (Ljava/util/function/Consumer;)Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun get (Ljava/lang/String;)Ljava/lang/String;
 	public final fun get (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
@@ -42,6 +43,7 @@ public final class org/dexpace/sdk/core/config/Configuration {
 }
 
 public final class org/dexpace/sdk/core/config/Configuration$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun getGlobalConfiguration ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun setGlobalConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)V
 }

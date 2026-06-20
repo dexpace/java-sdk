@@ -332,6 +332,17 @@ class ConfigurationTest {
     // ----- ConfigurationBuilder behaviors -----
 
     @Test
+    fun `builder factory returns a fresh empty builder each call`() {
+        // Java-friendly factory: equivalent to `new ConfigurationBuilder()`, distinct each call.
+        val first = Configuration.builder()
+        val second = Configuration.builder()
+        assertFalse(first === second)
+        // It starts empty: with the seams pinned absent, an unset key resolves to null.
+        val cfg = Configuration.builder().envSource { null }.propsSource { null }.build()
+        assertNull(cfg.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
     fun `builder put null name throws NullPointerException`() {
         val method =
             ConfigurationBuilder::class.java.getMethod(

@@ -141,6 +141,14 @@ public class Configuration internal constructor(
     ): Duration = get(name)?.let { parseDuration(it) } ?: default
 
     public companion object {
+        /**
+         * Returns a fresh empty [ConfigurationBuilder]. Java-friendly entry point matching the
+         * `Configuration.builder()` idiom every other SDK model exposes; build from scratch with this,
+         * or derive a reconfigured copy of an existing instance with [newBuilder] / [derive].
+         */
+        @JvmStatic
+        public fun builder(): ConfigurationBuilder = ConfigurationBuilder()
+
         // Well-known keys. `const val` so callers reference them as `Configuration.MAX_RETRY_ATTEMPTS`
         // from both Kotlin and Java without going through `Companion`.
 
