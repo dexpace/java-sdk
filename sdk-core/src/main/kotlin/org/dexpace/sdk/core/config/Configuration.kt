@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.config
 
 import java.time.Duration
 import java.util.Locale
+import java.util.function.Consumer
 import java.util.function.Function
 
 /**
@@ -21,7 +22,25 @@ import java.util.function.Function
  * Typed accessors (`getInt`, `getBoolean`, `getDuration`) return the provided default on parse failures —
  * configuration issues never throw at the lookup site.
  *
- * Constructed via [ConfigurationBuilder].
+ * Constructed via [ConfigurationBuilder]; derive a reconfigured copy of an existing instance with
+ * [derive] or [newBuilder].
+ *
+ * ## Deriving a reconfigured copy (copy-on-write)
+ * [derive] returns a **new** immutable [Configuration] with a mutator applied on top of this
+ * one, leaving the receiver untouched:
+ *
+ * ```java
+ * Configuration base = Configuration.builder().put("MAX_RETRY_ATTEMPTS", "3").build();
+ * Configuration derived = base.derive(b -> b.put("LOG_LEVEL", "DEBUG"));
+ * // base is unchanged; derived carries both overrides.
+ * ```
+ *
+ * The derivation is copy-on-write in the value sense: the override map is copied so the original and
+ * the derived instance never alias the same mutable state, while the [envSource]/[propsSource]
+ * lookup functions are shared by reference (they are pure read seams and are never mutated). A
+ * mutator that touches no override and replaces no source produces an independent instance equal in
+ * behaviour to the original. [newBuilder] exposes the same prefilled builder for callers that prefer
+ * to thread it through other builder-folding code before [ConfigurationBuilder.build].
  *
  * ## Thread-safety
  * Instances are immutable once built (the override map is copied) and safe to share across threads.
@@ -29,10 +48,38 @@ import java.util.function.Function
  * configuration under last-write-wins semantics.
  */
 public class Configuration internal constructor(
-    private val overrides: Map<String, String>,
-    private val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
-    private val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
+    @get:JvmSynthetic
+    internal val overrides: Map<String, String>,
+    @get:JvmSynthetic
+    internal val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
+    @get:JvmSynthetic
+    internal val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
 ) {
+    /**
+     * Returns a fresh [ConfigurationBuilder] preloaded with this instance's overrides and lookup
+     * sources. Mutating the returned builder never affects this [Configuration]; the override map is
+     * copied up front. Use this when you want to thread the builder through other configuration code
+     * before calling [ConfigurationBuilder.build]; prefer [derive] for the common
+     * derive-in-one-call case.
+     */
+    public fun newBuilder(): ConfigurationBuilder = ConfigurationBuilder(this)
+
+    /**
+     * Derive a new immutable [Configuration] by applying [mutator] to a builder prefilled from this
+     * instance, then building it. This [Configuration] is left unchanged (copy-on-write): the
+     * override map is copied before [mutator] runs, so overrides added, replaced, or removed inside
+     * [mutator] never leak back into the receiver. The env/property lookup seams are inherited by
+     * reference.
+     *
+     * Kotlin's compiler-generated non-null parameter check raises `NullPointerException` when a Java
+     * caller passes `null` for [mutator], so no explicit guard is needed here.
+     */
+    public fun derive(mutator: Consumer<ConfigurationBuilder>): Configuration {
+        val builder = newBuilder()
+        mutator.accept(builder)
+        return builder.build()
+    }
+
     /**
      * Look up a configuration value by [name].
      *
@@ -95,6 +142,14 @@ public class Configuration internal constructor(
     ): Duration = get(name)?.let { parseDuration(it) } ?: default
 
     public companion object {
+        /**
+         * Returns a fresh empty [ConfigurationBuilder]. Java-friendly entry point matching the
+         * `builder()` idiom every other SDK model exposes; build from scratch with this, or derive a
+         * reconfigured copy of an existing instance with [newBuilder] / [derive].
+         */
+        @JvmStatic
+        public fun builder(): ConfigurationBuilder = ConfigurationBuilder()
+
         // Well-known keys. `const val` so callers reference them as `Configuration.MAX_RETRY_ATTEMPTS`
         // from both Kotlin and Java without going through `Companion`.
 
