@@ -529,4 +529,85 @@ class ConfigurationTest {
         method.invoke(null, custom)
         assertEquals("hit", Configuration.getGlobalConfiguration().get("BRIDGE"))
     }
+
+    // ----- withOptions / newBuilder (copy-on-write derivation) -----
+
+    @Test
+    fun `withOptions adds a new override on the derived configuration`() {
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        assertEquals("3", derived.get("MAX_RETRY_ATTEMPTS"))
+        assertEquals("DEBUG", derived.get("LOG_LEVEL"))
+    }
+
+    @Test
+    fun `withOptions leaves the original configuration unchanged`() {
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        // The override added to the derived copy must not leak back into the receiver.
+        assertNull(base.get("LOG_LEVEL"))
+        assertEquals("3", base.get("MAX_RETRY_ATTEMPTS"))
+        // The two instances are distinct objects.
+        assertFalse(base === derived)
+    }
+
+    @Test
+    fun `withOptions can override an existing key without mutating the original`() {
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val derived = base.withOptions { it.put("MAX_RETRY_ATTEMPTS", "9") }
+        assertEquals("9", derived.get("MAX_RETRY_ATTEMPTS"))
+        assertEquals("3", base.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `withOptions inherits the env and property lookup seams`() {
+        val base =
+            ConfigurationBuilder()
+                .envSource { name -> if (name == "MAX_RETRY_ATTEMPTS") "5" else null }
+                .propsSource { name -> if (name == "log.level") "INFO" else null }
+                .build()
+        val derived = base.withOptions { it.put("LOG_LEVEL", "DEBUG") }
+        // Inherited env seam still resolves on the derived copy.
+        assertEquals("5", derived.get("MAX_RETRY_ATTEMPTS"))
+        // Explicit override on the derived copy wins over the inherited property seam.
+        assertEquals("DEBUG", derived.get("LOG_LEVEL"))
+        // The base, queried for the same key, still falls through to the property seam.
+        assertEquals("INFO", base.get("LOG_LEVEL"))
+    }
+
+    @Test
+    fun `withOptions with an empty mutator yields an equivalent independent configuration`() {
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val derived = base.withOptions { /* no-op */ }
+        assertFalse(base === derived)
+        assertEquals("3", derived.get("MAX_RETRY_ATTEMPTS"))
+    }
+
+    @Test
+    fun `newBuilder prefills overrides and sources and is independent of the source`() {
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val builder = base.newBuilder()
+        builder.put("LOG_LEVEL", "DEBUG")
+        val derived = builder.build()
+        assertEquals("3", derived.get("MAX_RETRY_ATTEMPTS"))
+        assertEquals("DEBUG", derived.get("LOG_LEVEL"))
+        // Mutating the builder after the fact never affects the already-derived configuration
+        // nor the original.
+        builder.put("EXTRA", "x")
+        assertNull(derived.get("EXTRA"))
+        assertNull(base.get("EXTRA"))
+        assertNull(base.get("LOG_LEVEL"))
+    }
+
+    @Test
+    fun `prefilled builder constructor copies the override map defensively`() {
+        val base = ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build()
+        val first = base.newBuilder().put("A", "1").build()
+        val second = base.newBuilder().put("B", "2").build()
+        // Two independent derivations from the same base do not see each other's overrides.
+        assertEquals("1", first.get("A"))
+        assertNull(first.get("B"))
+        assertEquals("2", second.get("B"))
+        assertNull(second.get("A"))
+    }
 }

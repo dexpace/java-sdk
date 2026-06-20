@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.config
 
 import java.time.Duration
 import java.util.Locale
+import java.util.function.Consumer
 import java.util.function.Function
 
 /**
@@ -23,6 +24,23 @@ import java.util.function.Function
  *
  * Constructed via [ConfigurationBuilder].
  *
+ * ## Deriving a reconfigured copy (copy-on-write)
+ * [withOptions] returns a **new** immutable [Configuration] with a mutator applied on top of this
+ * one, leaving the receiver untouched:
+ *
+ * ```java
+ * Configuration base = new ConfigurationBuilder().put("MAX_RETRY_ATTEMPTS", "3").build();
+ * Configuration derived = base.withOptions(b -> b.put("LOG_LEVEL", "DEBUG"));
+ * // base is unchanged; derived carries both overrides.
+ * ```
+ *
+ * The derivation is copy-on-write in the value sense: the override map is copied so the original and
+ * the derived instance never alias the same mutable state, while the [envSource]/[propsSource]
+ * lookup functions are shared by reference (they are pure read seams and are never mutated). A
+ * mutator that touches no override and replaces no source produces an independent instance equal in
+ * behaviour to the original. [newBuilder] exposes the same prefilled builder for callers that prefer
+ * to thread it through other builder-folding code before [ConfigurationBuilder.build].
+ *
  * ## Thread-safety
  * Instances are immutable once built (the override map is copied) and safe to share across threads.
  * The process-wide global slot is published via `@Volatile`; readers observe the most-recently-set
@@ -33,6 +51,39 @@ public class Configuration internal constructor(
     private val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
     private val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
 ) {
+    /** A defensive copy of the explicit overrides, for prefilling a derived [ConfigurationBuilder]. */
+    internal fun overridesSnapshot(): Map<String, String> = overrides.toMap()
+
+    /** The environment-variable lookup seam, shared by reference into derived builders. */
+    internal fun envSource(): Function<String, String?> = envSource
+
+    /** The system-property lookup seam, shared by reference into derived builders. */
+    internal fun propsSource(): Function<String, String?> = propsSource
+
+    /**
+     * Returns a fresh [ConfigurationBuilder] preloaded with this instance's overrides and lookup
+     * sources. Mutating the returned builder never affects this [Configuration]; the override map is
+     * copied up front. Use this when you want to thread the builder through other configuration code
+     * before calling [ConfigurationBuilder.build]; prefer [withOptions] for the common
+     * derive-in-one-call case.
+     */
+    public fun newBuilder(): ConfigurationBuilder = ConfigurationBuilder(this)
+
+    /**
+     * Derive a new immutable [Configuration] by applying [mutator] to a builder prefilled from this
+     * instance, then building it. This [Configuration] is left unchanged (copy-on-write): the
+     * override map is copied before [mutator] runs, so overrides added or replaced inside [mutator]
+     * never leak back into the receiver. The env/property lookup seams are inherited by reference.
+     *
+     * Kotlin's compiler-generated non-null parameter check raises `NullPointerException` when a Java
+     * caller passes `null` for [mutator], so no explicit guard is needed here.
+     */
+    public fun withOptions(mutator: Consumer<ConfigurationBuilder>): Configuration {
+        val builder = newBuilder()
+        mutator.accept(builder)
+        return builder.build()
+    }
+
     /**
      * Look up a configuration value by [name].
      *

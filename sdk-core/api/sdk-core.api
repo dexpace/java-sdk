@@ -36,7 +36,9 @@ public final class org/dexpace/sdk/core/config/Configuration {
 	public static final fun getGlobalConfiguration ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun getInt (Ljava/lang/String;I)I
 	public final fun getProperty (Ljava/lang/String;)Ljava/lang/String;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public static final fun setGlobalConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)V
+	public final fun withOptions (Ljava/util/function/Consumer;)Lorg/dexpace/sdk/core/config/Configuration;
 }
 
 public final class org/dexpace/sdk/core/config/Configuration$Companion {
@@ -44,9 +46,11 @@ public final class org/dexpace/sdk/core/config/Configuration$Companion {
 	public final fun setGlobalConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)V
 }
 
-public final class org/dexpace/sdk/core/config/ConfigurationBuilder {
+public final class org/dexpace/sdk/core/config/ConfigurationBuilder : org/dexpace/sdk/core/generics/Builder {
 	public fun <init> ()V
-	public final fun build ()Lorg/dexpace/sdk/core/config/Configuration;
+	public fun <init> (Lorg/dexpace/sdk/core/config/Configuration;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun envSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun propsSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun put (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
