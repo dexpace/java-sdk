@@ -99,10 +99,7 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     /** Builds an immutable [AsyncHttpPipeline]. */
     public fun build(): AsyncHttpPipeline {
         val ordered = steps.flatten()
-        val array = arrayOfNulls<AsyncHttpStep>(ordered.size)
-        for ((i, s) in ordered.withIndex()) array[i] = s
-        @Suppress("UNCHECKED_CAST")
-        return AsyncHttpPipeline(httpClient, array as Array<AsyncHttpStep>)
+        return AsyncHttpPipeline(httpClient, Array(ordered.size) { ordered[it] })
     }
 
     public companion object {

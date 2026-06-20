@@ -100,16 +100,16 @@ public data class MediaType private constructor(
         if (value.isNotEmpty() && value.all(::isTokenChar)) {
             return value
         }
-        val sb = StringBuilder(value.length + 2)
-        sb.append('"')
-        value.forEach { ch ->
-            if (ch == '\\' || ch == '"') {
-                sb.append('\\')
+        return buildString(value.length + 2) {
+            append('"')
+            value.forEach { ch ->
+                if (ch == '\\' || ch == '"') {
+                    append('\\')
+                }
+                append(ch)
             }
-            sb.append(ch)
+            append('"')
         }
-        sb.append('"')
-        return sb.toString()
     }
 
     /**

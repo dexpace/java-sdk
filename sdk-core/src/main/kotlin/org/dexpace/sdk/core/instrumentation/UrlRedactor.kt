@@ -89,9 +89,7 @@ public object UrlRedactor {
 
     private fun lowercaseAllowList(allowed: Set<String>): Set<String> {
         if (allowed.isEmpty()) return emptySet()
-        val lower = HashSet<String>(allowed.size)
-        for (name in allowed) lower.add(name.lowercase())
-        return lower
+        return allowed.mapTo(HashSet(allowed.size)) { it.lowercase() }
     }
 
     private fun rebuild(

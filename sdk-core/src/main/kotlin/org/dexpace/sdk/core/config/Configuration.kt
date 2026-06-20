@@ -202,7 +202,7 @@ public class Configuration internal constructor(
             // ISO-8601 path: `PT5S`, `P1D`, etc. Reject negative durations (e.g. `PT-5S`) for the
             // same reason the shorthand path does below — downstream consumers (Clock.sleep,
             // Futures.delay) assume a non-negative duration and throw on a negative one.
-            if (Character.toUpperCase(raw[0]) == 'P') {
+            if (raw[0].uppercaseChar() == 'P') {
                 return try {
                     val d = Duration.parse(raw)
                     if (d.isNegative) null else d

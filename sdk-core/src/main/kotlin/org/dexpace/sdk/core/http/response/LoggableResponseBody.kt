@@ -122,8 +122,7 @@ public class LoggableResponseBody
          * otherwise the delegate's reported length (the true length), since the capture is just
          * a bounded prefix.
          */
-        override fun contentLength(): Long =
-            if (fullyCaptured) captured?.size ?: delegate.contentLength() else delegate.contentLength()
+        override fun contentLength(): Long = (if (fullyCaptured) captured?.size else null) ?: delegate.contentLength()
 
         /**
          * Returns a view of the captured body. Drains (up to the cap) on first call. If the drain
