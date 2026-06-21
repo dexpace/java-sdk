@@ -290,15 +290,15 @@ public object AuthChallengeParser {
         }
     }
 
+    private val TOKEN_PUNCTUATION: Set<Char> = "!#$%&'*+-.^_`|~".toSet()
+
+    private val TOKEN68_PUNCTUATION: Set<Char> = "-._~+/".toSet()
+
     /** RFC 7230 token char: ALPHA / DIGIT / one of the punctuation set. */
     private fun isTokenChar(c: Char): Boolean =
-        (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9') ||
-            c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
-            c == '\'' || c == '*' || c == '+' || c == '-' || c == '.' ||
-            c == '^' || c == '_' || c == '`' || c == '|' || c == '~'
+        (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9') || c in TOKEN_PUNCTUATION
 
     /** RFC 7235 token68 char (excluding the trailing "=" pad, handled separately). */
     private fun isToken68Char(c: Char): Boolean =
-        (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9') ||
-            c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/'
+        (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9') || c in TOKEN68_PUNCTUATION
 }

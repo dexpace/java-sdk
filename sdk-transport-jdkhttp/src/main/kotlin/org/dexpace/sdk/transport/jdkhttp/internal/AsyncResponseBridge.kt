@@ -66,7 +66,7 @@ internal fun bridgeAsyncResponse(
 private fun closeQuietly(response: SdkResponse) {
     try {
         response.close()
-    } catch (ignored: Exception) {
+    } catch (_: Exception) {
         // Intentionally ignored: the response is already being discarded.
     }
 }

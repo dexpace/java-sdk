@@ -93,11 +93,20 @@ internal class TeeSink(
         source: Buffer,
         byteCount: Long,
     ) {
-        val allowed = (tapLimit - mirrored).coerceAtLeast(0L)
-        if (allowed == 0L) return
-        val copy = if (byteCount < allowed) byteCount else allowed
+        val copy = tapAllowance(byteCount)
+        if (copy == 0L) return
         source.copyTo(tap, 0, copy)
         mirrored += copy
+    }
+
+    /**
+     * Computes how many of [requested] bytes may still be mirrored into [tap]: the smaller of
+     * [requested] and the remaining [tapLimit] budget, clamped to never go negative. The actual
+     * copy and [mirrored] advancement stay at each call site.
+     */
+    private fun tapAllowance(requested: Long): Long {
+        val remaining = (tapLimit - mirrored).coerceAtLeast(0L)
+        return if (requested < remaining) requested else remaining
     }
 
     @Throws(IOException::class)
@@ -199,11 +208,10 @@ internal class TeeSink(
                 // Tap first (within the budget), primary second (see single-byte overload): a
                 // primary-side failure leaves the failing chunk captured in the tap. The FULL
                 // chunk is always forwarded to the primary so the wire body is never truncated.
-                val allowed = (tapLimit - mirrored).coerceAtLeast(0L)
-                if (allowed > 0L) {
-                    val copy = if (len.toLong() < allowed) len else allowed.toInt()
-                    tapStream.write(b, off, copy)
-                    mirrored += copy.toLong()
+                val copy = tapAllowance(len.toLong())
+                if (copy > 0L) {
+                    tapStream.write(b, off, copy.toInt())
+                    mirrored += copy
                 }
                 primaryStream.write(b, off, len)
             }

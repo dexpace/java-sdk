@@ -45,12 +45,23 @@ public fun Span.makeCurrentWithLoggingContext(): TracingScope {
     MDC.put(MDC_SPAN_ID, spanId)
     return TracingScope {
         try {
-            if (prevTraceId == null) MDC.remove(MDC_TRACE_ID) else MDC.put(MDC_TRACE_ID, prevTraceId)
-            if (prevSpanId == null) MDC.remove(MDC_SPAN_ID) else MDC.put(MDC_SPAN_ID, prevSpanId)
+            restoreMdc(MDC_TRACE_ID, prevTraceId)
+            restoreMdc(MDC_SPAN_ID, prevSpanId)
         } finally {
             inner.close()
         }
     }
+}
+
+/**
+ * Restores a single MDC [key] to its [previous] value: removes the key when it was previously
+ * unset, otherwise re-puts the captured value.
+ */
+private fun restoreMdc(
+    key: String,
+    previous: String?,
+) {
+    if (previous == null) MDC.remove(key) else MDC.put(key, previous)
 }
 
 /** SLF4J MDC key for the W3C trace id. Lowercase-dotted to match the SDK's field-naming convention. */

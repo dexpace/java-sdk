@@ -44,19 +44,23 @@ import java.util.concurrent.TimeUnit
  * [VirtualThreadAsyncHttpClient] for the `close()` path so shutdown semantics are unchanged.
  */
 internal class MdcAwareExecutor(private val delegate: ExecutorService) : ExecutorService by delegate {
+    private fun MdcSnapshot.wrap(command: Runnable): Runnable = Runnable { withMdc { command.run() } }
+
+    private fun <T> MdcSnapshot.wrap(task: Callable<T>): Callable<T> = Callable { withMdc { task.call() } }
+
     override fun execute(command: Runnable) {
         val snapshot = MdcSnapshot.capture()
-        delegate.execute { snapshot.withMdc { command.run() } }
+        delegate.execute(snapshot.wrap(command))
     }
 
     override fun <T : Any?> submit(task: Callable<T>): Future<T> {
         val snapshot = MdcSnapshot.capture()
-        return delegate.submit(Callable { snapshot.withMdc { task.call() } })
+        return delegate.submit(snapshot.wrap(task))
     }
 
     override fun submit(task: Runnable): Future<*> {
         val snapshot = MdcSnapshot.capture()
-        return delegate.submit { snapshot.withMdc { task.run() } }
+        return delegate.submit(snapshot.wrap(task))
     }
 
     override fun <T : Any?> submit(
@@ -64,12 +68,12 @@ internal class MdcAwareExecutor(private val delegate: ExecutorService) : Executo
         result: T,
     ): Future<T> {
         val snapshot = MdcSnapshot.capture()
-        return delegate.submit({ snapshot.withMdc { task.run() } }, result)
+        return delegate.submit(snapshot.wrap(task), result)
     }
 
     override fun <T : Any?> invokeAll(tasks: MutableCollection<out Callable<T>>): MutableList<Future<T>> {
         val snapshot = MdcSnapshot.capture()
-        return delegate.invokeAll(tasks.map { task -> Callable { snapshot.withMdc { task.call() } } })
+        return delegate.invokeAll(tasks.map { task -> snapshot.wrap(task) })
     }
 
     override fun <T : Any?> invokeAll(
@@ -78,12 +82,12 @@ internal class MdcAwareExecutor(private val delegate: ExecutorService) : Executo
         unit: TimeUnit,
     ): MutableList<Future<T>> {
         val snapshot = MdcSnapshot.capture()
-        return delegate.invokeAll(tasks.map { task -> Callable { snapshot.withMdc { task.call() } } }, timeout, unit)
+        return delegate.invokeAll(tasks.map { task -> snapshot.wrap(task) }, timeout, unit)
     }
 
     override fun <T : Any?> invokeAny(tasks: MutableCollection<out Callable<T>>): T {
         val snapshot = MdcSnapshot.capture()
-        return delegate.invokeAny(tasks.map { task -> Callable { snapshot.withMdc { task.call() } } })
+        return delegate.invokeAny(tasks.map { task -> snapshot.wrap(task) })
     }
 
     override fun <T : Any?> invokeAny(
@@ -92,6 +96,6 @@ internal class MdcAwareExecutor(private val delegate: ExecutorService) : Executo
         unit: TimeUnit,
     ): T {
         val snapshot = MdcSnapshot.capture()
-        return delegate.invokeAny(tasks.map { task -> Callable { snapshot.withMdc { task.call() } } }, timeout, unit)
+        return delegate.invokeAny(tasks.map { task -> snapshot.wrap(task) }, timeout, unit)
     }
 }

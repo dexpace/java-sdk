@@ -225,8 +225,7 @@ internal class TristateSerializerModifier internal constructor() : BeanSerialize
         beanDesc: BeanDescription,
         beanProperties: MutableList<BeanPropertyWriter>,
     ): MutableList<BeanPropertyWriter> {
-        for (i in beanProperties.indices) {
-            val writer = beanProperties[i]
+        beanProperties.forEachIndexed { i, writer ->
             if (Tristate::class.java.isAssignableFrom(writer.type.rawClass)) {
                 beanProperties[i] = TristatePropertyWriter(writer)
             }
