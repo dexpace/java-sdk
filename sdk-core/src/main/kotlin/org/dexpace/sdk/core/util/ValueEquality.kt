@@ -40,6 +40,16 @@ import java.util.Objects
  * }
  * ```
  *
+ * No `sdk-core` type depends on these helpers today: they are published as a deliberately public,
+ * forward-looking primitive that a hand-written value type — or, later, a DTO generator — targets
+ * directly for its array-typed fields. The public surface is intentional, not incidental.
+ *
+ * Kotlin's unsigned arrays (`UByteArray`, `UShortArray`, `UIntArray`, `ULongArray`) are **not**
+ * recognized as arrays: boxed to `Any?` they are value-class boxes, not JVM primitive arrays, so
+ * they fall through to identity-based `equals`/`hashCode` and will not compare by content. Convert
+ * to the signed counterpart (`asByteArray()`, `asIntArray()`, …) for any field that needs content
+ * semantics.
+ *
  * Both methods are null-safe: two `null` references are equal and hash to `0`.
  */
 public object ValueEquality {
@@ -59,6 +69,11 @@ public object ValueEquality {
      * - Any other value is compared with [Any.equals].
      *
      * This is exactly the contract of `java.util.Objects.deepEquals`, to which it delegates.
+     *
+     * It is a thin wrapper over that JDK method, kept so it pairs symmetrically with
+     * [contentHashCode] — for which the JDK offers no `Objects.deepHashCode` equivalent — so callers
+     * reach one discoverable, contract-paired entry point instead of mixing `Objects.deepEquals`
+     * with a hand-rolled hash.
      */
     @JvmStatic
     public fun contentEquals(
