@@ -2425,3 +2425,9 @@ public final class org/dexpace/sdk/core/util/SdkInfo {
 	public final fun getSdkVersion ()Ljava/lang/String;
 }
 
+public final class org/dexpace/sdk/core/util/ValueEquality {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/util/ValueEquality;
+	public static final fun contentEquals (Ljava/lang/Object;Ljava/lang/Object;)Z
+	public static final fun contentHashCode (Ljava/lang/Object;)I
+}
+
