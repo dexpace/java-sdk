@@ -207,10 +207,23 @@ class OkHttpTransportTest {
                 .build()
         // Must return a future rather than throwing on the caller's thread.
         val future = transport.executeAsync(request)
+        // Completion is synchronous, not merely eventual: the future is already completed
+        // exceptionally on return, before anything is awaited.
+        assertTrue(
+            future.isCompletedExceptionally,
+            "adaptation failure must complete the future exceptionally synchronously on return",
+        )
         val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
         assertTrue(
             ex.cause is IllegalArgumentException,
             "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
+        )
+        // Assert the message so an unrelated IllegalArgumentException cannot satisfy the test.
+        // OkHttp's Request.Builder.method rejects a body on GET with "<method> must not have a
+        // request body."
+        assertTrue(
+            ex.cause?.message?.contains("must not have a request body") == true,
+            "expected OkHttp's body-on-GET rejection message, was: ${ex.cause?.message}",
         )
     }
 
