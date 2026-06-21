@@ -888,7 +888,11 @@ class JdkHttpTransportTest {
      * A minimal [HttpClient] whose async dispatch throws synchronously on the caller's thread,
      * modelling a client (or a future JDK) that does not package every `sendAsync` failure into the
      * returned future. Only [sendAsync] is exercised by [JdkHttpTransport.executeAsync]; the rest
-     * are inert stubs that are never invoked on the dispatch path under test.
+     * are inert stubs that are never invoked on the dispatch path under test. In particular
+     * [sslContext] returns `SSLContext.getDefault()` only to satisfy the abstract member — its
+     * checked `NoSuchAlgorithmException` and the cost of materialising the JVM default SSL context
+     * never apply here because the path under test never reads the context; likewise [send] throws
+     * rather than returning a stub response, as the synchronous path is never reached.
      */
     private class SyncThrowingDispatchClient(
         private val failure: RuntimeException,

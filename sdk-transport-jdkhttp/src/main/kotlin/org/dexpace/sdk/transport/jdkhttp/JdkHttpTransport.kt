@@ -138,6 +138,10 @@ public class JdkHttpTransport private constructor(
      * completions to release the body's connection back to the pool.
      */
     override fun executeAsync(request: Request): CompletableFuture<Response> {
+        // Held outside the try so the catch can release the JDK exchange if dispatch succeeded but a
+        // later step threw (see the catch). Null until `sendAsync` returns: a throw at or before
+        // dispatch leaves nothing to clean up.
+        var inFlight: CompletableFuture<HttpResponse<InputStream>>? = null
         return try {
             val jdkRequest = requestAdapter.adapt(request, responseTimeout)
             // `sendAsync` is inside the guard too. Its contract does not promise that every failure
@@ -148,7 +152,7 @@ public class JdkHttpTransport private constructor(
             // intact whichever way a failure surfaces. (Today's stock JDK client packages such
             // failures into an already-failed future — e.g. on a closed client — which the bridge
             // propagates and so never reaches this catch; the guard is for the throwing case.)
-            val inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
+            inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
             bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
         } catch (e: Exception) {
             // The async contract is that errors arrive through the returned future. The dispatch
@@ -160,6 +164,13 @@ public class JdkHttpTransport private constructor(
             // keeps a future adapter step's checked exception on the future too. Only `Error` (OOM
             // and other JVM-fatal conditions) is left to propagate up the caller's stack rather
             // than be packaged into a future that may never be awaited.
+            //
+            // If `sendAsync` already returned an in-flight exchange, the only way control reaches
+            // here is `bridgeAsyncResponse` throwing before it wired that future's cancellation
+            // propagation — its result is never returned, so cancel the exchange directly to release
+            // its connection rather than leak it on a future nothing will await. The cancel is a
+            // no-op when `inFlight` is null (the throw happened at or before dispatch).
+            inFlight?.cancel(true)
             CompletableFuture.failedFuture<Response>(e)
         }
     }
