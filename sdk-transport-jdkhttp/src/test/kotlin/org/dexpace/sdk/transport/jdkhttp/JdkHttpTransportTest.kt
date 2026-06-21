@@ -24,22 +24,31 @@ import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.transport.jdkhttp.internal.BodyPublishers
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.Authenticator
+import java.net.CookieHandler
 import java.net.InetSocketAddress
+import java.net.ProxySelector
 import java.net.ServerSocket
 import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.time.Duration
+import java.util.Optional
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 import java.util.concurrent.Flow
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLParameters
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -183,28 +192,32 @@ class JdkHttpTransportTest {
     }
 
     @Test
-    fun `executeAsyncDeliversDispatchFailureThroughFuture`() {
-        // `sendAsync` does not promise that every failure arrives through its returned future:
-        // on a closed `java.net.http.HttpClient` it throws synchronously on the caller's thread.
-        // The dispatch path runs after a successful adaptation, so this exercises the post-adapt
-        // guard specifically — the failure must still arrive through the returned future, not be
-        // thrown on the caller's thread. `HttpClient` became `AutoCloseable` in JDK 21 (JEP 461);
-        // on older runtimes there is no close hook to trigger this, so the case is skipped.
-        val client = HttpClient.newHttpClient()
-        val closeable = client as? AutoCloseable ?: return // JDK 21+ only; no close hook earlier.
-        closeable.close()
-        val closedTransport = JdkHttpTransport.create(client)
+    fun `executeAsyncRoutesSynchronousDispatchThrowThroughFuture`() {
+        // `sendAsync`'s contract does not promise that every failure is delivered through the
+        // returned future — a client may throw synchronously on the caller's thread. The dispatch
+        // path runs after a successful adaptation, so this injects a client whose `sendAsync`
+        // throws to exercise the post-adapt guard deterministically on every JDK. (The stock JDK
+        // client instead returns an already-failed future for, e.g., a closed client; the bridge
+        // propagates that and it never reaches the guard, so a real closed client cannot prove
+        // this path. The test double does.) The failure must arrive through the returned future,
+        // never escape executeAsync on the caller's thread.
+        val boom = IllegalStateException("synchronous dispatch failure")
+        val throwingTransport = JdkHttpTransport.create(SyncThrowingDispatchClient(boom))
 
-        val request = simpleGet("/async-dispatch-fail")
         // Must return a future rather than throwing on the caller's thread.
-        val future = closedTransport.executeAsync(request)
+        val future = throwingTransport.executeAsync(simpleGet("/async-dispatch-throw"))
+        // Completion is synchronous, not merely eventual: the future is already completed
+        // exceptionally on return, before anything is awaited.
         assertTrue(
             future.isCompletedExceptionally,
-            "a synchronous sendAsync throw must complete the future exceptionally synchronously",
+            "a synchronous dispatch throw must complete the future exceptionally synchronously on return",
         )
-        // The closed-client throw is an unchecked exception; surface it as the future's cause
-        // rather than letting it escape executeAsync on the caller's thread.
-        assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        assertEquals(
+            boom,
+            ex.cause,
+            "the dispatch throw must surface verbatim as the future's cause, was: ${ex.cause}",
+        )
     }
 
     // -------- headers round-trip --------
@@ -869,5 +882,49 @@ class JdkHttpTransportTest {
         ): org.dexpace.sdk.core.http.auth.AuthorizationHeader? = null
 
         override fun canHandle(challenges: List<org.dexpace.sdk.core.http.auth.AuthenticateChallenge>): Boolean = false
+    }
+
+    /**
+     * A minimal [HttpClient] whose async dispatch throws synchronously on the caller's thread,
+     * modelling a client (or a future JDK) that does not package every `sendAsync` failure into the
+     * returned future. Only [sendAsync] is exercised by [JdkHttpTransport.executeAsync]; the rest
+     * are inert stubs that are never invoked on the dispatch path under test.
+     */
+    private class SyncThrowingDispatchClient(
+        private val failure: RuntimeException,
+    ) : HttpClient() {
+        override fun cookieHandler(): Optional<CookieHandler> = Optional.empty()
+
+        override fun connectTimeout(): Optional<Duration> = Optional.empty()
+
+        override fun followRedirects(): HttpClient.Redirect = HttpClient.Redirect.NEVER
+
+        override fun proxy(): Optional<ProxySelector> = Optional.empty()
+
+        override fun sslContext(): SSLContext = SSLContext.getDefault()
+
+        override fun sslParameters(): SSLParameters = SSLParameters()
+
+        override fun authenticator(): Optional<Authenticator> = Optional.empty()
+
+        override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+
+        override fun executor(): Optional<Executor> = Optional.empty()
+
+        override fun <T> send(
+            request: HttpRequest,
+            responseBodyHandler: HttpResponse.BodyHandler<T>,
+        ): HttpResponse<T> = throw UnsupportedOperationException("synchronous send is not used by this test double")
+
+        override fun <T> sendAsync(
+            request: HttpRequest,
+            responseBodyHandler: HttpResponse.BodyHandler<T>,
+        ): CompletableFuture<HttpResponse<T>> = throw failure
+
+        override fun <T> sendAsync(
+            request: HttpRequest,
+            responseBodyHandler: HttpResponse.BodyHandler<T>,
+            pushPromiseHandler: HttpResponse.PushPromiseHandler<T>?,
+        ): CompletableFuture<HttpResponse<T>> = throw failure
     }
 }

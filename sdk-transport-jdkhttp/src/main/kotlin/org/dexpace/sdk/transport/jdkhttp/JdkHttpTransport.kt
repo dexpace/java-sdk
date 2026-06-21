@@ -140,22 +140,26 @@ public class JdkHttpTransport private constructor(
     override fun executeAsync(request: Request): CompletableFuture<Response> {
         return try {
             val jdkRequest = requestAdapter.adapt(request, responseTimeout)
-            // `sendAsync` is inside the guard too: it does not promise that every failure arrives
-            // through its returned future. On a closed `java.net.http.HttpClient` (JDK 21+, where
-            // the client is `AutoCloseable`) it throws synchronously on the caller's thread, which
-            // would bypass the future and break the error-delivery contract documented above.
+            // `sendAsync` is inside the guard too. Its contract does not promise that every failure
+            // is delivered through the returned future: the JDK's own Javadoc permits a synchronous
+            // `IllegalArgumentException` for a request it rejects, and a custom or future
+            // `HttpClient` is free to throw on the caller's thread instead of returning a failed
+            // future. Guarding the dispatch keeps the error-delivery contract documented above
+            // intact whichever way a failure surfaces. (Today's stock JDK client packages such
+            // failures into an already-failed future — e.g. on a closed client — which the bridge
+            // propagates and so never reaches this catch; the guard is for the throwing case.)
             val inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
             bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
         } catch (e: Exception) {
             // The async contract is that errors arrive through the returned future. The dispatch
             // path above runs on the caller's thread and can throw — request adaptation rejecting a
-            // CONNECT request, `sendAsync` on a closed client, or an unexpected adapter bug such as
-            // an NPE — so route any of these into a failed future instead of throwing synchronously
-            // where a future-composing caller's .exceptionally/.handle would never observe it. The
-            // breadth is intentional: catching `Exception` (not `RuntimeException`) keeps a future
-            // adapter step's checked exception on the future too. Only `Error` (OOM and other
-            // JVM-fatal conditions) is left to propagate up the caller's stack rather than be
-            // packaged into a future that may never be awaited.
+            // CONNECT request, a synchronous `sendAsync` rejection, or an unexpected adapter bug
+            // such as an NPE — so route any of these into a failed future instead of throwing
+            // synchronously where a future-composing caller's .exceptionally/.handle would never
+            // observe it. The breadth is intentional: catching `Exception` (not `RuntimeException`)
+            // keeps a future adapter step's checked exception on the future too. Only `Error` (OOM
+            // and other JVM-fatal conditions) is left to propagate up the caller's stack rather
+            // than be packaged into a future that may never be awaited.
             CompletableFuture.failedFuture<Response>(e)
         }
     }
