@@ -123,7 +123,7 @@ class JdkHttpTransportTest {
         assertEquals("/echo", recorded.url.encodedPath)
     }
 
-    // -------- body on a body-forbidden method (GET/HEAD/TRACE) --------
+    // -------- body on a body-forbidden method (GET/HEAD/TRACE/CONNECT) --------
 
     @Test
     fun `bodyOnForbiddenMethodIsRejectedBeforeDispatch`() {
@@ -132,7 +132,7 @@ class JdkHttpTransportTest {
         // array that is then discarded. The SDK rejects the body at request construction
         // (Request.RequestBuilder.build), so such a request is never built and never reaches the
         // transport, and no body is consumed for nothing.
-        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE)) {
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
             assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
                 Request.builder()
                     .method(method)

@@ -61,7 +61,8 @@ internal class RequestAdapter(
      * that take a [HttpRequest.BodyPublisher] and those that force [HttpRequest.BodyPublishers.noBody]
      * reflects the HTTP semantics enforced by the JDK builder:
      *
-     *  - `GET` / `HEAD` / `TRACE` — no body. [Method.permitsRequestBody] is `false` for these, so
+     *  - `GET` / `HEAD` / `TRACE` — no body. [Method.permitsRequestBody] is `false` for these (and
+     *    for `CONNECT`, which is rejected outright in its own branch below), so
      *    `Request.RequestBuilder.build` rejects a body on them at construction; an SDK request can
      *    never carry one here. The adapter sends `noBody()` unconditionally rather than adapting
      *    `request.body` — there is nothing to adapt, and `noBody()` consumes nothing (the previous

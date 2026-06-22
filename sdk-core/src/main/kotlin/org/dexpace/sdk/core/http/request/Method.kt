@@ -15,12 +15,15 @@ package org.dexpace.sdk.core.http.request
  * request line without translation.
  *
  * @property method Canonical uppercase method token sent in the request line.
- * @property permitsRequestBody Whether HTTP allows this method to carry a request body. `false`
- *   for `GET`, `HEAD`, and `TRACE`: GET/HEAD have no defined payload semantics (RFC 9110
- *   §9.3.1/§9.3.2) and a TRACE request "MUST NOT send content" (§9.3.8). Transports disagree on
- *   how to handle a body on these methods — OkHttp throws `IllegalArgumentException`, the JDK
- *   builder silently ignores it — so a body on a body-forbidden method is rejected at request
- *   construction (see `Request.RequestBuilder.build`) rather than left to diverge per transport.
+ * @property permitsRequestBody Whether this SDK permits the method to carry a request body.
+ *   `false` for `GET`, `HEAD`, `TRACE`, and `CONNECT`. Of these only `TRACE` is forbidden a body
+ *   outright by HTTP — a TRACE request "MUST NOT send content" (RFC 9110 §9.3.8); for `GET`/`HEAD`
+ *   (§9.3.1/§9.3.2) and `CONNECT` (§9.3.6) a request payload has no generally defined semantics
+ *   and is discouraged rather than illegal. The SDK rejects a body on all four as one consistent
+ *   policy, because the reference transports otherwise diverge on the case — OkHttp throws
+ *   `IllegalArgumentException`, the JDK builder silently ignores the body — so it is rejected once
+ *   at request construction (see `Request.RequestBuilder.build`) rather than left to behave
+ *   differently per transport.
  */
 @Suppress("unused")
 public enum class Method(

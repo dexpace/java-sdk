@@ -31,11 +31,11 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  *     body for POST/PUT/PATCH (the methods OkHttp treats as requiring one). The SDK model
  *     makes a body optional for every method, so a body-less POST is a valid request; to keep
  *     it from crashing with `IllegalArgumentException`, the adapter substitutes a zero-length
- *     body for those methods (see [requiresRequestBody]). GET/HEAD/OPTIONS/TRACE/DELETE keep
- *     their `null` body. The inverse case — a body on a body-forbidden method, which OkHttp's
+ *     body for those methods (see [requiresRequestBody]). GET/HEAD/OPTIONS/TRACE/DELETE/CONNECT
+ *     keep their `null` body. The inverse case — a body on a body-forbidden method, which OkHttp's
  *     `Request.Builder.method` rejects with `IllegalArgumentException("method GET must not have a
  *     request body.")` — cannot reach here: `Request.RequestBuilder.build` rejects a body on
- *     GET/HEAD/TRACE at construction, so `request.body` is always `null` for those methods.
+ *     GET/HEAD/TRACE/CONNECT at construction, so `request.body` is always `null` for those methods.
  *
  * The adapter is stateless — the [logger] is the only field it carries so the DEBUG log
  * naming dropped headers attributes to the transport.

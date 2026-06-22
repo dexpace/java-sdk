@@ -226,7 +226,7 @@ class RequestTest {
 
     @Test
     fun `build rejects a body on a body-forbidden method`() {
-        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE)) {
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
             val ex =
                 assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
                     Request.builder()
@@ -258,7 +258,7 @@ class RequestTest {
 
     @Test
     fun `build allows a body-less body-forbidden method`() {
-        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE)) {
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
             val req =
                 Request.builder()
                     .url("https://example.test")
@@ -280,6 +280,39 @@ class RequestTest {
         assertFailsWith<IllegalArgumentException> {
             post.newBuilder().method(Method.GET).build()
         }
+    }
+
+    @Test
+    fun `body null clears a previously-set body`() {
+        val req =
+            Request.builder()
+                .url("https://example.test")
+                .method(Method.POST)
+                .body(RequestBody.create("x", null))
+                .body(null)
+                .build()
+        assertNull(req.body, "body(null) should clear the previously-set body")
+    }
+
+    @Test
+    fun `newBuilder downgrade to a body-forbidden method succeeds after clearing the body`() {
+        val post =
+            Request.builder()
+                .url("https://example.test")
+                .method(Method.POST)
+                .body(RequestBody.create("x", null))
+                .build()
+
+        // Clearing the body with body(null) is the supported way to downgrade a body-carrying
+        // request to a method that forbids one.
+        val get =
+            post.newBuilder()
+                .method(Method.GET)
+                .body(null)
+                .build()
+
+        assertEquals(Method.GET, get.method)
+        assertNull(get.body, "downgraded GET must not retain the original body")
     }
 
     // ---------------------------------------------------------------------

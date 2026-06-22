@@ -39,7 +39,7 @@ import java.net.URL
  * @property headers Request headers; may be empty but never `null`.
  * @property body Request body, or `null` for methods without a payload. A non-`null` body is
  *   only valid on a method that permits one ([Method.permitsRequestBody]); building a `GET`,
- *   `HEAD`, or `TRACE` request with a body throws `IllegalArgumentException`.
+ *   `HEAD`, `TRACE`, or `CONNECT` request with a body throws `IllegalArgumentException`.
  */
 @ConsistentCopyVisibility
 public data class Request private constructor(
@@ -119,12 +119,16 @@ public data class Request private constructor(
             }
 
         /**
-         * Sets the request body.
+         * Sets the request body, or clears it when [body] is `null`.
          *
-         * @param body The request body.
+         * Passing `null` is the way to drop a body carried over by [newBuilder] — for example
+         * when downgrading a body-carrying request to `GET`, `HEAD`, `TRACE`, or `CONNECT`, whose
+         * [build] rejects a non-`null` body ([Method.permitsRequestBody] is `false` for them).
+         *
+         * @param body The request body, or `null` to clear any previously-set body.
          * @return This builder.
          */
-        public fun body(body: RequestBody): RequestBuilder =
+        public fun body(body: RequestBody?): RequestBuilder =
             apply {
                 this.body = body
             }
@@ -250,25 +254,27 @@ public data class Request private constructor(
          * Builds the [Request].
          *
          * A body set on a method that forbids one ([Method.permitsRequestBody] is `false` —
-         * `GET`, `HEAD`, `TRACE`) is rejected here rather than passed to a transport: the two
-         * reference transports disagree on the case (OkHttp throws, the JDK builder drops the
-         * body and may consume a single-use stream for nothing), so the SDK fails fast at
-         * construction with one consistent error instead.
+         * `GET`, `HEAD`, `TRACE`, `CONNECT`) is rejected here rather than passed to a transport:
+         * the two reference transports disagree on the case (OkHttp throws, the JDK builder drops
+         * the body and may consume a single-use stream for nothing), so the SDK fails fast at
+         * construction with one consistent error instead. To downgrade a body-carrying request to
+         * one of these methods, clear the body first with `body(null)`.
          *
          * @return The built request.
          * @throws IllegalStateException If a required field is missing.
          * @throws IllegalArgumentException If a body is set on a method that forbids one
-         *         ([Method.GET], [Method.HEAD], or [Method.TRACE]).
+         *         ([Method.GET], [Method.HEAD], [Method.TRACE], or [Method.CONNECT]).
          */
         override fun build(): Request {
             val resolvedMethod = checkRequired("method", method)
+            val resolvedUrl = checkRequired("url", url)
             require(body == null || resolvedMethod.permitsRequestBody) {
                 "$resolvedMethod must not carry a request body; remove the body or use a " +
                     "method that permits one (e.g. POST/PUT/PATCH)."
             }
             return Request(
                 method = resolvedMethod,
-                url = checkRequired("url", url),
+                url = resolvedUrl,
                 headers = headersBuilder.build(),
                 body = body,
             )

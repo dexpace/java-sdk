@@ -159,7 +159,7 @@ class OkHttpTransportTest {
         assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
     }
 
-    // -------- body on a body-forbidden method (GET/HEAD/TRACE) --------
+    // -------- body on a body-forbidden method (GET/HEAD/TRACE/CONNECT) --------
 
     @Test
     fun bodyOnForbiddenMethodIsRejectedBeforeDispatch() {
@@ -168,7 +168,7 @@ class OkHttpTransportTest {
         // execute's @Throws(IOException) contract. The SDK rejects the body at request
         // construction (Request.RequestBuilder.build), so such a request is never built and never
         // reaches the transport.
-        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE)) {
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
             assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
                 Request.builder()
                     .method(method)
