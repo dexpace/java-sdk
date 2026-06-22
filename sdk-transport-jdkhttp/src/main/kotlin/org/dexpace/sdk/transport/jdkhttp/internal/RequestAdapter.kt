@@ -61,10 +61,13 @@ internal class RequestAdapter(
      * that take a [HttpRequest.BodyPublisher] and those that force [HttpRequest.BodyPublishers.noBody]
      * reflects the HTTP semantics enforced by the JDK builder:
      *
-     *  - `GET` / `HEAD` / `TRACE` — no body. The JDK throws if a non-noBody publisher is supplied
-     *    on `HEAD`, so the adapter sends `noBody()` for these methods regardless of what the SDK
-     *    request carried. Callers passing a body to a GET/HEAD/TRACE request will see the body
-     *    silently dropped here.
+     *  - `GET` / `HEAD` / `TRACE` — no body. [Method.permitsRequestBody] is `false` for these (and
+     *    for `CONNECT`, which is rejected outright in its own branch below), so
+     *    `Request.RequestBuilder.build` rejects a body on them at construction; an SDK request can
+     *    never carry one here. The adapter sends `noBody()` unconditionally rather than adapting
+     *    `request.body` — there is nothing to adapt, and `noBody()` consumes nothing (the previous
+     *    code adapted then discarded the publisher, which for a small body drained a consume-once
+     *    `writeTo` for nothing).
      *  - `POST` / `PUT` / `PATCH` / `DELETE` / `OPTIONS` — body publisher passed through. `DELETE`
      *    and `OPTIONS` with a body are unusual but permitted by HTTP and the JDK builder.
      *  - `CONNECT` — rejected; see [adapt]'s KDoc.
@@ -73,16 +76,15 @@ internal class RequestAdapter(
         builder: HttpRequest.Builder,
         request: SdkRequest,
     ) {
-        val publisher = BodyPublishers.adaptBody(request.body)
         when (request.method) {
             Method.GET -> builder.GET()
             Method.HEAD -> builder.method("HEAD", HttpRequest.BodyPublishers.noBody())
             Method.TRACE -> builder.method("TRACE", HttpRequest.BodyPublishers.noBody())
-            Method.POST -> builder.POST(publisher)
-            Method.PUT -> builder.PUT(publisher)
-            Method.DELETE -> builder.method("DELETE", publisher)
-            Method.PATCH -> builder.method("PATCH", publisher)
-            Method.OPTIONS -> builder.method("OPTIONS", publisher)
+            Method.POST -> builder.POST(BodyPublishers.adaptBody(request.body))
+            Method.PUT -> builder.PUT(BodyPublishers.adaptBody(request.body))
+            Method.DELETE -> builder.method("DELETE", BodyPublishers.adaptBody(request.body))
+            Method.PATCH -> builder.method("PATCH", BodyPublishers.adaptBody(request.body))
+            Method.OPTIONS -> builder.method("OPTIONS", BodyPublishers.adaptBody(request.body))
             Method.CONNECT -> throw IllegalArgumentException(
                 "java.net.http.HttpClient does not support user-issued CONNECT requests. " +
                     "Configure a proxy on the underlying HttpClient instead.",

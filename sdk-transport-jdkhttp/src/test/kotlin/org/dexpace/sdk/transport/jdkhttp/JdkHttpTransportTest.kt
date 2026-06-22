@@ -123,6 +123,43 @@ class JdkHttpTransportTest {
         assertEquals("/echo", recorded.url.encodedPath)
     }
 
+    // -------- body on a body-forbidden method (GET/HEAD/TRACE/CONNECT) --------
+
+    @Test
+    fun `bodyOnForbiddenMethodIsRejectedBeforeDispatch`() {
+        // The JDK builder ignores a body on GET/HEAD/TRACE, silently dropping it — and the eager
+        // BodyPublishers path would already have drained a small consume-once body into a byte
+        // array that is then discarded. The SDK rejects the body at request construction
+        // (Request.RequestBuilder.build), so such a request is never built and never reaches the
+        // transport, and no body is consumed for nothing.
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
+            assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
+                Request.builder()
+                    .method(method)
+                    .url(server.url("/forbidden-body").toUrl())
+                    .body(RequestBody.create("x", CommonMediaTypes.TEXT_PLAIN))
+                    .build()
+            }
+        }
+    }
+
+    @Test
+    fun `bodylessGetDispatchesWithNoBody`() {
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/bodyless-get").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("GET", recorded.method)
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("/bodyless-get", recorded.url.encodedPath)
+    }
+
     // -------- async golden paths --------
 
     @Test
