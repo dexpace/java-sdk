@@ -270,7 +270,7 @@ public data class Request private constructor(
             val resolvedUrl = checkRequired("url", url)
             require(body == null || resolvedMethod.permitsRequestBody) {
                 "$resolvedMethod must not carry a request body; remove the body or use a " +
-                    "method that permits one (e.g. POST/PUT/PATCH)."
+                    "method that permits one (POST, PUT, PATCH, DELETE, or OPTIONS)."
             }
             return Request(
                 method = resolvedMethod,
