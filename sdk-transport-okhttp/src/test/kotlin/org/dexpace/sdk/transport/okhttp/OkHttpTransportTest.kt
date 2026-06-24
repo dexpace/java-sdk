@@ -50,6 +50,7 @@ import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -325,6 +326,55 @@ class OkHttpTransportTest {
         assertNotNull(host)
         assertTrue(!host.contains("bogus.example"), "Host should be recomputed from URL, was $host")
         // Pass-through header still reaches the server.
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun headerRejectedByOkHttpStricterRuleIsDroppedNotThrown() {
+        // The SDK model layer permits non-ASCII header names/values (it rejects only control
+        // characters), but OkHttp restricts both to printable ASCII and throws an unchecked
+        // IllegalArgumentException otherwise. The adapter must drop such a header — mirroring the
+        // JDK transport — so the exception never escapes execute()'s @Throws(IOException) contract.
+        // The offending byte is built with toChar() to keep it unambiguous in source.
+        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6): valid UTF-8, not printable ASCII
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/non-ascii").toUrl())
+                .addHeader("X-Uni" + oUmlaut + "code", "plain") // non-ASCII name
+                .addHeader("X-Plain", "v" + oUmlaut + "lue") // non-ASCII value
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        // execute must NOT throw; the rejected headers are simply absent on the wire.
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-ASCII name must be dropped")
+        assertNull(recorded.headers["X-Plain"], "header carrying a non-ASCII value must be dropped")
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun headerRejectedByOkHttpStricterRuleIsDroppedNotThrownAsync() {
+        // The adapter runs on the async path too. A header OkHttp rejects must be dropped so the
+        // future completes normally (not exceptionally) and the request still dispatches.
+        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6)
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/non-ascii-async").toUrl())
+                .addHeader("X-Uni" + oUmlaut + "code", "plain")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        val response = transport.executeAsync(request).get(5, TimeUnit.SECONDS)
+        response.use {
+            assertEquals(200, it.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-ASCII name must be dropped")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 

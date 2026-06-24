@@ -56,6 +56,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -324,6 +325,31 @@ class JdkHttpTransportTest {
         assertNotNull(host)
         assertTrue(!host.contains("bogus.example"), "Host should be recomputed from URL, was $host")
         // Pass-through header still reaches the server.
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun `headerRejectedByJdkIsDroppedNotThrown`() {
+        // The SDK model layer permits a non-ASCII header name (it rejects only control characters),
+        // but the JDK's field-name grammar rejects a non-token byte. The adapter must drop it rather
+        // than let the unchecked IllegalArgumentException escape execute()'s @Throws(IOException)
+        // contract — the same drop-and-log path the OkHttp adapter now mirrors. Built with toChar()
+        // so the offending byte is unambiguous in source.
+        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6): not an RFC 7230 token char
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/non-token-name").toUrl())
+                .addHeader("X-Uni" + oUmlaut + "code", "plain")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        // execute must NOT throw; the rejected header is simply absent on the wire.
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-token name must be dropped")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 

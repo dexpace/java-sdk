@@ -355,6 +355,55 @@ class HeadersTest {
         assertEquals("Bearer t", headers.get("Authorization"))
     }
 
+    @Test
+    fun `a surrounding-whitespace control character is trimmed, not rejected`() {
+        // Validation runs on the trimmed name: a leading tab or trailing line feed is stripped
+        // before it could reach the wire, so it is harmless. Only an interior control character
+        // is a splitting vector. Built without escape literals to keep the bytes unambiguous.
+        val tab = 9.toChar()
+        val lf = 10.toChar()
+        val headers =
+            Headers.builder()
+                .add(tab + "X-Foo" + lf, "v")
+                .build()
+
+        assertEquals("v", headers.get("X-Foo"))
+    }
+
+    @Test
+    fun `the name rejection message escapes control characters instead of echoing them`() {
+        val lf = 10.toChar()
+        val thrown =
+            assertFailsWith<IllegalArgumentException> {
+                Headers.builder().add("X-Trace-Id" + lf + "Injected", "v")
+            }
+        val message = thrown.message ?: ""
+        assertFalse(message.contains(lf), "raw control character must not appear in the message")
+        assertTrue(message.contains("X-Trace-Id"), "message should still name the offending header")
+        val backslash = 92.toChar()
+        assertTrue(
+            message.contains(backslash + "u000a"),
+            "control character should be rendered as a \\uXXXX escape, got: $message",
+        )
+    }
+
+    @Test
+    fun `name validation rejects interior control bytes through 0x1F and DEL but accepts space`() {
+        // Pin the predicate boundary the shared validator introduces: an interior byte in the C0
+        // range (up to and including 0x1F) and DEL (0x7F) is rejected, while 0x20 (space) — the
+        // first non-control code point — is accepted, since the policy is deliberately narrower
+        // than RFC 7230's tchar set. Constructed with toChar() so the bytes are unambiguous.
+        val tab = 9.toChar() // 0x09, inside the C0 range
+        val unitSeparator = 31.toChar() // 0x1F, top of the C0 range
+        val del = 127.toChar() // 0x7F
+        val space = 32.toChar() // 0x20, first accepted code point
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo" + tab + "Bar", "v") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo" + unitSeparator + "Bar", "v") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo" + del + "Bar", "v") }
+        val accepted = Headers.builder().add("X-Foo" + space + "Bar", "v").build()
+        assertEquals("v", accepted.get("X-Foo Bar"))
+    }
+
     // ---- accessors & equality coverage ------------------------------------------
 
     @Test

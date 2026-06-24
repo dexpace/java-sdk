@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReferenceArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -82,13 +83,25 @@ class HttpHeaderNameTest {
     }
 
     @Test
-    fun `fromString with empty string interns the empty key`() {
-        val empty = HttpHeaderName.fromString("")
-        val whitespace = HttpHeaderName.fromString("   ")
-        // Both trim to the empty string and intern under the same key.
-        assertSame(empty, whitespace)
-        assertEquals("", empty.caseInsensitiveName)
-        assertEquals("", empty.caseSensitiveName)
+    fun `fromString rejects a blank name`() {
+        // An empty or all-whitespace name has no canonical form and is not a valid field-name.
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("") }
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("   ") }
+    }
+
+    @Test
+    fun `fromString rejects a name with an interior control character`() {
+        // The typed API shares Headers.Builder's name validation, so a control-character name
+        // cannot be interned and reach a transport as a header-splitting vector. Surrounding
+        // whitespace is trimmed (see the trimming test); only interior control bytes are rejected.
+        val cr = 13.toChar()
+        val lf = 10.toChar()
+        val nul = 0.toChar()
+        val del = 127.toChar()
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("X-Evil" + cr + lf + "Injected") }
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("X-Evil" + lf + "Injected") }
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("X-Evil" + nul + "Injected") }
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("X-Evil" + del + "Injected") }
     }
 
     @Test

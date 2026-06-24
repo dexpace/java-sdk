@@ -104,11 +104,12 @@ internal class RequestAdapter(
      * `IllegalArgumentException` escape [adapt] (and therefore `execute`, declared
      * `@Throws(IOException)`) where a caller's `catch(IOException)` would not observe it.
      *
-     * Note this catch guards against the JDK's restricted *name* set only. Malformed header names
-     * (CR/LF, NUL, other control characters) and illegal header values (CR/LF) are rejected
-     * upstream by `Headers.Builder`, so neither a control-character name nor such a value reaches
-     * this point — the `IllegalArgumentException` handled here is the JDK refusing a *restricted*
-     * (but otherwise well-formed) name, not a malformed name or value.
+     * Upstream `Headers.Builder` validation closes the request/header-splitting surface
+     * (control-character names and CR/LF values are rejected before they reach here), but it does
+     * not mirror the JDK's full field-name/value grammar. The `IllegalArgumentException` caught
+     * here is therefore the JDK refusing either a name in its restricted set or a model-valid
+     * name/value it nonetheless rejects (e.g. a non-token / non-ASCII byte the SDK deliberately
+     * permits) — not a control-character splitting vector, which never gets this far.
      */
     private fun attachHeaders(
         builder: HttpRequest.Builder,
@@ -130,7 +131,7 @@ internal class RequestAdapter(
                         .event("transport.jdkhttp.header.rejected")
                         .field("name", rawName)
                         .cause(e)
-                        .log("JDK rejected header value; dropping before dispatch")
+                        .log("JDK rejected header name/value; dropping before dispatch")
                 }
             }
         }

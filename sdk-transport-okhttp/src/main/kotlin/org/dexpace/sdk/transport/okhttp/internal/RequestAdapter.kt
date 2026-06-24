@@ -54,11 +54,24 @@ internal class RequestAdapter(
                 continue
             }
             for (value in values) {
-                // Header names and values are validated upstream by Headers.Builder: names reject
-                // control characters (CR/LF, NUL, the rest of the C0/DEL range) and values reject
-                // CR/LF, so addHeader receives only well-formed input here and never throws on a
-                // malformed name or value.
-                builder.addHeader(rawName, value)
+                // Header names and values are validated upstream by Headers.Builder (names reject
+                // control characters; values reject CR/LF), which closes the request/header-splitting
+                // surface. OkHttp is stricter still: it rejects any byte outside printable ASCII in a
+                // name (0x21-0x7e) or value (tab and 0x20-0x7e), so a model-valid non-ASCII (e.g.
+                // UTF-8) name or value — which the SDK deliberately permits — would make addHeader
+                // throw an unchecked IllegalArgumentException. Catch it and drop just that header,
+                // mirroring the JDK transport's attachHeaders, so the exception never escapes adapt
+                // (and therefore sync execute, declared @Throws(IOException)) as an unchecked failure
+                // a caller's catch(IOException) would miss.
+                try {
+                    builder.addHeader(rawName, value)
+                } catch (e: IllegalArgumentException) {
+                    logger.atVerbose()
+                        .event("transport.okhttp.header.rejected")
+                        .field("name", rawName)
+                        .cause(e)
+                        .log("OkHttp rejected header name/value; dropping before dispatch")
+                }
             }
         }
         val methodToken = request.method.method
