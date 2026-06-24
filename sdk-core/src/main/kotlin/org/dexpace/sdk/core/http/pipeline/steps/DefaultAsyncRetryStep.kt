@@ -19,9 +19,12 @@ import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * Default [AsyncRetryStep] — the async mirror of [DefaultRetryStep]. Re-invokes the downstream
@@ -42,10 +45,12 @@ import java.util.concurrent.ScheduledExecutorService
  * The retry loop is driven iteratively by [drive], not by chaining `thenCompose` per attempt.
  * Each downstream attempt registers a single [CompletableFuture.whenComplete] callback. When the
  * outcome warrants another attempt, the callback hands control back to [drive] through a
- * trampoline ([RetryDriver.continuation]) instead of calling [drive] recursively, so a retry
- * sequence of length N never builds an N-deep stack frame chain or an N-deep future
- * continuation graph. This mirrors the iterative `while` loop of [DefaultRetryStep] while staying
- * fully async.
+ * lock-guarded re-arm flag instead of calling [drive] recursively, so a retry sequence of length
+ * N never builds an N-deep stack frame chain or an N-deep future continuation graph. The re-arm
+ * state is guarded by a lock because a non-blocking backoff hands the next [drive] to a scheduler
+ * thread while the previous pump ran on another thread — the lock supplies the happens-before
+ * edge that keeps the handoff visible and the exit-check atomic. This mirrors the iterative
+ * `while` loop of [DefaultRetryStep] while staying fully async.
  *
  * ## Re-sendability gating
  *
@@ -62,8 +67,19 @@ import java.util.concurrent.ScheduledExecutorService
  * Downstream failures surface as exceptionally-completed futures; the loop unwraps the
  * [java.util.concurrent.CompletionException] wrapper via [Futures.unwrap] before classifying.
  * Only [Exception] subclasses are classified — an [Error] (OOM, StackOverflow) completes the
- * call exceptionally without retry. On terminal failure every prior attempt's exception is
- * attached to the surfaced exception via [Throwable.addSuppressed].
+ * call exceptionally without retry. An [InterruptedIOException] / [InterruptedException] is
+ * treated as cancellation, not a retryable failure: the interrupt flag is restored and the call
+ * completes with an [InterruptedIOException], matching [DefaultRetryStep]. On terminal failure
+ * every prior attempt's exception is attached to the surfaced exception via
+ * [Throwable.addSuppressed] — skipping the surfaced exception itself, so a transport that reuses
+ * one exception instance across attempts cannot trip self-suppression.
+ *
+ * A `shouldRetry` predicate or delay computation that throws — or a synchronous scheduler
+ * rejection — completes the call exceptionally rather than leaving it hanging, and any open
+ * retryable response is closed first so it never leaks (mirroring [DefaultRetryStep]'s
+ * close-on-throw guard). Unlike the synchronous stack the terminal failure is surfaced as-is
+ * rather than wrapped in [IOException]: a [CompletableFuture] carries no checked-exception
+ * contract, so the original failure type reaches the caller (after [Futures.unwrap]) unchanged.
  *
  * ## Thread-safety
  *
@@ -124,36 +140,53 @@ public open class DefaultAsyncRetryStep
             // Lazily allocated on first failure so the success path never pays for the list.
             private var suppressed: MutableList<Throwable>? = null
 
-            // Trampoline state. `pumping` is true while the synchronous pump loop in drive() is
-            // active; `rearm` records that another attempt should run. A re-arm that happens
-            // while the pump is active (an inline / zero-delay retry) just sets `rearm` and lets
-            // the loop pick it up — it never recurses into a new drive() frame. A re-arm that
-            // happens after the pump has exited (the common async case, fired from a scheduler
-            // or downstream-completion thread) starts a fresh, shallow pump. Both paths run
-            // sequentially per call — drive() is only ever entered by one thread at a time
-            // because each attempt's continuation fires exactly once and the previous pump has
-            // returned before the async callback runs.
+            // Trampoline state, guarded by [trampolineLock]. `pumping` is true while a pump loop
+            // in drive() is active; `rearm` records that another attempt should run. A re-arm
+            // while the pump is active (an inline / zero-delay retry, or a concurrent re-entry)
+            // just sets `rearm` and lets the active loop pick it up — it never recurses into a new
+            // drive() frame. A re-arm after the pump has exited starts a fresh, shallow pump.
+            //
+            // The flags are NOT plain fields: a non-blocking backoff hands the next drive() to a
+            // ScheduledExecutorService thread while the previous pump ran on the dispatching (or a
+            // transport) thread, so the two touch this state from different threads with no
+            // intrinsic happens-before edge. Guarding every read/write under the lock both makes
+            // the pump-exit write visible to the next cross-thread drive() (no stranding on a
+            // stale `pumping`) and makes the exit-check atomic with a concurrent re-arm (no lost
+            // wakeup). The lock is held only for the flag flips, never across startAttempt() or
+            // the downstream call, so it cannot pin a thread. Per CLAUDE.md, ReentrantLock (not
+            // synchronized) so a virtual-thread carrier is never pinned.
+            private val trampolineLock = ReentrantLock()
             private var pumping: Boolean = false
             private var rearm: Boolean = false
 
             /**
              * Entry point and trampoline. Marks that an attempt should run ([rearm]); if a pump
-             * loop is already active it returns immediately (the active loop will pick up the
-             * re-arm), otherwise it runs the loop. The loop keeps starting attempts as long as
-             * inline completions keep setting [rearm], so a burst of zero-delay retries unwinds
-             * iteratively instead of recursing.
+             * loop is already active it returns immediately (the active loop picks up the re-arm
+             * on its next exit-check), otherwise it runs the loop. The loop keeps starting attempts
+             * as long as completions keep setting [rearm], so a burst of zero-delay retries unwinds
+             * iteratively instead of recursing. Safe to call from any thread (see the field note).
              */
             fun drive() {
-                rearm = true
-                if (pumping) return
-                pumping = true
-                try {
-                    while (rearm) {
+                trampolineLock.withLock {
+                    rearm = true
+                    // A pump is already active (this thread or another); it will observe the
+                    // re-arm on its next exit-check. Exactly one pump runs at a time.
+                    if (pumping) return
+                    pumping = true
+                }
+                while (true) {
+                    trampolineLock.withLock {
+                        // Atomic exit-check: clearing `pumping` under the same lock as drive()'s
+                        // re-arm means a concurrent drive() either set `rearm` before this check
+                        // (so the pump continues) or starts a fresh pump after it (because it sees
+                        // `pumping` cleared) — the wakeup is never lost.
+                        if (!rearm) {
+                            pumping = false
+                            return
+                        }
                         rearm = false
-                        startAttempt()
                     }
-                } finally {
-                    pumping = false
+                    startAttempt()
                 }
             }
 
@@ -189,16 +222,39 @@ public open class DefaultAsyncRetryStep
             }
 
             private fun onSuccess(response: Response) {
-                val retry =
-                    retrySafe &&
-                        tryCount < options.maxRetries &&
-                        shouldRetryResponse(response)
-                if (!retry) {
-                    result.complete(response)
-                    return
-                }
-                val delay = computeResponseDelay(response, tryCount)
-                logRetry(tryCount, delay, response.status.code, cause = null)
+                val delay: Duration =
+                    try {
+                        val retry =
+                            retrySafe &&
+                                tryCount < options.maxRetries &&
+                                shouldRetryResponse(response)
+                        if (!retry) {
+                            // Not retrying: hand the still-open response to the caller, who then
+                            // owns closing it. If the caller already completed or cancelled the
+                            // returned future (a race against an in-flight attempt), complete() is
+                            // a no-op and the response would otherwise leak its socket/buffer —
+                            // close it here in that case.
+                            if (!result.complete(response)) closeQuietly(response)
+                            return
+                        }
+                        val computed = computeResponseDelay(response, tryCount)
+                        logRetry(tryCount, computed, response.status.code, cause = null)
+                        computed
+                    } catch (t: Throwable) {
+                        // The retry decision, delay computation, or log call threw — e.g. a
+                        // misbehaving shouldRetry predicate (surfaced as IllegalStateException), an
+                        // Error rethrown by a delay override, or an unexpected backoff failure. The
+                        // retryable response is still open, so close it before surfacing —
+                        // otherwise its socket/buffer leaks — then complete the call terminally so
+                        // the caller's future is never left hanging (a throw escaping this
+                        // whenComplete callback would be swallowed, stranding `result`). Mirrors
+                        // DefaultRetryStep.decideRetryResponse's close-on-throw guard.
+                        closeQuietly(response)
+                        failTerminally(t)
+                        return
+                    }
+                // Committed to retrying: release the retryable response before the backoff window,
+                // then schedule the next attempt.
                 closeQuietly(response)
                 tryCount++
                 scheduleNext(delay)
@@ -207,28 +263,64 @@ public open class DefaultAsyncRetryStep
             private fun onFailure(rawError: Throwable) {
                 val error = Futures.unwrap(rawError)
                 // Errors (OOM, StackOverflow, …) are unrecoverable — never retry, never log.
+                // Surface as-is, matching DefaultRetryStep (which rethrows an Error before
+                // attaching the failure trail).
                 if (error is Error) {
                     result.completeExceptionally(error)
                     return
                 }
                 val exception = error as Exception
-                val retry =
-                    retrySafe &&
-                        tryCount < options.maxRetries &&
-                        shouldRetryException(exception)
-                if (!retry) {
-                    suppressed?.forEach(exception::addSuppressed)
-                    result.completeExceptionally(exception)
+                // Interrupts are never retryable, per the SDK-wide cancellation convention.
+                // Restore the interrupt flag (the completing thread's catch may have cleared it),
+                // normalise a bare InterruptedException to InterruptedIOException, and surface
+                // terminally with the prior-attempt trail attached — mirroring DefaultRetryStep's
+                // pre-classification interrupt carve-out.
+                if (exception is InterruptedIOException || exception is InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    failTerminally(asInterruptedIo(exception))
                     return
                 }
-                val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
-                val delay = computeExceptionDelay(exception, tryCount)
-                logRetry(tryCount, delay, statusCode = -1, cause = exception)
+                val delay: Duration =
+                    try {
+                        val retry =
+                            retrySafe &&
+                                tryCount < options.maxRetries &&
+                                shouldRetryException(exception)
+                        if (!retry) {
+                            failTerminally(exception)
+                            return
+                        }
+                        val computed = computeExceptionDelay(exception, tryCount)
+                        logRetry(tryCount, computed, statusCode = -1, cause = exception)
+                        computed
+                    } catch (t: Throwable) {
+                        // The retry decision, delay computation, or log call threw. Attach the
+                        // in-flight failure and complete terminally so the caller never hangs (a
+                        // throw escaping this whenComplete callback would be swallowed). No open
+                        // response to close on the exception path.
+                        if (t !== exception) t.addSuppressed(exception)
+                        failTerminally(t)
+                        return
+                    }
                 // Record the current failure BEFORE scheduling so it is attached to any later
                 // terminal exception's suppressed list rather than being silently dropped.
+                val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
                 accumulator.add(exception)
                 tryCount++
                 scheduleNext(delay)
+            }
+
+            /**
+             * Completes [result] exceptionally with [error]. Any accumulated prior-attempt
+             * failures are attached as suppressed, skipping [error] itself so a transport that
+             * re-throws one exception instance across attempts cannot trip
+             * [Throwable.addSuppressed]'s self-suppression guard. Used on every terminal path so
+             * the caller's future is always completed — never left hanging — with the full failure
+             * trail preserved.
+             */
+            private fun failTerminally(error: Throwable) {
+                suppressed?.forEach { prior -> if (prior !== error) error.addSuppressed(prior) }
+                result.completeExceptionally(error)
             }
 
             /**
@@ -240,12 +332,21 @@ public open class DefaultAsyncRetryStep
              */
             private fun scheduleNext(delay: Duration) {
                 val safeDelay = if (delay.isNegative) Duration.ZERO else delay
-                Futures.delay(scheduler, safeDelay).whenComplete { _, scheduleError ->
+                val scheduled =
+                    try {
+                        Futures.delay(scheduler, safeDelay)
+                    } catch (t: Throwable) {
+                        // scheduler.schedule rejected the delay task synchronously (e.g. the
+                        // scheduler was shut down → RejectedExecutionException). Surface terminally
+                        // so the caller never hangs.
+                        failTerminally(t)
+                        return
+                    }
+                scheduled.whenComplete { _, scheduleError ->
                     if (scheduleError != null) {
-                        // The scheduler rejected or failed the delay task — surface it with any
-                        // accumulated prior failures attached.
-                        suppressed?.forEach(scheduleError::addSuppressed)
-                        result.completeExceptionally(scheduleError)
+                        // The scheduled delay task failed — surface it with any accumulated prior
+                        // failures attached.
+                        failTerminally(scheduleError)
                     } else {
                         drive()
                     }
@@ -318,6 +419,17 @@ public open class DefaultAsyncRetryStep
             return body.isReplayable()
         }
 
+        /**
+         * Normalises an interrupt-signalling exception to [InterruptedIOException]: an
+         * [InterruptedIOException] is returned as-is; a bare [InterruptedException] is wrapped with
+         * the original attached as its cause. Mirrors [DefaultRetryStep]'s helper of the same name.
+         */
+        private fun asInterruptedIo(exception: Exception): InterruptedIOException =
+            when (exception) {
+                is InterruptedIOException -> exception
+                else -> InterruptedIOException("retry interrupted").apply { initCause(exception) }
+            }
+
         private fun invokeShouldRetry(
             predicate: HttpRetryConditionPredicate,
             condition: HttpRetryCondition,
@@ -359,10 +471,16 @@ public open class DefaultAsyncRetryStep
         private fun closeQuietly(response: Response) {
             try {
                 response.close()
-            } catch (closeErr: IOException) {
+            } catch (closeErr: Exception) {
+                // Swallow ANY close failure (not just IOException) on a response being discarded
+                // before a retry: it is not actionable, and on the async path an escaping throw
+                // would be swallowed by the whenComplete callback and strand the returned future.
+                // Only [Error] (OOM, StackOverflow) propagates — those are JVM-fatal, not ours to
+                // recover. (The sync DefaultRetryStep lets a non-IOException close failure surface
+                // as a terminal error; async cannot, since that path has no caller to throw to.)
                 logger.atVerbose()
                     .event("http.retry.close_failed")
-                    .field("error.type", closeErr::class.java.simpleName ?: "IOException")
+                    .field("error.type", closeErr::class.java.simpleName ?: "Exception")
                     .log()
             }
         }

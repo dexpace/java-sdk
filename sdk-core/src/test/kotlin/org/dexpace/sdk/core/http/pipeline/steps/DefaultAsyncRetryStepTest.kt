@@ -26,9 +26,12 @@ import org.dexpace.sdk.core.testing.ManualScheduler
 import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -110,7 +113,7 @@ class DefaultAsyncRetryStepTest {
 
     @Test
     fun `retries a retryable IOException then succeeds`() {
-        val client = FailNTimesClient(failures = 2, exception = IOException("boom"))
+        val client = FailNTimesClient(failures = 2) { IOException("boom") }
         val future =
             pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofMillis(5)))
                 .sendAsync(getRequest())
@@ -121,7 +124,7 @@ class DefaultAsyncRetryStepTest {
 
     @Test
     fun `terminal exception carries prior attempts as suppressed`() {
-        val client = FailNTimesClient(failures = 5, exception = IOException("boom"))
+        val client = FailNTimesClient(failures = 5) { IOException("boom") }
         val future =
             pipeline(client, HttpRetryOptions.fixed(maxRetries = 2, delay = Duration.ofMillis(5)))
                 .sendAsync(getRequest())
@@ -136,7 +139,7 @@ class DefaultAsyncRetryStepTest {
 
     @Test
     fun `non-retryable exception is surfaced immediately`() {
-        val client = FailNTimesClient(failures = 5, exception = IllegalArgumentException("nope"))
+        val client = FailNTimesClient(failures = 5) { IllegalArgumentException("nope") }
         val future =
             pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
                 .sendAsync(getRequest())
@@ -273,6 +276,226 @@ class DefaultAsyncRetryStepTest {
         assertEquals(200, future.join().status.code)
     }
 
+    // ----------------- Throwing predicate / delay (must complete the future, never hang) -----------------
+
+    @Test
+    fun `a throwing shouldRetry predicate completes the future exceptionally and closes the response`() {
+        val closes = AtomicInteger(0)
+        val client =
+            AsyncHttpClient { request ->
+                CompletableFuture.completedFuture(
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(503))
+                        .body(CountingCloseBody(closes))
+                        .build(),
+                )
+            }
+        val options =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryCondition = { _ -> throw RuntimeException("predicate boom") },
+            )
+        val future = pipeline(client, options).sendAsync(getRequest())
+        scheduler.runAll()
+        // The predicate threw inside the completion callback. The future must still complete
+        // (not hang), and the still-open retryable response must be closed so it does not leak.
+        val thrown = assertFails { future.join() }
+        assertTrue(
+            Futures.unwrap(thrown) is IllegalStateException,
+            "a throwing predicate must surface as IllegalStateException",
+        )
+        assertEquals(1, closes.get(), "the retryable response must be closed when the predicate throws")
+    }
+
+    @Test
+    fun `a throwing shouldRetryException predicate completes the future exceptionally`() {
+        val client = AlwaysFailClient(IOException("io"))
+        val options =
+            HttpRetryOptions(
+                maxRetries = 3,
+                shouldRetryException = { _ -> throw RuntimeException("predicate boom") },
+            )
+        val future = pipeline(client, options).sendAsync(getRequest())
+        scheduler.runAll()
+        val thrown = assertFails { future.join() }
+        assertTrue(Futures.unwrap(thrown) is IllegalStateException)
+        assertEquals(1, client.callCount, "the loop must not retry when the predicate itself throws")
+    }
+
+    @Test
+    fun `a synchronous scheduler rejection completes the future exceptionally`() {
+        // A closed ManualScheduler rejects schedule(...) synchronously — stand-in for a real
+        // ScheduledExecutorService throwing RejectedExecutionException after shutdown.
+        val rejecting = ManualScheduler().apply { close() }
+        val client = QueueClient().enqueue(503)
+        val future =
+            AsyncHttpPipelineBuilder(client)
+                .append(
+                    DefaultAsyncRetryStep(
+                        rejecting,
+                        HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofSeconds(1)),
+                        fixedClock(),
+                    ),
+                )
+                .build()
+                .sendAsync(getRequest())
+        // The first attempt ran (503); scheduling the 1s retry on the closed scheduler is rejected
+        // synchronously. That rejection must complete the future rather than stranding it.
+        assertTrue(future.isCompletedExceptionally, "a rejected schedule must complete the future")
+        assertEquals(1, client.callCount)
+        assertFails { future.join() }
+    }
+
+    // ----------------- Cancellation (interrupts are surfaced, never retried) -----------------
+
+    @Test
+    fun `InterruptedIOException is surfaced as cancellation and never retried`() {
+        val client = AlwaysFailClient(InterruptedIOException("cancelled"))
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        val thrown = assertFails { future.join() }
+        // Read AND clear the flag so it cannot leak into a later test on this worker thread.
+        val interruptObserved = Thread.interrupted()
+        assertTrue(Futures.unwrap(thrown) is InterruptedIOException)
+        assertEquals(1, client.callCount, "an interrupt must abort the retry loop after one attempt")
+        assertTrue(interruptObserved, "the interrupt flag must be restored")
+    }
+
+    @Test
+    fun `a bare InterruptedException is normalised to InterruptedIOException and not retried`() {
+        val client = AlwaysFailClient(InterruptedException("bare"))
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        val thrown = assertFails { future.join() }
+        val interruptObserved = Thread.interrupted()
+        val cause = Futures.unwrap(thrown)
+        assertTrue(
+            cause is InterruptedIOException,
+            "a bare InterruptedException must surface as InterruptedIOException",
+        )
+        assertTrue(
+            cause.cause is InterruptedException,
+            "the original InterruptedException must be attached as the cause",
+        )
+        assertEquals(1, client.callCount)
+        assertTrue(interruptObserved, "the interrupt flag must be restored")
+    }
+
+    @Test
+    fun `the same exception instance reused across attempts completes the future without self-suppression`() {
+        // Regression for the CI hang: a transport that re-throws ONE exception instance would, on
+        // the terminal attempt, attach that instance under itself (addSuppressed(this) ->
+        // IllegalArgumentException) — which, swallowed by the completion callback, stranded the
+        // returned future forever.
+        val shared = IOException("shared boom")
+        val client = AlwaysFailClient(shared)
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        val thrown = assertFails { future.join() }
+        val cause = Futures.unwrap(thrown)
+        assertTrue(cause === shared, "the shared exception instance must surface as the terminal failure")
+        assertFalse(cause.suppressed.any { it === cause }, "an exception must never be suppressed under itself")
+        assertEquals(4, client.callCount, "initial + 3 retries")
+    }
+
+    // ----------------- Resource hygiene -----------------
+
+    @Test
+    fun `a response delivered after the caller cancelled the future is closed not leaked`() {
+        val closes = AtomicInteger(0)
+        val deferred = CompletableFuture<Response>()
+        val client = AsyncHttpClient { _ -> deferred }
+        val req = getRequest()
+        val future = pipeline(client, HttpRetryOptions(maxRetries = 3)).sendAsync(req)
+        // The attempt is in flight; cancel the returned future before it completes.
+        assertFalse(future.isDone)
+        future.cancel(true)
+        // The downstream attempt now completes with an open 2xx response. Since the caller already
+        // cancelled, result.complete(...) is a no-op — the step must close the response itself.
+        deferred.complete(
+            Response.builder()
+                .request(req)
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .body(CountingCloseBody(closes))
+                .build(),
+        )
+        scheduler.runAll()
+        assertEquals(1, closes.get(), "a response delivered after cancellation must be closed, not leaked")
+    }
+
+    @Test
+    fun `a retryable response whose close throws does not strand the retry`() {
+        var n = 0
+        val client =
+            AsyncHttpClient { request ->
+                n++
+                val builder =
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.fromCode(if (n == 1) 503 else 200))
+                if (n == 1) builder.body(ThrowingCloseBody())
+                CompletableFuture.completedFuture(builder.build())
+            }
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        // The 503's body.close() throws; closeQuietly must swallow it so the retry proceeds to 200
+        // rather than the throw escaping the callback and stranding the future.
+        assertEquals(200, future.join().status.code)
+        assertEquals(2, n, "the retry must proceed past the throwing close")
+    }
+
+    // ----------------- Real multi-threaded scheduler (trampoline visibility) -----------------
+
+    @Test
+    fun `retries on a real multi-threaded scheduler complete without stranding`() {
+        // Exercises the trampoline across real threads: each backoff fires drive() on a scheduler
+        // pool thread, distinct from the thread that ran the previous pump. Guards the lock-guarded
+        // re-arm handoff — a regression to plain fields could strand the future, and get(timeout)
+        // fails the test rather than hanging it.
+        val realScheduler = Executors.newScheduledThreadPool(2)
+        try {
+            val calls = AtomicInteger(0)
+            val client =
+                AsyncHttpClient { request ->
+                    val n = calls.incrementAndGet()
+                    CompletableFuture.completedFuture(
+                        Response.builder()
+                            .request(request)
+                            .protocol(Protocol.HTTP_1_1)
+                            .status(Status.fromCode(if (n <= 10) 503 else 200))
+                            .build(),
+                    )
+                }
+            val future =
+                AsyncHttpPipelineBuilder(client)
+                    .append(
+                        DefaultAsyncRetryStep(
+                            realScheduler,
+                            HttpRetryOptions.fixed(maxRetries = 15, delay = Duration.ofMillis(1)),
+                            fixedClock(),
+                        ),
+                    )
+                    .build()
+                    .sendAsync(getRequest())
+            assertEquals(200, future.get(10, TimeUnit.SECONDS).status.code)
+            assertEquals(11, calls.get(), "10 retryable 503s + a final 200")
+        } finally {
+            realScheduler.shutdownNow()
+        }
+    }
+
     // ----------------- Helpers -----------------
 
     private fun pipeline(
@@ -320,10 +543,15 @@ class DefaultAsyncRetryStepTest {
         }
     }
 
-    /** Fails the first [failures] attempts with [exception], then returns 200. */
+    /**
+     * Fails the first [failures] attempts, then returns 200. Each failure gets a **fresh**
+     * exception from [exceptionFactory] — real transports throw a distinct instance per attempt,
+     * and reusing one instance would make the accumulated suppressed-failure trail meaningless
+     * (an exception cannot be suppressed under itself).
+     */
     private class FailNTimesClient(
         private val failures: Int,
-        private val exception: Exception,
+        private val exceptionFactory: () -> Exception,
     ) : AsyncHttpClient {
         private val calls = AtomicInteger(0)
 
@@ -332,7 +560,7 @@ class DefaultAsyncRetryStepTest {
         override fun executeAsync(request: Request): CompletableFuture<Response> {
             val n = calls.incrementAndGet()
             return if (n <= failures) {
-                Futures.failed(exception)
+                Futures.failed(exceptionFactory())
             } else {
                 CompletableFuture.completedFuture(
                     Response.builder()
@@ -378,6 +606,19 @@ class DefaultAsyncRetryStepTest {
 
         override fun close() {
             closes.incrementAndGet()
+        }
+    }
+
+    /** A response body whose close() throws a non-IOException, to prove closeQuietly swallows it. */
+    private class ThrowingCloseBody : ResponseBody() {
+        override fun mediaType(): MediaType? = null
+
+        override fun contentLength(): Long = 0
+
+        override fun source(): BufferedSource = fail("body should not be read")
+
+        override fun close() {
+            throw RuntimeException("close boom")
         }
     }
 }
