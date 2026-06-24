@@ -217,6 +217,52 @@ class HeadersTest {
     }
 
     @Test
+    fun `add rejects a value containing a NUL`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil", "ok" + 0.toChar() + "bad")
+        }
+    }
+
+    @Test
+    fun `add rejects a value containing a DEL control character`() {
+        assertFailsWith<IllegalArgumentException> {
+            Headers.builder().add("X-Evil", "ok" + 127.toChar() + "bad")
+        }
+    }
+
+    @Test
+    fun `value validation rejects interior control bytes through 0x1F and DEL but accepts tab and space`() {
+        // Pins the value-side predicate boundary. The policy mirrors the name check — the C0
+        // range (up to and including 0x1F) and DEL (0x7F) are rejected — with one deliberate
+        // exception: horizontal tab (0x09), which RFC 7230 permits as field-value whitespace.
+        // Space (0x20), the first non-control code point, is accepted. Constructed with toChar()
+        // so the bytes are unambiguous.
+        val nul = 0.toChar() // 0x00, bottom of the C0 range
+        val unitSeparator = 31.toChar() // 0x1F, top of the C0 range
+        val del = 127.toChar() // 0x7F
+        val tab = 9.toChar() // 0x09, the one permitted control character
+        val space = 32.toChar() // 0x20, first accepted code point
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo", "a" + nul + "b") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo", "a" + unitSeparator + "b") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo", "a" + del + "b") }
+        val accepted = Headers.builder().add("X-Foo", "a" + tab + space + "b").build()
+        assertEquals("a" + tab + space + "b", accepted.get("X-Foo"))
+    }
+
+    @Test
+    fun `the value rejection message does not echo the value`() {
+        // The value may be a secret (Authorization) or oversized; unlike the name, it is never
+        // rendered into the error message — only the header name is, to locate the offender.
+        val thrown =
+            assertFailsWith<IllegalArgumentException> {
+                Headers.builder().add("X-Trace-Id", "secret-token" + 0.toChar() + "x")
+            }
+        val message = thrown.message ?: ""
+        assertTrue(message.contains("X-Trace-Id"), "message should name the header, got: $message")
+        assertFalse(message.contains("secret-token"), "message must not echo the value")
+    }
+
+    @Test
     fun `the rejection message names the offending header`() {
         val thrown =
             assertFailsWith<IllegalArgumentException> {
@@ -229,13 +275,14 @@ class HeadersTest {
     }
 
     @Test
-    fun `normal values without CR or LF are accepted`() {
+    fun `normal values without prohibited control characters are accepted`() {
         val headers =
             Headers.builder()
                 .add("X-Plain", "hello world")
                 .set("Authorization", "Bearer abc.def-ghi")
                 .add(HttpHeaderName.SET_COOKIE, "id=42; Path=/")
-                // Tabs and UTF-8 are not CR/LF, so they must pass the conservative check.
+                // Horizontal tab is the one permitted control character, and UTF-8 is not a control
+                // character at all, so both pass the conservative check.
                 .set("X-Unicode", "café\tvalue")
                 .build()
 

@@ -105,8 +105,9 @@ internal class RequestAdapter(
      * `@Throws(IOException)`) where a caller's `catch(IOException)` would not observe it.
      *
      * Upstream `Headers.Builder` validation closes the request/header-splitting surface
-     * (control-character names and CR/LF values are rejected before they reach here), but it does
-     * not mirror the JDK's full field-name/value grammar. The `IllegalArgumentException` caught
+     * (control-character names, and control-character values bar horizontal tab, are rejected
+     * before they reach here), but it does not mirror the JDK's full field-name/value grammar.
+     * The `IllegalArgumentException` caught
      * here is therefore the JDK refusing either a name in its restricted set or a model-valid
      * name/value it nonetheless rejects (e.g. a non-token / non-ASCII byte the SDK deliberately
      * permits) — not a control-character splitting vector, which never gets this far.
@@ -127,7 +128,11 @@ internal class RequestAdapter(
                 try {
                     builder.header(rawName, value)
                 } catch (e: IllegalArgumentException) {
-                    logger.atVerbose()
+                    // Warn (not verbose): this is a header the caller explicitly set being silently
+                    // dropped because this transport cannot encode it — surfaced by default so the
+                    // loss is visible. Restricted-header drops above stay at verbose (expected, the
+                    // JDK recomputes or forbids them), as does the inbound response-header drop.
+                    logger.atWarning()
                         .event("transport.jdkhttp.header.rejected")
                         .field("name", rawName)
                         .cause(e)

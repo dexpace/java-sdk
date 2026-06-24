@@ -8,6 +8,7 @@
 package org.dexpace.sdk.transport.jdkhttp.internal
 
 import org.dexpace.sdk.core.http.request.Method
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
 import java.io.ByteArrayInputStream
@@ -23,7 +24,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.SSLSession
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.dexpace.sdk.core.http.request.Request as SdkRequest
 
@@ -34,6 +37,8 @@ import org.dexpace.sdk.core.http.request.Request as SdkRequest
  * `sendAsync().thenApply` paths route through `adapt`, so closing in `adapt` covers both.
  */
 class ResponseAdapterLeakTest {
+    private val logger = ClientLogger("test.ResponseAdapterLeakTest")
+
     @BeforeTest
     fun setUp() {
         Io.installProvider(OkioIoProvider)
@@ -47,7 +52,7 @@ class ResponseAdapterLeakTest {
         // the catch path. This stands in for any real post-body failure (provider missing, OOM
         // while wrapping, builder rejection) without relying on global IoProvider state.
         val response = ThrowingVersionResponse(code = 200, bodyStream = body)
-        val adapter = ResponseAdapter()
+        val adapter = ResponseAdapter(logger)
 
         val ex =
             assertFails {
@@ -63,7 +68,7 @@ class ResponseAdapterLeakTest {
         val closed = AtomicBoolean(false)
         val body = TrackingInputStream("payload".toByteArray(), closed)
         val response = OkResponse(code = 200, bodyStream = body)
-        val adapter = ResponseAdapter()
+        val adapter = ResponseAdapter(logger)
 
         val sdkResponse = adapter.adapt(simpleRequest(), response)
 
@@ -72,6 +77,34 @@ class ResponseAdapterLeakTest {
         assertTrue(!closed.get(), "body must remain open on the success path")
         sdkResponse.close()
         assertTrue(closed.get(), "closing the SDK response must cascade-close the body")
+    }
+
+    @Test
+    fun `adapt drops a malformed inbound response header instead of failing the response`() {
+        // A server (notably over HTTP/2) can send a header value the JDK client parses leniently
+        // but the SDK model layer rejects. Adaptation must drop that one header and still surface
+        // the response — the outbound injection guard does not apply to a received response. DEL
+        // (0x7F) is rejected by the model layer yet survives lenient inbound parsing.
+        val del = 127.toChar()
+        val closed = AtomicBoolean(false)
+        val body = TrackingInputStream("ok".toByteArray(), closed)
+        val response =
+            HeaderResponse(
+                code = 200,
+                bodyStream = body,
+                headerMap =
+                    mapOf(
+                        "X-Good" to listOf("fine"),
+                        "X-Bad" to listOf("a" + del + "b"),
+                    ),
+            )
+        val adapter = ResponseAdapter(logger)
+
+        val sdkResponse = adapter.adapt(simpleRequest(), response)
+
+        assertEquals("fine", sdkResponse.headers.get("X-Good"), "well-formed inbound header must survive")
+        assertNull(sdkResponse.headers.get("X-Bad"), "malformed inbound header must be dropped, not throw")
+        sdkResponse.close()
     }
 
     private fun simpleRequest(): SdkRequest =
@@ -123,6 +156,21 @@ class ResponseAdapterLeakTest {
         override fun body(): InputStream = bodyStream
 
         override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+    }
+
+    /** Successful [HttpResponse] carrying caller-supplied headers, to drive the inbound-drop path. */
+    private class HeaderResponse(
+        private val code: Int,
+        private val bodyStream: InputStream,
+        private val headerMap: Map<String, List<String>>,
+    ) : BaseResponse() {
+        override fun statusCode(): Int = code
+
+        override fun body(): InputStream = bodyStream
+
+        override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+
+        override fun headers(): HttpHeaders = HttpHeaders.of(headerMap) { _, _ -> true }
     }
 
     /**

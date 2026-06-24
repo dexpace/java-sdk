@@ -229,8 +229,9 @@ public class HttpHeaderName private constructor(
          */
         @JvmStatic
         public fun fromString(name: String): HttpHeaderName {
-            requireValidHeaderName(name)
-            val trimmed = name.trim()
+            // requireValidHeaderName trims and validates, returning the trimmed form so we do not
+            // trim a second time before interning.
+            val trimmed = requireValidHeaderName(name)
             val key = trimmed.lowercase(Locale.US)
             // computeIfAbsent is available on Java 8.
             return INTERN.computeIfAbsent(key) { HttpHeaderName(trimmed, key) }

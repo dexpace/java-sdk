@@ -70,7 +70,7 @@ public class OkHttpTransport private constructor(
 ) : HttpClient, AsyncHttpClient {
     private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.okhttp.OkHttpTransport")
     private val requestAdapter: RequestAdapter = RequestAdapter(log)
-    private val responseAdapter: ResponseAdapter = ResponseAdapter()
+    private val responseAdapter: ResponseAdapter = ResponseAdapter(log)
 
     /**
      * Latches `true` on the first [close] so subsequent calls are no-ops. `AtomicBoolean`

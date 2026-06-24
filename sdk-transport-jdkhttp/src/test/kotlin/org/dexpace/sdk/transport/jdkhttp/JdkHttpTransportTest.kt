@@ -354,6 +354,29 @@ class JdkHttpTransportTest {
     }
 
     @Test
+    fun `headerRejectedByJdkIsDroppedNotThrownAsync`() {
+        // The adapter runs on the async path too. A header the JDK rejects must be dropped so the
+        // future completes normally (not exceptionally) and the request still dispatches —
+        // mirroring the sync drop-not-throw path and the OkHttp transport's async coverage.
+        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6): not an RFC 7230 token char
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/non-token-name-async").toUrl())
+                .addHeader("X-Uni" + oUmlaut + "code", "plain")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        val response = transport.executeAsync(request).get(5, TimeUnit.SECONDS)
+        response.use {
+            assertEquals(200, it.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-token name must be dropped")
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
     fun `expectHeaderDoesNotCrashTheRequest`() {
         // `Expect` is in the JDK's disallowed-header set — setting it directly on
         // HttpRequest.Builder throws IllegalArgumentException. The adapter must pre-drop it

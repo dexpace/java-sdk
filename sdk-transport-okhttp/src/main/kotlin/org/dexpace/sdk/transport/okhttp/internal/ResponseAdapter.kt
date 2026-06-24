@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
 import okhttp3.Protocol as OkProtocol
 import okhttp3.Response as OkResponse
@@ -40,7 +41,9 @@ import org.dexpace.sdk.core.http.response.ResponseBody as SdkResponseBody
  * No retention of the OkHttp response object is necessary beyond the body — the body's
  * own close releases everything.
  */
-internal class ResponseAdapter {
+internal class ResponseAdapter(
+    private val logger: ClientLogger,
+) {
     fun adapt(
         sdkRequest: SdkRequest,
         okhttpResponse: OkResponse,
@@ -48,7 +51,7 @@ internal class ResponseAdapter {
         try {
             val headersBuilder = Headers.Builder()
             for ((name, value) in okhttpResponse.headers) {
-                headersBuilder.add(name, value)
+                addInboundHeader(headersBuilder, name, value)
             }
             // OkHttp 5.x exposes `Response.body` as a non-nullable `ResponseBody`; bodies for
             // status codes that have no payload (204, 304, etc.) are zero-length, not null. We
@@ -83,6 +86,34 @@ internal class ResponseAdapter {
             // throwable escapes so the connection is not leaked.
             okhttpResponse.close()
             throw t
+        }
+    }
+
+    /**
+     * Copies one inbound (response) header into [headersBuilder].
+     *
+     * The model layer's `add` validation is an **outbound** injection guard — it stops an SDK
+     * caller from putting a CR/LF or other control character into a *request* that is then
+     * serialised to a server. A response has already been received; OkHttp parses response headers
+     * leniently and can surface a control byte (notably over HTTP/2), so a strict re-validation
+     * here would let one odd server header throw out of `add` and, via the outer catch, fail the
+     * entire response. Catch that rejection and drop just the offending header — the body and the
+     * rest of the headers still reach the caller. The header name is logged (not the value, which
+     * may be sensitive) at verbose, mirroring the request adapter's drop-and-log.
+     */
+    private fun addInboundHeader(
+        headersBuilder: Headers.Builder,
+        name: String,
+        value: String,
+    ) {
+        try {
+            headersBuilder.add(name, value)
+        } catch (e: IllegalArgumentException) {
+            logger.atVerbose()
+                .event("transport.okhttp.response.header.dropped")
+                .field("name", name)
+                .cause(e)
+                .log("dropping malformed inbound header from response")
         }
     }
 
