@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
 import java.io.IOException
 import java.io.InputStream
@@ -46,7 +47,9 @@ import org.dexpace.sdk.core.http.response.ResponseBody as SdkResponseBody
  * never leaked — both the synchronous `execute` and asynchronous `sendAsync().thenApply`
  * paths route through this method, so both inherit the guard.
  */
-internal class ResponseAdapter {
+internal class ResponseAdapter(
+    private val logger: ClientLogger,
+) {
     fun adapt(
         sdkRequest: SdkRequest,
         jdkResponse: HttpResponse<InputStream>,
@@ -67,7 +70,7 @@ internal class ResponseAdapter {
             // on `add(...)`, so we can pass the keys through verbatim.
             jdkResponse.headers().map().forEach { (name, values) ->
                 for (value in values) {
-                    headersBuilder.add(name, value)
+                    addInboundHeader(headersBuilder, name, value)
                 }
             }
             val headers = headersBuilder.build()
@@ -89,6 +92,34 @@ internal class ResponseAdapter {
                 // Suppress close failures — the original throwable is the meaningful signal.
             }
             throw t
+        }
+    }
+
+    /**
+     * Copies one inbound (response) header into [headersBuilder].
+     *
+     * The model layer's `add` validation is an **outbound** injection guard — it stops an SDK
+     * caller from putting a CR/LF or other control character into a *request* that is then
+     * serialised to a server. A response has already been received; the JDK client parses response
+     * headers leniently and can surface a control byte (notably over HTTP/2), so a strict
+     * re-validation here would let one odd server header throw out of `add` and, via the outer
+     * catch, fail the entire response. Catch that rejection and drop just the offending header —
+     * the body and the rest of the headers still reach the caller. The header name is logged (not
+     * the value, which may be sensitive) at verbose, mirroring the request adapter's drop-and-log.
+     */
+    private fun addInboundHeader(
+        headersBuilder: Headers.Builder,
+        name: String,
+        value: String,
+    ) {
+        try {
+            headersBuilder.add(name, value)
+        } catch (e: IllegalArgumentException) {
+            logger.atVerbose()
+                .event("transport.jdkhttp.response.header.dropped")
+                .field("name", name)
+                .cause(e)
+                .log("dropping malformed inbound header from response")
         }
     }
 

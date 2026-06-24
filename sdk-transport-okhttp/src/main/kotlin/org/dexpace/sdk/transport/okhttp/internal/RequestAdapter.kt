@@ -54,10 +54,29 @@ internal class RequestAdapter(
                 continue
             }
             for (value in values) {
-                // Header names/values are validated upstream by Headers.Builder (CR/LF and other
-                // illegal characters are rejected at construction), so addHeader receives only
-                // well-formed values here.
-                builder.addHeader(rawName, value)
+                // Header names and values are validated upstream by Headers.Builder (names reject
+                // control characters; values reject control characters except horizontal tab),
+                // which closes the request/header-splitting surface. OkHttp is stricter still: it
+                // rejects any byte outside printable ASCII in a name (0x21-0x7e) or value (tab and
+                // 0x20-0x7e), so a model-valid non-ASCII (e.g. UTF-8) name or value — which the SDK
+                // deliberately permits — would make addHeader throw an unchecked
+                // IllegalArgumentException. Catch it and drop just that header, mirroring the JDK
+                // transport's attachHeaders, so the exception never escapes adapt (and therefore
+                // sync execute, declared @Throws(IOException)) as an unchecked failure a caller's
+                // catch(IOException) would miss.
+                try {
+                    builder.addHeader(rawName, value)
+                } catch (e: IllegalArgumentException) {
+                    // Warn (not verbose): this is a header the caller explicitly set being silently
+                    // dropped because this transport cannot encode it — surfaced by default so the
+                    // loss is visible. Restricted-header drops below stay at verbose (expected, the
+                    // transport recomputes them), as does the inbound response-header drop.
+                    logger.atWarning()
+                        .event("transport.okhttp.header.rejected")
+                        .field("name", rawName)
+                        .cause(e)
+                        .log("OkHttp rejected header name/value; dropping before dispatch")
+                }
             }
         }
         val methodToken = request.method.method

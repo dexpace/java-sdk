@@ -160,8 +160,9 @@ public data class Headers private constructor(
             values: List<String>,
         ): Builder =
             apply {
-                validateValues(name, values)
-                headersMap.computeIfAbsent(sanitizeName(name)) { mutableListOf() }.addAll(values)
+                val trimmedName = requireValidHeaderName(name)
+                requireValidHeaderValues(trimmedName, values)
+                headersMap.computeIfAbsent(canonicalKey(trimmedName)) { mutableListOf() }.addAll(values)
             }
 
         /**
@@ -180,7 +181,7 @@ public data class Headers private constructor(
             values: List<String>,
         ): Builder =
             apply {
-                validateValues(name.caseInsensitiveName, values)
+                requireValidHeaderValues(name.caseInsensitiveName, values)
                 headersMap.computeIfAbsent(name.caseInsensitiveName) { mutableListOf() }.addAll(values)
             }
 
@@ -218,8 +219,9 @@ public data class Headers private constructor(
             values: List<String>,
         ): Builder =
             apply {
-                validateValues(name, values)
-                headersMap[sanitizeName(name)] = values.toMutableList()
+                val trimmedName = requireValidHeaderName(name)
+                requireValidHeaderValues(trimmedName, values)
+                headersMap[canonicalKey(trimmedName)] = values.toMutableList()
             }
 
         /**
@@ -246,7 +248,7 @@ public data class Headers private constructor(
             values: List<String>,
         ): Builder =
             apply {
-                validateValues(name.caseInsensitiveName, values)
+                requireValidHeaderValues(name.caseInsensitiveName, values)
                 headersMap[name.caseInsensitiveName] = values.toMutableList()
             }
 
@@ -304,34 +306,18 @@ public data class Headers private constructor(
         public fun builder(): Builder = Builder()
 
         /**
-         * Normalises a header name to its canonical (lower-case, trimmed) storage key.
+         * Normalises a raw, caller-supplied header name to its canonical (lower-case, trimmed)
+         * storage key. Used by the accessors and `remove`, which receive untrimmed input.
          * `Locale.US` is used deliberately — HTTP header names are ASCII-only per RFC 7230,
          * so locale-sensitive folding (Turkish `i`, etc.) would be incorrect here.
          */
         private fun sanitizeName(value: String): String = value.lowercase(Locale.US).trim()
 
         /**
-         * Rejects header values that would enable request/header splitting before they reach a
-         * transport. A bare carriage return (`\r`) or line feed (`\n`) in a value lets an
-         * attacker inject a new header or even a second request once the value is serialised;
-         * OkHttp throws unchecked on such values and the JDK transport silently drops them, so we
-         * validate here at the transport-agnostic model layer to fail fast and uniformly.
-         *
-         * Policy: reject **only** CR/LF, not OkHttp's stricter printable-ASCII-only rule. CR/LF
-         * are the splitting vector and are illegal in every transport; tightening further would
-         * reject legitimate UTF-8 values that some transports (and the JDK) accept, so the
-         * conservative CR/LF check is the right model-layer contract.
+         * Canonical storage key for a name that was already trimmed and validated by
+         * [requireValidHeaderName]. Only case-folding is needed — re-trimming (as [sanitizeName]
+         * does for raw input) would be redundant. `Locale.US` per [sanitizeName]'s rationale.
          */
-        private fun validateValues(
-            name: String,
-            values: List<String>,
-        ) {
-            values.forEach { value ->
-                require(value.indexOf('\r') < 0 && value.indexOf('\n') < 0) {
-                    "Header value for '$name' must not contain a carriage return or line feed " +
-                        "(\\r / \\n); such characters enable request/header splitting."
-                }
-            }
-        }
+        private fun canonicalKey(validatedName: String): String = validatedName.lowercase(Locale.US)
     }
 }
