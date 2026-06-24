@@ -258,27 +258,34 @@ above). The preview you see in the log is a prefix; the consumer still reads eve
 **2. The logged size fields measure different things.** The step emits two size-related fields
 on the `http.response` event, and they are not the same number for an over-cap body:
 
-| Field                     | Source                                       | What it reports                                                                 |
-|---------------------------|----------------------------------------------|---------------------------------------------------------------------------------|
-| `response.body.size`      | `loggableBody.snapshot(bodyPreviewMaxBytes)` | Size of the **captured preview** — bounded by `bodyPreviewMaxBytes`             |
-| `response.body.preview`   | the same captured bytes, decoded as UTF-8    | The preview text (a prefix for an over-cap body)                                |
-| `response.content.length` | `response.body.contentLength()`              | The body's **true** length when the origin declared one (`Content-Length`); `-1` for unknown-length / streaming bodies |
+| Field                            | Source                                       | What it reports                                                                 |
+|----------------------------------|----------------------------------------------|---------------------------------------------------------------------------------|
+| `response.body.size`             | `loggableBody.snapshot(bodyPreviewMaxBytes)` | Size of the **captured preview** — bounded by `bodyPreviewMaxBytes`             |
+| `response.body.actual_size`      | `loggableBody.contentLength()`               | The body's **true** size, emitted only when known (`>= 0`); omitted for unknown-length bodies |
+| `response.body.preview_truncated`| derived from the capture (`isFullyCaptured`) | `true` when the preview is only a prefix of a larger body, `false` when the whole body fit the cap |
+| `response.body.preview`          | the same captured bytes, charset-aware       | The preview text (a prefix for an over-cap body)                                |
+| `response.content.length`        | `response.body.contentLength()`              | The body's **true** length when the origin declared one (`Content-Length`); `-1` for unknown-length / streaming bodies |
 
 So `response.body.size` is the *captured/preview* size, **not** necessarily the full body size.
-When a body exceeds the cap, `response.body.size` saturates near `bodyPreviewMaxBytes` while
-`response.content.length` still shows the real length. Read `content.length` (not
-`body.size`) when you need the full size, and treat `body.preview` as a prefix that may be
-truncated. The two agree only when the whole body fit within the cap — exactly the case where
-`contentLength()` itself returns the captured size (see **`contentLength()`** above).
+When a body exceeds the cap, `response.body.size` saturates near `bodyPreviewMaxBytes` — but
+`response.body.actual_size` carries the true length and `response.body.preview_truncated` is
+`true`, so a dashboard keyed on body size no longer flatlines at the cap. Read `actual_size` (or
+`content.length`) when you need the full size, and treat `body.preview` as a prefix that may be
+truncated. `response.body.size` and `response.body.actual_size` agree only when the whole body
+fit within the cap — exactly the case where `contentLength()` itself returns the captured size
+(see **`contentLength()`** above). The request body carries the matching
+`request.body.actual_size` / `request.body.preview_truncated` fields, derived from the request
+body's declared `contentLength()`.
 
-**Streaming / unknown-length bodies (async path).** `DefaultAsyncInstrumentationStep` skips the
-capture entirely when `contentLength() < 0`, because the bounded drain would run on the
-future-completion thread and a slow producer could stall it. Such bodies stream to the consumer
-unwrapped, so they carry **no** `response.body.size` / `response.body.preview` fields at all —
-absence of those fields is expected for chunked or streaming responses, not a logging bug. The
-synchronous `DefaultInstrumentationStep` drains known-length and unknown-length bodies alike (it
-runs on the caller's thread), but the size-vs-preview distinction above applies to it just the
-same.
+**Streaming / unknown-length bodies.** Both `DefaultInstrumentationStep` and
+`DefaultAsyncInstrumentationStep` skip the capture entirely when `contentLength() < 0`. The
+bounded drain runs on whichever thread completes the call — the caller's thread in the sync step,
+the future-completion thread in the async step — and draining an unknown-length body would block
+that thread on a slow producer (SSE, long-poll, chunked trickle), stalling time-to-first-byte.
+Such bodies stream to the consumer unwrapped, so they carry **no** `response.body.size` /
+`response.body.actual_size` / `response.body.preview` fields at all — absence of those fields is
+expected for chunked or streaming responses, not a logging bug. `response.content.length` is
+still emitted (as `-1`).
 
 ### Reading a Snapshot
 

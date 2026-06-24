@@ -480,7 +480,9 @@ class InstrumentationStepTest {
             object : ResponseBody() {
                 override fun mediaType(): MediaType? = MediaType.parse("text/plain")
 
-                override fun contentLength(): Long = -1
+                // Known length so the sync step still wraps and drains it (an unknown-length body
+                // is now skipped — see the streaming TTFB test below).
+                override fun contentLength(): Long = 16
 
                 override fun source(): BufferedSource = throw IOException("simulated drain failure")
 
@@ -902,7 +904,148 @@ class InstrumentationStepTest {
         assertEquals(1, meter.counters.single().records.size)
     }
 
+    @Test
+    fun `unknown-length response body is NOT wrapped in the sync step`() {
+        // An unknown-length (streaming) body (contentLength() < 0) must be left unwrapped: the
+        // bounded drain would otherwise run on the caller's thread and block on a slow / idle
+        // producer (SSE, long-poll, chunked trickle), stalling time-to-first-byte. The body
+        // streams to the caller untouched with no preview.
+        val streamingBody =
+            object : ResponseBody() {
+                override fun mediaType(): MediaType? = MediaType.parse("text/plain")
+
+                override fun contentLength(): Long = -1L
+
+                override fun source(): BufferedSource = Io.provider.source("streamed".toByteArray())
+
+                override fun close() { /* no-op */ }
+            }
+        val client =
+            object : org.dexpace.sdk.core.client.HttpClient {
+                override fun execute(request: Request): Response =
+                    Response.builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .status(Status.OK)
+                        .headers(Headers.Builder().build())
+                        .body(streamingBody)
+                        .build()
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(
+                    DefaultInstrumentationStep(HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS)),
+                )
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/stream"))
+        val body = response.body ?: fail("expected non-null body")
+        assertFalse(
+            body is LoggableResponseBody,
+            "unknown-length body must NOT be wrapped (no eager drain on the caller thread)",
+        )
+        // The original streaming body is passed through untouched.
+        assertEquals("streamed", body.source().readUtf8())
+        response.close()
+    }
+
+    @Test
+    fun `over-cap response body reports true actual_size and marks the preview truncated`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        // A 100-byte known-length body with a 10-byte preview cap: the preview is a prefix and
+        // body.size saturates at the cap, but actual_size must carry the true length and
+        // preview_truncated must be true.
+        val payload = "x".repeat(100)
+        val fake = FakeHttpClient().enqueue { status(200).body(payload, MediaType.parse("text/plain")) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(
+                            logLevel = HttpLogLevel.BODY_AND_HEADERS,
+                            bodyPreviewMaxBytes = 10,
+                        ),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/x"))
+        response.close()
+
+        val event = lastResponseEvent(fakeSlf4j)
+        assertEquals(10L, event["response.body.size"], "body.size is the capped preview size")
+        assertEquals(100L, event["response.body.actual_size"], "actual_size is the true body length")
+        assertEquals(true, event["response.body.preview_truncated"])
+    }
+
+    @Test
+    fun `within-cap response body reports actual_size equal to size and is not truncated`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val fake = FakeHttpClient().enqueue { status(200).body("payload", MediaType.parse("text/plain")) }
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(logLevel = HttpLogLevel.BODY_AND_HEADERS),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/x"))
+        response.close()
+
+        val event = lastResponseEvent(fakeSlf4j)
+        assertEquals(7L, event["response.body.size"])
+        assertEquals(7L, event["response.body.actual_size"])
+        assertEquals(false, event["response.body.preview_truncated"])
+    }
+
+    @Test
+    fun `over-cap request body reports true actual_size and marks the preview truncated`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.instrumentation")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val payload = "y".repeat(100)
+        val fake = FakeHttpClient().enqueue { status(200).body("ok", MediaType.parse("text/plain")) }
+        val draining = DrainingClient(fake)
+        val pipeline =
+            HttpPipelineBuilder(draining)
+                .append(
+                    DefaultInstrumentationStep(
+                        HttpInstrumentationOptions(
+                            logLevel = HttpLogLevel.BODY_AND_HEADERS,
+                            bodyPreviewMaxBytes = 10,
+                        ),
+                        FixedClock(),
+                        clientLogger,
+                    ),
+                )
+                .build()
+
+        val response = pipeline.send(postRequest("https://api.example.com/echo", payload))
+        response.close()
+
+        val event = lastResponseEvent(fakeSlf4j)
+        assertEquals(10L, event["request.body.size"], "body.size is the capped preview size")
+        assertEquals(100L, event["request.body.actual_size"], "actual_size is the declared body length")
+        assertEquals(true, event["request.body.preview_truncated"])
+    }
+
     // -- Helpers --------------------------------------------------------------------------------
+
+    /** Returns the key/value fields of the most recent `http.response` event. */
+    private fun lastResponseEvent(slf4j: FakeSlf4jLogger): Map<String, Any?> {
+        val record =
+            slf4j.records.last { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.response" }
+            }
+        return record.keyValues.associate { it.key to it.value }
+    }
 
     /** Extracts the `response.body.preview` field value from the latest `http.response` event. */
     private fun responsePreview(slf4j: FakeSlf4jLogger): String = previewField(slf4j, "response.body.preview")

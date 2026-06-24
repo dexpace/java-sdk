@@ -33,11 +33,12 @@ import org.dexpace.sdk.core.instrumentation.metrics.NoopMeter
  *  - **Response body**: at most [bodyPreviewMaxBytes] bytes are buffered. A body within the cap
  *    is fully captured and stays repeatable; a larger body still streams in full to the caller
  *    (the wrapper replays the captured prefix then continues from the live tail) while only the
- *    preview occupies the heap. In the **sync** step the bounded drain happens eagerly inside
- *    the step. In the **async** step the bounded drain runs on the future-completion thread, so
- *    it is **skipped for unknown-length (streaming) bodies** (`contentLength() < 0`) — those
- *    stream to the caller unwrapped with no body preview, so a slow/idle producer never blocks
- *    the completion thread.
+ *    preview occupies the heap. Both steps **skip body capture for unknown-length (streaming)
+ *    bodies** (`contentLength() < 0`): those stream to the caller unwrapped with no body preview.
+ *    The bounded drain runs on whichever thread completes the call — the caller's thread in the
+ *    sync step, the future-completion thread in the async step — and draining an unknown-length
+ *    body could block that thread on a slow/idle producer (SSE, long-poll, chunked trickle),
+ *    stalling time-to-first-byte. Known-length bodies keep the bounded preview.
  *  - **Request body**: the request-side tap is likewise capped at [bodyPreviewMaxBytes], so a
  *    large (e.g. multi-GB file) upload mirrors only a bounded preview into memory while the full
  *    payload streams zero-copy to the transport.
@@ -51,10 +52,13 @@ import org.dexpace.sdk.core.instrumentation.metrics.NoopMeter
  * Because the capture is a bounded preview, the logged `response.body.size` /
  * `response.body.preview` fields describe the **captured preview**, not necessarily the full
  * body: for a body larger than [bodyPreviewMaxBytes] the consumer still receives every byte
- * while those fields reflect only the preview prefix. The separate `response.content.length`
- * field carries the body's true length when the origin declared one. See
- * `docs/http-body-logging-and-concurrency.md` ("Logged body size vs. the body the consumer
- * receives").
+ * while those fields reflect only the preview prefix. To make the true size observable, the
+ * event also carries `response.body.actual_size` (the full body length, emitted when known) and
+ * `response.body.preview_truncated` (`true` when the preview is only a prefix). The request body
+ * carries the matching `request.body.actual_size` / `request.body.preview_truncated` fields. The
+ * separate `response.content.length` field still carries the body's true length when the origin
+ * declared one. See `docs/http-body-logging-and-concurrency.md` ("Logged body size vs. the body
+ * the consumer receives").
  *
  * @property bodyPreviewMaxBytes Upper bound, in bytes, on the in-memory body capture under
  *   [HttpLogLevel.BODY_AND_HEADERS]. Bounds the preview, not the body the consumer sees; the
