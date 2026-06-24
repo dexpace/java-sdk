@@ -504,15 +504,68 @@ class JdkHttpTransportTest {
     }
 
     @Test
-    fun `streamingBodyThatCannotBeBufferedFailsLoudly`() {
-        // A non-replayable streaming body (> 64 KiB, so it takes the piped path) whose writeTo
-        // aborts with an IOException after a partial write cannot be turned into a replayable
-        // copy: toReplayable's internal writeTo throws, and the body — like the SDK's
-        // consume-once bodies — has already flipped its consumed guard. The adapter must NOT
-        // attempt a second writeTo (which would trip the guard and surface an
-        // IllegalStateException, masking the real cause). It must instead fail with a checked
-        // IOException — honouring execute's @Throws(IOException) contract, and matching the eager
-        // path — that carries a clear message and preserves the original IOException as its cause.
+    fun `nonReplayableStreamingBodyIsNotBufferedUpFront`() {
+        // The core regression for #113: a non-replayable streaming body (> 64 KiB, so it takes the
+        // piped path) must stream straight from its source. The old behaviour forced the body
+        // replayable via toReplayable() inside adaptBody — draining the ENTIRE body into an
+        // in-memory Buffer before a single byte was published. The decisive, non-flaky signal:
+        // after adaptBody() returns, the body's writeTo must NOT have been invoked at all (the
+        // first writeTo only happens later, on the per-subscription writer thread). Under the old
+        // buffering path, writeTo had already run to completion by the time adaptBody returned.
+        val total = 4L * 1024L * 1024L // 4 MiB — far above the eager threshold
+        val body = CountingNonReplayableBody(total, CommonMediaTypes.APPLICATION_OCTET_STREAM)
+
+        val publisher = BodyPublishers.adaptBody(body)
+        assertEquals(
+            0L,
+            body.bytesWritten(),
+            "non-replayable streaming body must NOT be drained up front; writeTo ran during adaptBody",
+        )
+
+        // And it still streams the full body when actually subscribed.
+        val drained = drainPublisher(publisher)
+        assertEquals(total, drained.size.toLong(), "the full body must stream to the subscriber")
+        assertEquals(total, body.bytesWritten(), "writeTo must have produced exactly the declared bytes")
+    }
+
+    @Test
+    fun `oneShotStreamingBodyRefusesResendLoudly`() {
+        // A non-replayable (one-shot) streaming body streams its FIRST subscription directly from
+        // the source. The JDK re-acquires the publisher's InputStream once per subscription and
+        // re-subscribes on internal resends (proxy-auth retry, HTTP/2 GOAWAY). A consumed one-shot
+        // body cannot replay, so the SECOND subscription must fail loudly with an IOException
+        // rather than ship a truncated/empty body. We drive the publisher directly (a real 407
+        // flow is awkward over plaintext MockWebServer): first drain succeeds, second errors.
+        val total = 256L * 1024L
+        val body = CountingNonReplayableBody(total, CommonMediaTypes.APPLICATION_OCTET_STREAM)
+        val publisher = BodyPublishers.adaptBody(body)
+
+        val first = drainPublisher(publisher)
+        assertEquals(total, first.size.toLong(), "first subscription must stream the full one-shot body")
+
+        val ex =
+            assertFails {
+                drainPublisher(publisher)
+            }
+        // drainPublisher rethrows the publisher's onError as an AssertionError wrapping the cause.
+        val cause = generateSequence<Throwable>(ex) { it.cause }.firstOrNull { it is IOException }
+        assertTrue(
+            cause is IOException,
+            "re-subscription of a one-shot body must fail with an IOException, chain was: $ex",
+        )
+        assertTrue(
+            cause.message?.contains("supply a replayable body") == true,
+            "the resend failure must explain a replayable body is required, was: ${cause.message}",
+        )
+    }
+
+    @Test
+    fun `streamingBodyThatFailsMidWriteFailsLoudly`() {
+        // A non-replayable streaming body (> 64 KiB, piped path) whose writeTo aborts with an
+        // IOException after a partial write now streams directly: the writer thread's writeTo
+        // throws, the pipe closes prematurely, and the JDK reader observes an IOException. The
+        // request must fail loudly (no silent truncation), surfaced through execute's
+        // @Throws(IOException) contract.
         val body = PartialThenFailingBody(CommonMediaTypes.APPLICATION_OCTET_STREAM)
         val request =
             Request.builder()
@@ -524,23 +577,13 @@ class JdkHttpTransportTest {
             assertFails {
                 transport.execute(request).close()
             }
-        // IOException is checked; UncheckedIOException and IllegalStateException are
-        // RuntimeExceptions, so asserting `is IOException` rules out both a contract-bypassing
-        // unchecked throw and the IllegalStateException masking failure mode.
+        // IOException is checked; the request must fail with one rather than completing as if the
+        // (truncated) body had been sent successfully.
+        val ioFailure = generateSequence<Throwable>(ex) { it.cause }.any { it is IOException }
         assertTrue(
-            ex is IOException,
-            "expected a checked IOException, got ${ex::class}: ${ex.message}",
+            ioFailure,
+            "expected the mid-write failure to surface as an IOException, chain was: $ex",
         )
-        assertTrue(
-            ex.message?.contains("supply a replayable body") == true,
-            "message must explain the body could not be buffered, was: ${ex.message}",
-        )
-        val cause = ex.cause
-        assertTrue(
-            cause is IOException,
-            "the original IOException must be preserved as the cause, was: ${cause?.let { it::class }}",
-        )
-        assertEquals("simulated mid-write failure", cause.message)
     }
 
     @Test
@@ -925,6 +968,44 @@ class JdkHttpTransportTest {
                 sink.flush()
             } finally {
                 exited.countDown()
+            }
+        }
+    }
+
+    /**
+     * Non-replayable streaming body that emits [total] zero bytes in fixed chunks, tracking the
+     * cumulative count written. Used to prove the streaming path does NOT drain the whole body up
+     * front: [bytesWritten] must read 0 immediately after `adaptBody`, and rise only once a
+     * subscription's writer thread runs. A consume-once guard mirrors the SDK's stream-backed
+     * bodies so a (buggy) second drive would fail loudly rather than silently replay.
+     */
+    private class CountingNonReplayableBody(
+        private val total: Long,
+        private val mediaType: MediaType,
+    ) : RequestBody() {
+        private val written = java.util.concurrent.atomic.AtomicLong(0)
+        private val consumed = AtomicBoolean(false)
+
+        override fun mediaType(): MediaType = mediaType
+
+        override fun contentLength(): Long = total
+
+        override fun isReplayable(): Boolean = false
+
+        fun bytesWritten(): Long = written.get()
+
+        override fun writeTo(sink: BufferedSink) {
+            check(consumed.compareAndSet(false, true)) {
+                "CountingNonReplayableBody.writeTo was already called — the body is single-use"
+            }
+            val chunk = ByteArray(8 * 1024)
+            var remaining = total
+            while (remaining > 0) {
+                val n = minOf(chunk.size.toLong(), remaining).toInt()
+                sink.write(chunk, 0, n)
+                sink.flush()
+                written.addAndGet(n.toLong())
+                remaining -= n
             }
         }
     }
