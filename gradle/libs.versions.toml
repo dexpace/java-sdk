@@ -1,7 +1,11 @@
 [versions]
-kotlin = "2.3.21"
+kotlin = "2.4.0"
 kotlinx-coroutines = "1.11.0"
 slf4j = "2.0.18"
+# Compile-only nullability annotations (@NotNull/@Nullable/@UnknownNullability). kotlin-stdlib drags
+# in the ancient 13.0 transitively, which predates UnknownNullability; Kotlin 2.4.0 tooling materialises
+# inferred platform types with that annotation, so a modern version must be on the compile classpath.
+jetbrains-annotations = "26.0.2"
 okio = "3.17.0"
 okhttp = "5.0.0"
 mockwebserver = "5.0.0"
@@ -10,8 +14,9 @@ netty = "4.2.13.Final"
 jackson = "2.18.2"
 junit-jupiter = "5.10.2"
 # R8 is used only by the test-only sdk-shrink-test module to verify the SDK survives consumer-side
-# shrinking. It is fetched from Google's Maven repo and never enters a published artifact.
-r8 = "8.9.35"
+# shrinking. It is fetched from Google's Maven repo and never enters a published artifact. Kept current
+# with the Kotlin bump so R8 can parse the metadata version emitted by the Kotlin compiler.
+r8 = "9.1.31"
 kover = "0.9.8"
 binary-compatibility-validator = "0.16.3"
 ktlint-plugin = "12.1.1"
@@ -19,6 +24,7 @@ detekt = "1.23.6"
 
 [libraries]
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
+jetbrains-annotations = { module = "org.jetbrains:annotations", version.ref = "jetbrains-annotations" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }

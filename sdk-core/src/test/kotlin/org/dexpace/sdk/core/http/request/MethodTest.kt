@@ -49,4 +49,18 @@ class MethodTest {
     fun `entries enumerates exactly nine methods`() {
         assertEquals(9, Method.entries.size)
     }
+
+    @Test
+    fun `permitsRequestBody is false only for GET HEAD TRACE and CONNECT`() {
+        assertEquals(false, Method.GET.permitsRequestBody)
+        assertEquals(false, Method.HEAD.permitsRequestBody)
+        assertEquals(false, Method.TRACE.permitsRequestBody)
+        assertEquals(false, Method.CONNECT.permitsRequestBody)
+
+        assertEquals(true, Method.POST.permitsRequestBody)
+        assertEquals(true, Method.PUT.permitsRequestBody)
+        assertEquals(true, Method.PATCH.permitsRequestBody)
+        assertEquals(true, Method.DELETE.permitsRequestBody)
+        assertEquals(true, Method.OPTIONS.permitsRequestBody)
+    }
 }

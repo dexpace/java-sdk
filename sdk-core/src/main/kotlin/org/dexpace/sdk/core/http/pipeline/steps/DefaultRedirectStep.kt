@@ -258,11 +258,9 @@ public open class DefaultRedirectStep
             // underlying store may return names in mixed case (`Content-Type`), so lower-case
             // before the prefix test. Iterate a snapshot of the keys to avoid concurrent
             // modification while mutating the builder.
-            val toRemove = ArrayList<String>()
-            for (name in headers.names()) {
-                if (name.lowercase(Locale.US).startsWith("content-")) toRemove.add(name)
-            }
-            for (name in toRemove) builder.remove(name)
+            headers.names()
+                .filter { it.lowercase(Locale.US).startsWith("content-") }
+                .forEach { builder.remove(it) }
             return builder.build()
         }
 

@@ -180,8 +180,7 @@ public class RetryStep
         ): ResponseOutcome {
             var lastError: Throwable = initialError
             while (true) {
-                val readyState = prepareNextAttempt(lastError, state)
-                when (readyState) {
+                when (val readyState = prepareNextAttempt(lastError, state)) {
                     is AttemptStep.Abort -> return ResponseOutcome.Failure(readyState.error)
                     is AttemptStep.Proceed -> {
                         state.attempt += 1
@@ -240,7 +239,7 @@ public class RetryStep
          */
         private sealed class AttemptStep {
             /** The deadline is fine, the wait completed; the caller should re-execute. */
-            object Proceed : AttemptStep()
+            data object Proceed : AttemptStep()
 
             /** The caller should give up; [error] is the throwable to surface. */
             class Abort(val error: Throwable) : AttemptStep()

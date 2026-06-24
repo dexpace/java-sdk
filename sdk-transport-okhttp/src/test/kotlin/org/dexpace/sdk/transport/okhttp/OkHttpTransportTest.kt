@@ -159,6 +159,43 @@ class OkHttpTransportTest {
         assertEquals("0", recorded.headers["Content-Length"], "empty body must report zero length")
     }
 
+    // -------- body on a body-forbidden method (GET/HEAD/TRACE/CONNECT) --------
+
+    @Test
+    fun bodyOnForbiddenMethodIsRejectedBeforeDispatch() {
+        // OkHttp's Request.Builder.method throws IllegalArgumentException("method GET must not
+        // have a request body.") for a GET carrying a body. That unchecked exception would escape
+        // execute's @Throws(IOException) contract. The SDK rejects the body at request
+        // construction (Request.RequestBuilder.build), so such a request is never built and never
+        // reaches the transport.
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
+            assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
+                Request.builder()
+                    .method(method)
+                    .url(server.url("/forbidden-body").toUrl())
+                    .body(RequestBody.create("x", null))
+                    .build()
+            }
+        }
+    }
+
+    @Test
+    fun bodylessGetDispatchesWithNoBody() {
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/bodyless-get").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("GET", recorded.method)
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("/bodyless-get", recorded.url.encodedPath)
+    }
+
     // -------- async golden paths --------
 
     @Test
@@ -195,22 +232,36 @@ class OkHttpTransportTest {
 
     @Test
     fun executeAsyncDeliversAdaptationFailureThroughFuture() {
-        // A body on a method OkHttp forbids one for (GET) makes request adaptation throw
-        // synchronously inside executeAsync. The contract is that executeAsync completes
-        // exceptionally on error, so the failure must arrive through the returned future — a
-        // future-composing caller's .exceptionally/.handle would never observe a synchronous throw.
+        // A non-http(s) URL scheme makes request adaptation throw synchronously inside
+        // executeAsync: java.net.URL accepts an ftp:// URL, but OkHttp's Request.Builder.url
+        // rejects any scheme other than http/https with IllegalArgumentException. The contract is
+        // that executeAsync completes exceptionally on error, so the failure must arrive through
+        // the returned future — a future-composing caller's .exceptionally/.handle would never
+        // observe a synchronous throw.
         val request =
             Request.builder()
                 .method(Method.GET)
-                .url(server.url("/async-adapt-fail").toUrl())
-                .body(RequestBody.create("x".toByteArray()))
+                .url(URL("ftp://example.test/async-adapt-fail"))
                 .build()
         // Must return a future rather than throwing on the caller's thread.
         val future = transport.executeAsync(request)
+        // Completion is synchronous, not merely eventual: the future is already completed
+        // exceptionally on return, before anything is awaited.
+        assertTrue(
+            future.isCompletedExceptionally,
+            "adaptation failure must complete the future exceptionally synchronously on return",
+        )
         val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
         assertTrue(
             ex.cause is IllegalArgumentException,
             "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
+        )
+        // Assert the message so an unrelated IllegalArgumentException cannot satisfy the test.
+        // OkHttp's Request.Builder.url rejects a non-http(s) scheme with "Expected URL scheme
+        // 'http' or 'https' but was '<scheme>'".
+        assertTrue(
+            ex.cause?.message?.contains("scheme") == true,
+            "expected OkHttp's URL-scheme rejection message, was: ${ex.cause?.message}",
         )
     }
 

@@ -11,6 +11,7 @@ import org.slf4j.Logger
 import org.slf4j.Marker
 import org.slf4j.event.KeyValuePair
 import org.slf4j.event.Level
+import org.slf4j.helpers.MessageFormatter
 import org.slf4j.spi.LoggingEventBuilder
 import org.slf4j.spi.NOPLoggingEventBuilder
 
@@ -34,6 +35,18 @@ internal class FakeSlf4jLogger(
     )
 
     val records: MutableList<Recorded> = mutableListOf()
+
+    /** A plain (non-structured) message logged via the `Logger.debug(...)` etc. seams. */
+    data class PlainMessage(
+        val level: Level,
+        val message: String?,
+    )
+
+    /**
+     * Captures plain message-API log calls (e.g. `debug(format, a, b)`) separately from [records]
+     * so structured-event assertions using `records.single()` are unaffected by diagnostics.
+     */
+    val plainMessages: MutableList<PlainMessage> = mutableListOf()
 
     private var threshold: Level = threshold
     private var disabled: Boolean = false
@@ -144,7 +157,10 @@ internal class FakeSlf4jLogger(
         format: String?,
         arg1: Any?,
         arg2: Any?,
-    ) {}
+    ) {
+        if (!isDebugEnabled) return
+        plainMessages.add(PlainMessage(Level.DEBUG, MessageFormatter.format(format, arg1, arg2).message))
+    }
 
     override fun debug(
         format: String?,

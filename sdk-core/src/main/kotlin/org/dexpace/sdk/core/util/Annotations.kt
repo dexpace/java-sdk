@@ -15,7 +15,7 @@ package org.dexpace.sdk.core.util
  * `KClass`. Note that this only inspects annotations declared directly on the class — it does not
  * walk supertypes, interfaces, or meta-annotations.
  */
-internal inline fun <reified T> Any.getAnnotation(): T? = this::class.annotations.firstOrNull { it is T } as? T
+internal inline fun <reified T> Any.getAnnotation(): T? = this::class.annotations.filterIsInstance<T>().firstOrNull()
 
 /**
  * Reflectively reports whether `this` instance's runtime class declares an annotation of type [T].

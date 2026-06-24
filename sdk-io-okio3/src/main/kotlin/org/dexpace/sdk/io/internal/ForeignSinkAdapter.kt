@@ -22,7 +22,6 @@ import org.dexpace.sdk.core.io.Sink
  * wrapper field is read/written without synchronization.
  */
 internal class ForeignSinkAdapter(private val delegate: Sink) : okio.Sink {
-    private val timeout = okio.Timeout.NONE
     private var cachedBuffer: okio.Buffer? = null
     private var cachedWrapper: OkioBuffer? = null
 
@@ -46,7 +45,7 @@ internal class ForeignSinkAdapter(private val delegate: Sink) : okio.Sink {
         delegate.flush()
     }
 
-    override fun timeout(): okio.Timeout = timeout
+    override fun timeout(): okio.Timeout = okio.Timeout.NONE
 
     override fun close() {
         delegate.close()

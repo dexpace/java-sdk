@@ -220,6 +220,102 @@ class RequestTest {
     }
 
     // ---------------------------------------------------------------------
+    // Body / method compatibility — a body on a body-forbidden method is
+    // rejected at build time so transports never have to disagree on it.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `build rejects a body on a body-forbidden method`() {
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
+            val ex =
+                assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
+                    Request.builder()
+                        .url("https://example.test")
+                        .method(method)
+                        .body(RequestBody.create("x", null))
+                        .build()
+                }
+            assertTrue(
+                ex.message!!.contains("$method must not carry a request body"),
+                "unexpected message for $method: ${ex.message}",
+            )
+        }
+    }
+
+    @Test
+    fun `build allows a body on a body-permitting method`() {
+        for (method in listOf(Method.POST, Method.PUT, Method.PATCH, Method.DELETE, Method.OPTIONS)) {
+            val payload = RequestBody.create("x", null)
+            val req =
+                Request.builder()
+                    .url("https://example.test")
+                    .method(method)
+                    .body(payload)
+                    .build()
+            assertEquals(payload, req.body, "body should be retained for $method")
+        }
+    }
+
+    @Test
+    fun `build allows a body-less body-forbidden method`() {
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
+            val req =
+                Request.builder()
+                    .url("https://example.test")
+                    .method(method)
+                    .build()
+            assertNull(req.body, "body should stay null for $method")
+        }
+    }
+
+    @Test
+    fun `newBuilder switching to a body-forbidden method while a body is set is rejected`() {
+        val post =
+            Request.builder()
+                .url("https://example.test")
+                .method(Method.POST)
+                .body(RequestBody.create("x", null))
+                .build()
+
+        assertFailsWith<IllegalArgumentException> {
+            post.newBuilder().method(Method.GET).build()
+        }
+    }
+
+    @Test
+    fun `body null clears a previously-set body`() {
+        val req =
+            Request.builder()
+                .url("https://example.test")
+                .method(Method.POST)
+                .body(RequestBody.create("x", null))
+                .body(null)
+                .build()
+        assertNull(req.body, "body(null) should clear the previously-set body")
+    }
+
+    @Test
+    fun `newBuilder downgrade to a body-forbidden method succeeds after clearing the body`() {
+        val post =
+            Request.builder()
+                .url("https://example.test")
+                .method(Method.POST)
+                .body(RequestBody.create("x", null))
+                .build()
+
+        // Clearing the body with body(null) is the supported way to downgrade a body-carrying
+        // request to a method that forbids one.
+        val get =
+            post.newBuilder()
+                .method(Method.GET)
+                .body(null)
+                .build()
+
+        assertEquals(Method.GET, get.method)
+        assertNull(get.body, "downgraded GET must not retain the original body")
+    }
+
+    // ---------------------------------------------------------------------
     // Equality — compares url by external form, never resolving DNS.
     // ---------------------------------------------------------------------
 
