@@ -587,6 +587,142 @@ class LoggingEventTest {
     }
 
     @Test
+    fun `event name and a colliding field both named event are emitted exactly once`() {
+        // The event-name tag and a per-event field() named "event" collide on the reserved
+        // EVENT_KEY. They must produce a single "event" entry — two KeyValuePair entries with
+        // the same key serialise to invalid duplicate-key JSON in JSON appenders.
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+
+        val rec = fake.records.single()
+        val eventEntries = rec.keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+        assertEquals(
+            1,
+            eventEntries.size,
+            "expected exactly one event entry; a second from field() would be a duplicate KeyValuePair",
+        )
+        // The dedicated event-name tag wins over a colliding field.
+        assertEquals("request.start", eventEntries.single().value)
+    }
+
+    @Test
+    fun `event name wins over a colliding globalContext event key, emitted once`() {
+        // A logger whose globalContext carries an "event" key plus a set event-name tag must
+        // emit the "event" key once, with the name tag winning.
+        val (logger, fake) = enabledLogger(mapOf(LoggingEvent.EVENT_KEY to "from-context"))
+        logger.atInfo().event("request.start").log()
+
+        val rec = fake.records.single()
+        val eventEntries = rec.keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+        assertEquals(
+            1,
+            eventEntries.size,
+            "expected exactly one event entry; a second from globalContext would be a duplicate KeyValuePair",
+        )
+        assertEquals("request.start", eventEntries.single().value)
+    }
+
+    @Test
+    fun `event name wins over a colliding MDC event key, emitted once`() {
+        installBasicMdcAdapter()
+        MDC.put(LoggingEvent.EVENT_KEY, "from-mdc")
+        // Null allow-list folds all MDC keys, so "event" would otherwise be folded.
+        val fake = FakeSlf4jLogger(threshold = Level.TRACE)
+        val logger = ClientLogger.forTesting(fake, mdcKeys = null)
+        logger.atInfo().event("request.start").log()
+
+        val rec = fake.records.single()
+        val eventEntries = rec.keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+        assertEquals(
+            1,
+            eventEntries.size,
+            "expected exactly one event entry; a second from MDC would be a duplicate KeyValuePair",
+        )
+        assertEquals("request.start", eventEntries.single().value)
+    }
+
+    @Test
+    fun `user event key passes through unchanged when no event name is set`() {
+        // Guard against over-suppression: with no event-name tag, a user "event" field is a
+        // normal field and must be emitted.
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field(LoggingEvent.EVENT_KEY, "user-value").log()
+
+        val kv = fake.records.single().keyValues.toMap()
+        assertEquals("user-value", kv[LoggingEvent.EVENT_KEY])
+    }
+
+    @Test
+    fun `dropping a colliding event field is surfaced at DEBUG`() {
+        // The field() value is silently swallowed by the authoritative name tag; a DEBUG
+        // diagnostic must surface that so the misuse is visible when debugging.
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+
+        val message = fake.plainMessages.single { it.level == Level.DEBUG }.message!!
+        assertContains(message, LoggingEvent.EVENT_KEY)
+        assertContains(message, "request.start")
+        // The structured event still carries the name-tag value exactly once (unchanged behaviour).
+        val eventEntries = fake.records.single().keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+        assertEquals("request.start", eventEntries.single().value)
+    }
+
+    @Test
+    fun `no DEBUG diagnostic when the level is disabled`() {
+        // The diagnostic must cost nothing visible when DEBUG is off — SLF4J's parameterised
+        // logging skips formatting, and nothing is recorded.
+        val fake = FakeSlf4jLogger(threshold = Level.INFO)
+        val logger = ClientLogger.forTesting(fake)
+        logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+
+        assertTrue(fake.plainMessages.isEmpty())
+    }
+
+    @Test
+    fun `no DEBUG diagnostic without a colliding field`() {
+        // Only the explicit field() collision is flagged: a plain event(name), or an ambient
+        // globalContext "event" key, must not emit the diagnostic.
+        val (loggerNoField, fakeNoField) = enabledLogger()
+        loggerNoField.atInfo().event("request.start").log()
+        assertTrue(fakeNoField.plainMessages.isEmpty())
+
+        val (loggerCtx, fakeCtx) = enabledLogger(mapOf(LoggingEvent.EVENT_KEY to "from-context"))
+        loggerCtx.atInfo().event("request.start").log()
+        assertTrue(fakeCtx.plainMessages.isEmpty())
+    }
+
+    @Test
+    fun `no DEBUG diagnostic when a user event field has no name tag`() {
+        // With no name tag set the user field is legitimately emitted, not dropped — so no warning.
+        val (logger, fake) = enabledLogger()
+        logger.atInfo().field(LoggingEvent.EVENT_KEY, "user-value").log()
+
+        assertTrue(fake.plainMessages.isEmpty())
+    }
+
+    @Test
+    fun `dropped colliding event field is reported at most once per logger`() {
+        // The misuse is a static call-site error: repeating it on the same logger (e.g. in a hot
+        // loop) must not flood DEBUG. The diagnostic fires once per logger; every event is still
+        // emitted with the name tag intact.
+        val (logger, fake) = enabledLogger()
+        repeat(3) {
+            logger.atInfo().event("request.start").field(LoggingEvent.EVENT_KEY, "override").log()
+        }
+
+        assertEquals(
+            1,
+            fake.plainMessages.count { it.level == Level.DEBUG },
+            "expected the dropped-field diagnostic at most once per logger",
+        )
+        assertEquals(3, fake.records.size, "every structured event is still emitted")
+        fake.records.forEach { rec ->
+            val eventEntries = rec.keyValues.filter { it.key == LoggingEvent.EVENT_KEY }
+            assertEquals("request.start", eventEntries.single().value)
+        }
+    }
+
+    @Test
     fun `MDC keys absent from globalContext are still folded`() {
         // Guard the collision fix against over-skipping: an MDC key NOT present in
         // globalContext must continue to be folded into the event.

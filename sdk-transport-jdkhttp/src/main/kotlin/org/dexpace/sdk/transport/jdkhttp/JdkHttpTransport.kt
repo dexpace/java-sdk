@@ -138,21 +138,41 @@ public class JdkHttpTransport private constructor(
      * completions to release the body's connection back to the pool.
      */
     override fun executeAsync(request: Request): CompletableFuture<Response> {
-        val jdkRequest =
-            try {
-                requestAdapter.adapt(request, responseTimeout)
-            } catch (e: Exception) {
-                // The async contract is that errors arrive through the returned future. Request
-                // adaptation runs on the caller's thread and can throw (e.g. a CONNECT request the
-                // JDK client rejects), so route the failure into a failed future instead of
-                // throwing synchronously where a future-composing caller's .exceptionally/.handle
-                // would never observe it. Errors (OOM and other JVM-fatal conditions) are left to
-                // propagate up the caller's stack rather than be packaged into a future that may
-                // never be awaited.
-                return CompletableFuture.failedFuture<Response>(e)
-            }
-        val inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
-        return bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
+        // Held outside the try so the catch can release the JDK exchange if dispatch succeeded but a
+        // later step threw (see the catch). Null until `sendAsync` returns: a throw at or before
+        // dispatch leaves nothing to clean up.
+        var inFlight: CompletableFuture<HttpResponse<InputStream>>? = null
+        return try {
+            val jdkRequest = requestAdapter.adapt(request, responseTimeout)
+            // `sendAsync` is inside the guard too. Its contract does not promise that every failure
+            // is delivered through the returned future: the JDK's own Javadoc permits a synchronous
+            // `IllegalArgumentException` for a request it rejects, and a custom or future
+            // `HttpClient` is free to throw on the caller's thread instead of returning a failed
+            // future. Guarding the dispatch keeps the error-delivery contract documented above
+            // intact whichever way a failure surfaces. (Today's stock JDK client packages such
+            // failures into an already-failed future — e.g. on a closed client — which the bridge
+            // propagates and so never reaches this catch; the guard is for the throwing case.)
+            inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
+            bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
+        } catch (e: Exception) {
+            // The async contract is that errors arrive through the returned future. The dispatch
+            // path above runs on the caller's thread and can throw — request adaptation rejecting a
+            // CONNECT request, a synchronous `sendAsync` rejection, or an unexpected adapter bug
+            // such as an NPE — so route any of these into a failed future instead of throwing
+            // synchronously where a future-composing caller's .exceptionally/.handle would never
+            // observe it. The breadth is intentional: catching `Exception` (not `RuntimeException`)
+            // keeps a future adapter step's checked exception on the future too. Only `Error` (OOM
+            // and other JVM-fatal conditions) is left to propagate up the caller's stack rather
+            // than be packaged into a future that may never be awaited.
+            //
+            // If `sendAsync` already returned an in-flight exchange, the only way control reaches
+            // here is `bridgeAsyncResponse` throwing before it wired that future's cancellation
+            // propagation — its result is never returned, so cancel the exchange directly to release
+            // its connection rather than leak it on a future nothing will await. The cancel is a
+            // no-op when `inFlight` is null (the throw happened at or before dispatch).
+            inFlight?.cancel(true)
+            CompletableFuture.failedFuture<Response>(e)
+        }
     }
 
     /**
@@ -347,10 +367,9 @@ public class JdkHttpTransport private constructor(
                 },
             )
             clientBuilder.version(
-                if (httpVersion == HttpVersion.HTTP_2) {
-                    java.net.http.HttpClient.Version.HTTP_2
-                } else {
-                    java.net.http.HttpClient.Version.HTTP_1_1
+                when (httpVersion) {
+                    HttpVersion.HTTP_2 -> java.net.http.HttpClient.Version.HTTP_2
+                    HttpVersion.HTTP_1_1 -> java.net.http.HttpClient.Version.HTTP_1_1
                 },
             )
             proxy?.let { applyProxy(clientBuilder, it) }
@@ -376,14 +395,18 @@ public class JdkHttpTransport private constructor(
          *     [ProxyAuthenticator]. The JDK client picks up this authenticator at request
          *     time; it answers **only** proxy (407) challenges whose host/port match the
          *     configured proxy, returning `null` for origin-server (401) challenges so the
-         *     proxy credentials never leak to an origin host.
+         *     proxy credentials never leak to an origin host. The `java.net.http` client's
+         *     built-in handling of a registered `Authenticator` covers the **Basic** scheme
+         *     only — this transport does **not** perform Digest proxy authentication.
          *
          * A configured [ProxyOptions.challengeHandler] is **not** honoured by this transport:
          * `java.net.http.HttpClient` exposes no per-407 hook through which a custom
          * `ChallengeHandler` (e.g. Digest) could be invoked, so the handler is dropped with a
-         * loud warning rather than silently ignored. Proxy authentication falls back to the
-         * JDK's own username/password negotiation via [ProxyAuthenticator]. Consumers needing
-         * Digest proxy auth should use the OkHttp transport.
+         * loud warning rather than silently ignored. Proxy authentication falls back to Basic
+         * auth derived from [ProxyOptions.username] / [ProxyOptions.password] via
+         * [ProxyAuthenticator]. To authenticate against a Digest-only proxy, pass a
+         * pre-configured `java.net.http.HttpClient` carrying your own `Authenticator` to
+         * [create]; the SDK uses that client as-is.
          *
          * Credentials are deliberately never logged.
          */
@@ -397,8 +420,9 @@ public class JdkHttpTransport private constructor(
                     .log(
                         "ProxyOptions.challengeHandler is set but the JDK transport cannot invoke a " +
                             "custom ChallengeHandler: java.net.http.HttpClient exposes no per-407 hook. " +
-                            "The handler is ignored; proxy auth falls back to username/password via the " +
-                            "JDK's own auth negotiation. Use the OkHttp transport for Digest proxy auth.",
+                            "The handler is ignored; proxy auth falls back to Basic auth derived from " +
+                            "ProxyOptions.username / ProxyOptions.password. For Digest proxy auth, pass a " +
+                            "pre-configured java.net.http.HttpClient with your own Authenticator to create().",
                     )
             }
             if (options.type != ProxyOptions.Type.HTTP) {

@@ -232,6 +232,29 @@ fed to the next recovery step — recovery exceptions never bypass downstream re
 pipeline's `apply` method never throws; callers inspect the returned outcome to decide whether
 to surface a `Response` or rethrow.
 
+#### Close ownership: discarding a `Success` response
+
+When a step is handed a `ResponseOutcome.Success`, the wrapped `Response` holds an open
+transport connection / body stream that must be closed exactly once. The `ResponsePipeline`
+takes that responsibility on **only one path: when a step throws while holding the response.**
+Both the success-path (`applyResponseSteps`) and the recovery chain (`invokeRecovery`)
+close-before-propagate — they close the in-hand response and attach any close error to the
+step's throwable as suppressed, so a throwing step never strands the connection.
+
+The pipeline does **not** close the response on the path where a step is handed a `Success` and
+*deliberately returns a different outcome*:
+
+- **Success → Failure transform** — e.g. a status-to-typed-exception recovery step that turns a
+  `Success(response)` into a `Failure(HttpException)`. The original successful `response` is
+  discarded.
+- **Success → substitute Success** — replacing the response with a different one.
+
+On both of these the pipeline never observes the dropped response, so **the step that performs
+the transform owns closing the response it discards**. Such a step must call
+`outcome.response.close()` on the response it is dropping before returning the replacement
+outcome, or the connection leaks. (The recovery "Replace" path — `Failure(t1)` → `Failure(t2)`
+— operates on a `Failure`, which carries no response, so there is nothing to close there.)
+
 ### ResponseOutcome
 
 ```kotlin

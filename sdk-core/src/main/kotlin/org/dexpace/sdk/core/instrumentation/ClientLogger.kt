@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.instrumentation
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.slf4j.event.Level
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Structured-logging facade with a zero-allocation disabled-level fast path.
@@ -143,6 +144,37 @@ public class ClientLogger private constructor(
     public fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(toSlf4j(level))
 
     internal fun slf4jLevel(level: LogLevel): Level = toSlf4j(level)
+
+    /**
+     * One-shot guard for the [warnDroppedEventFieldOnce] diagnostic. The misuse it flags — a
+     * per-event `field("event", …)` colliding with the authoritative `event(name)` tag — is a
+     * static call-site error, so a single line per logger surfaces it. State lives here rather
+     * than on the single-shot [LoggingEvent] so a hot loop emitting the same misuse can't flood
+     * DEBUG.
+     */
+    private val droppedEventFieldWarned: AtomicBoolean = AtomicBoolean(false)
+
+    /**
+     * Emits — at most once per logger — the DEBUG hint that a per-event field named
+     * [LoggingEvent.EVENT_KEY] was dropped because `event(name)` owns that key. The
+     * [eventNameTag] of the first observed collision is recorded as an example; the fix
+     * ("rename the field") is the same regardless of the name.
+     *
+     * The `isDebugEnabled` check precedes the one-shot CAS so the guard is spent only on an
+     * actual emission: if DEBUG is off at the first collision and is enabled later (SLF4J levels
+     * can change at runtime), the warning still fires once. When DEBUG is off the call is a single
+     * cheap boolean check, which keeps it off the hot path.
+     */
+    internal fun warnDroppedEventFieldOnce(eventNameTag: String) {
+        if (!slf4j.isDebugEnabled) return
+        if (!droppedEventFieldWarned.compareAndSet(false, true)) return
+        slf4j.debug(
+            "LoggingEvent: dropped a field named \"{}\" because event(\"{}\") owns that key; " +
+                "rename the field to keep its value. (logged once per logger)",
+            LoggingEvent.EVENT_KEY,
+            eventNameTag,
+        )
+    }
 
     private fun toSlf4j(level: LogLevel): Level =
         when (level) {

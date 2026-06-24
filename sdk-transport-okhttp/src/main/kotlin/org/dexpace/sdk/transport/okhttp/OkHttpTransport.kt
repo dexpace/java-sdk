@@ -116,11 +116,16 @@ public class OkHttpTransport private constructor(
                 // adaptation runs on the caller's thread and can throw (e.g. a method/body
                 // mismatch OkHttp rejects), so route the failure into a completed-exceptionally
                 // future instead of throwing synchronously where a future-composing caller's
-                // .exceptionally/.handle would never observe it. Errors (OOM and other JVM-fatal
-                // conditions) are left to propagate up the caller's stack rather than be packaged
-                // into a future that may never be awaited.
+                // .exceptionally/.handle would never observe it. The breadth is intentional:
+                // catching `Exception` (not `RuntimeException`) also funnels an unexpected adapter
+                // bug such as an NPE through the future so the caller can observe it. Only `Error`
+                // (OOM and other JVM-fatal conditions) is left to propagate up the caller's stack
+                // rather than be packaged into a future that may never be awaited.
                 return failedFuture(e)
             }
+        // The post-adaptation dispatch needs no guard: `newCall(...)` does no throwing work, and a
+        // dispatch failure (including a `RejectedExecutionException` from a shut-down dispatcher)
+        // is delivered through `Callback.onFailure` below, so it already reaches the future.
         val call = client.newCall(okRequest)
         val future = CompletableFuture<Response>()
         call.enqueue(
@@ -369,7 +374,8 @@ public class OkHttpTransport private constructor(
                         "The OkHttp transport does not honour ProxyOptions.challengeHandler; it is " +
                             "ignored. Proxy authentication falls back to Basic auth derived from " +
                             "ProxyOptions.username / ProxyOptions.password. Supply those credentials, " +
-                            "or use a transport that supports a custom proxy challenge handler.",
+                            "or for Digest proxy auth pass a pre-configured OkHttpClient with your own " +
+                            "proxyAuthenticator to create().",
                     )
             }
             val javaType =

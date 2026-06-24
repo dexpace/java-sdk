@@ -43,12 +43,12 @@ import java.util.Locale
 internal object RestrictedHeaders {
     private val NAMES: Set<String> =
         setOf(
-            "connection".lowercase(Locale.US),
-            "content-length".lowercase(Locale.US),
-            "expect".lowercase(Locale.US),
-            "host".lowercase(Locale.US),
-            "transfer-encoding".lowercase(Locale.US),
-            "upgrade".lowercase(Locale.US),
+            "connection",
+            "content-length",
+            "expect",
+            "host",
+            "transfer-encoding",
+            "upgrade",
         )
 
     /** Returns `true` when [name] (case-insensitive) is in the drop list. */

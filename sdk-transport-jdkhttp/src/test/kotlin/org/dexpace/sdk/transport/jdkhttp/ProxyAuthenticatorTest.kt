@@ -61,10 +61,31 @@ class ProxyAuthenticatorTest {
         assertNull(auth, "a proxy challenge on a non-configured port must not receive credentials")
     }
 
+    /**
+     * Pins the documented proxy-auth contract: the credentials this authenticator returns are
+     * the raw username/password, with no scheme negotiation of its own. Whether a challenge is
+     * actually satisfied is decided by the `java.net.http` client's built-in handling of a
+     * registered `Authenticator`, which covers the **Basic** scheme only — it does not drive
+     * Digest proxy auth through this hook. The authenticator therefore returns the same
+     * credentials whether the proxy advertises `Basic` or `Digest`; a Digest-only proxy is not
+     * authenticated end-to-end, matching the [JdkHttpTransport.Builder] KDoc.
+     */
+    @Test
+    fun `proxy challenge credentials carry no scheme of their own`() {
+        val proxy = Authenticator.RequestorType.PROXY
+        val basic = challenge(host = "proxy.example", port = 3128, type = proxy, scheme = "Basic")
+        val digest = challenge(host = "proxy.example", port = 3128, type = proxy, scheme = "Digest")
+        requireNotNull(basic) { "Basic proxy challenge must be answered" }
+        requireNotNull(digest) { "the authenticator does not inspect the scheme string" }
+        assertEquals(basic.userName, digest.userName)
+        assertEquals(String(basic.password), String(digest.password))
+    }
+
     private fun challenge(
         host: String,
         port: Int,
         type: Authenticator.RequestorType,
+        scheme: String = "Basic",
     ): PasswordAuthentication? =
         Authenticator.requestPasswordAuthentication(
             authenticator,
@@ -73,7 +94,7 @@ class ProxyAuthenticatorTest {
             port,
             "http",
             "challenge",
-            "Basic",
+            scheme,
             URL("http://$host:$port/"),
             type,
         )

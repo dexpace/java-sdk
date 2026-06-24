@@ -28,6 +28,8 @@ public final class org/dexpace/sdk/core/config/Configuration {
 	public static final field LOG_LEVEL Ljava/lang/String;
 	public static final field MAX_RETRY_ATTEMPTS Ljava/lang/String;
 	public static final field NO_PROXY Ljava/lang/String;
+	public static final fun builder ()Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
+	public final fun derive (Ljava/util/function/Consumer;)Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun get (Ljava/lang/String;)Ljava/lang/String;
 	public final fun get (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
 	public static synthetic fun get$default (Lorg/dexpace/sdk/core/config/Configuration;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
@@ -36,20 +38,25 @@ public final class org/dexpace/sdk/core/config/Configuration {
 	public static final fun getGlobalConfiguration ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun getInt (Ljava/lang/String;I)I
 	public final fun getProperty (Ljava/lang/String;)Ljava/lang/String;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public static final fun setGlobalConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)V
 }
 
 public final class org/dexpace/sdk/core/config/Configuration$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun getGlobalConfiguration ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun setGlobalConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)V
 }
 
-public final class org/dexpace/sdk/core/config/ConfigurationBuilder {
+public final class org/dexpace/sdk/core/config/ConfigurationBuilder : org/dexpace/sdk/core/generics/Builder {
 	public fun <init> ()V
-	public final fun build ()Lorg/dexpace/sdk/core/config/Configuration;
+	public fun <init> (Lorg/dexpace/sdk/core/config/Configuration;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/config/Configuration;
 	public final fun envSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun propsSource (Ljava/util/function/Function;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 	public final fun put (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
+	public final fun remove (Ljava/lang/String;)Lorg/dexpace/sdk/core/config/ConfigurationBuilder;
 }
 
 public abstract interface class org/dexpace/sdk/core/generics/Builder {
@@ -138,10 +145,14 @@ public final class org/dexpace/sdk/core/http/auth/BearerToken : org/dexpace/sdk/
 public abstract interface class org/dexpace/sdk/core/http/auth/BearerTokenProvider {
 	public fun fetch (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
 	public abstract fun fetch (Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
+	public fun fetchAsync (Ljava/util/List;)Ljava/util/concurrent/CompletableFuture;
+	public fun fetchAsync (Ljava/util/List;Ljava/util/Map;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/http/auth/BearerTokenProvider$DefaultImpls {
 	public static fun fetch (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
+	public static fun fetchAsync (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)Ljava/util/concurrent/CompletableFuture;
+	public static fun fetchAsync (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/util/Map;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public abstract interface class org/dexpace/sdk/core/http/auth/ChallengeHandler {
@@ -747,6 +758,30 @@ public final class org/dexpace/sdk/core/http/pipeline/Stage : java/lang/Enum {
 	public static fun values ()[Lorg/dexpace/sdk/core/http/pipeline/Stage;
 }
 
+public abstract class org/dexpace/sdk/core/http/pipeline/steps/AsyncAuthStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
+	public fun <init> ()V
+	protected abstract fun authorizeRequestAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	protected fun authorizeRequestOnChallengeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;)Ljava/util/concurrent/CompletableFuture;
+	public final fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public final fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public class org/dexpace/sdk/core/http/pipeline/steps/AsyncBearerTokenAuthStep : org/dexpace/sdk/core/http/pipeline/steps/AsyncAuthStep {
+	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected fun authorizeRequestAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	protected fun authorizeRequestOnChallengeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;)Ljava/util/concurrent/CompletableFuture;
+	protected fun bearerHeaderValue (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract class org/dexpace/sdk/core/http/pipeline/steps/AsyncRetryStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
+	public fun <init> ()V
+	public final fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+}
+
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/AuthStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
 	public fun <init> ()V
 	protected abstract fun authorizeRequest (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
@@ -773,6 +808,22 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncInstrume
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncRetryStep : org/dexpace/sdk/core/http/pipeline/steps/AsyncRetryStep {
+	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncRetryStep$Companion;
+	public fun <init> (Ljava/util/concurrent/ScheduledExecutorService;)V
+	public fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;)V
+	public fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;)V
+	public fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;)V
+	public synthetic fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected fun computeExceptionDelay (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryCondition;)Ljava/time/Duration;
+	protected fun computeResponseDelay (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryCondition;)Ljava/time/Duration;
+	public fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;)Ljava/util/concurrent/CompletableFuture;
+	protected fun retryAfterFromHeaders (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/time/Duration;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncRetryStep$Companion {
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/DefaultInstrumentationStep : org/dexpace/sdk/core/http/pipeline/steps/InstrumentationStep {
@@ -1026,6 +1077,7 @@ public final class org/dexpace/sdk/core/http/request/Method : java/lang/Enum {
 	public static final field TRACE Lorg/dexpace/sdk/core/http/request/Method;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public final fun getMethod ()Ljava/lang/String;
+	public final fun getPermitsRequestBody ()Z
 	public fun toString ()Ljava/lang/String;
 	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Method;
 	public static fun values ()[Lorg/dexpace/sdk/core/http/request/Method;
@@ -1977,6 +2029,16 @@ public abstract interface class org/dexpace/sdk/core/io/Source : java/io/Closeab
 	public abstract fun read (Lorg/dexpace/sdk/core/io/Buffer;J)J
 }
 
+public final class org/dexpace/sdk/core/pagination/AsyncPaginator {
+	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;)V
+	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;J)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun collectAllAsync ()Ljava/util/concurrent/CompletableFuture;
+	public final fun collectAllAsync (Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forEachAsync (Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forEachAsync (Ljava/util/function/Consumer;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
+}
+
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
 	public fun <init> (Lkotlin/jvm/functions/Function1;)V
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
@@ -2416,5 +2478,11 @@ public final class org/dexpace/sdk/core/util/SdkInfo {
 	public final fun getJavaVersion ()Ljava/lang/String;
 	public final fun getOsName ()Ljava/lang/String;
 	public final fun getSdkVersion ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/util/ValueEquality {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/util/ValueEquality;
+	public static final fun contentEquals (Ljava/lang/Object;Ljava/lang/Object;)Z
+	public static final fun contentHashCode (Ljava/lang/Object;)I
 }
 

@@ -23,7 +23,6 @@ import org.dexpace.sdk.core.io.Source
  * wrapper field is read/written without synchronization.
  */
 internal class ForeignSourceAdapter(private val delegate: Source) : okio.Source {
-    private val timeout = okio.Timeout.NONE
     private var cachedBuffer: okio.Buffer? = null
     private var cachedWrapper: OkioBuffer? = null
 
@@ -43,7 +42,7 @@ internal class ForeignSourceAdapter(private val delegate: Source) : okio.Source 
         return delegate.read(wrapper, byteCount)
     }
 
-    override fun timeout(): okio.Timeout = timeout
+    override fun timeout(): okio.Timeout = okio.Timeout.NONE
 
     override fun close() {
         delegate.close()

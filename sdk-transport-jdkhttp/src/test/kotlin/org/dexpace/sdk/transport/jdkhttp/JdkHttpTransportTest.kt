@@ -24,22 +24,31 @@ import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.transport.jdkhttp.internal.BodyPublishers
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.Authenticator
+import java.net.CookieHandler
 import java.net.InetSocketAddress
+import java.net.ProxySelector
 import java.net.ServerSocket
 import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.time.Duration
+import java.util.Optional
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 import java.util.concurrent.Flow
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLParameters
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -114,6 +123,43 @@ class JdkHttpTransportTest {
         assertEquals("/echo", recorded.url.encodedPath)
     }
 
+    // -------- body on a body-forbidden method (GET/HEAD/TRACE/CONNECT) --------
+
+    @Test
+    fun `bodyOnForbiddenMethodIsRejectedBeforeDispatch`() {
+        // The JDK builder ignores a body on GET/HEAD/TRACE, silently dropping it — and the eager
+        // BodyPublishers path would already have drained a small consume-once body into a byte
+        // array that is then discarded. The SDK rejects the body at request construction
+        // (Request.RequestBuilder.build), so such a request is never built and never reaches the
+        // transport, and no body is consumed for nothing.
+        for (method in listOf(Method.GET, Method.HEAD, Method.TRACE, Method.CONNECT)) {
+            assertFailsWith<IllegalArgumentException>("expected rejection for $method") {
+                Request.builder()
+                    .method(method)
+                    .url(server.url("/forbidden-body").toUrl())
+                    .body(RequestBody.create("x", CommonMediaTypes.TEXT_PLAIN))
+                    .build()
+            }
+        }
+    }
+
+    @Test
+    fun `bodylessGetDispatchesWithNoBody`() {
+        server.enqueue(MockResponse.Builder().code(200).build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/bodyless-get").toUrl())
+                .build()
+        transport.execute(request).use { response ->
+            assertEquals(200, response.status.code)
+        }
+        val recorded = server.takeRequest()
+        assertEquals("GET", recorded.method)
+        assertEquals("", recorded.body?.utf8() ?: "")
+        assertEquals("/bodyless-get", recorded.url.encodedPath)
+    }
+
     // -------- async golden paths --------
 
     @Test
@@ -162,10 +208,52 @@ class JdkHttpTransportTest {
                 .build()
         // Must return a future rather than throwing on the caller's thread.
         val future = transport.executeAsync(request)
+        // Completion is synchronous, not merely eventual: the future is already completed
+        // exceptionally on return, before anything is awaited.
+        assertTrue(
+            future.isCompletedExceptionally,
+            "adaptation failure must complete the future exceptionally synchronously on return",
+        )
         val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
         assertTrue(
             ex.cause is IllegalArgumentException,
             "adaptation failure must surface as the future's cause, was: ${ex.cause?.let { it::class }}",
+        )
+        // Assert the message so an unrelated IllegalArgumentException cannot satisfy the test.
+        // RequestAdapter rejects CONNECT with "java.net.http.HttpClient does not support
+        // user-issued CONNECT requests."
+        assertTrue(
+            ex.cause?.message?.contains("does not support user-issued CONNECT requests") == true,
+            "expected the JDK CONNECT-rejection message, was: ${ex.cause?.message}",
+        )
+    }
+
+    @Test
+    fun `executeAsyncRoutesSynchronousDispatchThrowThroughFuture`() {
+        // `sendAsync`'s contract does not promise that every failure is delivered through the
+        // returned future — a client may throw synchronously on the caller's thread. The dispatch
+        // path runs after a successful adaptation, so this injects a client whose `sendAsync`
+        // throws to exercise the post-adapt guard deterministically on every JDK. (The stock JDK
+        // client instead returns an already-failed future for, e.g., a closed client; the bridge
+        // propagates that and it never reaches the guard, so a real closed client cannot prove
+        // this path. The test double does.) The failure must arrive through the returned future,
+        // never escape executeAsync on the caller's thread.
+        val boom = IllegalStateException("synchronous dispatch failure")
+        val throwingTransport = JdkHttpTransport.create(SyncThrowingDispatchClient(boom))
+
+        // Must return a future rather than throwing on the caller's thread.
+        val future = throwingTransport.executeAsync(simpleGet("/async-dispatch-throw"))
+        // Completion is synchronous, not merely eventual: the future is already completed
+        // exceptionally on return, before anything is awaited.
+        assertTrue(
+            future.isCompletedExceptionally,
+            "a synchronous dispatch throw must complete the future exceptionally synchronously on return",
+        )
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        assertEquals(
+            boom,
+            ex.cause,
+            "the dispatch throw must surface verbatim as the future's cause, was: ${ex.cause}",
         )
     }
 
@@ -831,5 +919,53 @@ class JdkHttpTransportTest {
         ): org.dexpace.sdk.core.http.auth.AuthorizationHeader? = null
 
         override fun canHandle(challenges: List<org.dexpace.sdk.core.http.auth.AuthenticateChallenge>): Boolean = false
+    }
+
+    /**
+     * A minimal [HttpClient] whose async dispatch throws synchronously on the caller's thread,
+     * modelling a client (or a future JDK) that does not package every `sendAsync` failure into the
+     * returned future. Only [sendAsync] is exercised by [JdkHttpTransport.executeAsync]; the rest
+     * are inert stubs that are never invoked on the dispatch path under test. In particular
+     * [sslContext] returns `SSLContext.getDefault()` only to satisfy the abstract member — its
+     * checked `NoSuchAlgorithmException` and the cost of materialising the JVM default SSL context
+     * never apply here because the path under test never reads the context; likewise [send] throws
+     * rather than returning a stub response, as the synchronous path is never reached.
+     */
+    private class SyncThrowingDispatchClient(
+        private val failure: RuntimeException,
+    ) : HttpClient() {
+        override fun cookieHandler(): Optional<CookieHandler> = Optional.empty()
+
+        override fun connectTimeout(): Optional<Duration> = Optional.empty()
+
+        override fun followRedirects(): HttpClient.Redirect = HttpClient.Redirect.NEVER
+
+        override fun proxy(): Optional<ProxySelector> = Optional.empty()
+
+        override fun sslContext(): SSLContext = SSLContext.getDefault()
+
+        override fun sslParameters(): SSLParameters = SSLParameters()
+
+        override fun authenticator(): Optional<Authenticator> = Optional.empty()
+
+        override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+
+        override fun executor(): Optional<Executor> = Optional.empty()
+
+        override fun <T> send(
+            request: HttpRequest,
+            responseBodyHandler: HttpResponse.BodyHandler<T>,
+        ): HttpResponse<T> = throw UnsupportedOperationException("synchronous send is not used by this test double")
+
+        override fun <T> sendAsync(
+            request: HttpRequest,
+            responseBodyHandler: HttpResponse.BodyHandler<T>,
+        ): CompletableFuture<HttpResponse<T>> = throw failure
+
+        override fun <T> sendAsync(
+            request: HttpRequest,
+            responseBodyHandler: HttpResponse.BodyHandler<T>,
+            pushPromiseHandler: HttpResponse.PushPromiseHandler<T>?,
+        ): CompletableFuture<HttpResponse<T>> = throw failure
     }
 }

@@ -127,13 +127,11 @@ internal object RequestRebuilder {
     private fun decodeOrRaw(raw: String): String =
         try {
             URLDecoder.decode(raw, UTF_8)
-        } catch (e: IllegalArgumentException) {
+        } catch (ignored: IllegalArgumentException) {
             // Malformed percent-encoding — return raw so equality with caller's name still works
             // for unencoded ASCII identifiers (the common case for pagination params).
-            // We intentionally swallow `e` here; pagination should not fail on malformed legacy
-            // URLs that the transport accepted.
-            @Suppress("UNUSED_VARIABLE")
-            val ignored = e
+            // We intentionally swallow the exception here; pagination should not fail on malformed
+            // legacy URLs that the transport accepted.
             raw
         }
 
