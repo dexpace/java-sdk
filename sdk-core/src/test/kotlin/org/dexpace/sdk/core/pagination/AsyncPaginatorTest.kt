@@ -17,12 +17,15 @@ import org.dexpace.sdk.core.io.BufferedSource
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.function.Consumer
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -420,6 +423,141 @@ class AsyncPaginatorTest {
             }
         assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
         assertEquals("cannot build next page request", ex.cause?.message)
+    }
+
+    @Test
+    fun `an eager throw from executeAsync fails the walk instead of escaping`() {
+        // Unlike StubAsyncHttpClient (which turns a responder throw into a failed future), this
+        // transport violates the contract by throwing synchronously out of executeAsync. The
+        // paginator must catch it and fail the walk rather than let it escape forEachAsync.
+        val client = AsyncHttpClient { throw IllegalStateException("eager executeAsync failure") }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.collectAllAsync().get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
+        assertEquals("eager executeAsync failure", ex.cause?.message)
+    }
+
+    @Test
+    fun `forEachAsync with an executor runs the consumer on that executor`() {
+        // Synchronous-completion transport: without the executor the consumer would run on the
+        // caller's thread. With it, even synchronously completed pages must drain on the executor.
+        val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "consumer") }
+        try {
+            val client = threePageClient()
+            val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+            val threads = ConcurrentHashMap.newKeySet<String>()
+            val seen = ArrayList<String>()
+            val recorder =
+                Consumer<String> { item ->
+                    threads.add(Thread.currentThread().name)
+                    seen.add(item)
+                }
+            paginator.forEachAsync(recorder, executor).get(5, TimeUnit.SECONDS)
+
+            assertEquals(listOf("a", "b", "c", "d", "e"), seen)
+            assertEquals(setOf("consumer"), threads, "consumer must run only on the supplied executor")
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `executor overload isolates the consumer from the transport callback thread`() {
+        // Pages complete on a background "transport" pool; the consumer is pinned to its own
+        // "consumer" executor. The consumer must never observe a transport thread.
+        val transport = Executors.newFixedThreadPool(2) { r -> Thread(r, "transport") }
+        val consumerExec = Executors.newSingleThreadExecutor { r -> Thread(r, "consumer") }
+        try {
+            val client = threePageClient(transport)
+            val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+            val threads = ConcurrentHashMap.newKeySet<String>()
+            val recorder = Consumer<String> { threads.add(Thread.currentThread().name) }
+            paginator.forEachAsync(recorder, consumerExec).get(5, TimeUnit.SECONDS)
+
+            assertEquals(setOf("consumer"), threads, "consumer ran on a transport thread")
+        } finally {
+            transport.shutdownNow()
+            consumerExec.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `collectAllAsync with an executor collects every item in order`() {
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val client = threePageClient()
+            val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+            val items = paginator.collectAllAsync(executor).get(5, TimeUnit.SECONDS)
+
+            assertEquals(listOf("a", "b", "c", "d", "e"), items)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `deep run on an executor stays stack-safe`() {
+        // The trampoline must stay flat even when entered through an executor: a long run of
+        // synchronously completed pages is processed in a single drive loop on one executor task.
+        val pageCount = 5_000
+        val client = StubAsyncHttpClient()
+        for (page in 0 until pageCount) {
+            val url =
+                if (page == 0) {
+                    "https://api.example.com/items"
+                } else {
+                    "https://api.example.com/items?page=$page"
+                }
+            val isLast = page == pageCount - 1
+            client.on(url) { req ->
+                if (isLast) {
+                    textResponse(req, "p$page")
+                } else {
+                    textResponse(
+                        req,
+                        "p$page",
+                        extraHeaders =
+                            mapOf(
+                                "Link" to
+                                    "<https://api.example.com/items?page=${page + 1}>; rel=\"next\"",
+                            ),
+                    )
+                }
+            }
+        }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val paginator = AsyncPaginator(client, initialRequest(), strategy())
+            val items = paginator.collectAllAsync(executor).get(30, TimeUnit.SECONDS)
+            assertEquals(pageCount, items.size)
+            assertEquals("p${pageCount - 1}", items.last())
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `a rejected executor dispatch fails the walk`() {
+        // A shut-down executor rejects the very first dispatch; the walk must complete
+        // exceptionally with the rejection rather than hang or leak it.
+        val executor = Executors.newSingleThreadExecutor()
+        executor.shutdownNow()
+        val client = threePageClient()
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val noop = Consumer<String> { }
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.forEachAsync(noop, executor).get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is RejectedExecutionException, "cause was ${ex.cause}")
     }
 }
 

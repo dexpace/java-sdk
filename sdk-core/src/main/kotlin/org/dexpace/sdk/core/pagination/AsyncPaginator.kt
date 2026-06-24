@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 
@@ -59,11 +60,18 @@ import java.util.function.Consumer
  *
  * ## Consumer threading
  *
- * The [Consumer] passed to [forEachAsync] is invoked on whichever thread completes the page
- * future — typically a transport callback thread. It runs inline in the completion graph, so
- * a slow consumer holds up the walk. The consumer is never invoked concurrently for a single
- * [forEachAsync] call, but it MUST NOT assume any particular thread. A consumer that throws
- * aborts the walk and surfaces through the result future.
+ * By default the [Consumer] passed to [forEachAsync] is invoked on whichever thread completes
+ * the page future — typically a transport callback thread. It runs inline in the completion
+ * graph, so a slow or blocking consumer holds up the walk and ties up that transport thread.
+ * For a consumer that does blocking or expensive work, prefer the [forEachAsync] /
+ * [collectAllAsync] overloads that take an [Executor]: the page-draining driver — and therefore
+ * every consumer invocation — then runs on that executor, leaving the transport's callback
+ * threads free. (The strategy `parse` and response `close()` are not dispatched to the executor;
+ * they run inline in each transport future's completion — usually on a transport callback thread,
+ * but on the driver thread when the transport completes synchronously.) Either way the consumer
+ * is never invoked concurrently for a single walk, items are delivered one at a time in server
+ * order, and the consumer MUST NOT assume any particular thread. A consumer that throws aborts
+ * the walk and surfaces through the result future.
  *
  * ## Cancellation
  *
@@ -73,6 +81,11 @@ import java.util.function.Consumer
  * best-effort aborted by cancelling its transport future (which propagates into the underlying
  * client per the [AsyncHttpClient] cancellation contract). A page request already dispatched
  * may still complete before the abort takes effect; its response is closed and discarded.
+ *
+ * Cancellation takes effect at page granularity. If the result is settled while a page is
+ * mid-drain, the items already being delivered from that page still reach the consumer — the
+ * driver stops at the next page boundary rather than interrupting an in-progress drain. A page
+ * that has been fetched but not yet drained when the result settles is dropped undrained.
  *
  * ## Stack safety
  *
@@ -116,7 +129,8 @@ public class AsyncPaginator<T>
 
         /**
          * Walks every item across every page, invoking [consumer] for each item in
-         * server-defined order. The returned future completes (with `null`) once the walk has
+         * server-defined order, on the thread that completes each page (typically a transport
+         * callback thread). The returned future completes (with `null`) once the walk has
          * terminated normally, or completes exceptionally if the transport fails, a strategy
          * `parse` throws, or [consumer] throws.
          *
@@ -127,11 +141,26 @@ public class AsyncPaginator<T>
          * @param consumer Invoked once per item. See the class-level "Consumer threading" KDoc.
          * @return A future that completes when the walk finishes.
          */
-        public fun forEachAsync(consumer: Consumer<in T>): CompletableFuture<Void> {
-            val result = CompletableFuture<Void>()
-            Walk(consumer, result).start()
-            return result
-        }
+        public fun forEachAsync(consumer: Consumer<in T>): CompletableFuture<Void> = startWalk(consumer, null)
+
+        /**
+         * Like [forEachAsync], but runs the page-draining driver — and therefore every
+         * [consumer] invocation — on [executor] instead of inline on the page-completion thread.
+         * Use this when the consumer does blocking or expensive work, so it does not tie up the
+         * transport's callback threads. Items are still delivered one at a time in server order,
+         * and the consumer is never invoked concurrently for a single walk.
+         *
+         * If [executor] rejects work (it is shut down, or a bounded queue is saturated) the walk
+         * terminates and the returned future completes exceptionally with the rejection.
+         *
+         * @param consumer Invoked once per item, on [executor].
+         * @param executor Executor on which the driver and consumer run.
+         * @return A future that completes when the walk finishes.
+         */
+        public fun forEachAsync(
+            consumer: Consumer<in T>,
+            executor: Executor,
+        ): CompletableFuture<Void> = startWalk(consumer, executor)
 
         /**
          * Collects every item across every page into a single list, in server-defined order.
@@ -143,9 +172,29 @@ public class AsyncPaginator<T>
          *
          * @return A future that completes with all items.
          */
-        public fun collectAllAsync(): CompletableFuture<List<T>> {
+        public fun collectAllAsync(): CompletableFuture<List<T>> = collectInto(null)
+
+        /**
+         * Like [collectAllAsync], but runs the driver on [executor] — see the threading contract
+         * on [forEachAsync]`(consumer, executor)`.
+         *
+         * @param executor Executor on which the driver runs.
+         * @return A future that completes with all items.
+         */
+        public fun collectAllAsync(executor: Executor): CompletableFuture<List<T>> = collectInto(executor)
+
+        private fun startWalk(
+            consumer: Consumer<in T>,
+            executor: Executor?,
+        ): CompletableFuture<Void> {
+            val result = CompletableFuture<Void>()
+            Walk(consumer, executor, result).start()
+            return result
+        }
+
+        private fun collectInto(executor: Executor?): CompletableFuture<List<T>> {
             val items = ArrayList<T>()
-            return forEachAsync { items.add(it) }.thenApply { items }
+            return startWalk({ items.add(it) }, executor).thenApply { items }
         }
 
         /**
@@ -154,6 +203,7 @@ public class AsyncPaginator<T>
          */
         private inner class Walk(
             private val consumer: Consumer<in T>,
+            private val executor: Executor?,
             private val result: CompletableFuture<Void>,
         ) {
             private var nextRequest: Request? = initialRequest
@@ -177,7 +227,29 @@ public class AsyncPaginator<T>
                 // driver also re-checks result.isDone before each fetch, so no further pages
                 // are requested once the result is settled.
                 result.whenComplete { _, _ -> inFlight?.cancel(true) }
-                drive()
+                // Enter the driver — on [executor] when one was supplied, so even a synchronously
+                // completed first page drains to the consumer off the caller's thread.
+                resume()
+            }
+
+            /**
+             * Enters the trampoline loop, dispatching to [executor] when one was supplied. Both
+             * the initial entry and every async re-entry route through here, so the consumer runs
+             * on the executor rather than on a transport callback thread. A rejected dispatch
+             * (executor shut down or saturated) fails the walk instead of leaking the rejection
+             * into the completion machinery or hanging the result future.
+             */
+            private fun resume() {
+                val ex = executor
+                if (ex == null) {
+                    drive()
+                } else {
+                    try {
+                        ex.execute { drive() }
+                    } catch (t: Throwable) {
+                        result.completeExceptionally(t)
+                    }
+                }
             }
 
             /**
@@ -236,13 +308,14 @@ public class AsyncPaginator<T>
                     return if (stagePage(pageFuture)) Step.CONTINUE else Step.DONE
                 }
                 // Genuinely async: hand the `driving` flag to the callback and suspend the loop.
-                // If pageFuture completes during registration, this callback runs inline on the
-                // current thread and re-enters drive() while this frame still returns SUSPEND —
-                // safe, because the SUSPEND frame never clears `driving`.
+                // The callback stages the page, releases the flag, and re-enters the driver via
+                // resume() — on the executor when one was supplied. If pageFuture completes during
+                // registration the callback runs inline on the current thread; the SUSPEND frame
+                // still never clears `driving`, so the re-entry stays safe.
                 pageFuture.whenComplete { _, _ ->
                     if (stagePage(pageFuture)) {
                         driving.set(false)
-                        drive()
+                        resume()
                     }
                 }
                 return Step.SUSPEND
