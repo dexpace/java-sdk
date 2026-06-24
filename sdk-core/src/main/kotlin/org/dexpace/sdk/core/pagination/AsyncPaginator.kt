@@ -80,7 +80,12 @@ import java.util.function.Consumer
  * walk: the driver fetches no further pages, and the page exchange currently in flight is
  * best-effort aborted by cancelling its transport future (which propagates into the underlying
  * client per the [AsyncHttpClient] cancellation contract). A page request already dispatched
- * may still complete before the abort takes effect; its response is closed and discarded.
+ * may still complete before the abort takes effect; when it completes successfully, the
+ * paginator closes and discards that response. One narrow race is inherent to the
+ * [AsyncHttpClient] SPI and the paginator cannot close around it: if the cancel settles the
+ * transport future before the transport delivers its [Response], that response never reaches the
+ * paginator's close path — releasing it is the transport's responsibility, since cancelling a
+ * `CompletableFuture` cannot reach back into an already-built response.
  *
  * Cancellation takes effect at page granularity. If the result is settled while a page is
  * mid-drain, the items already being delivered from that page still reach the consumer — the
@@ -215,9 +220,11 @@ public class AsyncPaginator<T>
             private val driving = AtomicBoolean(false)
             private var pendingPage: Page<T>? = null
 
-            // The transport future for the page currently being fetched, or null between
-            // fetches. Written by the loop owner (in [fetchPage]); read by the cancellation
-            // hook on a possibly different thread, hence @Volatile.
+            // The transport future for the page currently being fetched: null until the first
+            // fetch, thereafter the most recently dispatched exchange (it is never reset to null,
+            // so after a fetch settles it retains that now-completed future — cancelling it is a
+            // harmless no-op). Written by the loop owner (in [fetchPage]); read by the
+            // cancellation hook on a possibly different thread, hence @Volatile.
             @Volatile
             private var inFlight: CompletableFuture<Response>? = null
 
