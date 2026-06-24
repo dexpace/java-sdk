@@ -162,7 +162,7 @@ public data class Headers private constructor(
             apply {
                 val trimmedName = requireValidHeaderName(name)
                 requireValidHeaderValues(trimmedName, values)
-                headersMap.computeIfAbsent(sanitizeName(trimmedName)) { mutableListOf() }.addAll(values)
+                headersMap.computeIfAbsent(canonicalKey(trimmedName)) { mutableListOf() }.addAll(values)
             }
 
         /**
@@ -221,7 +221,7 @@ public data class Headers private constructor(
             apply {
                 val trimmedName = requireValidHeaderName(name)
                 requireValidHeaderValues(trimmedName, values)
-                headersMap[sanitizeName(trimmedName)] = values.toMutableList()
+                headersMap[canonicalKey(trimmedName)] = values.toMutableList()
             }
 
         /**
@@ -306,10 +306,18 @@ public data class Headers private constructor(
         public fun builder(): Builder = Builder()
 
         /**
-         * Normalises a header name to its canonical (lower-case, trimmed) storage key.
+         * Normalises a raw, caller-supplied header name to its canonical (lower-case, trimmed)
+         * storage key. Used by the accessors and `remove`, which receive untrimmed input.
          * `Locale.US` is used deliberately — HTTP header names are ASCII-only per RFC 7230,
          * so locale-sensitive folding (Turkish `i`, etc.) would be incorrect here.
          */
         private fun sanitizeName(value: String): String = value.lowercase(Locale.US).trim()
+
+        /**
+         * Canonical storage key for a name that was already trimmed and validated by
+         * [requireValidHeaderName]. Only case-folding is needed — re-trimming (as [sanitizeName]
+         * does for raw input) would be redundant. `Locale.US` per [sanitizeName]'s rationale.
+         */
+        private fun canonicalKey(validatedName: String): String = validatedName.lowercase(Locale.US)
     }
 }
