@@ -65,6 +65,15 @@ import java.util.function.Consumer
  * [forEachAsync] call, but it MUST NOT assume any particular thread. A consumer that throws
  * aborts the walk and surfaces through the result future.
  *
+ * ## Cancellation
+ *
+ * Completing the future returned by [forEachAsync] / [collectAllAsync] from the outside —
+ * `cancel(true)`, `complete(...)`, `completeExceptionally(...)`, `orTimeout(...)` — halts the
+ * walk: the driver fetches no further pages, and the page exchange currently in flight is
+ * best-effort aborted by cancelling its transport future (which propagates into the underlying
+ * client per the [AsyncHttpClient] cancellation contract). A page request already dispatched
+ * may still complete before the abort takes effect; its response is closed and discarded.
+ *
  * ## Stack safety
  *
  * The driver is trampolined: synchronously completed page futures (e.g. from an in-memory
@@ -111,7 +120,9 @@ public class AsyncPaginator<T>
          * terminated normally, or completes exceptionally if the transport fails, a strategy
          * `parse` throws, or [consumer] throws.
          *
-         * Each call starts a fresh walk from [initialRequest].
+         * Each call starts a fresh walk from [initialRequest]. Cancelling (or otherwise
+         * completing) the returned future halts the walk and best-effort aborts the in-flight
+         * page exchange — see the class-level "Cancellation" KDoc.
          *
          * @param consumer Invoked once per item. See the class-level "Consumer threading" KDoc.
          * @return A future that completes when the walk finishes.
@@ -132,7 +143,7 @@ public class AsyncPaginator<T>
          *
          * @return A future that completes with all items.
          */
-        public fun collectAllAsync(): CompletableFuture<MutableList<T>> {
+        public fun collectAllAsync(): CompletableFuture<List<T>> {
             val items = ArrayList<T>()
             return forEachAsync { items.add(it) }.thenApply { items }
         }
@@ -154,7 +165,18 @@ public class AsyncPaginator<T>
             private val driving = AtomicBoolean(false)
             private var pendingPage: Page<T>? = null
 
+            // The transport future for the page currently being fetched, or null between
+            // fetches. Written by the loop owner (in [fetchPage]); read by the cancellation
+            // hook on a possibly different thread, hence @Volatile.
+            @Volatile
+            private var inFlight: CompletableFuture<Response>? = null
+
             fun start() {
+                // If the caller cancels/completes the result future, abort the in-flight page
+                // exchange (best-effort) so a long walk does not keep an exchange open. The
+                // driver also re-checks result.isDone before each fetch, so no further pages
+                // are requested once the result is settled.
+                result.whenComplete { _, _ -> inFlight?.cancel(true) }
                 drive()
             }
 
@@ -193,12 +215,16 @@ public class AsyncPaginator<T>
                 val staged = pendingPage
                 if (staged != null) {
                     pendingPage = null
-                    return if (drainPage(staged)) Step.CONTINUE else Step.DONE
+                    // If the result was settled from the outside (cancelled, timed out, or
+                    // completed by the caller), drop the staged page undrained instead of
+                    // emitting it to the consumer.
+                    return if (!result.isDone && drainPage(staged)) Step.CONTINUE else Step.DONE
                 }
                 val request = nextRequest
-                if (request == null || pagesFetched >= maxPages) {
-                    // No next request, or the cap is reached before fetching a page we would
-                    // otherwise yield: the walk is complete.
+                if (request == null || result.isDone || pagesFetched >= maxPages) {
+                    // No next request, the result was settled externally, or the cap is reached
+                    // before fetching a page we would otherwise yield: the walk is complete.
+                    // complete(null) is a no-op when the result is already settled.
                     result.complete(null)
                     return Step.DONE
                 }
@@ -210,6 +236,9 @@ public class AsyncPaginator<T>
                     return if (stagePage(pageFuture)) Step.CONTINUE else Step.DONE
                 }
                 // Genuinely async: hand the `driving` flag to the callback and suspend the loop.
+                // If pageFuture completes during registration, this callback runs inline on the
+                // current thread and re-enters drive() while this frame still returns SUSPEND —
+                // safe, because the SUSPEND frame never clears `driving`.
                 pageFuture.whenComplete { _, _ ->
                     if (stagePage(pageFuture)) {
                         driving.set(false)
@@ -248,11 +277,14 @@ public class AsyncPaginator<T>
                         consumer.accept(items[i])
                         i++
                     }
+                    // Compute the next request inside the guard: a Page whose hasNext /
+                    // nextPageRequest() throws (e.g. a malformed cursor) must surface through
+                    // the result future, not escape the driver and strand the walk.
+                    nextRequest = if (page.hasNext) page.nextPageRequest() else null
                 } catch (t: Throwable) {
                     result.completeExceptionally(t)
                     return false
                 }
-                nextRequest = if (page.hasNext) page.nextPageRequest() else null
                 return true
             }
 
@@ -271,9 +303,22 @@ public class AsyncPaginator<T>
                         // defensive) becomes an exceptional future so the driver stays uniform.
                         return Futures.failed(t)
                     }
+                // Publish the in-flight exchange so external cancellation can abort it, then
+                // re-check: if the walk was settled between step()'s fetch guard and here, the
+                // one-shot cancel hook may have already fired against the previous (now-stale)
+                // inFlight, so abort the exchange we just dispatched ourselves.
+                inFlight = transportFuture
+                if (result.isDone) {
+                    transportFuture.cancel(true)
+                }
                 return transportFuture.handle { response, error ->
                     if (error != null) {
                         throw Futures.unwrap(error)
+                    }
+                    if (response == null) {
+                        // AsyncHttpClient forbids a null success completion; fail cleanly
+                        // rather than NPE on the parse/close below.
+                        error("AsyncHttpClient.executeAsync completed with a null Response")
                     }
                     try {
                         strategy.parse(response, initialRequest)

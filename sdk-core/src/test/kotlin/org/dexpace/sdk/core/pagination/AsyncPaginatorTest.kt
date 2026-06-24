@@ -7,20 +7,27 @@
 
 package org.dexpace.sdk.core.pagination
 
+import org.dexpace.sdk.core.client.AsyncHttpClient
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.ResponseBody
+import org.dexpace.sdk.core.io.BufferedSource
 import java.io.IOException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.test.AfterTest
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AsyncPaginatorTest {
@@ -43,7 +50,7 @@ class AsyncPaginatorTest {
     private fun strategy(): LinkHeaderPaginationStrategy<String> = LinkHeaderPaginationStrategy(itemsExtractor)
 
     /** A three-page Link-header stub: items -> ?page=2 -> ?page=3 (terminal). */
-    private fun threePageClient(executor: java.util.concurrent.Executor? = null): StubAsyncHttpClient {
+    private fun threePageClient(executor: Executor? = null): StubAsyncHttpClient {
         val client = StubAsyncHttpClient(executor)
         client.on("https://api.example.com/items") { req ->
             textResponse(
@@ -304,9 +311,115 @@ class AsyncPaginatorTest {
         }
     }
 
-    @AfterTest
-    fun teardown() {
-        // no-op
+    @Test
+    fun `cancelling the result future aborts the in-flight exchange and stops the walk`() {
+        // A transport that hands back a future which never completes on its own, so the walk
+        // suspends on the first page until the test cancels it.
+        val transportFuture = CompletableFuture<Response>()
+        val callCount = AtomicInteger(0)
+        val client =
+            AsyncHttpClient {
+                callCount.incrementAndGet()
+                transportFuture
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val result = paginator.forEachAsync { }
+        assertFalse(result.isDone, "walk should be suspended on the in-flight page")
+
+        result.cancel(true)
+
+        assertTrue(transportFuture.isCancelled, "in-flight transport future must be cancelled")
+        assertTrue(result.isCancelled)
+        assertEquals(1, callCount.get(), "no further pages fetched after cancellation")
+    }
+
+    @Test
+    fun `completing the result during the walk stops it before the next fetch`() {
+        // Page 1 is held by a future the test completes by hand; page 2 records whether it is
+        // ever fetched. The consumer completes the result future from inside the walk (on page 1's
+        // last item), which must make the driver terminate at the next fetch decision — exercising
+        // the result.isDone short-circuit in step(), not just the cancel hook.
+        val page1 = CompletableFuture<Response>()
+        val page2Calls = AtomicInteger(0)
+        val client =
+            AsyncHttpClient { req ->
+                if (req.url.toString() == "https://api.example.com/items") {
+                    page1
+                } else {
+                    page2Calls.incrementAndGet()
+                    CompletableFuture.completedFuture(textResponse(req, "c,d"))
+                }
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val resultRef = AtomicReference<CompletableFuture<Void>>()
+        val seen = ArrayList<String>()
+        val result =
+            paginator.forEachAsync { item ->
+                seen.add(item)
+                if (item == "b") resultRef.get().complete(null)
+            }
+        resultRef.set(result)
+
+        // Walk is suspended on page 1; nothing consumed yet.
+        assertTrue(seen.isEmpty(), "consumer should not run before page 1 completes")
+
+        // Completing page 1 drains "a","b" inline; the consumer settles the result on "b".
+        page1.complete(
+            textResponse(
+                initialRequest(),
+                "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            ),
+        )
+
+        result.get(5, TimeUnit.SECONDS)
+        assertEquals(listOf("a", "b"), seen)
+        assertEquals(0, page2Calls.get(), "page 2 must not be fetched after the result is settled")
+    }
+
+    @Test
+    fun `a null Response completion fails the walk cleanly`() {
+        // A misbehaving transport that violates the AsyncHttpClient contract by completing with a
+        // null Response. The paginator must fail the walk rather than NPE inside parse/close.
+        @Suppress("UNCHECKED_CAST")
+        val client =
+            AsyncHttpClient {
+                CompletableFuture.completedFuture<Response?>(null) as CompletableFuture<Response>
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.collectAllAsync().get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
+    }
+
+    @Test
+    fun `a throwing nextPageRequest surfaces through the result future`() {
+        val client = StubAsyncHttpClient()
+        client.on("https://api.example.com/items") { req -> textResponse(req, "a,b") }
+        // A page that claims a next page exists but throws while building its request.
+        val strategy =
+            PaginationStrategy<String> { _, _ ->
+                object : Page<String> {
+                    override val items: List<String> = listOf("a", "b")
+                    override val hasNext: Boolean = true
+
+                    override fun nextPageRequest(): Request? = error("cannot build next page request")
+                }
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy)
+
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.collectAllAsync().get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
+        assertEquals("cannot build next page request", ex.cause?.message)
     }
 }
 
@@ -322,12 +435,12 @@ private fun countingResponse(
 ): Response {
     val delegate = textResponse(request, body, extraHeaders)
     val countingBody =
-        object : org.dexpace.sdk.core.http.response.ResponseBody() {
-            override fun mediaType(): org.dexpace.sdk.core.http.common.MediaType? = delegate.body?.mediaType()
+        object : ResponseBody() {
+            override fun mediaType(): MediaType? = delegate.body?.mediaType()
 
             override fun contentLength(): Long = delegate.body?.contentLength() ?: -1L
 
-            override fun source(): org.dexpace.sdk.core.io.BufferedSource = delegate.body!!.source()
+            override fun source(): BufferedSource = delegate.body!!.source()
 
             override fun close() {
                 closeCounter.incrementAndGet()
