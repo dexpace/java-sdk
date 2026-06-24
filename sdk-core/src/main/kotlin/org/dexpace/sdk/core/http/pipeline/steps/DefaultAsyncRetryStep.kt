@@ -81,11 +81,19 @@ import kotlin.concurrent.withLock
  * rather than wrapped in [IOException]: a [CompletableFuture] carries no checked-exception
  * contract, so the original failure type reaches the caller (after [Futures.unwrap]) unchanged.
  *
+ * ## Subclassing
+ *
+ * Open specifically to customise delay resolution, matching the synchronous [DefaultRetryStep].
+ * Override [computeResponseDelay], [computeExceptionDelay], or [retryAfterFromHeaders] to apply
+ * request-specific pacing; an override must return a non-negative [Duration] and must not throw.
+ * The retry-decision policy itself stays configured through [HttpRetryOptions].
+ *
  * ## Thread-safety
  *
  * Stateless after construction (the per-call [RetryDriver] holds all mutable loop state). The
  * immutable [options] / [clock] / [scheduler] and the [ClientLogger] are shared across
- * concurrent calls.
+ * concurrent calls. Any subclass override of the delay hooks must likewise be safe for
+ * concurrent invocation.
  */
 public open class DefaultAsyncRetryStep
     @JvmOverloads
@@ -237,7 +245,10 @@ public open class DefaultAsyncRetryStep
                             if (!result.complete(response)) closeQuietly(response)
                             return
                         }
-                        val computed = computeResponseDelay(response, tryCount)
+                        val computed =
+                            this@DefaultAsyncRetryStep.computeResponseDelay(
+                                HttpRetryCondition(response, null, tryCount, suppressed ?: emptyList()),
+                            )
                         logRetry(tryCount, computed, response.status.code, cause = null)
                         computed
                     } catch (t: Throwable) {
@@ -290,7 +301,10 @@ public open class DefaultAsyncRetryStep
                             failTerminally(exception)
                             return
                         }
-                        val computed = computeExceptionDelay(exception, tryCount)
+                        val computed =
+                            this@DefaultAsyncRetryStep.computeExceptionDelay(
+                                HttpRetryCondition(null, exception, tryCount, suppressed ?: emptyList()),
+                            )
                         logRetry(tryCount, computed, statusCode = -1, cause = exception)
                         computed
                     } catch (t: Throwable) {
@@ -363,27 +377,6 @@ public open class DefaultAsyncRetryStep
             private fun shouldRetryException(exception: Exception): Boolean {
                 val condition = HttpRetryCondition(null, exception, tryCount, (suppressed ?: emptyList()))
                 return invokeShouldRetry(options.shouldRetryException, condition)
-            }
-
-            // --------------- Delay computation ---------------
-
-            private fun computeResponseDelay(
-                response: Response,
-                tryCount: Int,
-            ): Duration {
-                val condition = HttpRetryCondition(response, null, tryCount, (suppressed ?: emptyList()))
-                invokeDelayFromCondition(condition)?.let { return it }
-                retryAfterFromHeaders(response)?.let { return it }
-                return backoffOrFixed(tryCount)
-            }
-
-            private fun computeExceptionDelay(
-                exception: Exception,
-                tryCount: Int,
-            ): Duration {
-                val condition = HttpRetryCondition(null, exception, tryCount, (suppressed ?: emptyList()))
-                invokeDelayFromCondition(condition)?.let { return it }
-                return backoffOrFixed(tryCount)
             }
 
             // --------------- Logging ---------------
@@ -459,7 +452,43 @@ public open class DefaultAsyncRetryStep
         private fun backoffOrFixed(tryCount: Int): Duration =
             options.fixedDelay ?: BackoffCalculator.computeDelay(tryCount + 1, backoffSettings)
 
-        private fun retryAfterFromHeaders(response: Response): Duration? {
+        // --------------- Delay computation (subclass extension points) ---------------
+
+        /**
+         * Computes the delay before retrying [condition]'s response. Resolution order mirrors
+         * [DefaultRetryStep.computeResponseDelay]:
+         *  1. [HttpRetryOptions.delayFromCondition] override (if it returns non-null).
+         *  2. `Retry-After` header parsing ([retryAfterFromHeaders]).
+         *  3. [HttpRetryOptions.fixedDelay] or exponential backoff.
+         *
+         * `protected open` so a subclass can apply request-specific delay logic, exactly as the
+         * synchronous [DefaultRetryStep] allows. An override MUST return a non-negative [Duration]
+         * and MUST NOT throw: a throw aborts the call (the open retryable response is closed first
+         * by the loop's close-on-throw guard).
+         */
+        protected open fun computeResponseDelay(condition: HttpRetryCondition): Duration {
+            invokeDelayFromCondition(condition)?.let { return it }
+            condition.response?.let { retryAfterFromHeaders(it) }?.let { return it }
+            return backoffOrFixed(condition.tryCount)
+        }
+
+        /**
+         * Computes the delay before retrying [condition]'s exception. Like [computeResponseDelay]
+         * but skips header parsing (there is no response to read headers from). `protected open`
+         * with the same invariants. Mirrors [DefaultRetryStep.computeExceptionDelay].
+         */
+        protected open fun computeExceptionDelay(condition: HttpRetryCondition): Duration {
+            invokeDelayFromCondition(condition)?.let { return it }
+            return backoffOrFixed(condition.tryCount)
+        }
+
+        /**
+         * Walks [HttpRetryOptions.retryAfterHeaders] in order, returning the first parseable delay.
+         * `protected open` so a subclass can support additional server-specific pacing headers,
+         * mirroring [DefaultRetryStep.retryAfterFromHeaders]. May return `null` to fall through to
+         * the default backoff; must not throw.
+         */
+        protected open fun retryAfterFromHeaders(response: Response): Duration? {
             val now = clock.now()
             for (name in options.retryAfterHeaders) {
                 val raw = response.headers.get(name) ?: continue

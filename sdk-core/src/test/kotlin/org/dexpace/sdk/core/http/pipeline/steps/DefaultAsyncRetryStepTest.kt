@@ -216,6 +216,65 @@ class DefaultAsyncRetryStepTest {
         assertTrue(scheduled.any { it == Duration.ofSeconds(2) }, "expected a 2s scheduled delay, got $scheduled")
     }
 
+    @Test
+    fun `retry-after-ms header is honored as a millisecond delay`() {
+        val client =
+            QueueClient()
+                .enqueue(503, Headers.Builder().add("retry-after-ms", "1500").build())
+                .enqueue(200)
+        val future =
+            pipeline(client, HttpRetryOptions(maxRetries = 3))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        val scheduled = scheduler.recordedDelays
+        assertTrue(scheduled.any { it == Duration.ofMillis(1500) }, "expected a 1500ms scheduled delay, got $scheduled")
+    }
+
+    // ----------------- Delay extension points (parity with DefaultRetryStep) -----------------
+
+    @Test
+    fun `delayFromCondition override wins over Retry-After and backoff`() {
+        // The response carries Retry-After: 9, but the caller's delayFromCondition returns 4s, which
+        // has the highest precedence — so the scheduled delay must be 4s and Retry-After is not read.
+        val client =
+            QueueClient()
+                .enqueue(503, Headers.Builder().add("Retry-After", "9").build())
+                .enqueue(200)
+        val options =
+            HttpRetryOptions(
+                maxRetries = 3,
+                delayFromCondition = { _ -> Duration.ofSeconds(4) },
+            )
+        val future = pipeline(client, options).sendAsync(getRequest())
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        val scheduled = scheduler.recordedDelays
+        assertTrue(scheduled.any { it == Duration.ofSeconds(4) }, "delayFromCondition (4s) must win, got $scheduled")
+        assertFalse(
+            scheduled.any { it == Duration.ofSeconds(9) },
+            "Retry-After must not be consulted once delayFromCondition returns a delay",
+        )
+    }
+
+    @Test
+    fun `a subclass can override computeResponseDelay`() {
+        // The async step exposes the same protected delay hooks as the synchronous DefaultRetryStep,
+        // so a subclass can supply request-specific pacing.
+        val client = QueueClient().enqueue(503).enqueue(200)
+        val step =
+            object : DefaultAsyncRetryStep(scheduler, HttpRetryOptions(maxRetries = 3), fixedClock()) {
+                override fun computeResponseDelay(condition: HttpRetryCondition): Duration = Duration.ofSeconds(7)
+            }
+        val future = AsyncHttpPipelineBuilder(client).append(step).build().sendAsync(getRequest())
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        assertTrue(
+            scheduler.recordedDelays.any { it == Duration.ofSeconds(7) },
+            "the subclass-supplied 7s delay must be used, got ${scheduler.recordedDelays}",
+        )
+    }
+
     // ----------------- Body close before retry -----------------
 
     @Test

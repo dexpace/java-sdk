@@ -31,8 +31,12 @@ import java.util.concurrent.TimeUnit
 class ManualScheduler : ScheduledExecutorService {
     private val pending: ArrayDeque<ScheduledTask> = ArrayDeque()
 
-    /** Every delay requested via [schedule], in submission order. Read-only snapshot semantics. */
-    val recordedDelays: List<Duration> get() = pending.map { it.delay } + ran
+    /**
+     * Every delay requested via [schedule], in submission order: already-run tasks first (in the
+     * FIFO order they ran), then still-pending tasks. After [runAll] drains the queue this is simply
+     * every delay ever scheduled, in order. Read-only snapshot semantics.
+     */
+    val recordedDelays: List<Duration> get() = ran + pending.map { it.delay }
 
     private val ran: MutableList<Duration> = mutableListOf()
     private var closed = false

@@ -817,7 +817,10 @@ public class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncRetryStep : or
 	public fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;)V
 	public fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;)V
 	public synthetic fun <init> (Ljava/util/concurrent/ScheduledExecutorService;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	protected fun computeExceptionDelay (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryCondition;)Ljava/time/Duration;
+	protected fun computeResponseDelay (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryCondition;)Ljava/time/Duration;
 	public fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;)Ljava/util/concurrent/CompletableFuture;
+	protected fun retryAfterFromHeaders (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/time/Duration;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/DefaultAsyncRetryStep$Companion {
