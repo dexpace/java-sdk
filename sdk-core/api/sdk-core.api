@@ -1985,6 +1985,16 @@ public abstract interface class org/dexpace/sdk/core/io/Source : java/io/Closeab
 	public abstract fun read (Lorg/dexpace/sdk/core/io/Buffer;J)J
 }
 
+public final class org/dexpace/sdk/core/pagination/AsyncPaginator {
+	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;)V
+	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;J)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun collectAllAsync ()Ljava/util/concurrent/CompletableFuture;
+	public final fun collectAllAsync (Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forEachAsync (Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forEachAsync (Ljava/util/function/Consumer;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
+}
+
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
 	public fun <init> (Lkotlin/jvm/functions/Function1;)V
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
