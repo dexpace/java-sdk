@@ -18,6 +18,8 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FixedClock
 import org.dexpace.sdk.core.util.Futures
@@ -277,6 +279,68 @@ class AsyncBearerTokenAuthStepTest {
         val response = pipeline(provider, client).sendAsync(getRequest()).join()
         assertEquals(401, response.status.code)
         assertEquals(1, call, "a Basic challenge must not trigger a bearer re-fetch + retry")
+    }
+
+    // ----------------- Background-refresh failure -----------------
+
+    @Test
+    fun `a failed background refresh logs once across joiners and leaves the cache usable`() {
+        // Seed an expiring-but-valid token, then fail the background refresh while several requests
+        // join the SAME in-flight refresh. The failure must be logged exactly once (by the launcher),
+        // not once per joiner, and the cache must remain usable — a later refresh still succeeds.
+        val fakeSlf4j = FakeSlf4jLogger("test.auth")
+        val clientLogger = ClientLogger.forTesting(fakeSlf4j)
+        val deferred = CompletableFuture<BearerToken>()
+        val seeded = CompletableFuture.completedFuture(BearerToken("old", now.plusSeconds(10)))
+        val fetches = AtomicInteger(0)
+        val provider =
+            object : BearerTokenProvider {
+                override fun fetch(
+                    scopes: List<String>,
+                    params: Map<String, Any>,
+                ): BearerToken = error("blocking fetch must not be called")
+
+                override fun fetchAsync(
+                    scopes: List<String>,
+                    params: Map<String, Any>,
+                ): CompletableFuture<BearerToken> =
+                    when (fetches.getAndIncrement()) {
+                        0 -> seeded
+                        1 -> deferred
+                        else -> CompletableFuture.completedFuture(BearerToken("new", now.plusSeconds(3600)))
+                    }
+            }
+        val client = RecordingClient(200)
+        val step =
+            AsyncBearerTokenAuthStep(provider, listOf("scope"), Duration.ofSeconds(30), clock, clientLogger)
+        val p = AsyncHttpPipelineBuilder(client).append(step).build()
+
+        // R1 seeds "old"; R2 launches the background refresh (deferred); R3/R4 join the same one —
+        // all four are stamped with the still-valid "old" token without waiting on the refresh.
+        repeat(4) {
+            assertEquals(200, p.sendAsync(getRequest()).join().status.code)
+            assertEquals("Bearer old", client.lastAuth)
+        }
+        assertEquals(2, fetches.get(), "R3/R4 must join the in-flight refresh, not start new fetches")
+
+        deferred.completeExceptionally(RuntimeException("token endpoint down"))
+
+        val failureLogs =
+            fakeSlf4j.records.count { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.auth.background_refresh_failed" }
+            }
+        assertEquals(1, failureLogs, "a single failed background refresh must log once, not once per joiner")
+
+        // Cache not poisoned: the failed refresh was not cached. The next request stamps the still
+        // valid "old" token and starts a fresh refresh that succeeds, so a later request sees "new".
+        p.sendAsync(getRequest()).join()
+        p.sendAsync(getRequest()).join()
+        assertEquals("Bearer new", client.lastAuth, "the cache recovered after the failed refresh")
+        val failureLogsAfterRecovery =
+            fakeSlf4j.records.count { rec ->
+                rec.keyValues.any { it.key == "event" && it.value == "http.auth.background_refresh_failed" }
+            }
+        assertEquals(1, failureLogsAfterRecovery, "the successful follow-up refresh must not add another failure log")
     }
 
     // ----------------- Helpers -----------------

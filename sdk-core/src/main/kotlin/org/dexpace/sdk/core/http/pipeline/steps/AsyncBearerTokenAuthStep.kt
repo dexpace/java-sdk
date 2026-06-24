@@ -144,18 +144,25 @@ public open class AsyncBearerTokenAuthStep
          * stamps; this just warms the cache for the next request.
          */
         private fun startBackgroundRefresh() {
-            // Reuse the single-flight machinery; ignore the returned future (fire-and-forget).
-            // exceptionally/handle keeps an unhandled background failure from surfacing as an
-            // uncaught CompletableFuture completion.
-            sharedFetch().whenComplete { _, error ->
-                if (error != null) {
-                    logger.atWarning()
-                        .event("http.auth.background_refresh_failed")
-                        .field("error.type", error::class.java.simpleName ?: "Throwable")
-                        .cause(error)
-                        .log()
-                }
-            }
+            // Reuse the single-flight machinery; ignore the returned future (fire-and-forget). The
+            // failure log is attached via [sharedFetch]'s onLaunch hook so ONLY the caller that
+            // actually launches the fetch logs it: every request in the expiring window funnels onto
+            // one in-flight refresh, and a single failed refresh must log once — not once per
+            // concurrent joiner. (A forced, awaited fetch surfaces its failure to the caller and
+            // passes no onLaunch, so it is never double-counted here.)
+            sharedFetch(
+                onLaunch = { fetch ->
+                    fetch.whenComplete { _, error ->
+                        if (error != null) {
+                            logger.atWarning()
+                                .event("http.auth.background_refresh_failed")
+                                .field("error.type", error::class.java.simpleName ?: "Throwable")
+                                .cause(error)
+                                .log()
+                        }
+                    }
+                },
+            )
         }
 
         /**
@@ -171,28 +178,38 @@ public open class AsyncBearerTokenAuthStep
          * slot is cleared on completion so a subsequent refresh starts fresh. A re-check of the
          * cache inside the lock means a token another thread just refreshed short-circuits the
          * fetch.
+         *
+         * [onLaunch] is invoked exactly once, and ONLY for the caller that actually starts a new
+         * fetch — never for a cache hit or a joiner onto an already-in-flight fetch. It runs
+         * outside [lock] (so a callback it attaches never executes under the lock), which is how
+         * the background-refresh path attaches its failure log without it firing once per joiner.
          */
-        private fun sharedFetch(): CompletableFuture<BearerToken> {
-            lock.withLock {
-                // Re-read inside the lock: another thread may have just refreshed.
-                val now = clock.now()
-                cachedToken?.takeIf { !it.isExpiredAt(now, refreshMargin) }
-                    ?.let { return CompletableFuture.completedFuture(it) }
-                inFlight?.let { return it }
-                val fetch = launchFetch()
-                inFlight = fetch
-                // Attach cache bookkeeping AFTER publishing, so the clear-on-complete callback
-                // compares against the exact future stored in `inFlight`. Attaching here (rather
-                // than inside launchFetch) sidesteps the self-reference an inline-completed future
-                // would otherwise need.
-                fetch.whenComplete { token, error ->
-                    lock.withLock {
-                        if (inFlight === fetch) inFlight = null
-                        if (error == null && token != null) cachedToken = token
+        private fun sharedFetch(
+            onLaunch: ((CompletableFuture<BearerToken>) -> Unit)? = null,
+        ): CompletableFuture<BearerToken> {
+            val launched: CompletableFuture<BearerToken> =
+                lock.withLock {
+                    // Re-read inside the lock: another thread may have just refreshed.
+                    val now = clock.now()
+                    cachedToken?.takeIf { !it.isExpiredAt(now, refreshMargin) }
+                        ?.let { return CompletableFuture.completedFuture(it) }
+                    inFlight?.let { return it }
+                    val fetch = launchFetch()
+                    inFlight = fetch
+                    // Attach cache bookkeeping AFTER publishing, so the clear-on-complete callback
+                    // compares against the exact future stored in `inFlight`. Attaching here (rather
+                    // than inside launchFetch) sidesteps the self-reference an inline-completed future
+                    // would otherwise need.
+                    fetch.whenComplete { token, error ->
+                        lock.withLock {
+                            if (inFlight === fetch) inFlight = null
+                            if (error == null && token != null) cachedToken = token
+                        }
                     }
+                    fetch
                 }
-                return fetch
-            }
+            onLaunch?.invoke(launched)
+            return launched
         }
 
         /**
