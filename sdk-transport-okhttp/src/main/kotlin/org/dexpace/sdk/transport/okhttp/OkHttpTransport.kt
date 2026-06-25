@@ -68,7 +68,6 @@ public class OkHttpTransport private constructor(
      */
     private val owned: Boolean,
 ) : HttpClient, AsyncHttpClient {
-    private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.okhttp.OkHttpTransport")
     private val requestAdapter: RequestAdapter = RequestAdapter(log)
     private val responseAdapter: ResponseAdapter = ResponseAdapter(log)
 
@@ -249,6 +248,15 @@ public class OkHttpTransport private constructor(
 
     public companion object {
         /**
+         * Logger shared by the transport and its [Builder]. A single instance is intentional:
+         * both call sites log under the same fully-qualified category, so one [ClientLogger]
+         * is the single source of truth for that category. `ClientLogger` wraps a thread-safe
+         * SLF4J `Logger` and carries no caller-specific state, so sharing it across the
+         * transport instance and every `Builder` is safe.
+         */
+        private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.okhttp.OkHttpTransport")
+
+        /**
          * BYO factory: wrap a fully-configured [OkHttpClient]. The supplied client is used
          * verbatim — the SDK does not override `followRedirects`, timeouts, or interceptors,
          * and [close] will NOT shut down this client (the caller owns its lifecycle).
@@ -271,7 +279,6 @@ public class OkHttpTransport private constructor(
      * — letting OkHttp follow redirects underneath would double-handle them.
      */
     public class Builder internal constructor() : SdkBuilder<OkHttpTransport> {
-        private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.okhttp.OkHttpTransport")
         private var connectTimeout: Duration? = null
         private var readTimeout: Duration? = null
         private var writeTimeout: Duration? = null
@@ -419,7 +426,7 @@ public class OkHttpTransport private constructor(
      * [ProxyOptions] are honoured: hosts the [ProxyOptions] would bypass return
      * `Proxy.NO_PROXY`, everything else returns the configured proxy.
      *
-     * Defined as a top-level private inner class so the builder closure stays clean.
+     * Defined as a private nested class so the builder closure stays clean.
      */
     private class NonProxyHostSelector(
         private val options: ProxyOptions,
