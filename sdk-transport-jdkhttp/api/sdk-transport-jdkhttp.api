@@ -23,6 +23,7 @@ public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Companion 
 	public final fun builder ()Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
 	public final fun create (Ljava/net/http/HttpClient;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
 	public final fun create (Ljava/net/http/HttpClient;Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
+	public static synthetic fun create$default (Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Companion;Ljava/net/http/HttpClient;Ljava/time/Duration;ILjava/lang/Object;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
 }
 
 public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion : java/lang/Enum {

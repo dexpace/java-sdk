@@ -10,6 +10,7 @@ package org.dexpace.sdk.transport.jdkhttp.internal
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
 import java.io.Closeable
+import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
@@ -130,8 +131,9 @@ internal object BodyPublishers {
      * memory is released when the array is handed off.
      */
     private fun eagerPublisher(body: SdkRequestBody): HttpRequest.BodyPublisher {
-        val bytes = bufferToByteArray(body)
-        return HttpRequest.BodyPublishers.ofByteArray(bytes)
+        val buffer = Io.provider.buffer()
+        body.writeTo(buffer)
+        return HttpRequest.BodyPublishers.ofByteArray(buffer.snapshot())
     }
 
     /**
@@ -246,16 +248,6 @@ internal object BodyPublishers {
     }
 
     /**
-     * Drains [body] into a fresh in-memory [org.dexpace.sdk.core.io.Buffer] from the active
-     * [Io.provider] and snapshots it to a byte array.
-     */
-    private fun bufferToByteArray(body: SdkRequestBody): ByteArray {
-        val buffer = Io.provider.buffer()
-        body.writeTo(buffer)
-        return buffer.snapshot()
-    }
-
-    /**
      * Wraps a subscription's [PipedInputStream] so that closing the read end also cancels the
      * writer [Future] and closes the [PipedOutputStream] write end. Without this, a JDK
      * subscription that is acquired and then abandoned (connect failure, cancellation before
@@ -268,21 +260,15 @@ internal object BodyPublishers {
         private val pipeIn: PipedInputStream,
         private val pipeOut: PipedOutputStream,
         private val writer: Future<*>,
-    ) : InputStream() {
-        override fun read(): Int = pipeIn.read()
-
-        override fun read(
-            b: ByteArray,
-            off: Int,
-            len: Int,
-        ): Int = pipeIn.read(b, off, len)
-
-        override fun available(): Int = pipeIn.available()
-
+    ) : FilterInputStream(pipeIn) {
         override fun close() {
             // Interrupt/cancel the writer first so a thread parked in PipedOutputStream.write
             // wakes up, then close both pipe ends. Order matters: closing pipeOut alone does
             // not unblock a writer mid-write, so the cancel(true) is what frees the thread.
+            //
+            // Deliberately does NOT call super.close(): FilterInputStream.close() would close
+            // only the wrapped read end, but teardown here must also cancel the writer and
+            // close the write end. closeQuietly(pipeIn) below covers the read end.
             writer.cancel(true)
             closeQuietly(pipeOut)
             closeQuietly(pipeIn)

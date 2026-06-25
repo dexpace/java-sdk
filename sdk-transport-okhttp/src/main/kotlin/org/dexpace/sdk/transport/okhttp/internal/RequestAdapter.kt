@@ -122,6 +122,6 @@ internal class RequestAdapter(
          * Shared zero-length body substituted for a body-less POST/PUT/PATCH. Immutable and
          * stateless, so a single instance is safe to reuse across requests and threads.
          */
-        private val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody(null, 0, 0)
+        private val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody()
     }
 }

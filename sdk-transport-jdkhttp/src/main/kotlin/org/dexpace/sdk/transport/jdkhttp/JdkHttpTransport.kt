@@ -236,23 +236,17 @@ public class JdkHttpTransport private constructor(
          * BYO factory: wrap a fully-configured [java.net.http.HttpClient]. The supplied
          * client is used verbatim — the SDK does not override connect timeout, redirect
          * policy, version, or executor, and [close] will NOT shut down this client (the
-         * caller owns its lifecycle). No per-request response timeout is applied.
+         * caller owns its lifecycle).
+         *
+         * [responseTimeout], when non-`null`, is applied to every outgoing request via
+         * [java.net.http.HttpRequest.Builder.timeout] — the JDK client does not expose a
+         * global response-timeout knob. Defaults to `null` (no per-request timeout).
          */
         @JvmStatic
-        public fun create(client: java.net.http.HttpClient): JdkHttpTransport =
-            JdkHttpTransport(client, null, owned = false, ownedExecutor = null)
-
-        /**
-         * BYO factory with a per-request response timeout. The timeout is applied to every
-         * outgoing request via [java.net.http.HttpRequest.Builder.timeout] — the JDK client
-         * does not expose a global response-timeout knob. Pass `null` for no per-request
-         * timeout; if a timeout is desirable but no specific value is needed, use the
-         * single-argument [create] overload (which captures `null`).
-         */
-        @JvmStatic
+        @JvmOverloads
         public fun create(
             client: java.net.http.HttpClient,
-            responseTimeout: Duration?,
+            responseTimeout: Duration? = null,
         ): JdkHttpTransport = JdkHttpTransport(client, responseTimeout, owned = false, ownedExecutor = null)
 
         /** Returns a fresh [Builder] for SDK-managed [java.net.http.HttpClient] construction. */
@@ -493,7 +487,7 @@ public class JdkHttpTransport private constructor(
      * from [ProxyOptions] are honoured: hosts the [ProxyOptions] would bypass return
      * `Proxy.NO_PROXY`, everything else returns the configured proxy.
      *
-     * Defined as a top-level private inner class so the builder closure stays clean.
+     * Defined as a private nested class so the builder closure stays clean.
      */
     private class NonProxyHostSelector(
         private val options: ProxyOptions,
