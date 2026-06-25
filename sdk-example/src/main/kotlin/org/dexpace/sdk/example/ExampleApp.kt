@@ -82,7 +82,7 @@ public fun installIoProvider() {
 }
 
 /**
- * Mints a self-signed certificate for `localhost` and starts an HTTPS [MockWebServer] serving it.
+ * Generates a self-signed certificate for `localhost` and starts an HTTPS [MockWebServer] serving it.
  * The matching client trust material is returned alongside so the caller can build a transport
  * that trusts this exact certificate — see [newTransportTrusting].
  */

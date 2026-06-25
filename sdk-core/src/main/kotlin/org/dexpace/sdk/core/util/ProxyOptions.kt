@@ -167,23 +167,7 @@ public class ProxyOptions
 
                 if (!sysHost.isNullOrEmpty()) {
                     val port = parsePort(sysPortRaw) ?: return null
-                    return try {
-                        ProxyOptions(
-                            type = Type.HTTP,
-                            address = InetSocketAddress(sysHost, port),
-                            nonProxyHosts = nonProxyHosts,
-                            username = sysUser,
-                            password = sysPassword,
-                        )
-                    } catch (t: IllegalArgumentException) {
-                        logger.atWarning()
-                            .event("proxy.config.invalid")
-                            .field("host", sysHost)
-                            .field("port", port)
-                            .cause(t)
-                            .field("message", "Invalid proxy address; ignoring").log()
-                        null
-                    }
+                    return buildOptions(sysHost, port, sysUser, sysPassword, nonProxyHosts)
                 }
 
                 // 2. Env var layer: HTTPS_PROXY then HTTP_PROXY.
@@ -292,15 +276,16 @@ public class ProxyOptions
              * — the caller returns `null` in that case so the consumer routes directly.
              */
             private fun resolveNonProxyHosts(config: Configuration): Pair<List<String>, Boolean> {
+                fun classify(parts: List<String>): Pair<List<String>, Boolean> =
+                    if (parts.size == 1 && parts[0] == "*") emptyList<String>() to true else parts to false
+
                 val sysProp = config.getProperty("http.nonProxyHosts")
                 if (!sysProp.isNullOrEmpty()) {
-                    val parts = splitAndUnescape(sysProp, PROP_SPLIT, '|')
-                    return if (parts.size == 1 && parts[0] == "*") emptyList<String>() to true else parts to false
+                    return classify(splitAndUnescape(sysProp, PROP_SPLIT, '|'))
                 }
                 val envVar = config.get(Configuration.NO_PROXY)
                 if (!envVar.isNullOrEmpty()) {
-                    val parts = splitAndUnescape(envVar, ENV_SPLIT, ',')
-                    return if (parts.size == 1 && parts[0] == "*") emptyList<String>() to true else parts to false
+                    return classify(splitAndUnescape(envVar, ENV_SPLIT, ','))
                 }
                 return emptyList<String>() to false
             }

@@ -20,7 +20,7 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * shares one constant trace id across every untraced call, and an inbound W3C trace
  * legitimately shares a single trace id across many spans. Keying by the trace id would
  * let concurrent calls overwrite and evict each other's live entries. [DispatchContext]
- * mints a unique [callKey] once at the head of the chain, and each promotion carries that
+ * generates a unique [callKey] once at the head of the chain, and each promotion carries that
  * same key forward so the whole chain shares one stable, call-unique store slot.
  *
  * Implements [AutoCloseable] so users can `use { ... }` the context; the default [close]

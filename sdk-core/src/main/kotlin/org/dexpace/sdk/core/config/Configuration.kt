@@ -12,6 +12,20 @@ import java.util.Locale
 import java.util.function.Consumer
 import java.util.function.Function
 
+// Top-level — deliberately NOT in the companion. The companion initializes its `global` slot by
+// constructing a Configuration (which reads these defaults); keeping the seams at file scope makes
+// their initialization independent of companion init order, sidestepping that ordering hazard.
+// `@get:` targets the getter — a bare @JvmSynthetic on a top-level val lands on the backing field
+// and would leave the (mangled) getter Java-visible.
+
+/** Default environment-variable lookup seam: delegates to [System.getenv]. */
+@get:JvmSynthetic
+internal val DEFAULT_ENV_SOURCE: Function<String, String?> = Function { name -> System.getenv(name) }
+
+/** Default system-property lookup seam: delegates to [System.getProperty]. */
+@get:JvmSynthetic
+internal val DEFAULT_PROPS_SOURCE: Function<String, String?> = Function { name -> System.getProperty(name) }
+
 /**
  * Layered runtime configuration: explicit override -> environment variable -> system property -> default.
  *
@@ -51,9 +65,9 @@ public class Configuration internal constructor(
     @get:JvmSynthetic
     internal val overrides: Map<String, String>,
     @get:JvmSynthetic
-    internal val envSource: Function<String, String?> = Function { name -> System.getenv(name) },
+    internal val envSource: Function<String, String?> = DEFAULT_ENV_SOURCE,
     @get:JvmSynthetic
-    internal val propsSource: Function<String, String?> = Function { name -> System.getProperty(name) },
+    internal val propsSource: Function<String, String?> = DEFAULT_PROPS_SOURCE,
 ) {
     /**
      * Returns a fresh [ConfigurationBuilder] preloaded with this instance's overrides and lookup
@@ -122,14 +136,7 @@ public class Configuration internal constructor(
     public fun getBoolean(
         name: String,
         default: Boolean,
-    ): Boolean {
-        val raw = get(name) ?: return default
-        return when (raw.lowercase(Locale.US)) {
-            "true" -> true
-            "false" -> false
-            else -> default
-        }
-    }
+    ): Boolean = get(name)?.lowercase(Locale.US)?.toBooleanStrictOrNull() ?: default
 
     /**
      * Duration accessor. Supports ISO-8601 (`PT5S`, `P1D`) and shorthand (`500ms`, `5s`, `1m`, `2h`, `1d`).

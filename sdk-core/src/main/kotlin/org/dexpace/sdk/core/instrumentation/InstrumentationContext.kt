@@ -39,14 +39,14 @@ public interface InstrumentationContext {
     /** `true` when the context contains real (non-sentinel) identifiers suitable for propagation. */
     public val isValid: Boolean
 
-    /** `true` when this context was extracted from an inbound request rather than minted locally. */
+    /** `true` when this context was extracted from an inbound request rather than generated locally. */
     public val isRemote: Boolean
 
     /** Currently active span associated with this context; [Span.NOOP] when tracing is disabled. */
     public val span: Span
 
     /**
-     * Factory used to mint an [HttpTracer] for each operation that runs within this
+     * Factory used to generate an [HttpTracer] for each operation that runs within this
      * context. Defaults to [NoopHttpTracerFactory] so existing implementations of
      * [InstrumentationContext] do not need to declare anything — adding this property
      * is a non-breaking change. Real tracing backends override this with a factory that

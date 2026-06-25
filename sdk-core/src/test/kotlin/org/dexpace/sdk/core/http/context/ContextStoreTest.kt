@@ -32,7 +32,7 @@ import kotlin.test.assertTrue
 
 /**
  * Stable, equality-safe [InstrumentationContext] for tests that need a deterministic trace id.
- * Production contexts mint random ids; tests need to predict the key into [ContextStore].
+ * Production contexts generate random ids; tests need to predict the key into [ContextStore].
  */
 internal data class FakeInstrumentationContext(
     override val traceId: TraceId,
@@ -196,7 +196,7 @@ class ContextStoreTest {
     @Test
     fun `concurrent untraced calls keep independent entries`() {
         // Two concurrent default()/NOOP-trace calls share a constant trace+span id, but each
-        // mints a unique call key, so neither overwrites nor evicts the other's live entry.
+        // generates a unique call key, so neither overwrites nor evicts the other's live entry.
         val calls = 16
         val barrier = CountDownLatch(1)
         val keys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -217,7 +217,7 @@ class ContextStoreTest {
         barrier.countDown()
         for (t in ts) t.join()
 
-        assertEquals(calls, keys.size, "every concurrent call should mint a distinct key")
+        assertEquals(calls, keys.size, "every concurrent call should generate a distinct key")
         assertEquals(calls, survivors.get(), "no call should have its entry overwritten by another")
     }
 

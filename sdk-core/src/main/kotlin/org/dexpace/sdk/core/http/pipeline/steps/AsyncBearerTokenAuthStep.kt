@@ -245,7 +245,7 @@ public open class AsyncBearerTokenAuthStep
          * Validates a freshly fetched token: rejects a `null` (a Java provider may hand one back
          * despite the non-null Kotlin signature when null-check intrinsics are disabled — hence the
          * nullable parameter) and a token already expired at fetch time (no margin applied — a
-         * provider minting an effectively-expired token is misbehaving).
+         * provider generating an effectively-expired token is misbehaving).
          */
         private fun validateFresh(token: BearerToken?): BearerToken {
             val nonNull = token ?: error("BearerTokenProvider returned null")

@@ -13,7 +13,7 @@ import java.util.concurrent.ThreadLocalRandom
  * Trace-id encoding flavours supported by the SDK.
  *
  * Different tracing backends expect different on-the-wire trace-id formats; [generate] is the
- * factory used by [InstrumentationContext] to mint a fresh id of the chosen variant.
+ * factory used by [InstrumentationContext] to generate a fresh id of the chosen variant.
  *
  * - [DATADOG] — 64-bit unsigned integer rendered as a decimal string (Datadog wire format).
  * - [W3C] — 128-bit value rendered as a 32-character lowercase hex string per the W3C Trace
