@@ -25,7 +25,6 @@ import com.fasterxml.jackson.databind.module.SimpleModule
 import com.fasterxml.jackson.databind.ser.BeanPropertyWriter
 import com.fasterxml.jackson.databind.ser.BeanSerializerModifier
 import com.fasterxml.jackson.databind.ser.impl.PropertySerializerMap
-import com.fasterxml.jackson.databind.type.TypeFactory
 import org.dexpace.sdk.core.serde.Tristate
 
 /**
@@ -75,15 +74,6 @@ public class TristateModule : SimpleModule(MODULE_NAME, com.fasterxml.jackson.co
         context.addBeanSerializerModifier(TristateSerializerModifier())
     }
 }
-
-/** The element [JavaType] for `Object` — the fallback when a `Tristate` is raw or `Tristate<*>`. */
-private val ANY_TYPE: JavaType = TypeFactory.defaultInstance().constructType(Any::class.java)
-
-/** The first contained type argument, or `null` when the type is raw / carries no parameters. */
-private fun JavaType.firstContainedOrNull(): JavaType? = if (containedTypeCount() > 0) containedType(0) else null
-
-/** Whether this type is (or extends) [Tristate]. */
-private fun JavaType.isTristate(): Boolean = Tristate::class.java.isAssignableFrom(rawClass)
 
 /**
  * Resolver that returns [TristateDeserializer] for any [Tristate] target type. Needed because
