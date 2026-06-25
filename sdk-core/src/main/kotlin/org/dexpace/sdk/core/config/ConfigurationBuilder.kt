@@ -25,8 +25,8 @@ import java.util.function.Function
  */
 public class ConfigurationBuilder : Builder<Configuration> {
     private val overrides = mutableMapOf<String, String>()
-    private var envSource: Function<String, String?> = Function { name -> System.getenv(name) }
-    private var propsSource: Function<String, String?> = Function { name -> System.getProperty(name) }
+    private var envSource: Function<String, String?> = DEFAULT_ENV_SOURCE
+    private var propsSource: Function<String, String?> = DEFAULT_PROPS_SOURCE
 
     /** Creates an empty builder with the default env / system-property lookup sources. */
     public constructor()

@@ -25,7 +25,7 @@ import java.util.function.Supplier
  * ## Default behaviour
  *
  * For requests whose [Request.method] is in [methods] (default: `POST`, `PUT`, `PATCH`),
- * the step adds an `Idempotency-Key` header carrying a freshly minted [UUID]. Requests for
+ * the step adds an `Idempotency-Key` header carrying a freshly generated [UUID]. Requests for
  * other methods (`GET`, `HEAD`, `OPTIONS`, etc.) pass through untouched — these are safe by
  * HTTP semantics and the key carries no useful meaning.
  *

@@ -234,7 +234,7 @@ The context system carries metadata through the request/response lifecycle:
 | Type              | Role                                                                       |
 |-------------------|----------------------------------------------------------------------------|
 | `CallContext`     | Base interface — provides `instrumentationContext` and a per-call `callKey`; `AutoCloseable` |
-| `DispatchContext` | Head of the promotion chain — mints the `callKey` for the call             |
+| `DispatchContext` | Head of the promotion chain — generates the `callKey` for the call             |
 | `RequestContext`  | Adds the outgoing `Request` to the chain                                   |
 | `ExchangeContext` | Full exchange context — carries both request and response                  |
 | `ContextStore`    | Thread-safe store keyed by `callKey` for retrieving a call's live context  |

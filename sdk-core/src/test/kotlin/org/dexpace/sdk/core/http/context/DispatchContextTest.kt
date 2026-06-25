@@ -112,7 +112,7 @@ class DispatchContextTest {
     }
 
     @Test
-    fun `default mints a unique call key per invocation so concurrent untraced calls stay independent`() {
+    fun `default generates a unique call key per invocation so concurrent untraced calls stay independent`() {
         val a = DispatchContext.default()
         val b = DispatchContext.default()
         ownedIds.add(a.callKey)

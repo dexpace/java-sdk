@@ -569,7 +569,7 @@ data class DispatchContext(
 
 **Default factory**: `DispatchContext.default()` creates a context with
 `NoopInstrumentationContext` for non-instrumented calls. Because the no-op context's trace and
-span ids are shared constants, `default()` mints a process-unique `callKey` so two untraced
+span ids are shared constants, `default()` generates a process-unique `callKey` so two untraced
 calls cannot collide in the store.
 
 ### RequestContext
@@ -635,7 +635,7 @@ afterwards.
 ### Context Flow
 
 ```
-1. DispatchContext.default()              → DispatchContext created (mints a unique callKey)
+1. DispatchContext.default()              → DispatchContext created (generates a unique callKey)
 2. dispatchCtx.toRequestContext(request)  → RequestContext stored in ContextStore
 3. httpClient.execute(request)            → HTTP call happens
 4. requestCtx.toExchangeContext(response) → ExchangeContext replaces it in ContextStore

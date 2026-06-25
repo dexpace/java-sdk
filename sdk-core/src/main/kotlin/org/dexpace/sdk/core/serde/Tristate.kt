@@ -114,7 +114,6 @@ public sealed class Tristate<out T> {
 
         /** Returns [Null]. Convenience factory for Java callers / generic call-sites. */
         @JvmStatic
-        @JvmName("nullValue")
         public fun <T> nullValue(): Tristate<T> = Null
 
         /**

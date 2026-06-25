@@ -469,7 +469,7 @@ class JdkHttpTransportTest {
     fun `streamingPublisherSurvivesResubscription`() {
         // The JDK re-acquires the BodyPublisher's InputStream once per subscription and
         // re-subscribes on internal resends (407 proxy-auth retry, HTTP/2 GOAWAY replay). The
-        // supplier must therefore mint a fresh pipe + writer per subscription so a replayable
+        // supplier must therefore generate a fresh pipe + writer per subscription so a replayable
         // body produces the full bytes every time — not an exhausted/empty stream on resend.
         // A true proxy 407 flow is awkward to drive over plaintext MockWebServer, so we drive
         // the publisher directly: a > 64 KiB replayable body, drained twice.
@@ -480,7 +480,7 @@ class JdkHttpTransportTest {
         val first = drainPublisher(publisher)
         assertContentEquals(bytes, first, "first subscription must yield the full streaming body")
 
-        // Re-subscribe: the same publisher must mint a fresh stream and replay the full body.
+        // Re-subscribe: the same publisher must generate a fresh stream and replay the full body.
         val second = drainPublisher(publisher)
         assertContentEquals(bytes, second, "re-subscription must yield the full streaming body again")
     }
