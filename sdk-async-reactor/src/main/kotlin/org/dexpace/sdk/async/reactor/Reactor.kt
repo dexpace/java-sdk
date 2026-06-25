@@ -20,6 +20,7 @@ import org.dexpace.sdk.core.instrumentation.MdcSnapshot
 import org.dexpace.sdk.core.io.BufferedSource
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import java.util.concurrent.CompletableFuture
 
 private val log = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
 
@@ -43,27 +44,7 @@ private val log = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
  * To extend MDC propagation through user-supplied downstream operators, enable
  * `Hooks.enableAutomaticContextPropagation()` at the application level.
  */
-public fun AsyncHttpClient.executeMono(request: Request): Mono<Response> =
-    Mono.defer {
-        val mdc = MdcSnapshot.capture()
-        Mono.fromFuture { mdc.withMdc { executeAsync(request) } }
-            .doOnSubscribe {
-                mdc.withMdc {
-                    log.atVerbose()
-                        .event("async.adapter.subscribed")
-                        .field("adapter.type", "reactor")
-                        .log()
-                }
-            }
-            .doOnCancel {
-                mdc.withMdc {
-                    log.atVerbose()
-                        .event("async.adapter.cancel_propagated")
-                        .field("adapter.type", "reactor")
-                        .log()
-                }
-            }
-    }
+public fun AsyncHttpClient.executeMono(request: Request): Mono<Response> = deferMono { executeAsync(request) }
 
 /**
  * Pipeline-level [Mono] facade — see [executeMono].
@@ -79,27 +60,33 @@ public fun AsyncHttpClient.executeMono(request: Request): Mono<Response> =
  * To extend MDC propagation through user-supplied downstream operators, enable
  * `Hooks.enableAutomaticContextPropagation()` at the application level.
  */
-public fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> =
+public fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> = deferMono { sendAsync(request) }
+
+/**
+ * Bridges a [CompletableFuture]-returning [supplier] to a cold [Mono]. Each subscription runs
+ * the supplier afresh under [Mono.defer], captures the subscriber's MDC, and reinstates it for
+ * the future-producing call and for both lifecycle log hooks. Cancelling the subscription
+ * cancels the underlying future through [Mono.fromFuture].
+ */
+private fun deferMono(supplier: () -> CompletableFuture<Response>): Mono<Response> =
     Mono.defer {
         val mdc = MdcSnapshot.capture()
-        Mono.fromFuture { mdc.withMdc { sendAsync(request) } }
-            .doOnSubscribe {
-                mdc.withMdc {
-                    log.atVerbose()
-                        .event("async.adapter.subscribed")
-                        .field("adapter.type", "reactor")
-                        .log()
-                }
-            }
-            .doOnCancel {
-                mdc.withMdc {
-                    log.atVerbose()
-                        .event("async.adapter.cancel_propagated")
-                        .field("adapter.type", "reactor")
-                        .log()
-                }
-            }
+        Mono.fromFuture { mdc.withMdc { supplier() } }
+            .doOnSubscribe { logEvent(mdc, "async.adapter.subscribed") }
+            .doOnCancel { logEvent(mdc, "async.adapter.cancel_propagated") }
     }
+
+private fun logEvent(
+    mdc: MdcSnapshot,
+    event: String,
+) {
+    mdc.withMdc {
+        log.atVerbose()
+            .event(event)
+            .field("adapter.type", "reactor")
+            .log()
+    }
+}
 
 /**
  * Exposes the SSE event stream as a Reactor [Flux]. Backpressure is honored via

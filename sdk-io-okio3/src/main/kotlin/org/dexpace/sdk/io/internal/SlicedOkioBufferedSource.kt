@@ -135,10 +135,7 @@ internal class SlicedOkioBufferedSource(
     @Throws(IOException::class)
     override fun readByteArray(): ByteArray {
         checkOpen()
-        if (!realizeOffset() || atEnd()) return EMPTY_BYTES
-        val bytes = readUpTo(remaining)
-        remaining -= bytes.size
-        return bytes
+        return drainRemaining()
     }
 
     @Throws(IOException::class)
@@ -161,10 +158,7 @@ internal class SlicedOkioBufferedSource(
     @Throws(IOException::class)
     override fun readUtf8(): String {
         checkOpen()
-        if (!realizeOffset() || atEnd()) return ""
-        val bytes = readUpTo(remaining)
-        remaining -= bytes.size
-        return String(bytes, Charsets.UTF_8)
+        return String(drainRemaining(), Charsets.UTF_8)
     }
 
     @Throws(IOException::class)
@@ -217,10 +211,20 @@ internal class SlicedOkioBufferedSource(
     @Throws(IOException::class)
     override fun readString(charset: Charset): String {
         checkOpen()
-        if (!realizeOffset() || atEnd()) return ""
+        return String(drainRemaining(), charset)
+    }
+
+    /**
+     * Drains everything still inside the slice window as raw bytes, advancing [remaining].
+     * Returns [EMPTY_BYTES] when the offset cannot be realized or the slice is already at its
+     * end; that empty array decodes to an empty string for the two text reads above.
+     */
+    @Throws(IOException::class)
+    private fun drainRemaining(): ByteArray {
+        if (!realizeOffset() || atEnd()) return EMPTY_BYTES
         val bytes = readUpTo(remaining)
         remaining -= bytes.size
-        return String(bytes, charset)
+        return bytes
     }
 
     @Throws(IOException::class)

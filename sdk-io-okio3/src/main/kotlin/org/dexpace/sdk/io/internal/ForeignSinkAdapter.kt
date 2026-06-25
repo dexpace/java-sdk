@@ -22,23 +22,13 @@ import org.dexpace.sdk.core.io.Sink
  * wrapper field is read/written without synchronization.
  */
 internal class ForeignSinkAdapter(private val delegate: Sink) : okio.Sink {
-    private var cachedBuffer: okio.Buffer? = null
-    private var cachedWrapper: OkioBuffer? = null
+    private val wrappers = OkioBufferWrapperCache()
 
     override fun write(
         source: okio.Buffer,
         byteCount: Long,
     ) {
-        // Cache the OkioBuffer wrapper keyed by reference identity of the okio.Buffer Okio
-        // passes us. Okio reuses the same source for a buffered producer's lifetime, so this
-        // amortizes wrapper allocation to once per producer.
-        val wrapper =
-            cachedWrapper.takeIf { source === cachedBuffer }
-                ?: OkioBuffer(source).also {
-                    cachedBuffer = source
-                    cachedWrapper = it
-                }
-        delegate.write(wrapper, byteCount)
+        delegate.write(wrappers.wrap(source), byteCount)
     }
 
     override fun flush() {
