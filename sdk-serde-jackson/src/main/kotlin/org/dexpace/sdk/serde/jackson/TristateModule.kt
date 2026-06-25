@@ -24,9 +24,7 @@ import com.fasterxml.jackson.databind.deser.Deserializers
 import com.fasterxml.jackson.databind.module.SimpleModule
 import com.fasterxml.jackson.databind.ser.BeanPropertyWriter
 import com.fasterxml.jackson.databind.ser.BeanSerializerModifier
-import com.fasterxml.jackson.databind.ser.ContextualSerializer
 import com.fasterxml.jackson.databind.ser.impl.PropertySerializerMap
-import com.fasterxml.jackson.databind.type.TypeFactory
 import org.dexpace.sdk.core.serde.Tristate
 
 /**
@@ -88,15 +86,9 @@ internal class TristateDeserializers internal constructor() : Deserializers.Base
         config: DeserializationConfig,
         beanDesc: BeanDescription,
     ): JsonDeserializer<*>? =
-        if (Tristate::class.java.isAssignableFrom(type.rawClass)) {
+        if (type.isTristate()) {
             // Inner type defaults to Object when the user wrote `Tristate<*>` or raw `Tristate`.
-            val inner: JavaType =
-                if (type.containedTypeCount() > 0) {
-                    type.containedType(0)
-                } else {
-                    TypeFactory.defaultInstance().constructType(Any::class.java)
-                }
-            TristateDeserializer(inner)
+            TristateDeserializer(type.firstContainedOrNull() ?: ANY_TYPE)
         } else {
             null
         }
@@ -114,9 +106,8 @@ internal class TristateDeserializer internal constructor(
         // `Tristate<T>`. Falling back to the constructor-provided innerType lets callers that
         // deserialize Tristate directly (without a wrapping bean) still get correct typing.
         val resolved: JavaType =
-            property?.type?.takeIf { Tristate::class.java.isAssignableFrom(it.rawClass) }?.let { wrapper ->
-                if (wrapper.containedTypeCount() > 0) wrapper.containedType(0) else null
-            } ?: innerType ?: TypeFactory.defaultInstance().constructType(Any::class.java)
+            property?.type?.takeIf { it.isTristate() }?.firstContainedOrNull()
+                ?: innerType ?: ANY_TYPE
         return TristateDeserializer(resolved)
     }
 
@@ -127,7 +118,7 @@ internal class TristateDeserializer internal constructor(
         if (p.currentToken() == JsonToken.VALUE_NULL) {
             return Tristate.Null
         }
-        val target = innerType ?: TypeFactory.defaultInstance().constructType(Any::class.java)
+        val target = innerType ?: ANY_TYPE
         val value: Any? = ctxt.readValue(p, target)
         return if (value == null) Tristate.Null else Tristate.Present(value)
     }
@@ -155,17 +146,12 @@ internal class TristateDeserializer internal constructor(
  * implementation writes `null` for both Absent and Null — JSON itself has no "field is
  * missing" concept when there's no enclosing object to omit a key from.
  */
-internal class TristateSerializer internal constructor() : JsonSerializer<Tristate<*>>(), ContextualSerializer {
+internal class TristateSerializer internal constructor() : JsonSerializer<Tristate<*>>() {
     // Cached per-type sub-serializer lookup so repeated calls with the same T don't pay
     // ObjectMapper lookup cost. PropertySerializerMap.findAndAddPrimarySerializer is the
     // canonical Jackson idiom for this.
     @Volatile
     private var dynamicSerializers: PropertySerializerMap = PropertySerializerMap.emptyForProperties()
-
-    override fun createContextual(
-        prov: SerializerProvider,
-        property: BeanProperty?,
-    ): JsonSerializer<*> = this
 
     override fun serialize(
         value: Tristate<*>,
@@ -225,10 +211,8 @@ internal class TristateSerializerModifier internal constructor() : BeanSerialize
         beanDesc: BeanDescription,
         beanProperties: MutableList<BeanPropertyWriter>,
     ): MutableList<BeanPropertyWriter> {
-        beanProperties.forEachIndexed { i, writer ->
-            if (Tristate::class.java.isAssignableFrom(writer.type.rawClass)) {
-                beanProperties[i] = TristatePropertyWriter(writer)
-            }
+        beanProperties.replaceAll { writer ->
+            if (writer.type.isTristate()) TristatePropertyWriter(writer) else writer
         }
         return beanProperties
     }
