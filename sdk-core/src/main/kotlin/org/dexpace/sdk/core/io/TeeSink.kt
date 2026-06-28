@@ -104,10 +104,8 @@ internal class TeeSink(
      * [requested] and the remaining [tapLimit] budget, clamped to never go negative. The actual
      * copy and [mirrored] advancement stay at each call site.
      */
-    private fun tapAllowance(requested: Long): Long {
-        val remaining = (tapLimit - mirrored).coerceAtLeast(0L)
-        return if (requested < remaining) requested else remaining
-    }
+    private fun tapAllowance(requested: Long): Long =
+        minOf(requested, (tapLimit - mirrored).coerceAtLeast(0L))
 
     @Throws(IOException::class)
     override fun flush() {
@@ -119,23 +117,29 @@ internal class TeeSink(
         primary.close()
     }
 
-    @Throws(IOException::class)
-    override fun write(source: ByteArray): BufferedSink {
-        scratch.write(source)
+    /**
+     * Stages one typed write into [scratch] then tees it into the tap and drains it into the
+     * primary in a single pass, returning `this` for chaining. [encode] receives [scratch]
+     * explicitly as its `it` argument so the staged write always targets the staging [Buffer] —
+     * never one of this `TeeSink`'s own `write*` overrides, which a `Buffer.()` receiver lambda
+     * could silently rebind to (and self-recurse) if a `Buffer` overload were ever added.
+     */
+    private inline fun staged(encode: (Buffer) -> Unit): BufferedSink {
+        encode(scratch)
         drainScratch()
         return this
     }
+
+    @Throws(IOException::class)
+    override fun write(source: ByteArray): BufferedSink =
+        staged { it.write(source) }
 
     @Throws(IOException::class)
     override fun write(
         source: ByteArray,
         offset: Int,
         byteCount: Int,
-    ): BufferedSink {
-        scratch.write(source, offset, byteCount)
-        drainScratch()
-        return this
-    }
+    ): BufferedSink = staged { it.write(source, offset, byteCount) }
 
     @Throws(IOException::class)
     override fun writeAll(source: Source): Long {
@@ -157,32 +161,21 @@ internal class TeeSink(
     }
 
     @Throws(IOException::class)
-    override fun writeUtf8(string: String): BufferedSink {
-        scratch.writeUtf8(string)
-        drainScratch()
-        return this
-    }
+    override fun writeUtf8(string: String): BufferedSink =
+        staged { it.writeUtf8(string) }
 
     @Throws(IOException::class)
     override fun writeUtf8(
         string: String,
         beginIndex: Int,
         endIndex: Int,
-    ): BufferedSink {
-        scratch.writeUtf8(string, beginIndex, endIndex)
-        drainScratch()
-        return this
-    }
+    ): BufferedSink = staged { it.writeUtf8(string, beginIndex, endIndex) }
 
     @Throws(IOException::class)
     override fun writeString(
         string: String,
         charset: Charset,
-    ): BufferedSink {
-        scratch.writeString(string, charset)
-        drainScratch()
-        return this
-    }
+    ): BufferedSink = staged { it.writeString(string, charset) }
 
     @Throws(IOException::class)
     override fun outputStream(): OutputStream {

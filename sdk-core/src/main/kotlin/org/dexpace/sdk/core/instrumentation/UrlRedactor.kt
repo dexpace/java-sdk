@@ -169,29 +169,19 @@ public object UrlRedactor {
     ) {
         if (pair.isEmpty()) return
         val eq = pair.indexOf('=')
-        val encodedName: String
-        val hasValue: Boolean
-        val encodedValue: String
         if (eq < 0) {
-            encodedName = pair
-            hasValue = false
-            encodedValue = ""
-        } else {
-            encodedName = pair.substring(0, eq)
-            hasValue = true
-            encodedValue = pair.substring(eq + 1)
+            // Bare name with no '=' — emit verbatim; there is no value to redact.
+            out.append(pair)
+            return
         }
 
-        val allowed = allowedLower.contains(safeDecode(encodedName).lowercase())
-
+        val encodedName = pair.substring(0, eq)
         out.append(encodedName)
-        if (hasValue) {
-            out.append('=')
-            if (allowed) {
-                out.append(encodedValue)
-            } else {
-                out.append(REDACTED_ENCODED)
-            }
+        out.append('=')
+        if (allowedLower.contains(safeDecode(encodedName).lowercase())) {
+            out.append(pair.substring(eq + 1))
+        } else {
+            out.append(REDACTED_ENCODED)
         }
     }
 

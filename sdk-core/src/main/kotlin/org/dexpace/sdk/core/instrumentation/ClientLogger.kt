@@ -141,9 +141,16 @@ public class ClientLogger private constructor(
      * Equivalent to SLF4J `Logger.isEnabledForLevel(Level)`; named `canLog` to read naturally
      * at call sites such as `if (logger.canLog(LogLevel.VERBOSE)) { … }`.
      */
-    public fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(toSlf4j(level))
+    public fun canLog(level: LogLevel): Boolean = slf4j.isEnabledForLevel(slf4jLevel(level))
 
-    internal fun slf4jLevel(level: LogLevel): Level = toSlf4j(level)
+    internal fun slf4jLevel(level: LogLevel): Level =
+        when (level) {
+            LogLevel.ERROR -> Level.ERROR
+            LogLevel.WARNING -> Level.WARN
+            LogLevel.INFO -> Level.INFO
+            // SLF4J has no VERBOSE; map to DEBUG (the closest convention).
+            LogLevel.VERBOSE -> Level.DEBUG
+        }
 
     /**
      * One-shot guard for the [warnDroppedEventFieldOnce] diagnostic. The misuse it flags — a
@@ -175,15 +182,6 @@ public class ClientLogger private constructor(
             eventNameTag,
         )
     }
-
-    private fun toSlf4j(level: LogLevel): Level =
-        when (level) {
-            LogLevel.ERROR -> Level.ERROR
-            LogLevel.WARNING -> Level.WARN
-            LogLevel.INFO -> Level.INFO
-            // SLF4J has no VERBOSE; map to DEBUG (the closest convention).
-            LogLevel.VERBOSE -> Level.DEBUG
-        }
 }
 
 /**
