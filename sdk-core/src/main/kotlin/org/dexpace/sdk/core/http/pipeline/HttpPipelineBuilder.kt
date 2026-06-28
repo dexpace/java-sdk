@@ -113,7 +113,7 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
      */
     public fun build(): HttpPipeline {
         val ordered = steps.flatten()
-        return HttpPipeline(httpClient, Array(ordered.size) { ordered[it] })
+        return HttpPipeline(httpClient, ordered.toTypedArray())
     }
 
     public companion object {

@@ -56,7 +56,7 @@ public class AsyncHttpPipeline internal constructor(
                 Futures.failed(e)
             }
         }
-        val state = AsyncPipelineCallState(this, request, httpClient)
+        val state = AsyncPipelineCallState(this, request)
         return AsyncPipelineNext(state).processAsync()
     }
 

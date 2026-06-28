@@ -12,8 +12,7 @@ import org.dexpace.sdk.core.http.request.Request
 
 /**
  * Per-call mutable cursor over a [HttpPipeline]'s steps array. Holds the index of the
- * next step to invoke, the originating [Request], and a reference to the [HttpClient] used
- * when the cursor reaches the end.
+ * next step to invoke and the originating [Request].
  *
  * Cloned via [copy] (exposed to user code through [PipelineNext.copy]) so retry / redirect
  * steps can re-drive the downstream chain. Cloning copies the current index — the new
@@ -27,7 +26,6 @@ import org.dexpace.sdk.core.http.request.Request
 internal class PipelineCallState internal constructor(
     val pipeline: HttpPipeline,
     initialRequest: Request,
-    val httpClient: HttpClient,
     private var index: Int = 0,
 ) {
     /**
@@ -51,5 +49,5 @@ internal class PipelineCallState internal constructor(
     }
 
     /** Returns an independent state cloned at the current cursor position. */
-    fun copy(): PipelineCallState = PipelineCallState(pipeline, request, httpClient, index)
+    fun copy(): PipelineCallState = PipelineCallState(pipeline, request, index)
 }

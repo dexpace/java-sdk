@@ -88,7 +88,7 @@ class HttpPipelineTest {
         val order = mutableListOf<String>()
         val pipeline =
             HttpPipelineBuilder(client)
-                // Add in reverse-of-stage order to prove the builder sorts by Stage.order.
+                // Add in reverse declaration order to prove the builder emits in Stage declaration order.
                 .append(TaggingStep(Stage.PRE_SEND, "pre-send", order))
                 .append(TaggingStep(Stage.POST_AUTH, "post-auth", order))
                 .append(TaggingStep(Stage.PRE_AUTH, "pre-auth", order))

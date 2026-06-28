@@ -9,12 +9,12 @@
 
 package org.dexpace.sdk.core.http.pipeline
 
+import org.dexpace.sdk.core.client.AsyncHttpClient
+import org.dexpace.sdk.core.client.asBlocking
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
-import org.dexpace.sdk.core.util.Futures
 import java.io.InterruptedIOException
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
 
@@ -120,25 +120,5 @@ private fun sendInterruptibly(
  * The blocking wait honours `Thread.interrupt()`: interrupting the calling thread restores the
  * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException].
  */
-public fun AsyncHttpPipeline.toBlocking(): HttpPipeline {
-    val async = this
-    return HttpPipeline.of { request ->
-        val future = async.sendAsync(request)
-        try {
-            future.get()
-        } catch (ie: InterruptedException) {
-            // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
-            // the in-flight send, and surface an InterruptedIOException so the caller's I/O
-            // error handling terminates cleanly.
-            Thread.currentThread().interrupt()
-            future.cancel(true)
-            val ioe = InterruptedIOException("Interrupted while waiting for response")
-            ioe.initCause(ie)
-            throw ioe
-        } catch (ee: ExecutionException) {
-            // `get()` wraps exceptional completion in ExecutionException; unwrap so callers'
-            // `catch (IOException)` sees the original failure rather than the JDK wrapper.
-            throw Futures.unwrap(ee)
-        }
-    }
-}
+public fun AsyncHttpPipeline.toBlocking(): HttpPipeline =
+    HttpPipeline.of(AsyncHttpClient { sendAsync(it) }.asBlocking())

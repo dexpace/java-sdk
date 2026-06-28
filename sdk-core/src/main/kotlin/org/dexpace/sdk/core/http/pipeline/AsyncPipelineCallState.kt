@@ -7,13 +7,11 @@
 
 package org.dexpace.sdk.core.http.pipeline
 
-import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.request.Request
 
 /**
  * Per-call mutable cursor over an [AsyncHttpPipeline]'s steps array. Async counterpart of
- * [PipelineCallState]: holds the index of the next step to invoke, the in-flight [Request],
- * and a reference to the [AsyncHttpClient] used when the cursor reaches the end.
+ * [PipelineCallState]: holds the index of the next step to invoke and the in-flight [Request].
  *
  * Cloned via [copy] (exposed to user code through [AsyncPipelineNext.copy]) so async retry /
  * redirect steps can re-drive the downstream chain. Cloning copies the current index — the
@@ -24,7 +22,6 @@ import org.dexpace.sdk.core.http.request.Request
 internal class AsyncPipelineCallState internal constructor(
     val pipeline: AsyncHttpPipeline,
     initialRequest: Request,
-    val httpClient: AsyncHttpClient,
     private var index: Int = 0,
 ) {
     /**
@@ -42,5 +39,5 @@ internal class AsyncPipelineCallState internal constructor(
     }
 
     /** Returns an independent state cloned at the current cursor position. */
-    fun copy(): AsyncPipelineCallState = AsyncPipelineCallState(pipeline, request, httpClient, index)
+    fun copy(): AsyncPipelineCallState = AsyncPipelineCallState(pipeline, request, index)
 }

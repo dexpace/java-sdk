@@ -34,7 +34,7 @@ public class AsyncPipelineNext internal constructor(private val state: AsyncPipe
         val nextStep = state.advance()
         return try {
             if (nextStep == null) {
-                state.httpClient.executeAsync(state.request)
+                state.pipeline.httpClient.executeAsync(state.request)
             } else {
                 nextStep.processAsync(state.request, this)
             }
