@@ -1176,6 +1176,65 @@ public final class org/dexpace/sdk/core/http/request/Method : java/lang/Enum {
 	public static fun values ()[Lorg/dexpace/sdk/core/http/request/Method;
 }
 
+public final class org/dexpace/sdk/core/http/request/MultipartBody : org/dexpace/sdk/core/http/request/RequestBody {
+	public static final field Companion Lorg/dexpace/sdk/core/http/request/MultipartBody$Companion;
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public fun contentLength ()J
+	public static final fun generateBoundary ()Ljava/lang/String;
+	public final fun getBoundary ()Ljava/lang/String;
+	public final fun getParts ()Ljava/util/List;
+	public fun isReplayable ()Z
+	public fun mediaType ()Lorg/dexpace/sdk/core/http/common/MediaType;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public fun writeTo (Lorg/dexpace/sdk/core/io/BufferedSink;)V
+}
+
+public final class org/dexpace/sdk/core/http/request/MultipartBody$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun addFile (Ljava/lang/String;Ljava/nio/file/Path;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun addFile (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun addFile (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public static synthetic fun addFile$default (Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun addPart (Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun addPart (Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun addPart (Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public static synthetic fun addPart$default (Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun boundary (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/request/MultipartBody;
+}
+
+public final class org/dexpace/sdk/core/http/request/MultipartBody$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
+	public final fun generateBoundary ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/http/request/MultipartBody$Part {
+	public static final field Companion Lorg/dexpace/sdk/core/http/request/MultipartBody$Part$Companion;
+	public synthetic fun <init> (Ljava/util/List;Lorg/dexpace/sdk/core/http/request/RequestBody;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static final fun file (Ljava/lang/String;Ljava/nio/file/Path;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static final fun file (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static final fun file (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static final fun serialized (Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static final fun serialized (Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+}
+
+public final class org/dexpace/sdk/core/http/request/MultipartBody$Part$Companion {
+	public final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/MultipartBody$Part$Companion;Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public final fun file (Ljava/lang/String;Ljava/nio/file/Path;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public final fun file (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public final fun file (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static synthetic fun file$default (Lorg/dexpace/sdk/core/http/request/MultipartBody$Part$Companion;Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public final fun serialized (Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public final fun serialized (Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+	public static synthetic fun serialized$default (Lorg/dexpace/sdk/core/http/request/MultipartBody$Part$Companion;Ljava/lang/String;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/MultipartBody$Part;
+}
+
 public final class org/dexpace/sdk/core/http/request/Request {
 	public static final field Companion Lorg/dexpace/sdk/core/http/request/Request$Companion;
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URL;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/RequestBody;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
