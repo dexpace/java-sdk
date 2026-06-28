@@ -104,8 +104,7 @@ internal class TeeSink(
      * [requested] and the remaining [tapLimit] budget, clamped to never go negative. The actual
      * copy and [mirrored] advancement stay at each call site.
      */
-    private fun tapAllowance(requested: Long): Long =
-        minOf(requested, (tapLimit - mirrored).coerceAtLeast(0L))
+    private fun tapAllowance(requested: Long): Long = minOf(requested, (tapLimit - mirrored).coerceAtLeast(0L))
 
     @Throws(IOException::class)
     override fun flush() {
@@ -131,8 +130,7 @@ internal class TeeSink(
     }
 
     @Throws(IOException::class)
-    override fun write(source: ByteArray): BufferedSink =
-        staged { it.write(source) }
+    override fun write(source: ByteArray): BufferedSink = staged { it.write(source) }
 
     @Throws(IOException::class)
     override fun write(
@@ -161,8 +159,7 @@ internal class TeeSink(
     }
 
     @Throws(IOException::class)
-    override fun writeUtf8(string: String): BufferedSink =
-        staged { it.writeUtf8(string) }
+    override fun writeUtf8(string: String): BufferedSink = staged { it.writeUtf8(string) }
 
     @Throws(IOException::class)
     override fun writeUtf8(
