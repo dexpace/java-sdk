@@ -90,6 +90,51 @@ private fun singleUseResponseBody(content: String): ResponseBody {
     }
 }
 
+/**
+ * Convenience: build a 200 OK response whose [body] is readable AND whose `close()` increments
+ * [closeCount]. Used to assert page-level closing precisely (each [Page.close] forwards to its
+ * response's `close()`).
+ */
+internal fun closeRecordingResponse(
+    request: Request,
+    closeCount: java.util.concurrent.atomic.AtomicInteger,
+    body: String = "",
+    status: Status = Status.OK,
+    extraHeaders: Map<String, String> = emptyMap(),
+): Response {
+    val headersBuilder = Headers.Builder()
+    extraHeaders.forEach { (k, v) -> headersBuilder.add(k, v) }
+    return Response.builder()
+        .request(request)
+        .protocol(Protocol.HTTP_1_1)
+        .status(status)
+        .headers(headersBuilder.build())
+        .body(closeRecordingBody(body, closeCount))
+        .build()
+}
+
+private fun closeRecordingBody(
+    content: String,
+    closeCount: java.util.concurrent.atomic.AtomicInteger,
+): ResponseBody {
+    val bytes = content.toByteArray(Charsets.UTF_8)
+    return object : ResponseBody() {
+        private var cachedSource: org.dexpace.sdk.core.io.BufferedSource? = null
+
+        override fun mediaType(): org.dexpace.sdk.core.http.common.MediaType? = null
+
+        override fun contentLength(): Long = bytes.size.toLong()
+
+        override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+            cachedSource ?: Io.provider.source(bytes).also { cachedSource = it }
+
+        override fun close() {
+            cachedSource?.close()
+            closeCount.incrementAndGet()
+        }
+    }
+}
+
 /** Install the Okio IoProvider so test response bodies are readable. */
 internal fun installIoProvider() {
     Io.installProvider(OkioIoProvider)

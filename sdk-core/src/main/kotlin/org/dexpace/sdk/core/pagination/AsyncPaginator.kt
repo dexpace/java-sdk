@@ -421,7 +421,7 @@ public class AsyncPaginator<T>
                     }
                     try {
                         val info = strategy.parse(response, initialRequest)
-                        ParsedPage(Page.from(response, info.items), info.nextRequest)
+                        ParsedPage(Page(response, info.items), info.nextRequest)
                     } finally {
                         response.close()
                     }

@@ -26,14 +26,16 @@ public fun interface NextPageFetcher<T> {
  * Lazy, transport-agnostic iteration over a paginated API.
  *
  * `PagedIterable<T>` flattens pages into an `Iterable<T>` for callers that want items, and
- * exposes [byPage] / [pageStream] for callers that want page-level metadata. Pages are pure
- * values ([Page] holds no open response), so every view is leak-free and [byPage] can be
- * collected freely.
+ * exposes [byPage] for callers that want page-level metadata and raw per-page [Response] access.
+ * Each [Page] holds the live transport [Response]; the SDK closes it for you — item-level views
+ * eager-close each page, and [byPage] returns an auto-closing [CloseablePages] view.
  *
  * Construction takes two fetchers: [firstPage] (called once) and [nextPage] (called with the
  * previous page's [Page.nextLink], falling back to [Page.continuationToken], with `nextLink`
- * winning; an empty/blank link ends the stream). The fetcher owns the `Response` it reads —
- * build the page with [Page.from] inside `response.use { … }` so the connection is released.
+ * winning; an empty/blank link ends the stream). Each fetcher builds a `Page` that **owns** its
+ * `Response`: hand the live response to `Page(response, items, …)` and do NOT close it yourself
+ * (no `use { }` in the fetcher) — the SDK releases it via the item path or the [CloseablePages]
+ * view. A fetcher that throws before building the page is still responsible for that response.
  *
  * [maxPages] defaults to `Long.MAX_VALUE`; production callers should set a finite cap.
  */
@@ -74,12 +76,12 @@ public class PagedIterable<T>
         /** Sequential, ordered, unknown-size [Stream] of every item. */
         public fun stream(): Stream<T> = walker(PagingOptions()).itemStream()
 
-        /** Lazy page-level view. Each [iterator] call restarts pagination. Pages are pure values. */
+        /**
+         * Auto-closing page-level view exposing each page's live [Response]. Each call returns a
+         * fresh single-use view and restarts pagination. Wrap it in `use { }` / try-with-resources
+         * so an early break releases the held page (see [CloseablePages]).
+         */
         @JvmOverloads
-        public fun byPage(options: PagingOptions = PagingOptions()): Iterable<Page<T>> =
-            Iterable { walker(options).pages() }
-
-        /** Sequential, ordered, unknown-size [Stream] of every [Page]. */
-        @JvmOverloads
-        public fun pageStream(options: PagingOptions = PagingOptions()): Stream<Page<T>> = walker(options).pageStream()
+        public fun byPage(options: PagingOptions = PagingOptions()): CloseablePages<T> =
+            CloseablePages(walker(options).pages())
     }

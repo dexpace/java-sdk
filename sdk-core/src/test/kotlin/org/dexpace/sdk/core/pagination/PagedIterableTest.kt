@@ -7,13 +7,8 @@
 
 package org.dexpace.sdk.core.pagination
 
-import org.dexpace.sdk.core.http.common.Headers
-import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
-import org.dexpace.sdk.core.http.response.ResponseBody
-import org.dexpace.sdk.core.http.response.Status
 import java.io.IOException
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
@@ -22,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -35,80 +31,155 @@ class PagedIterableTest {
         items: List<T>,
         nextLink: String? = null,
         continuationToken: String? = null,
+        closeCount: AtomicInteger = AtomicInteger(0),
     ): Page<T> =
         Page(
+            closeRecordingResponse(request(), closeCount),
             items = items,
-            statusCode = 200,
-            headers = Headers.builder().build(),
-            request = request(),
             continuationToken = continuationToken,
             nextLink = nextLink,
         )
 
-    private fun closeRecordingResponse(closeCount: AtomicInteger): Response {
-        val body =
-            object : ResponseBody() {
-                override fun mediaType() = null
-
-                override fun contentLength() = -1L
-
-                override fun source() = throw UnsupportedOperationException("not needed")
-
-                override fun close() {
-                    closeCount.incrementAndGet()
-                }
-            }
-        return Response.builder().request(request()).protocol(Protocol.HTTP_1_1)
-            .status(Status.OK).body(body).build()
+    /** Three single-item pages ("p1","p2","p3") sharing one [closes] counter and a raw [body]. */
+    private fun threePageIterable(
+        closes: AtomicInteger,
+        body: String = "",
+    ): PagedIterable<String> {
+        val pages = ArrayDeque(listOf("p1" to "n1", "p2" to "n2", "p3" to null))
+        fun build(): Page<String> {
+            val (item, next) = pages.removeFirst()
+            return Page(
+                closeRecordingResponse(request(), closes, body = body, extraHeaders = mapOf("X-Total" to "9")),
+                listOf(item),
+                nextLink = next,
+            )
+        }
+        return PagedIterable(firstPage = { build() }, nextPage = { _, _ -> build() })
     }
 
     // -------------------------------------------------------------------------
-    // Existing tests (kept)
+    // Close semantics — the heart of the live-Response model
     // -------------------------------------------------------------------------
 
     @Test
-    fun `byPage yields fully-usable pages and closing each response is the fetcher's job`() {
-        val closeCount = AtomicInteger(0)
-        val pages =
-            ArrayDeque(
-                listOf(
-                    "p1" to "n1",
-                    "p2" to null,
-                ),
+    fun `byPage use over all pages closes every page response`() {
+        val closes = AtomicInteger(0)
+        val items = mutableListOf<String>()
+        threePageIterable(closes).byPage().use { pages ->
+            for (p in pages) {
+                items += p.items.single()
+            }
+        }
+        assertEquals(listOf("p1", "p2", "p3"), items)
+        assertEquals(3, closes.get(), "use {} + full iteration must close all 3 page responses")
+    }
+
+    @Test
+    fun `full byPage iteration without use still closes all pages -- last on exhaustion`() {
+        val closes = AtomicInteger(0)
+        for (p in threePageIterable(closes).byPage()) {
+            p.items.single()
+        }
+        assertEquals(3, closes.get(), "the last page must be closed when the source is exhausted")
+    }
+
+    @Test
+    fun `early break without use leaves exactly one page open and close releases it`() {
+        val closes = AtomicInteger(0)
+        val view = threePageIterable(closes).byPage()
+        var seen = 0
+        for (p in view) {
+            seen++
+            if (seen == 2) break // break while page 2 is still current/open
+        }
+        assertEquals(1, closes.get(), "after breaking on page 2 only page 1 (advanced past) is closed")
+
+        view.close()
+        assertEquals(2, closes.get(), "close() must release the still-held page 2")
+
+        view.close()
+        assertEquals(2, closes.get(), "close() is idempotent — no double-close")
+    }
+
+    @Test
+    fun `raw access -- current page response and headers are live inside the loop body`() {
+        val closes = AtomicInteger(0)
+        threePageIterable(closes, body = "raw-bytes").byPage().use { pages ->
+            var idx = 0
+            for (p in pages) {
+                // The current page has not been closed yet: pages closed so far == pages advanced past.
+                assertEquals(idx, closes.get(), "the current page's response must still be open")
+                // Raw access works: headers are readable and the live body can be drained.
+                assertEquals("9", p.headers.values("X-Total").single())
+                val body = p.response.body
+                assertNotNull(body, "current page must expose a live response body")
+                assertEquals("raw-bytes", body.source().use { it.readUtf8() })
+                idx++
+            }
+        }
+        assertEquals(3, closes.get())
+    }
+
+    @Test
+    fun `item iterator partial consume eager-closes the producing page and does not fetch the next`() {
+        val closes = AtomicInteger(0)
+        val nextCalls = AtomicInteger(0)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { Page(closeRecordingResponse(request(), closes), listOf(1, 2, 3), nextLink = "p2") },
+                nextPage = { _, _ ->
+                    nextCalls.incrementAndGet()
+                    Page(closeRecordingResponse(request(), closes), listOf(4, 5, 6))
+                },
             )
+        val first = iterable.iterator().next()
+        assertEquals(1, first)
+        assertEquals(1, closes.get(), "items() must eager-close the page before yielding its items")
+        assertEquals(0, nextCalls.get(), "a partial consume must not fetch the next page")
+    }
+
+    @Test
+    fun `full item iteration closes every page`() {
+        val closes = AtomicInteger(0)
+        val collected = threePageIterable(closes).toList()
+        assertEquals(listOf("p1", "p2", "p3"), collected)
+        assertEquals(3, closes.get(), "the item path must close all 3 pages")
+    }
+
+    @Test
+    fun `byPage builds pages from a response the fetcher does not close`() {
+        // Fetcher hands the live response to Page(...) and does NOT close it; the view closes it.
+        val closes = AtomicInteger(0)
+        val pages = ArrayDeque(listOf("p1" to "n1", "p2" to null))
         val iterable =
             PagedIterable<String>(
                 firstPage = {
-                    closeRecordingResponse(closeCount).use { resp ->
-                        val (item, next) = pages.removeFirst()
-                        Page.from(resp, listOf(item), nextLink = next)
-                    }
+                    val (item, next) = pages.removeFirst()
+                    Page(closeRecordingResponse(request(), closes), listOf(item), nextLink = next)
                 },
                 nextPage = { _, _ ->
-                    closeRecordingResponse(closeCount).use { resp ->
-                        val (item, next) = pages.removeFirst()
-                        Page.from(resp, listOf(item), nextLink = next)
-                    }
+                    val (item, next) = pages.removeFirst()
+                    Page(closeRecordingResponse(request(), closes), listOf(item), nextLink = next)
                 },
             )
-
-        val collected = iterable.byPage().toList()
-        assertEquals(listOf("p1", "p2"), collected.map { it.items.single() })
-        assertEquals(2, closeCount.get())
+        val collected = iterable.byPage().use { it.map { p -> p.items.single() } }
+        assertEquals(listOf("p1", "p2"), collected)
+        assertEquals(2, closes.get(), "the view (not the fetcher) closes each page response")
     }
 
     @Test
     fun `iterator flattens items across pages`() {
+        val closes = AtomicInteger(0)
         val pages = ArrayDeque(listOf("a" to "n", "b" to null))
         val iterable =
             PagedIterable<String>(
                 firstPage = {
                     val (i, n) = pages.removeFirst()
-                    Page(listOf(i), 200, Headers.builder().build(), request(), nextLink = n)
+                    Page(closeRecordingResponse(request(), closes), listOf(i), nextLink = n)
                 },
                 nextPage = { _, _ ->
                     val (i, n) = pages.removeFirst()
-                    Page(listOf(i), 200, Headers.builder().build(), request(), nextLink = n)
+                    Page(closeRecordingResponse(request(), closes), listOf(i), nextLink = n)
                 },
             )
         assertEquals(listOf("a", "b"), iterable.toList())
@@ -213,7 +284,7 @@ class PagedIterableTest {
     fun `null firstPage return yields empty iteration`() {
         val iterable = PagedIterable<Int>(firstPage = { null })
         assertEquals(emptyList(), iterable.toList())
-        assertEquals(emptyList<Page<Int>>(), iterable.byPage().toList())
+        assertEquals(emptyList<Page<Int>>(), iterable.byPage().use { it.toList() })
     }
 
     // -------------------------------------------------------------------------
@@ -270,7 +341,7 @@ class PagedIterableTest {
                 },
             )
         val opts = PagingOptions(offset = 5L, pageSize = 10L)
-        iterable.byPage(opts).toList()
+        iterable.byPage(opts).use { it.toList() }
         assertSame(opts, seenFirst[0], "firstPage must receive the exact PagingOptions passed to byPage")
         assertSame(opts, seenNext[0], "nextPage must receive the exact PagingOptions passed to byPage")
     }
@@ -317,11 +388,19 @@ class PagedIterableTest {
                 firstPageCalls.incrementAndGet()
                 page(listOf(7, 8, 9))
             })
-        val run1 = iterable.byPage().map { it.items }.toList()
-        val run2 = iterable.byPage().map { it.items }.toList()
+        val run1 = iterable.byPage().use { it.map { p -> p.items } }
+        val run2 = iterable.byPage().use { it.map { p -> p.items } }
         assertEquals(listOf(listOf(7, 8, 9)), run1)
         assertEquals(listOf(listOf(7, 8, 9)), run2)
         assertEquals(2, firstPageCalls.get(), "firstPage must be called once per byPage iteration")
+    }
+
+    @Test
+    fun `byPage view is single-use`() {
+        val iterable = PagedIterable<Int>(firstPage = { page(listOf(1)) })
+        val view = iterable.byPage()
+        view.iterator()
+        assertFailsWith<IllegalStateException> { view.iterator() }
     }
 
     // -------------------------------------------------------------------------
@@ -345,7 +424,7 @@ class PagedIterableTest {
     }
 
     // -------------------------------------------------------------------------
-    // Behavior 10: stream() and pageStream() interop
+    // Behavior 10: stream() and byPage().stream() interop
     // -------------------------------------------------------------------------
 
     @Test
@@ -361,16 +440,14 @@ class PagedIterableTest {
     }
 
     @Test
-    fun `pageStream produces pages with correct item content`() {
-        val iterable =
-            PagedIterable<String>(
-                firstPage = { page(listOf("a", "b"), nextLink = "p2") },
-                nextPage = { _, _ -> page(listOf("c")) },
-            )
-        val pages: List<Page<String>> = iterable.pageStream().collect(Collectors.toList())
-        assertEquals(2, pages.size)
-        assertEquals(listOf("a", "b"), pages[0].items)
-        assertEquals(listOf("c"), pages[1].items)
+    fun `byPage stream yields pages with correct item content and closes them`() {
+        val closes = AtomicInteger(0)
+        val pages: List<List<String>> =
+            threePageIterable(closes).byPage().use { view ->
+                view.stream().map { it.items }.collect(Collectors.toList())
+            }
+        assertEquals(listOf(listOf("p1"), listOf("p2"), listOf("p3")), pages)
+        assertEquals(3, closes.get(), "byPage().stream() consumed fully must close all pages")
     }
 
     // -------------------------------------------------------------------------

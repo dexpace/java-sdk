@@ -18,8 +18,8 @@ import java.util.stream.Stream
  * A `Paginator` executes [initialRequest] against [httpClient], delegates response parsing
  * to [strategy], and exposes the result two ways: as a stream of items — [iterateAll] (a lazy
  * `Iterable<T>`) / [streamAll] (a Java 8 `Stream<T>`) — or as a stream of whole pages —
- * [byPage] (a lazy `Iterable<Page<T>>`) / [pageStream] (a `Stream<Page<T>>`), where each
- * [Page] carries its items plus per-page status, headers, and request. Pagination state —
+ * [byPage] (an auto-closing [CloseablePages] view), where each [Page] holds the live transport
+ * [Response] plus its materialized items and per-page status/headers/request. Pagination state —
  * cursor, page number, link URL — is derived from each response by the strategy; the
  * paginator itself stays stateless.
  *
@@ -49,11 +49,14 @@ import java.util.stream.Stream
  *
  * ## Response lifecycle
  *
- * Each [Response] returned by the transport is closed by the paginator after the strategy
- * has parsed it. Strategies MUST read everything they need from the response synchronously
- * inside `parse(...)`; they MUST NOT retain references to the response or its body past
- * the call. The items in the returned [Page] are owned by the strategy (typically already
- * deserialized into application objects) and outlive the response.
+ * Each [Page] retains the live [Response] so callers can inspect raw per-page status/headers
+ * via [byPage]. Strategies MUST still read the body synchronously inside `parse(...)` (the body
+ * is single-use, so they typically drain it to materialize the page's items) and MUST NOT retain
+ * the response or its body past the call. The SDK closes each page's response for you: the item
+ * views ([iterateAll]/[streamAll]) eager-close each page after copying its items, and [byPage]
+ * returns an auto-closing [CloseablePages] view. The materialized items outlive the response. A
+ * response is closed immediately if `parse(...)` throws, so a failing strategy never strands a
+ * connection.
  *
  * ## Thread-safety
  *
@@ -97,11 +100,12 @@ public class Paginator<T>
         /** Sequential, ordered, unknown-size [Stream] over all items. */
         public fun streamAll(): Stream<T> = walker().itemStream()
 
-        /** Lazy page-level view exposing per-page status/headers/items. Each call restarts pagination. */
-        public fun byPage(): Iterable<Page<T>> = Iterable { walker().pages() }
-
-        /** Sequential, ordered, unknown-size [Stream] over all pages. */
-        public fun pageStream(): Stream<Page<T>> = walker().pageStream()
+        /**
+         * Auto-closing page-level view exposing each page's live [Response] (raw status/headers).
+         * Each call restarts pagination and returns a fresh single-use view; wrap it in `use { }` /
+         * try-with-resources so an early break releases the held page (see [CloseablePages]).
+         */
+        public fun byPage(): CloseablePages<T> = CloseablePages(walker().pages())
 
         private fun walker(): PageWalker<T> {
             var nextRequest: Request? = initialRequest
@@ -110,13 +114,15 @@ public class Paginator<T>
                     val request = nextRequest ?: return@PageWalker null
                     nextRequest = null
                     val response: Response = httpClient.execute(request)
-                    try {
-                        val info: PageInfo<T> = strategy.parse(response, initialRequest)
-                        nextRequest = info.nextRequest
-                        Page.from(response, info.items)
-                    } finally {
-                        response.close()
-                    }
+                    val info: PageInfo<T> =
+                        try {
+                            strategy.parse(response, initialRequest)
+                        } catch (t: Throwable) {
+                            response.close() // parse failed → this page never becomes a Page; release it now
+                            throw t
+                        }
+                    nextRequest = info.nextRequest
+                    Page(response, info.items)
                 },
                 maxPages = maxPages,
             )

@@ -20,6 +20,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 class PageTest {
     @BeforeTest fun setup() = installIoProvider()
@@ -29,22 +30,12 @@ class PageTest {
             Method.GET,
         ).url(URL("https://api.example.com/items")).build()
 
-    @Test
-    fun `explicit constructor exposes fields and defaults links to null`() {
-        val page =
-            Page(items = listOf("a", "b"), statusCode = 200, headers = Headers.builder().build(), request = request())
-        assertEquals(listOf("a", "b"), page.items)
-        assertEquals(200, page.statusCode)
-        assertNull(page.nextLink)
-        assertNull(page.continuationToken)
-        assertNull(page.firstLink)
-        assertNull(page.previousLink)
-        assertNull(page.lastLink)
-    }
-
-    @Test
-    fun `from snapshots status, headers and request and does not close the response`() {
-        val closeCount = AtomicInteger(0)
+    private fun response(
+        closeCount: AtomicInteger,
+        statusCode: Int = 200,
+        headerName: String = "X-Total",
+        headerValue: String = "9",
+    ): Response {
         val body =
             object : ResponseBody() {
                 override fun mediaType() = null
@@ -57,21 +48,61 @@ class PageTest {
                     closeCount.incrementAndGet()
                 }
             }
-        val response =
-            Response.builder()
-                .request(request())
-                .protocol(Protocol.HTTP_1_1)
-                .status(Status.fromCode(204))
-                .headers(Headers.builder().add("X-Total", "9").build())
-                .body(body)
-                .build()
+        return Response.builder()
+            .request(request())
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.fromCode(statusCode))
+            .headers(Headers.builder().add(headerName, headerValue).build())
+            .body(body)
+            .build()
+    }
 
-        val page = Page.from(response, items = listOf(1, 2, 3), nextLink = "https://api.example.com/items?page=2")
+    @Test
+    fun `holds the live response and derives status, headers, request from it`() {
+        val closeCount = AtomicInteger(0)
+        val response = response(closeCount, statusCode = 204)
+        val page = Page(response, items = listOf(1, 2, 3), nextLink = "https://api.example.com/items?page=2")
 
+        assertSame(response, page.response)
         assertEquals(204, page.statusCode)
         assertEquals(listOf("9"), page.headers.values("X-Total"))
-        assertEquals("https://api.example.com/items", page.request?.url.toString())
+        assertEquals("https://api.example.com/items", page.request.url.toString())
         assertEquals("https://api.example.com/items?page=2", page.nextLink)
-        assertEquals(0, closeCount.get()) // from() must NOT close the response
+        assertEquals(0, closeCount.get()) // constructing a Page must NOT close the response
+    }
+
+    @Test
+    fun `close closes the underlying response`() {
+        val closeCount = AtomicInteger(0)
+        val page = Page(response(closeCount), items = listOf("a"))
+
+        assertEquals(0, closeCount.get())
+        page.close()
+        assertEquals(1, closeCount.get())
+    }
+
+    @Test
+    fun `items, statusCode, headers and request survive close`() {
+        val closeCount = AtomicInteger(0)
+        val page = Page(response(closeCount, statusCode = 201), items = listOf("a", "b"))
+
+        page.close()
+
+        // Materialized + derived state is still readable after close; only the raw body is released.
+        assertEquals(listOf("a", "b"), page.items)
+        assertEquals(201, page.statusCode)
+        assertEquals(listOf("9"), page.headers.values("X-Total"))
+        assertEquals("https://api.example.com/items", page.request.url.toString())
+        assertEquals(1, closeCount.get())
+    }
+
+    @Test
+    fun `link and token fields default to null`() {
+        val page = Page(response(AtomicInteger(0)), items = listOf("a", "b"))
+        assertNull(page.continuationToken)
+        assertNull(page.nextLink)
+        assertNull(page.previousLink)
+        assertNull(page.firstLink)
+        assertNull(page.lastLink)
     }
 }

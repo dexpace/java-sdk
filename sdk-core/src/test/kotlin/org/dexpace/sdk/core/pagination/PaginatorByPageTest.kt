@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.pagination
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,30 +35,46 @@ class PaginatorByPageTest {
     }
 
     @Test
-    fun `byPage exposes one rich page per HTTP exchange with status and items`() {
+    fun `byPage exposes one rich page per HTTP exchange with live response, then closes each`() {
+        val closes = AtomicInteger(0)
         val client = StubHttpClient()
-        client.on("https://api.example.com/items") { req -> textResponse(req, "items=a,b\ncursor=abc") }
-        client.on("https://api.example.com/items?cursor=abc") { req -> textResponse(req, "items=c\ncursor=") }
+        client.on("https://api.example.com/items") { req -> closeRecordingResponse(req, closes, "items=a,b\ncursor=abc") }
+        client.on("https://api.example.com/items?cursor=abc") { req -> closeRecordingResponse(req, closes, "items=c\ncursor=") }
         val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
 
-        val pages = paginator.byPage().toList()
+        val collectedItems = mutableListOf<List<String>>()
+        val collectedStatuses = mutableListOf<Int>()
+        paginator.byPage().use { pages ->
+            var idx = 0
+            for (p in pages) {
+                // The current page's response is live inside the loop body (not closed yet).
+                assertEquals(idx, closes.get(), "current page's response must still be open")
+                // Raw access: the live Response and per-page status are readable.
+                assertEquals(200, p.response.status.code)
+                collectedStatuses += p.statusCode
+                collectedItems += p.items
+                idx++
+            }
+        }
 
-        assertEquals(2, pages.size)
-        assertEquals(listOf("a", "b"), pages[0].items)
-        assertEquals(listOf("c"), pages[1].items)
-        assertEquals(200, pages[0].statusCode)
-        assertEquals(200, pages[1].statusCode)
+        assertEquals(listOf(listOf("a", "b"), listOf("c")), collectedItems)
+        assertEquals(listOf(200, 200), collectedStatuses)
         assertEquals(2, client.callCount)
+        assertEquals(2, closes.get(), "each page's response must be closed after the use-block")
     }
 
     @Test
-    fun `pageStream yields one page per HTTP exchange`() {
+    fun `byPage stream yields one page per HTTP exchange and closes each`() {
+        val closes = AtomicInteger(0)
         val client = StubHttpClient()
-        client.on("https://api.example.com/items") { req -> textResponse(req, "items=a,b\ncursor=abc") }
-        client.on("https://api.example.com/items?cursor=abc") { req -> textResponse(req, "items=c\ncursor=") }
+        client.on("https://api.example.com/items") { req -> closeRecordingResponse(req, closes, "items=a,b\ncursor=abc") }
+        client.on("https://api.example.com/items?cursor=abc") { req -> closeRecordingResponse(req, closes, "items=c\ncursor=") }
         val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
 
-        assertEquals(2L, paginator.pageStream().count())
+        val count = paginator.byPage().use { it.stream().count() }
+
+        assertEquals(2L, count)
         assertEquals(2, client.callCount)
+        assertEquals(2, closes.get(), "fully consuming byPage().stream() must close every page response")
     }
 }
