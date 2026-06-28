@@ -101,22 +101,16 @@ public abstract class AsyncAuthStep : AsyncHttpStep {
                 return Futures.failed(t)
             }
 
-        return challengeFuture.handle { retryRequest, hookError ->
-            HookOutcome(retryRequest, hookError)
-        }.thenCompose { outcome ->
-            val hookError = outcome.error
+        return challengeFuture.handle<CompletableFuture<Response>> { retryRequest, hookError ->
             if (hookError != null) {
                 response.close()
-                return@thenCompose Futures.failed<Response>(Futures.unwrap(hookError))
+                return@handle Futures.failed<Response>(Futures.unwrap(hookError))
             }
-            val retryRequest = outcome.request ?: return@thenCompose CompletableFuture.completedFuture(response)
+            if (retryRequest == null) return@handle CompletableFuture.completedFuture(response)
             response.close()
             next.copy().processAsync(retryRequest)
-        }
+        }.thenCompose { it }
     }
-
-    /** Carrier so the challenge future's outcome (value or error) survives [CompletableFuture.handle]. */
-    private class HookOutcome(val request: Request?, val error: Throwable?)
 
     /**
      * Returns a future of [request] with the credential's auth header attached. Subclasses
