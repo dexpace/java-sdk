@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.pipeline.AsyncPipelineNext
-import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
@@ -103,30 +102,20 @@ public open class DefaultAsyncRetryStep
         private val clock: Clock = Clock.SYSTEM,
         internal val logger: ClientLogger = ClientLogger(DefaultAsyncRetryStep::class),
     ) : AsyncRetryStep() {
-        /** Effective options. `maxRetries < 0` is clamped to [DefaultRetryStep.DEFAULT_MAX_RETRIES]. */
-        private val options: HttpRetryOptions = clampOptions(options)
-
         /**
-         * The [options]' exponential parameters as a [RetrySettings] view so the shared
-         * [BackoffCalculator] computes this stack's schedule — built once, exactly as
-         * [DefaultRetryStep.backoffSettings]. `totalTimeout = ZERO` disables the deadline cap.
-         * Building it eagerly validates the delay magnitudes at construction.
+         * The stateless retry policy shared with [DefaultRetryStep]: the clamped [HttpRetryOptions]
+         * (`maxRetries < 0` → [DefaultRetryStep.DEFAULT_MAX_RETRIES]), the [RetrySettings] backoff
+         * view, and the re-sendability / predicate / delay helpers both stacks share. Built once;
+         * immutable after construction, so it is safe to share across this step's concurrent calls.
          */
-        private val backoffSettings: RetrySettings =
-            RetrySettings.builder()
-                .initialDelay(this.options.baseDelay)
-                .maxDelay(this.options.maxDelay)
-                .delayMultiplier(RetrySettings.DEFAULT_DELAY_MULTIPLIER)
-                .jitter(RetrySettings.DEFAULT_JITTER)
-                .totalTimeout(Duration.ZERO)
-                .build()
+        private val support = RetryPolicySupport(options, logger)
 
         override fun processAsync(
             request: Request,
             next: AsyncPipelineNext,
         ): CompletableFuture<Response> {
             val result = CompletableFuture<Response>()
-            val driver = RetryDriver(next, isRetrySafe(request), result)
+            val driver = RetryDriver(next, support.isRetrySafe(request), result)
             driver.drive()
             return result
         }
@@ -234,7 +223,7 @@ public open class DefaultAsyncRetryStep
                     try {
                         val retry =
                             retrySafe &&
-                                tryCount < options.maxRetries &&
+                                tryCount < support.options.maxRetries &&
                                 shouldRetryResponse(response)
                         if (!retry) {
                             // Not retrying: hand the still-open response to the caller, who then
@@ -288,14 +277,14 @@ public open class DefaultAsyncRetryStep
                 // pre-classification interrupt carve-out.
                 if (exception is InterruptedIOException || exception is InterruptedException) {
                     Thread.currentThread().interrupt()
-                    failTerminally(asInterruptedIo(exception))
+                    failTerminally(support.asInterruptedIo(exception))
                     return
                 }
                 val delay: Duration =
                     try {
                         val retry =
                             retrySafe &&
-                                tryCount < options.maxRetries &&
+                                tryCount < support.options.maxRetries &&
                                 shouldRetryException(exception)
                         if (!retry) {
                             failTerminally(exception)
@@ -371,12 +360,12 @@ public open class DefaultAsyncRetryStep
 
             private fun shouldRetryResponse(response: Response): Boolean {
                 val condition = HttpRetryCondition(response, null, tryCount, (suppressed ?: emptyList()))
-                return invokeShouldRetry(options.shouldRetryCondition, condition)
+                return support.invokeShouldRetry(support.options.shouldRetryCondition, condition)
             }
 
             private fun shouldRetryException(exception: Exception): Boolean {
                 val condition = HttpRetryCondition(null, exception, tryCount, (suppressed ?: emptyList()))
-                return invokeShouldRetry(options.shouldRetryException, condition)
+                return support.invokeShouldRetry(support.options.shouldRetryException, condition)
             }
 
             // --------------- Logging ---------------
@@ -405,53 +394,6 @@ public open class DefaultAsyncRetryStep
             }
         }
 
-        // --------------- Shared helpers (stateless across calls) ---------------
-
-        private fun isRetrySafe(request: Request): Boolean {
-            val body = request.body ?: return request.method in IDEMPOTENT_METHODS
-            return body.isReplayable()
-        }
-
-        /**
-         * Normalises an interrupt-signalling exception to [InterruptedIOException]: an
-         * [InterruptedIOException] is returned as-is; a bare [InterruptedException] is wrapped with
-         * the original attached as its cause. Mirrors [DefaultRetryStep]'s helper of the same name.
-         */
-        private fun asInterruptedIo(exception: Exception): InterruptedIOException =
-            when (exception) {
-                is InterruptedIOException -> exception
-                else -> InterruptedIOException("retry interrupted").apply { initCause(exception) }
-            }
-
-        private fun invokeShouldRetry(
-            predicate: HttpRetryConditionPredicate,
-            condition: HttpRetryCondition,
-        ): Boolean =
-            try {
-                predicate.shouldRetry(condition)
-            } catch (t: Throwable) {
-                @Suppress("InstanceOfCheckForException")
-                if (t is Error) throw t
-                throw IllegalStateException("shouldRetry predicate threw", t)
-            }
-
-        private fun invokeDelayFromCondition(condition: HttpRetryCondition): Duration? =
-            try {
-                options.delayFromCondition.delayFor(condition)
-            } catch (t: Throwable) {
-                @Suppress("InstanceOfCheckForException")
-                if (t is Error) throw t
-                logger.atWarning()
-                    .event("http.retry.delay_override_failed")
-                    .field("error.type", t::class.java.simpleName ?: "Throwable")
-                    .cause(t)
-                    .log()
-                null
-            }
-
-        private fun backoffOrFixed(tryCount: Int): Duration =
-            options.fixedDelay ?: BackoffCalculator.computeDelay(tryCount + 1, backoffSettings)
-
         // --------------- Delay computation (subclass extension points) ---------------
 
         /**
@@ -467,9 +409,9 @@ public open class DefaultAsyncRetryStep
          * by the loop's close-on-throw guard).
          */
         protected open fun computeResponseDelay(condition: HttpRetryCondition): Duration {
-            invokeDelayFromCondition(condition)?.let { return it }
+            support.invokeDelayFromCondition(condition)?.let { return it }
             condition.response?.let { retryAfterFromHeaders(it) }?.let { return it }
-            return backoffOrFixed(condition.tryCount)
+            return support.backoffOrFixed(condition.tryCount)
         }
 
         /**
@@ -478,8 +420,8 @@ public open class DefaultAsyncRetryStep
          * with the same invariants. Mirrors [DefaultRetryStep.computeExceptionDelay].
          */
         protected open fun computeExceptionDelay(condition: HttpRetryCondition): Duration {
-            invokeDelayFromCondition(condition)?.let { return it }
-            return backoffOrFixed(condition.tryCount)
+            support.invokeDelayFromCondition(condition)?.let { return it }
+            return support.backoffOrFixed(condition.tryCount)
         }
 
         /**
@@ -490,7 +432,7 @@ public open class DefaultAsyncRetryStep
          */
         protected open fun retryAfterFromHeaders(response: Response): Duration? {
             val now = clock.now()
-            for (name in options.retryAfterHeaders) {
+            for (name in support.options.retryAfterHeaders) {
                 val raw = response.headers.get(name) ?: continue
                 RetryAfterParser.parseHeaderValue(name, raw, now)?.let { return it }
             }
@@ -514,32 +456,8 @@ public open class DefaultAsyncRetryStep
             }
         }
 
-        private fun clampOptions(opts: HttpRetryOptions): HttpRetryOptions {
-            if (opts.maxRetries >= 0) return opts
-            logger.atVerbose()
-                .event("http.retry.maxRetries_clamped")
-                .field("http.retry.max_retries.requested", opts.maxRetries.toLong())
-                .field("http.retry.max_retries.applied", DefaultRetryStep.DEFAULT_MAX_RETRIES.toLong())
-                .log()
-            return HttpRetryOptions(
-                maxRetries = DefaultRetryStep.DEFAULT_MAX_RETRIES,
-                baseDelay = opts.baseDelay,
-                maxDelay = opts.maxDelay,
-                fixedDelay = opts.fixedDelay,
-                retryAfterHeaders = opts.retryAfterHeaders,
-                shouldRetryCondition = opts.shouldRetryCondition,
-                shouldRetryException = opts.shouldRetryException,
-                delayFromCondition = opts.delayFromCondition,
-            )
-        }
-
         public companion object {
             // Nanoseconds in one millisecond — converts monotonic deltas to ms for log events.
             private const val NANOS_PER_MILLI = 1_000_000L
-
-            // Methods safe to re-send regardless of body replayability (idempotent per RFC 9110).
-            // Mirrors DefaultRetryStep.IDEMPOTENT_METHODS / RetrySettings.DEFAULT_RETRYABLE_METHODS.
-            private val IDEMPOTENT_METHODS: Set<Method> =
-                setOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE)
         }
     }
