@@ -13,9 +13,12 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
+import org.slf4j.event.Level
 import java.io.Closeable
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
@@ -197,6 +200,26 @@ class SseStreamTest {
         // Unlike automatic end-of-stream cleanup, an explicit close() is the caller asking to
         // release, so a release failure is propagated to them.
         assertFailsWith<IOException> { stream.close() }
+    }
+
+    @Test
+    fun `a close failure during end-of-stream cleanup is logged at warning`() {
+        val fakeSlf4j = FakeSlf4jLogger("test.sse")
+        val stream =
+            SseStream.fromReader(
+                ServerSentEventReader(source("data: a\n\n")),
+                Closeable { throw IOException("release failed") },
+                ClientLogger.forTesting(fakeSlf4j),
+            )
+
+        val events = stream.toList()
+
+        // Iteration still completes with the delivered events...
+        assertEquals(listOf("a"), events.single().data)
+        // ...and the otherwise-dropped close failure is surfaced as a WARN rather than vanishing.
+        val warning = fakeSlf4j.records.single { it.level == Level.WARN }
+        assertEquals("sse.close.failed", warning.keyValues.single { it.key == "event" }.value)
+        assertTrue(warning.cause is IOException)
     }
 
     @Test

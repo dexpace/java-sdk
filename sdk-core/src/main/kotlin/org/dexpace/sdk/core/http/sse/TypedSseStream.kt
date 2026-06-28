@@ -69,21 +69,6 @@ public class TypedSseStream<T>(
         events.close()
     }
 
-    /**
-     * Releases the underlying [SseStream] on an iterator-driven terminal path (a
-     * [SseEventMapper.Result.Done] sentinel or a mapper failure), where a failure to release must
-     * not become the iteration's outcome. A close failure is attached to [primary] as a suppressed
-     * throwable when a mapper error is in flight, and otherwise dropped (the values were already
-     * delivered). Mirrors [SseStream]'s own end-of-stream cleanup.
-     */
-    private fun releaseQuietly(primary: Throwable?) {
-        try {
-            events.close()
-        } catch (closeError: Throwable) {
-            primary?.addSuppressed(closeError)
-        }
-    }
-
     private inner class MappingIterator(
         private val raw: Iterator<ServerSentEvent>,
     ) : AbstractIterator<T>() {
@@ -100,8 +85,9 @@ public class TypedSseStream<T>(
                     } catch (mapperError: Throwable) {
                         // A mapper failure (decode error, mapped error-envelope) releases the
                         // underlying stream before propagating, so a consumer iterating without
-                        // use{} never strands the connection; a release failure is suppressed.
-                        releaseQuietly(mapperError)
+                        // use{} never strands the connection; a release failure is suppressed onto
+                        // the mapper error. Delegated so close-failure handling lives in one place.
+                        events.releaseQuietly(mapperError)
                         throw mapperError
                     }
                 when (result) {
@@ -112,10 +98,11 @@ public class TypedSseStream<T>(
                     SseEventMapper.Result.Skip -> continue
                     SseEventMapper.Result.Done -> {
                         // Clean end at the done-sentinel: the values before it were already
-                        // delivered, so a release failure here is dropped rather than discarding
-                        // them (an explicit close()/use{} still surfaces a release failure).
+                        // delivered, so a release failure here is logged at WARN and swallowed by
+                        // SseStream rather than discarding them (an explicit close()/use{} still
+                        // surfaces a release failure).
                         done()
-                        releaseQuietly(primary = null)
+                        events.releaseQuietly(primary = null)
                         return
                     }
                 }

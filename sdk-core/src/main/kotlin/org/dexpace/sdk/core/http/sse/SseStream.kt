@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.core.http.sse
 
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.BufferedSource
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
@@ -40,9 +41,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * `close()` is idempotent and propagates to [resource] exactly once. The underlying response
  * `close()` is itself expected to be idempotent, so a redundant [close] here is harmless. A
- * release failure during **automatic** cleanup (clean end-of-stream) is dropped — the events
- * were already delivered, so it must not turn a successful read into a thrown result; a release
- * failure during an **explicit** [close] is propagated to the caller.
+ * release failure during **automatic** cleanup (clean end-of-stream) is logged at `WARN` and
+ * otherwise swallowed — the events were already delivered, so it must not turn a successful read
+ * into a thrown result; a release failure during an **explicit** [close] is propagated to the
+ * caller.
  *
  * **Threading**: not thread-safe for iteration — drive a single iterator from one thread, as
  * with the backing reader. [close] is safe to call from another thread (e.g. to cancel a
@@ -55,10 +57,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @property reader The WHATWG parser driving the byte stream. Owned by this stream.
  * @property resource The response (or body) whose lifecycle this stream governs; closed once
  *   when the stream closes.
+ * @property logger Structured logger used to report a close failure during automatic
+ *   end-of-stream cleanup (where the failure cannot otherwise surface to the caller).
  */
 public class SseStream private constructor(
     private val reader: ServerSentEventReader,
     private val resource: Closeable,
+    private val logger: ClientLogger,
 ) : AutoCloseable, Iterable<ServerSentEvent> {
     private val closed = AtomicBoolean(false)
     private val iteratorTaken = AtomicBoolean(false)
@@ -94,19 +99,28 @@ public class SseStream private constructor(
     }
 
     /**
-     * Releases [resource] exactly once on an iterator-driven terminal path (clean end-of-stream
-     * or a mid-stream reader failure), where the caller is not the one invoking [close] and a
-     * failure to release must not become the iteration's outcome. A close failure is attached to
-     * [primary] as a suppressed throwable when a reader error is in flight, and otherwise dropped
-     * (the events were already delivered). Mirrors the close-on-failure helper in
+     * Releases [resource] exactly once on an iterator-driven terminal path (clean end-of-stream,
+     * a [SseEventMapper.Result.Done] sentinel from a wrapping [TypedSseStream], or a mid-stream
+     * reader/mapper failure), where the caller is not the one invoking [close] and a failure to
+     * release must not become the iteration's outcome. A close failure is attached to [primary] as
+     * a suppressed throwable when an error is in flight; when there is no [primary] to carry it
+     * (a clean terminal path) the failure is logged at `WARN` and swallowed, since the events were
+     * already delivered. Mirrors the close-on-failure helper in
      * [org.dexpace.sdk.core.pipeline.ResponsePipeline].
      */
-    private fun releaseQuietly(primary: Throwable?) {
+    internal fun releaseQuietly(primary: Throwable?) {
         if (!closed.compareAndSet(false, true)) return
         try {
             resource.close()
         } catch (closeError: Throwable) {
-            primary?.addSuppressed(closeError)
+            if (primary != null) {
+                primary.addSuppressed(closeError)
+            } else {
+                logger.atWarning()
+                    .event("sse.close.failed")
+                    .cause(closeError)
+                    .log("Failed to release the SSE response during end-of-stream cleanup")
+            }
         }
     }
 
@@ -133,7 +147,7 @@ public class SseStream private constructor(
             if (event == null) {
                 // Clean end-of-stream: release the response. The events were already delivered, so
                 // a release failure must not turn a successful read into a thrown result — it is
-                // dropped here (an explicit close()/use{} still surfaces a release failure).
+                // logged at WARN and swallowed here (an explicit close()/use{} still surfaces one).
                 done()
                 releaseQuietly(primary = null)
                 return
@@ -166,7 +180,7 @@ public class SseStream private constructor(
         public fun from(
             source: BufferedSource,
             resource: Closeable,
-        ): SseStream = SseStream(ServerSentEventReader(source), resource)
+        ): SseStream = SseStream(ServerSentEventReader(source), resource, ClientLogger(SseStream::class))
 
         /**
          * Opens an [SseStream] over a pre-built [reader], closing [resource] when the stream
@@ -179,6 +193,17 @@ public class SseStream private constructor(
         public fun fromReader(
             reader: ServerSentEventReader,
             resource: Closeable,
-        ): SseStream = SseStream(reader, resource)
+        ): SseStream = SseStream(reader, resource, ClientLogger(SseStream::class))
+
+        /**
+         * Test-only seam: opens a stream over [reader]/[resource] with an injected [logger], so a
+         * test can assert on the `WARN` emitted when end-of-stream cleanup fails to release.
+         */
+        @JvmSynthetic
+        internal fun fromReader(
+            reader: ServerSentEventReader,
+            resource: Closeable,
+            logger: ClientLogger,
+        ): SseStream = SseStream(reader, resource, logger)
     }
 }

@@ -1596,7 +1596,7 @@ public final class org/dexpace/sdk/core/http/sse/SseEventMapper$Result$Value : o
 
 public final class org/dexpace/sdk/core/http/sse/SseStream : java/lang/AutoCloseable, java/lang/Iterable, kotlin/jvm/internal/markers/KMappedMarker {
 	public static final field Companion Lorg/dexpace/sdk/core/http/sse/SseStream$Companion;
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;Ljava/io/Closeable;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;Ljava/io/Closeable;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun close ()V
 	public static final fun from (Lorg/dexpace/sdk/core/io/BufferedSource;Ljava/io/Closeable;)Lorg/dexpace/sdk/core/http/sse/SseStream;
 	public static final fun fromReader (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;Ljava/io/Closeable;)Lorg/dexpace/sdk/core/http/sse/SseStream;
