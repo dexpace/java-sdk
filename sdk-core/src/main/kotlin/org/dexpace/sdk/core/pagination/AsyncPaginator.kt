@@ -284,7 +284,29 @@ public class AsyncPaginator<T>
                     try {
                         ex.execute { drive() }
                     } catch (t: Throwable) {
+                        // The re-entry dispatch was rejected, so drive() will never run again. A
+                        // page staged by the deferred-completion callback would otherwise keep its
+                        // live Response open with nothing left to close it — release it here. No
+                        // other frame is in drive() at this point, so touching pendingPage is safe.
+                        closeStagedPageQuietly()
                         result.completeExceptionally(t)
+                    }
+                }
+            }
+
+            /**
+             * Closes a staged-but-undrained page and clears [pendingPage], swallowing any close
+             * error so it cannot mask the failure that is being propagated. Only safe to call when
+             * no [drive] frame is concurrently touching [pendingPage].
+             */
+            private fun closeStagedPageQuietly() {
+                val staged = pendingPage
+                pendingPage = null
+                if (staged != null) {
+                    try {
+                        staged.page.close()
+                    } catch (_: Throwable) {
+                        // Best-effort release; the original failure is what propagates.
                     }
                 }
             }
@@ -323,14 +345,16 @@ public class AsyncPaginator<T>
             private fun step(): Step {
                 val staged = pendingPage
                 if (staged != null) {
-                    pendingPage = null
                     // If the result was settled from the outside (cancelled, timed out, or
                     // completed by the caller), drop the staged page undrained instead of
                     // emitting it to the consumer — but close it so its Response is not leaked.
+                    // The result is already settled, so a throwing close cannot be reported:
+                    // release it best-effort and swallow any error.
                     if (result.isDone) {
-                        staged.page.close() // dropped undrained → release its Response
+                        closeStagedPageQuietly() // dropped undrained → release its Response
                         return Step.DONE
                     }
+                    pendingPage = null
                     return if (drainPage(staged)) Step.CONTINUE else Step.DONE
                 }
                 val request = nextRequest
@@ -381,20 +405,33 @@ public class AsyncPaginator<T>
             /**
              * Delivers a parsed page to the page sink (which may emit the page's items or the
              * whole page), then schedules the next request read from the [ParsedPage]. The page's
-             * [Response] is closed in a `finally`, so it is released whether the sink succeeds or
-             * throws. Returns `true` to continue driving, `false` if the sink threw (walk aborted).
+             * [Response] is always released, whether the sink succeeds or throws; a failing
+             * `close()` is reported through the result future rather than escaping the trampoline.
+             * Returns `true` to continue driving, `false` if the sink threw (walk aborted).
              */
             private fun drainPage(page: ParsedPage<T>): Boolean {
+                val sinkThrew: Boolean =
+                    try {
+                        pageSink(page.page)
+                        nextRequest = page.nextRequest
+                        false
+                    } catch (t: Throwable) {
+                        result.completeExceptionally(t)
+                        true
+                    }
                 try {
-                    pageSink(page.page)
-                    nextRequest = page.nextRequest
-                } catch (t: Throwable) {
-                    result.completeExceptionally(t)
-                    return false
-                } finally {
                     page.page.close() // release this page's Response (drained or threw)
+                } catch (t: Throwable) {
+                    // A throwing close must not escape the trampoline: on the sink-success path
+                    // that would abandon the walk with the result future never settled (the
+                    // caller's get() hangs). Report it instead — the walk then terminates cleanly
+                    // on the next step(). If the sink already failed, the result carries that
+                    // cause; keep it and swallow this best-effort close error.
+                    if (!result.isDone) {
+                        result.completeExceptionally(t)
+                    }
                 }
-                return true
+                return !sinkThrew
             }
 
             /**
