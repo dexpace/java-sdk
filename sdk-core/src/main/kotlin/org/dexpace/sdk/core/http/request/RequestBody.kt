@@ -225,8 +225,6 @@ private class BufferRequestBody(
 
     override fun isReplayable(): Boolean = true
 
-    override fun toReplayable(provider: IoProvider): RequestBody = this
-
     @Throws(IOException::class)
     override fun writeTo(sink: BufferedSink) {
         sink.writeAll(buffer.peek())
@@ -243,8 +241,6 @@ private class ByteArrayRequestBody(
     override fun contentLength(): Long = bytes.size.toLong()
 
     override fun isReplayable(): Boolean = true
-
-    override fun toReplayable(provider: IoProvider): RequestBody = this
 
     @Throws(IOException::class)
     override fun writeTo(sink: BufferedSink) {
@@ -273,8 +269,6 @@ private class ResettableInputStreamRequestBody(
     override fun contentLength(): Long = length
 
     override fun isReplayable(): Boolean = true
-
-    override fun toReplayable(provider: IoProvider): RequestBody = this
 
     @Throws(IOException::class)
     override fun writeTo(sink: BufferedSink) {

@@ -10,11 +10,10 @@ package org.dexpace.sdk.core.http.request
 // Public API surface — not every HTTP method entry is referenced within this module; SDK consumers may use any.
 
 /**
- * HTTP request methods recognized by the SDK. Each constant carries the canonical token used
- * on the wire; [toString] returns that same token so the enum can be written directly into a
- * request line without translation.
+ * HTTP request methods recognized by the SDK. Each constant's name is the canonical token used
+ * on the wire, so the enum's default `toString()` returns that token and the constant can be
+ * written directly into a request line without translation.
  *
- * @property method Canonical uppercase method token sent in the request line.
  * @property permitsRequestBody Whether this SDK permits the method to carry a request body.
  *   `false` for `GET`, `HEAD`, `TRACE`, and `CONNECT`. Of these only `TRACE` is forbidden a body
  *   outright by HTTP — a TRACE request "MUST NOT send content" (RFC 9110 §9.3.8); for `GET`/`HEAD`
@@ -26,20 +25,25 @@ package org.dexpace.sdk.core.http.request
  *   differently per transport.
  */
 @Suppress("unused")
-public enum class Method(
-    public val method: String,
-    public val permitsRequestBody: Boolean,
-) {
-    GET("GET", permitsRequestBody = false),
-    POST("POST", permitsRequestBody = true),
-    PUT("PUT", permitsRequestBody = true),
-    DELETE("DELETE", permitsRequestBody = true),
-    PATCH("PATCH", permitsRequestBody = true),
-    HEAD("HEAD", permitsRequestBody = false),
-    OPTIONS("OPTIONS", permitsRequestBody = true),
-    TRACE("TRACE", permitsRequestBody = false),
-    CONNECT("CONNECT", permitsRequestBody = false),
+public enum class Method(public val permitsRequestBody: Boolean) {
+    GET(permitsRequestBody = false),
+    POST(permitsRequestBody = true),
+    PUT(permitsRequestBody = true),
+    DELETE(permitsRequestBody = true),
+    PATCH(permitsRequestBody = true),
+    HEAD(permitsRequestBody = false),
+    OPTIONS(permitsRequestBody = true),
+    TRACE(permitsRequestBody = false),
+    CONNECT(permitsRequestBody = false),
     ;
 
-    override fun toString(): String = method
+    /**
+     * Canonical uppercase method token sent in the request line; identical to the enum [name].
+     *
+     * `MemberNameEqualsClassName` is suppressed: the accessor is retained for API compatibility
+     * (`getMethod()`) and the token genuinely *is* the method's name, so renaming it would only
+     * obscure that and break callers.
+     */
+    @Suppress("MemberNameEqualsClassName")
+    public val method: String get() = name
 }
