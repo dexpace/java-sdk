@@ -402,27 +402,33 @@ class AsyncPaginatorTest {
     }
 
     @Test
-    fun `a throwing nextPageRequest surfaces through the result future`() {
+    fun `a parse failure on a subsequent page surfaces through the result future`() {
         val client = StubAsyncHttpClient()
-        client.on("https://api.example.com/items") { req -> textResponse(req, "a,b") }
-        // A page that claims a next page exists but throws while building its request.
-        val strategy =
-            PaginationStrategy<String> { _, _ ->
-                object : Page<String> {
-                    override val items: List<String> = listOf("a", "b")
-                    override val hasNext: Boolean = true
-
-                    override fun nextPageRequest(): Request? = error("cannot build next page request")
-                }
+        client.on("https://api.example.com/items") { req ->
+            textResponse(
+                req,
+                "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/items?page=2") { req -> textResponse(req, "c") }
+        // A strategy that succeeds on page 1 but throws from parse() on page 2.
+        val delegate = strategy()
+        var callCount = 0
+        val erroring =
+            PaginationStrategy<String> { response, request ->
+                if (++callCount > 1) error("cannot parse subsequent page")
+                delegate.parse(response, request)
             }
-        val paginator = AsyncPaginator(client, initialRequest(), strategy)
+        val paginator = AsyncPaginator(client, initialRequest(), erroring)
 
         val ex =
             assertFailsWith<ExecutionException> {
                 paginator.collectAllAsync().get(5, TimeUnit.SECONDS)
             }
         assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
-        assertEquals("cannot build next page request", ex.cause?.message)
+        assertEquals("cannot parse subsequent page", ex.cause?.message)
     }
 
     @Test

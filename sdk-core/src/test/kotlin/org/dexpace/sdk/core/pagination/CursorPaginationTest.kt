@@ -151,4 +151,15 @@ class CursorPaginationTest {
             client.receivedUrls,
         )
     }
+
+    @Test
+    fun `cursor strategy returns PageInfo with next request when cursor present`() {
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req -> textResponse(req, "items=a,b\ncursor=abc") }
+        val strategy = CursorPaginationStrategy(extractor, cursorQueryParam = "cursor")
+        val response = client.execute(initialRequest())
+        val info: PageInfo<String> = strategy.parse(response, initialRequest())
+        assertEquals(listOf("a", "b"), info.items)
+        assertEquals("https://api.example.com/items?cursor=abc", info.nextRequest?.url.toString())
+    }
 }

@@ -187,11 +187,11 @@ class LinkHeaderPaginationTest {
             textResponse(initial, "i1,i2", extraHeaders = mapOf("Link" to "<?page=2>; rel=\"next\""))
 
         val strategy = LinkHeaderPaginationStrategy(itemsExtractor)
-        val page = strategy.parse(response, initial)
+        val info = strategy.parse(response, initial)
 
         assertEquals(
             "https://api.example.com/repo/issues?page=2",
-            page.nextPageRequest()?.url?.toString(),
+            info.nextRequest?.url?.toString(),
             "a query-only relative next link must keep the full base path",
         )
     }

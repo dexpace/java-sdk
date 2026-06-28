@@ -50,16 +50,15 @@ public class CursorPaginationStrategy<T>
         override fun parse(
             response: Response,
             initialRequest: Request,
-        ): Page<T> {
+        ): PageInfo<T> {
             val result: CursorResult<T> = extractor(response)
             val nextCursor: String? = result.nextCursor
-            val hasNext: Boolean = !nextCursor.isNullOrEmpty()
             val nextRequest: Request? =
-                if (hasNext) {
+                if (!nextCursor.isNullOrEmpty()) {
                     RequestRebuilder.withQueryParam(initialRequest, cursorQueryParam, nextCursor)
                 } else {
                     null
                 }
-            return SimplePage(items = result.items, hasNext = hasNext, nextRequest = nextRequest)
+            return PageInfo(items = result.items, nextRequest = nextRequest)
         }
     }

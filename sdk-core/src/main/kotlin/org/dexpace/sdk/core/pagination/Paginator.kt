@@ -140,7 +140,7 @@ public class Paginator<T>
             private val maxPages: Long,
         ) : Iterator<T> {
             // null = no page fetched yet; the first hasNext() call triggers the initial fetch.
-            private var currentPage: Page<T>? = null
+            private var currentPage: PageInfo<T>? = null
 
             // Index into currentPage.items for the next item to emit.
             private var currentItemIndex: Int = 0
@@ -198,17 +198,16 @@ public class Paginator<T>
                 }
                 val response: Response = httpClient.execute(request)
                 pagesFetched++
-                val page: Page<T> =
+                val info: PageInfo<T> =
                     try {
                         strategy.parse(response, initialRequest)
                     } finally {
                         response.close()
                     }
-                currentPage = page
+                currentPage = info
                 currentItemIndex = 0
-                // Compute the next request now so we don't have to retain the (closed) response.
-                // If this page has no next, nextRequest goes null; the next advance() ends the stream.
-                nextRequest = if (page.hasNext) page.nextPageRequest() else null
+                // If this page has no next request, nextRequest goes null; the next advance() ends the stream.
+                nextRequest = info.nextRequest
                 return true
             }
         }

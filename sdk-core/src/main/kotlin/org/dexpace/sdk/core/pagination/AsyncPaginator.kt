@@ -218,7 +218,7 @@ public class AsyncPaginator<T>
             // would otherwise recurse into the loop that scheduled it. We trampoline instead —
             // whichever stack frame owns the loop picks up the staged work.
             private val driving = AtomicBoolean(false)
-            private var pendingPage: Page<T>? = null
+            private var pendingPage: PageInfo<T>? = null
 
             // The transport future for the page currently being fetched: null until the first
             // fetch, thereafter the most recently dispatched exchange (it is never reset to null,
@@ -332,8 +332,8 @@ public class AsyncPaginator<T>
              * Stages a completed page future for draining. Returns `true` to continue driving,
              * `false` if the future failed (the walk is then terminated exceptionally).
              */
-            private fun stagePage(future: CompletableFuture<Page<T>>): Boolean {
-                val page: Page<T> =
+            private fun stagePage(future: CompletableFuture<PageInfo<T>>): Boolean {
+                val page: PageInfo<T> =
                     try {
                         future.join()
                     } catch (t: Throwable) {
@@ -348,7 +348,7 @@ public class AsyncPaginator<T>
              * Emits a page's items to the consumer, then schedules the next request. Returns
              * `true` to continue driving, `false` if the consumer threw (walk aborted).
              */
-            private fun drainPage(page: Page<T>): Boolean {
+            private fun drainPage(page: PageInfo<T>): Boolean {
                 try {
                     val items = page.items
                     var i = 0
@@ -357,10 +357,7 @@ public class AsyncPaginator<T>
                         consumer.accept(items[i])
                         i++
                     }
-                    // Compute the next request inside the guard: a Page whose hasNext /
-                    // nextPageRequest() throws (e.g. a malformed cursor) must surface through
-                    // the result future, not escape the driver and strand the walk.
-                    nextRequest = if (page.hasNext) page.nextPageRequest() else null
+                    nextRequest = page.nextRequest
                 } catch (t: Throwable) {
                     result.completeExceptionally(t)
                     return false
@@ -373,7 +370,7 @@ public class AsyncPaginator<T>
              * mirroring [Paginator]'s per-page lifecycle. The returned future completes with the
              * parsed page or exceptionally if the transport or strategy fails.
              */
-            private fun fetchPage(request: Request): CompletableFuture<Page<T>> {
+            private fun fetchPage(request: Request): CompletableFuture<PageInfo<T>> {
                 pagesFetched++
                 val transportFuture: CompletableFuture<Response> =
                     try {

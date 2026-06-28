@@ -46,10 +46,11 @@ public fun interface PaginationStrategy<T> {
      * @param response Response returned by the transport for the previous page's request.
      * @param initialRequest Request template used to build the first page; reused as the
      *   scaffold for subsequent pages so headers/method/body are preserved.
-     * @return The parsed [Page]. Never `null`; an end-of-stream page has `hasNext = false`.
+     * @return The parsed [PageInfo]. Never `null`; a `null` [PageInfo.nextRequest] signals
+     *   end of stream.
      */
     public fun parse(
         response: Response,
         initialRequest: Request,
-    ): Page<T>
+    ): PageInfo<T>
 }
