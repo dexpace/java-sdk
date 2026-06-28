@@ -7,7 +7,6 @@
 
 package org.dexpace.sdk.core.http.common
 
-import java.util.Collections
 import java.util.Locale
 
 // Public API surface — not every accessor/mutator on this class is referenced within this module; SDK consumers may use any.
@@ -52,16 +51,14 @@ public data class Headers private constructor(
      * Returns all header values for the given name.
      *
      * @param name the header name (case-insensitive)
-     * @return an unmodifiable list of header values, or an empty list if none
+     * @return a read-only list of header values, or an empty list if none
      */
-    public fun values(name: String): List<String> =
-        headersMap[sanitizeName(name)]?.let(Collections::unmodifiableList) ?: emptyList()
+    public fun values(name: String): List<String> = headersMap[sanitizeName(name)] ?: emptyList()
 
     /**
      * Returns all header values for the given typed name.
      */
-    public fun values(name: HttpHeaderName): List<String> =
-        headersMap[name.caseInsensitiveName]?.let(Collections::unmodifiableList) ?: emptyList()
+    public fun values(name: HttpHeaderName): List<String> = headersMap[name.caseInsensitiveName] ?: emptyList()
 
     /**
      * Returns true if any value is present for the given name.
@@ -74,34 +71,31 @@ public data class Headers private constructor(
     public fun contains(name: HttpHeaderName): Boolean = headersMap.containsKey(name.caseInsensitiveName)
 
     /**
-     * Returns an unmodifiable snapshot of all header names at the time of the call.
+     * Returns a point-in-time snapshot of all header names at the time of the call.
      *
      * Returns a defensive copy (`Set<String>`) so that callers cannot observe later
-     * mutations to this [Headers] instance through the returned set, and so that they
-     * cannot accidentally mutate the backing map by casting the return value.
+     * mutations to this [Headers] instance through the returned set. The set is exposed
+     * through Kotlin's read-only [Set] type.
      *
-     * @return an immutable snapshot of header names
+     * @return a snapshot of header names
      */
     public fun names(): Set<String> = headersMap.keys.toSet()
 
     /**
-     * Returns an unmodifiable snapshot of all header entries at the time of the call.
+     * Returns a point-in-time snapshot of all header entries at the time of the call.
      *
-     * Each entry is an immutable copy whose value list is itself unmodifiable, so callers
-     * cannot mutate this [Headers] instance through the returned set, its entries
-     * ([Map.Entry.setValue]), or the per-name value lists — even by casting.
+     * Each entry is copied into a fresh map so that callers cannot observe later mutations
+     * to this [Headers] instance through the returned set. The set and its per-name value
+     * lists are exposed through Kotlin's read-only [Set] / [List] types.
      *
-     * @return an immutable snapshot of header entries as [Map.Entry]
+     * @return a snapshot of header entries as [Map.Entry]
      */
     public fun entries(): Set<Map.Entry<String, List<String>>> {
         val snapshot = LinkedHashMap<String, List<String>>(headersMap.size)
         headersMap.forEach { (key, value) ->
-            snapshot[key] = Collections.unmodifiableList(value)
+            snapshot[key] = value
         }
-        // `Collections.unmodifiableMap(...).entries` rejects both structural mutation
-        // (add/remove/clear) and per-entry `setValue`, unlike `unmodifiableSet`, which
-        // leaves `Map.Entry.setValue` open against the backing map.
-        return Collections.unmodifiableMap(snapshot).entries
+        return snapshot.entries
     }
 
     /**
@@ -291,13 +285,12 @@ public data class Headers private constructor(
          * @return the built [Headers]
          */
         public fun build(): Headers {
-            // Deep, defensive copy: snapshot each value list into its own unmodifiable
-            // copy so that (a) later builder mutations cannot reach into the built
-            // instance, and (b) the lists handed out by accessors cannot be mutated via
-            // a cast to MutableList.
+            // Deep, defensive copy: snapshot each value list into its own fresh copy so
+            // that later builder mutations cannot reach into the built instance. The
+            // copies are exposed through Kotlin's read-only List type.
             val snapshot = LinkedHashMap<String, List<String>>(headersMap.size)
             headersMap.forEach { (key, values) ->
-                snapshot[key] = Collections.unmodifiableList(ArrayList(values))
+                snapshot[key] = ArrayList(values)
             }
             return Headers(snapshot)
         }

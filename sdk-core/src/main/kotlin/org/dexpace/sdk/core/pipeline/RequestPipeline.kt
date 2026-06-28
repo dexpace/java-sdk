@@ -21,8 +21,8 @@ import org.dexpace.sdk.core.pipeline.step.RequestPipelineStep
  * and routes them through the recovery chain rather than propagating them to the caller.
  *
  * ## Thread-safety
- * Instances are immutable after construction (the [steps] list is wrapped in an unmodifiable
- * view); they are safe to share across threads provided the steps themselves are thread-safe.
+ * Instances are immutable after construction ([steps] is exposed as a read-only List); they
+ * are safe to share across threads provided the steps themselves are thread-safe.
  *
  * ## Exception semantics
  * If any step throws, [execute] propagates the throwable to the caller without invoking the

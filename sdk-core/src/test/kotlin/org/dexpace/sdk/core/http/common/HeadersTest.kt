@@ -483,64 +483,33 @@ class HeadersTest {
     // ---- immutability of accessors (defensive copies) --------------------------
 
     @Test
-    fun `entries set rejects structural mutation`() {
-        val headers = Headers.builder().add("X-Foo", "1").build()
-        val entries = headers.entries()
-        assertFailsWith<UnsupportedOperationException> {
-            (entries as MutableSet<Map.Entry<String, List<String>>>).clear()
-        }
-        // A live LinkedHashMap.entries view would have honoured this and mutated the source.
+    fun `entries are a defensive copy isolated from the source list`() {
+        val source = mutableListOf("1")
+        val headers = Headers.builder().add("X-Foo", source).build()
+        // Mutating the source list after construction must not be observable through entries().
+        source.add("hacked")
+        val values = headers.entries().single { it.key == "x-foo" }.value
+        assertEquals(listOf("1"), values)
         assertTrue(headers.contains("X-Foo"))
         assertEquals(listOf("1"), headers.values("X-Foo"))
     }
 
     @Test
-    fun `entries entry setValue is rejected and cannot mutate the source`() {
-        val headers = Headers.builder().add("X-Foo", "1").build()
-        val entry = headers.entries().single()
-        assertFailsWith<UnsupportedOperationException> {
-            (entry as MutableMap.MutableEntry<String, List<String>>).setValue(listOf("hacked"))
-        }
-        assertEquals(listOf("1"), headers.values("X-Foo"))
-    }
-
-    @Test
-    fun `entries value list cannot be mutated through a MutableList cast`() {
-        val headers = Headers.builder().add("X-Foo", "1").build()
-        val values = headers.entries().single().value
-
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = values as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("hacked") }
-        // The source Headers is unchanged regardless of the cast.
-        assertEquals(listOf("1"), headers.values("X-Foo"))
-    }
-
-    @Test
-    fun `values returns an unmodifiable list that cannot mutate the source via cast`() {
-        val headers =
-            Headers.builder()
-                .add("X-Foo", "1")
-                .add("X-Foo", "2")
-                .build()
-        val values = headers.values("X-Foo")
-
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = values as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("3") }
-        assertFailsWith<UnsupportedOperationException> { asMutable.clear() }
+    fun `values is a defensive copy isolated from the source list`() {
+        val source = mutableListOf("1", "2")
+        val headers = Headers.builder().add("X-Foo", source).build()
+        // Mutating the source list after construction must not be observable.
+        source.add("3")
+        source.clear()
         // A second read still observes the original two values — the source was not touched.
         assertEquals(listOf("1", "2"), headers.values("X-Foo"))
     }
 
     @Test
-    fun `values typed overload returns an unmodifiable list`() {
-        val headers = Headers.builder().add(HttpHeaderName.SET_COOKIE, "a=1").build()
-        val values = headers.values(HttpHeaderName.SET_COOKIE)
-
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = values as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("b=2") }
+    fun `values typed overload is a defensive copy isolated from the source list`() {
+        val source = mutableListOf("a=1")
+        val headers = Headers.builder().add(HttpHeaderName.SET_COOKIE, source).build()
+        source.add("b=2")
         assertEquals(listOf("a=1"), headers.values(HttpHeaderName.SET_COOKIE))
     }
 

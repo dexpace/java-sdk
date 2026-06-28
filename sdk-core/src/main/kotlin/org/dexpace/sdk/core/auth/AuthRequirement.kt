@@ -7,7 +7,6 @@
 
 package org.dexpace.sdk.core.auth
 
-import java.util.Collections
 import org.dexpace.sdk.core.generics.Builder as GenericBuilder
 
 /**
@@ -24,8 +23,9 @@ import org.dexpace.sdk.core.generics.Builder as GenericBuilder
  * they are ignored by the resolution path but still defensively copied and exposed so a
  * caller can inspect what was declared.
  *
- * Immutable: each collection is copied on the way in and exposed as an unmodifiable view, so
- * a caller that retains and later mutates the argument collection cannot mutate this instance.
+ * Immutable: each collection is copied on the way in and exposed as a read-only view (defensive
+ * copy), so a caller that retains and later mutates the argument collection cannot mutate this
+ * instance.
  * Instances are obtained via [of] or [Builder], never a public constructor.
  *
  * @param scheme the auth scheme this alternative selects.
@@ -40,11 +40,11 @@ public class AuthRequirement private constructor(
     /** The auth scheme this alternative selects. */
     public val scheme: AuthScheme = scheme
 
-    /** OAuth scopes to forward to the token provider; an unmodifiable defensive copy. */
-    public val oauthScopes: List<String> = Collections.unmodifiableList(oauthScopes.toList())
+    /** OAuth scopes to forward to the token provider; a read-only view (defensive copy). */
+    public val oauthScopes: List<String> = oauthScopes.toList()
 
-    /** Extra OAuth params to forward; an unmodifiable defensive copy. */
-    public val oauthParams: Map<String, Any> = Collections.unmodifiableMap(oauthParams.toMap())
+    /** Extra OAuth params to forward; a read-only view (defensive copy). */
+    public val oauthParams: Map<String, Any> = oauthParams.toMap()
 
     /** A [Builder] pre-filled with this requirement's state. */
     public fun newBuilder(): Builder = Builder(this)

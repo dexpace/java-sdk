@@ -14,7 +14,6 @@ import java.time.Duration
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -615,18 +614,13 @@ class ServerSentEventReaderTest {
     }
 
     @Test
-    fun `data list produced by the reader is unmodifiable`() {
-        // End-to-end guard: the list the reader hands back must reject mutation even after a
-        // downcast to MutableList, so a consumer cannot corrupt a parsed event's payload.
+    fun `data list produced by the reader collects multi-line data in order`() {
+        // End-to-end: consecutive `data:` lines accumulate into the parsed event's data list,
+        // in order. The list is a defensive copy taken at event construction, exposed through
+        // Kotlin's read-only List type.
         val src = source("data: a\ndata: b\n\n")
         val event = ServerSentEventReader(src).next()
         assertNotNull(event)
-        assertEquals(listOf("a", "b"), event.data)
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = event.data as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("c") }
-        assertFailsWith<UnsupportedOperationException> { asMutable.clear() }
-        // The event is unchanged after the failed mutation attempts.
         assertEquals(listOf("a", "b"), event.data)
     }
 }

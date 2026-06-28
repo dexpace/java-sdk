@@ -7,7 +7,6 @@
 
 package org.dexpace.sdk.core.auth
 
-import java.util.Collections
 import org.dexpace.sdk.core.generics.Builder as GenericBuilder
 
 /**
@@ -29,7 +28,7 @@ import org.dexpace.sdk.core.generics.Builder as GenericBuilder
  * operation may be invoked anonymously. [allowsAnonymous] reports this; the resolver treats
  * it as an always-satisfiable terminal alternative.
  *
- * Immutable: [requirements] is copied on the way in and exposed as an unmodifiable view.
+ * Immutable: [requirements] is copied on the way in and exposed as a read-only defensive copy.
  *
  * @param requirements the accepted auth alternatives, in preference order. Must not be empty.
  * @throws IllegalArgumentException if [requirements] is empty.
@@ -37,9 +36,9 @@ import org.dexpace.sdk.core.generics.Builder as GenericBuilder
 public class AuthDescriptor private constructor(
     requirements: List<AuthRequirement>,
 ) {
-    /** The accepted auth alternatives, in preference order; an unmodifiable defensive copy. */
+    /** The accepted auth alternatives, in preference order; a read-only defensive copy. */
     public val requirements: List<AuthRequirement> =
-        Collections.unmodifiableList(requirements.toList())
+        requirements.toList()
 
     /** The schemes this operation accepts, in preference order. Convenience over [requirements]. */
     public val schemes: List<AuthScheme>

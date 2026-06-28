@@ -7,8 +7,6 @@
 
 package org.dexpace.sdk.core.auth
 
-import java.util.Collections
-
 /**
  * Thrown when an [AuthDescriptor] ladder cannot be satisfied: the resolved descriptor lists
  * one or more required schemes, none of which is covered by the available schemes (and the
@@ -25,13 +23,13 @@ public class AuthResolutionException(
     requiredSchemes: List<AuthScheme>,
     availableSchemes: Set<AuthScheme>,
 ) : RuntimeException(buildMessage(requiredSchemes, availableSchemes)) {
-    /** The schemes the failed descriptor accepts; an unmodifiable defensive copy. */
+    /** The schemes the failed descriptor accepts; a defensive copy. */
     public val requiredSchemes: List<AuthScheme> =
-        Collections.unmodifiableList(requiredSchemes.toList())
+        requiredSchemes.toList()
 
-    /** The schemes the caller could satisfy; an unmodifiable defensive copy. */
+    /** The schemes the caller could satisfy; a defensive copy. */
     public val availableSchemes: Set<AuthScheme> =
-        Collections.unmodifiableSet(availableSchemes.toSet())
+        availableSchemes.toSet()
 
     private companion object {
         private fun buildMessage(

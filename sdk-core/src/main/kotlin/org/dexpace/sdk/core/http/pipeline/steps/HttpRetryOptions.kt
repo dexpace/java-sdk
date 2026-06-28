@@ -11,7 +11,6 @@ import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import org.dexpace.sdk.core.util.RetryUtils
 import java.time.Duration
-import java.util.Collections
 
 /**
  * Predicate that decides whether a request should be retried based on the HTTP response or
@@ -108,12 +107,10 @@ public class HttpRetryOptions
              */
             @JvmField
             public val DEFAULT_RETRY_AFTER_HEADERS: List<HttpHeaderName> =
-                Collections.unmodifiableList(
-                    listOf(
-                        HttpHeaderName.RETRY_AFTER,
-                        HttpHeaderName.RETRY_AFTER_MS,
-                        HttpHeaderName.X_MS_RETRY_AFTER_MS,
-                    ),
+                listOf(
+                    HttpHeaderName.RETRY_AFTER,
+                    HttpHeaderName.RETRY_AFTER_MS,
+                    HttpHeaderName.X_MS_RETRY_AFTER_MS,
                 )
 
             /**
