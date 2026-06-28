@@ -31,7 +31,7 @@ class AuthDescriptorTest {
     fun `of preserves requirement order and exposes schemes view`() {
         val requirements =
             listOf(
-                AuthRequirement(AuthScheme.OAUTH2, listOf("read")),
+                AuthRequirement.of(AuthScheme.OAUTH2, listOf("read")),
                 AuthRequirement.of(AuthScheme.API_KEY),
             )
         val descriptor = AuthDescriptor.of(requirements)
@@ -93,7 +93,7 @@ class AuthDescriptorTest {
         val original =
             AuthDescriptor.of(
                 listOf(
-                    AuthRequirement(AuthScheme.OAUTH2, listOf("read")),
+                    AuthRequirement.of(AuthScheme.OAUTH2, listOf("read")),
                     AuthRequirement.of(AuthScheme.API_KEY),
                 ),
             )

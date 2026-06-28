@@ -12,8 +12,8 @@ package org.dexpace.sdk.core.http.auth
 /**
  * HTTP authentication schemes recognised by the SDK.
  *
- * Used in [AuthMetadata] to describe the schemes a per-operation request supports, and to
- * mark requests that must skip auth ([NO_AUTH]).
+ * Used in [AuthRequirement] / [AuthDescriptor] to describe the schemes a per-operation request
+ * accepts, and to mark requests that must skip auth ([NO_AUTH]).
  */
 @Suppress("unused")
 public enum class AuthScheme {
@@ -30,7 +30,7 @@ public enum class AuthScheme {
     DIGEST,
 
     /**
-     * Explicit "skip auth" marker — present on per-request [AuthMetadata] to bypass an
+     * Explicit "skip auth" marker — listed in an [AuthDescriptor] to bypass an
      * otherwise-configured credential step (e.g. anonymous probes against an authenticated
      * service).
      */

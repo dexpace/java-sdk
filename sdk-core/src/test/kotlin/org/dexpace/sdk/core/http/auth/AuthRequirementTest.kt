@@ -23,9 +23,9 @@ class AuthRequirementTest {
     }
 
     @Test
-    fun `constructor accepts oauth scopes and params`() {
+    fun `of accepts oauth scopes and params`() {
         val req =
-            AuthRequirement(AuthScheme.OAUTH2, listOf("read", "write"), mapOf("claims" to "x"))
+            AuthRequirement.of(AuthScheme.OAUTH2, listOf("read", "write"), mapOf("claims" to "x"))
         assertEquals(listOf("read", "write"), req.oauthScopes)
         assertEquals(mapOf<String, Any>("claims" to "x"), req.oauthParams)
     }
@@ -34,7 +34,7 @@ class AuthRequirementTest {
     fun `mutating source collections after construction does not affect the instance`() {
         val scopes = mutableListOf("read")
         val params = mutableMapOf<String, Any>("a" to "1")
-        val req = AuthRequirement(AuthScheme.OAUTH2, scopes, params)
+        val req = AuthRequirement.of(AuthScheme.OAUTH2, scopes, params)
         scopes.add("write")
         params["b"] = "2"
         assertEquals(listOf("read"), req.oauthScopes)
@@ -43,7 +43,7 @@ class AuthRequirementTest {
 
     @Test
     fun `exposed collections are unmodifiable`() {
-        val req = AuthRequirement(AuthScheme.OAUTH2, listOf("read"), mapOf("a" to "1"))
+        val req = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read"), mapOf("a" to "1"))
         assertFailsWith<UnsupportedOperationException> {
             @Suppress("UNCHECKED_CAST")
             (req.oauthScopes as MutableList<String>).add("write")
@@ -74,15 +74,32 @@ class AuthRequirementTest {
     }
 
     @Test
+    fun `builder setters defensively copy so a later source mutation does not leak`() {
+        val scopes = mutableListOf("read")
+        val params = mutableMapOf<String, Any>("a" to "1")
+        val builder =
+            AuthRequirement.Builder()
+                .scheme(AuthScheme.OAUTH2)
+                .oauthScopes(scopes)
+                .oauthParams(params)
+        // Mutating the sources after the setter call, before build(), must not leak through.
+        scopes.add("write")
+        params["b"] = "2"
+        val req = builder.build()
+        assertEquals(listOf("read"), req.oauthScopes)
+        assertEquals(mapOf<String, Any>("a" to "1"), req.oauthParams)
+    }
+
+    @Test
     fun `newBuilder round-trips state`() {
-        val original = AuthRequirement(AuthScheme.OAUTH2, listOf("read"), mapOf("a" to "1"))
+        val original = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read"), mapOf("a" to "1"))
         val copy = original.newBuilder().build()
         assertEquals(original, copy)
     }
 
     @Test
     fun `newBuilder allows overriding a single field`() {
-        val original = AuthRequirement(AuthScheme.OAUTH2, listOf("read"))
+        val original = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read"))
         val modified = original.newBuilder().oauthScopes(listOf("write")).build()
         assertEquals(AuthScheme.OAUTH2, modified.scheme)
         assertEquals(listOf("write"), modified.oauthScopes)
@@ -90,9 +107,9 @@ class AuthRequirementTest {
 
     @Test
     fun `equals and hashCode reflect value semantics`() {
-        val a = AuthRequirement(AuthScheme.OAUTH2, listOf("read"))
-        val b = AuthRequirement(AuthScheme.OAUTH2, listOf("read"))
-        val c = AuthRequirement(AuthScheme.OAUTH2, listOf("write"))
+        val a = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read"))
+        val b = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read"))
+        val c = AuthRequirement.of(AuthScheme.OAUTH2, listOf("write"))
         assertEquals(a, b)
         assertEquals(a.hashCode(), b.hashCode())
         assertNotEquals(a, c)
@@ -100,7 +117,7 @@ class AuthRequirementTest {
 
     @Test
     fun `toString includes scheme and oauth fields`() {
-        val text = AuthRequirement(AuthScheme.OAUTH2, listOf("read")).toString()
+        val text = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read")).toString()
         assertTrue(text.contains("OAUTH2"))
         assertTrue(text.contains("read"))
     }

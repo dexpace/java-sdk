@@ -117,22 +117,9 @@ public final class org/dexpace/sdk/core/http/auth/AuthDescriptorTier : java/lang
 	public static fun values ()[Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
 }
 
-public final class org/dexpace/sdk/core/http/auth/AuthMetadata {
-	public fun <init> (Ljava/util/List;)V
-	public fun <init> (Ljava/util/List;Ljava/util/List;)V
-	public fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/Map;)V
-	public synthetic fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getOauthParams ()Ljava/util/Map;
-	public final fun getOauthScopes ()Ljava/util/List;
-	public final fun getSchemes ()Ljava/util/List;
-}
-
 public final class org/dexpace/sdk/core/http/auth/AuthRequirement {
 	public static final field Companion Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Companion;
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getOauthParams ()Ljava/util/Map;
 	public final fun getOauthScopes ()Ljava/util/List;
@@ -140,6 +127,8 @@ public final class org/dexpace/sdk/core/http/auth/AuthRequirement {
 	public fun hashCode ()I
 	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Builder;
 	public static final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
+	public static final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
+	public static final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
 	public fun toString ()Ljava/lang/String;
 }
 
@@ -155,6 +144,9 @@ public final class org/dexpace/sdk/core/http/auth/AuthRequirement$Builder : org/
 
 public final class org/dexpace/sdk/core/http/auth/AuthRequirement$Companion {
 	public final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
+	public final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
+	public final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
+	public static synthetic fun of$default (Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Companion;Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
 }
 
 public final class org/dexpace/sdk/core/http/auth/AuthResolution {

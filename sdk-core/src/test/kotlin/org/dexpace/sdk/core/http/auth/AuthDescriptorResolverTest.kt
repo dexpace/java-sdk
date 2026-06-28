@@ -97,7 +97,7 @@ class AuthDescriptorResolverTest {
         val operation =
             AuthDescriptor.of(
                 listOf(
-                    AuthRequirement(AuthScheme.OAUTH2, listOf("read", "write"), mapOf("a" to "1")),
+                    AuthRequirement.of(AuthScheme.OAUTH2, listOf("read", "write"), mapOf("a" to "1")),
                 ),
             )
         val resolution =
