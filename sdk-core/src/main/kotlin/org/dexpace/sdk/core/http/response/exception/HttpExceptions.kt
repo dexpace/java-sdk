@@ -36,14 +36,7 @@ public open class BadRequestException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `401 Unauthorized`. The request lacks valid authentication credentials. Not retryable
@@ -57,14 +50,7 @@ public open class UnauthorizedException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `403 Forbidden`. The server understood the request but refuses to authorize it. Not
@@ -78,14 +64,7 @@ public open class ForbiddenException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `404 Not Found`. The server has no current representation of the target resource. Not
@@ -98,14 +77,7 @@ public open class NotFoundException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `405 Method Not Allowed`. The request method is not supported by the target resource. Not
@@ -118,14 +90,7 @@ public open class MethodNotAllowedException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `408 Request Timeout`. The server timed out waiting for the request. **Retryable** — the
@@ -139,14 +104,7 @@ public open class RequestTimeoutException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `409 Conflict`. The request conflicts with the current state of the target resource
@@ -160,14 +118,7 @@ public open class ConflictException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `410 Gone`. The target resource is no longer available at the origin server and the
@@ -180,14 +131,7 @@ public open class GoneException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `413 Payload Too Large`. The server is refusing to process the request because the
@@ -200,14 +144,7 @@ public open class PayloadTooLargeException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `415 Unsupported Media Type`. The server refuses the request because the payload format
@@ -220,14 +157,7 @@ public open class UnsupportedMediaTypeException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `422 Unprocessable Entity`. The server understands the content type and the syntax of the
@@ -241,14 +171,7 @@ public open class UnprocessableEntityException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `429 Too Many Requests`. The user has sent too many requests in a given amount of time
@@ -262,14 +185,7 @@ public open class TooManyRequestsException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `500 Internal Server Error`. Generic server-side failure with no more specific code
@@ -283,14 +199,7 @@ public open class InternalServerErrorException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `502 Bad Gateway`. An intermediary received an invalid response from an upstream server.
@@ -303,14 +212,7 @@ public open class BadGatewayException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `503 Service Unavailable`. The server is currently unable to handle the request due to
@@ -324,14 +226,7 @@ public open class ServiceUnavailableException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * `504 Gateway Timeout`. An intermediary did not receive a timely response from an upstream
@@ -344,14 +239,7 @@ public open class GatewayTimeoutException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * Fallback for 4xx statuses without a dedicated subclass (402, 406, 411, 414, 416, 417, 418,
@@ -367,14 +255,7 @@ public open class ClientErrorException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)
 
 /**
  * Fallback for 5xx statuses without a dedicated subclass (501, 505–511). The baked `retryable`
@@ -390,11 +271,4 @@ public open class ServerErrorException
         message: String? = null,
         cause: Throwable? = null,
         value: Any? = null,
-    ) : HttpException(
-            status = response.status,
-            headers = response.headers,
-            body = response.body,
-            message = message,
-            cause = cause,
-            value = value,
-        )
+    ) : HttpException(response, message, cause, value)

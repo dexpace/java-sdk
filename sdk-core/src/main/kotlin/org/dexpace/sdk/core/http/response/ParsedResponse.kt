@@ -52,11 +52,11 @@ public class ParsedResponse<out T> internal constructor(
 ) : Closeable {
     private val lock = ReentrantLock()
 
-    // Holds the memoized outcome once the handler has run. A non-null holder means "parsed"
-    // (success or failure); the wrapped value distinguishes the two. A holder (rather than a
+    // Holds the memoized outcome once the handler has run. A non-null Result means "parsed"
+    // (success or failure); the wrapped value distinguishes the two. A boxed Result (rather than a
     // bare value) lets a legitimately-null success memoize without being mistaken for "unparsed".
     @Volatile
-    private var outcome: Outcome<T>? = null
+    private var outcome: Result<T>? = null
 
     /** The request that produced [raw]. Does not parse. */
     public val request: Request get() = raw.request
@@ -93,23 +93,14 @@ public class ParsedResponse<out T> internal constructor(
      */
     @Throws(IOException::class)
     public fun value(): T {
-        outcome?.let { return it.get() }
+        outcome?.let { return it.getOrThrow() }
         return lock.withLock {
-            outcome?.let { return it.get() }
-            // Memoize the handler's outcome — success or failure — so neither re-runs the handler
-            // nor re-reads the (now consumed) body on a subsequent call.
-            val resolved: Outcome<T> =
-                try {
-                    Outcome.Success(handler.handle(raw))
-                } catch (t: Throwable) {
-                    // Catch Throwable, not Exception, on purpose: once the handler has touched the
-                    // single-use body, re-running it would read an already-consumed stream. Even an
-                    // Error (e.g. an OOM mid-parse) is memoized so a later call re-throws it rather
-                    // than re-reading the body and masking the original failure.
-                    Outcome.Failure(t)
-                }
-            outcome = resolved
-            resolved.get()
+            outcome?.let { return it.getOrThrow() }
+            // Memoize the outcome (success or failure) so a later call neither re-runs the handler
+            // nor re-reads the now-consumed body. `runCatching` catches `Throwable`, not just
+            // `Exception`: re-running a handler that already drained the single-use body would read
+            // a consumed stream, so even an `Error` (e.g. OOM mid-parse) is memoized and re-thrown.
+            runCatching { handler.handle(raw) }.also { outcome = it }.getOrThrow()
         }
     }
 
@@ -122,18 +113,6 @@ public class ParsedResponse<out T> internal constructor(
     @Throws(IOException::class)
     override fun close() {
         raw.close()
-    }
-
-    private sealed class Outcome<out T> {
-        abstract fun get(): T
-
-        class Success<out T>(private val value: T) : Outcome<T>() {
-            override fun get(): T = value
-        }
-
-        class Failure(private val error: Throwable) : Outcome<Nothing>() {
-            override fun get(): Nothing = throw error
-        }
     }
 
     public companion object {
