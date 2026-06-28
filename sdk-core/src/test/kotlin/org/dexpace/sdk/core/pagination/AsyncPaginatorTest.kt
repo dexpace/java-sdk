@@ -565,6 +565,21 @@ class AsyncPaginatorTest {
             }
         assertTrue(ex.cause is RejectedExecutionException, "cause was ${ex.cause}")
     }
+
+    @Test
+    fun `forEachPageAsync delivers rich pages in order`() {
+        val client = threePageClient()
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val collectedPages = java.util.concurrent.CopyOnWriteArrayList<Page<String>>()
+        paginator.forEachPageAsync { page -> collectedPages.add(page) }.join()
+
+        assertEquals(3, collectedPages.size)
+        assertEquals(listOf("a", "b"), collectedPages[0].items)
+        assertEquals(listOf("c", "d"), collectedPages[1].items)
+        assertEquals(listOf("e"), collectedPages[2].items)
+        assertTrue(collectedPages.all { it.statusCode == 200 }, "all pages must carry HTTP 200")
+    }
 }
 
 /**
