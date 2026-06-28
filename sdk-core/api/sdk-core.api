@@ -1041,7 +1041,7 @@ public final class org/dexpace/sdk/core/http/request/MultipartBody : org/dexpace
 	public final fun getParts ()Ljava/util/List;
 	public fun isReplayable ()Z
 	public fun mediaType ()Lorg/dexpace/sdk/core/http/common/MediaType;
-	public fun toReplayable (Lorg/dexpace/sdk/core/io/IoProvider;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/request/MultipartBody$Builder;
 	public fun writeTo (Lorg/dexpace/sdk/core/io/BufferedSink;)V
 }
 

@@ -185,6 +185,44 @@ class MediaTypeTest {
         assertEquals("*", mt.subtype)
     }
 
+    @Test
+    fun `of rejects a parameter value containing CR or LF`() {
+        // A CR/LF in a parameter value would inject an extra header line wherever the media type
+        // is rendered into a header (e.g. a multipart part Content-Type), so it is rejected.
+        assertFailsWith<IllegalArgumentException> {
+            MediaType.of("text", "plain", mapOf("x" to "a\r\nEvil: 1"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MediaType.of("text", "plain", mapOf("x" to "a\nb"))
+        }
+    }
+
+    @Test
+    fun `of rejects a parameter key containing a control character`() {
+        assertFailsWith<IllegalArgumentException> {
+            MediaType.of("text", "plain", mapOf("a\r\nb" to "v"))
+        }
+    }
+
+    @Test
+    fun `of rejects a type or subtype containing CR or LF`() {
+        assertFailsWith<IllegalArgumentException> {
+            MediaType.of("text\r\nEvil: 1", "plain")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            MediaType.of("text", "plain\r\nEvil: 1")
+        }
+    }
+
+    @Test
+    fun `parse rejects a parameter value carrying a control character`() {
+        // A control byte inside a quoted value survives unescaping and must be rejected by
+        // construction, so the validation applies on the parse path too, not just `of`.
+        assertFailsWith<IllegalArgumentException> {
+            MediaType.parse("text/plain; x=\"a\u0001b\"")
+        }
+    }
+
     // ---- charset accessor -------------------------------------------------------
 
     @Test

@@ -335,4 +335,68 @@ class MultipartBodyTest {
             MultipartBody.Part.serialized("", "v", StringSerde)
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Boundary validation (RFC 2046)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `boundary containing CRLF is rejected`() {
+        assertFailsWith<IllegalArgumentException> {
+            MultipartBody.builder().boundary("x\r\nX-Injected: evil")
+        }
+    }
+
+    @Test
+    fun `boundary containing a space is rejected`() {
+        assertFailsWith<IllegalArgumentException> {
+            MultipartBody.builder().boundary("has space")
+        }
+    }
+
+    @Test
+    fun `boundary longer than 70 characters is rejected`() {
+        assertFailsWith<IllegalArgumentException> {
+            MultipartBody.builder().boundary("a".repeat(71))
+        }
+    }
+
+    @Test
+    fun `boundary of allowed bcharsnospace characters is accepted`() {
+        val allowed = "AaZz09'()+_,-./:=?"
+        val body =
+            MultipartBody.builder()
+                .boundary(allowed)
+                .addPart("a", "1", StringSerde)
+                .build()
+        assertEquals(allowed, body.boundary)
+        // The boundary still round-trips through the media type and the frame.
+        assertEquals(allowed, body.mediaType().parameters["boundary"])
+        assertContains(String(drain(body), Charsets.UTF_8), "--$allowed\r\n")
+    }
+
+    // ---------------------------------------------------------------------
+    // newBuilder
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `newBuilder preserves boundary and parts and supports appending`() {
+        val original =
+            MultipartBody.builder()
+                .boundary("orig")
+                .addPart("a", "1", StringSerde)
+                .build()
+        val derived =
+            original.newBuilder()
+                .addPart("b", "2", StringSerde)
+                .build()
+        assertEquals("orig", derived.boundary)
+        assertEquals(2, derived.parts.size)
+        // The original is untouched — its parts list is not shared with the derived builder.
+        assertEquals(1, original.parts.size)
+        val wire = String(drain(derived), Charsets.UTF_8)
+        assertContains(wire, "--orig\r\n")
+        assertContains(wire, "name=\"a\"")
+        assertContains(wire, "name=\"b\"")
+    }
 }

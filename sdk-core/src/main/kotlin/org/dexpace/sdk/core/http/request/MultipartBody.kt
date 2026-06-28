@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.http.request
 
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.io.BufferedSink
-import org.dexpace.sdk.core.io.IoProvider
 import org.dexpace.sdk.core.serde.Serde
 import java.io.IOException
 import java.nio.file.Path
@@ -86,9 +85,19 @@ public class MultipartBody private constructor(
 
     override fun isReplayable(): Boolean = parts.all { it.body.isReplayable() }
 
-    override fun toReplayable(provider: IoProvider): RequestBody {
-        if (isReplayable()) return this
-        return super.toReplayable(provider)
+    // toReplayable is inherited from RequestBody: it returns this when isReplayable() is true and
+    // otherwise drains writeTo once into a buffer — exactly the behaviour this body needs.
+
+    /**
+     * Returns a [Builder] pre-filled with this body's [boundary] and [parts], so a modified copy
+     * (for example one with an extra part appended) can be derived without rebuilding from scratch.
+     */
+    public fun newBuilder(): Builder {
+        val builder = Builder().boundary(boundary)
+        for (part in parts) {
+            builder.addPart(part)
+        }
+        return builder
     }
 
     @Throws(IOException::class)
@@ -228,10 +237,16 @@ public class MultipartBody private constructor(
         private val parts = ArrayList<Part>()
         private var boundary: String? = null
 
-        /** Overrides the generated boundary token (without surrounding dashes). */
+        /**
+         * Overrides the generated boundary token (without surrounding dashes). The value must be a
+         * valid RFC 2046 boundary: 1–70 characters drawn only from `bcharsnospace` (ASCII letters,
+         * digits, and `'()+_,-./:=?`). This rejects a boundary that would inject CR/LF into the
+         * delimiter lines or that no RFC 7578 parser could re-segment (e.g. one containing spaces,
+         * a trailing space servers strip, or more than 70 characters).
+         */
         public fun boundary(boundary: String): Builder =
             apply {
-                require(boundary.isNotEmpty()) { "boundary must not be empty" }
+                validateBoundary(boundary)
                 this.boundary = boundary
             }
 
@@ -269,6 +284,32 @@ public class MultipartBody private constructor(
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         private const val BOUNDARY_RANDOM_LENGTH: Int = 32
         private val RANDOM: SecureRandom = SecureRandom()
+
+        /** RFC 2046 `bcharsnospace` punctuation — the non-alphanumeric boundary characters. */
+        private const val BOUNDARY_SPECIALS: String = "'()+_,-./:=?"
+
+        /** RFC 2046 caps a boundary at 70 characters. */
+        private const val MAX_BOUNDARY_LENGTH: Int = 70
+
+        private fun isBoundaryChar(ch: Char): Boolean =
+            ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' || ch in BOUNDARY_SPECIALS
+
+        /**
+         * Validates a caller-supplied boundary against RFC 2046: 1–70 characters drawn only from
+         * `bcharsnospace`. Generated boundaries always satisfy this; the check guards the
+         * [Builder.boundary] override so a custom boundary cannot smuggle CR/LF into a delimiter
+         * line or contain characters (spaces, a trailing space, control bytes) that break framing.
+         */
+        private fun validateBoundary(boundary: String) {
+            require(boundary.isNotEmpty()) { "boundary must not be empty" }
+            require(boundary.length <= MAX_BOUNDARY_LENGTH) {
+                "boundary must be at most $MAX_BOUNDARY_LENGTH characters (RFC 2046), got ${boundary.length}"
+            }
+            require(boundary.all(::isBoundaryChar)) {
+                "boundary must contain only RFC 2046 bcharsnospace characters " +
+                    "(letters, digits, and $BOUNDARY_SPECIALS)"
+            }
+        }
 
         /**
          * Generates a fresh boundary unlikely to collide with any part body's bytes: a fixed
