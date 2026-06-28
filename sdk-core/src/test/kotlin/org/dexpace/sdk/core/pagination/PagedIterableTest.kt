@@ -46,6 +46,7 @@ class PagedIterableTest {
         body: String = "",
     ): PagedIterable<String> {
         val pages = ArrayDeque(listOf("p1" to "n1", "p2" to "n2", "p3" to null))
+
         fun build(): Page<String> {
             val (item, next) = pages.removeFirst()
             return Page(

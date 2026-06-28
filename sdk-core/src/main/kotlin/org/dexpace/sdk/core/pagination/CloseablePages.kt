@@ -64,6 +64,8 @@ public class CloseablePages<T>
                 }
 
                 override fun next(): Page<T> {
+                    // hasNext() also closes the held page when the source is exhausted.
+                    if (!hasNext()) throw NoSuchElementException()
                     closeCurrent() // close the previous page as we advance past it
                     return source.next().also { current = it }
                 }

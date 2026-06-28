@@ -38,8 +38,12 @@ class PaginatorByPageTest {
     fun `byPage exposes one rich page per HTTP exchange with live response, then closes each`() {
         val closes = AtomicInteger(0)
         val client = StubHttpClient()
-        client.on("https://api.example.com/items") { req -> closeRecordingResponse(req, closes, "items=a,b\ncursor=abc") }
-        client.on("https://api.example.com/items?cursor=abc") { req -> closeRecordingResponse(req, closes, "items=c\ncursor=") }
+        client.on(
+            "https://api.example.com/items",
+        ) { req -> closeRecordingResponse(req, closes, "items=a,b\ncursor=abc") }
+        client.on(
+            "https://api.example.com/items?cursor=abc",
+        ) { req -> closeRecordingResponse(req, closes, "items=c\ncursor=") }
         val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
 
         val collectedItems = mutableListOf<List<String>>()
@@ -67,8 +71,12 @@ class PaginatorByPageTest {
     fun `byPage stream yields one page per HTTP exchange and closes each`() {
         val closes = AtomicInteger(0)
         val client = StubHttpClient()
-        client.on("https://api.example.com/items") { req -> closeRecordingResponse(req, closes, "items=a,b\ncursor=abc") }
-        client.on("https://api.example.com/items?cursor=abc") { req -> closeRecordingResponse(req, closes, "items=c\ncursor=") }
+        client.on(
+            "https://api.example.com/items",
+        ) { req -> closeRecordingResponse(req, closes, "items=a,b\ncursor=abc") }
+        client.on(
+            "https://api.example.com/items?cursor=abc",
+        ) { req -> closeRecordingResponse(req, closes, "items=c\ncursor=") }
         val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
 
         val count = paginator.byPage().use { it.stream().count() }

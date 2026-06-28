@@ -345,17 +345,7 @@ public class AsyncPaginator<T>
             private fun step(): Step {
                 val staged = pendingPage
                 if (staged != null) {
-                    // If the result was settled from the outside (cancelled, timed out, or
-                    // completed by the caller), drop the staged page undrained instead of
-                    // emitting it to the consumer — but close it so its Response is not leaked.
-                    // The result is already settled, so a throwing close cannot be reported:
-                    // release it best-effort and swallow any error.
-                    if (result.isDone) {
-                        closeStagedPageQuietly() // dropped undrained → release its Response
-                        return Step.DONE
-                    }
-                    pendingPage = null
-                    return if (drainPage(staged)) Step.CONTINUE else Step.DONE
+                    return drainStaged(staged)
                 }
                 val request = nextRequest
                 if (request == null || result.isDone || pagesFetched >= maxPages) {
@@ -384,6 +374,22 @@ public class AsyncPaginator<T>
                     }
                 }
                 return Step.SUSPEND
+            }
+
+            /**
+             * Handles the page already staged in [pendingPage]: drains it to the sink, or — if the
+             * result was settled from the outside (cancelled, timed out, or completed by the caller)
+             * — drops it undrained, closing it so its [Response] is not leaked. The result is then
+             * already settled, so a throwing close cannot be reported: release it best-effort and
+             * swallow any error.
+             */
+            private fun drainStaged(staged: ParsedPage<T>): Step {
+                if (result.isDone) {
+                    closeStagedPageQuietly() // dropped undrained → release its Response
+                    return Step.DONE
+                }
+                pendingPage = null
+                return if (drainPage(staged)) Step.CONTINUE else Step.DONE
             }
 
             /**
