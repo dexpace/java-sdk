@@ -265,7 +265,7 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `http.request` | `Request`, `RequestBody`, `FileRequestBody`, `LoggableRequestBody`, `Method`. |
 | `http.response` | `Response`, `ResponseBody`, `LoggableResponseBody`, `Status` (a value-carrying class with a total `fromCode`), plus the raw-vs-parsed seam: `ResponseHandler<T>` (with dep-free `string()`/`empty()` handlers) and a lazy, parse-once `ParsedResponse<T>`. |
 | `http.response.exception` | Typed `HttpException` hierarchy (`BadRequestException`, `RequestTimeoutException`, `TooManyRequestsException`, `ServiceUnavailableException`, …) with `isRetryable` derived from `RetryUtils.isRetryable` and exposed via the `Retryable` interface, plus `NetworkException` and `HttpExceptionFactory`. |
-| `http.common` | `Headers`, `HttpHeaderName` (interned), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
+| `http.common` | `Headers`, `HttpHeaderName` (interned), `QueryParams` (RFC 3986 query multimap), `MediaType`, `Protocol`, `HttpRange`, `ETag`, `RequestConditions`. |
 | `http.context` | `CallContext` → `DispatchContext` → `RequestContext` → `ExchangeContext` chain, `ContextStore`. |
 | `http.pipeline` | Sync (`HttpStep` / `HttpPipeline` / `HttpPipelineBuilder` / `PipelineNext` / `Stage`) and async (`AsyncHttpStep` / `AsyncHttpPipeline` / `AsyncHttpPipelineBuilder` / `AsyncPipelineNext`) pipeline machinery, plus `AsyncPipelineBridges`. |
 | `http.pipeline.steps` | Concrete steps: `RetryStep`, `RedirectStep`, `AuthStep`, `KeyCredentialAuthStep`, `BearerTokenAuthStep`, `InstrumentationStep`, `SetDateStep`, and their `*Options` / `*Condition` types. |
@@ -273,6 +273,7 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `http.paging` | `PagedIterable<T>`, `PagedResponse<T>`, `PagingOptions` with `byPage()` and `stream()` accessors. |
 | `auth` | `Credential` sealed hierarchy (`KeyCredential`, `NamedKeyCredential`, `BearerToken`), `BearerTokenProvider`, `AuthScheme`, per-operation `AuthRequirement` / `AuthDescriptor` with `AuthDescriptorResolver` precedence ladder, RFC 7235 challenge parser, `BasicChallengeHandler`, `DigestChallengeHandler`, `CompositeChallengeHandler`. |
 | `pagination` | `Paginator<T>` (with a `maxPages` safety cap) over cursor / page-number / link-header `PaginationStrategy` implementations, plus `Page<T>` / `SimplePage<T>`. Token-style APIs use `CursorPaginationStrategy` with the query-param name set (e.g. `"page_token"`). |
+| `operation` | `OperationParams` — SPI projecting an operation's typed inputs (path / query / header / body) into a `Request` and the context chain, via `toRequest(baseUrl)` / `toRequestContext(baseUrl, dispatch)`. |
 | `pipeline` | Recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline` over a sealed `ResponseOutcome`, with steps (`pipeline.step`, `pipeline.step.retry`) like `RetryStep`, `ResponseRecoveryStep`, `IdempotencyKeyStep`, `ClientIdentityStep`. |
 | `serde` | `Serde`, `Serializer`, `Deserializer` abstractions, `Tristate<T>` (absent / null / present), and `SerdeException` (the unchecked failure adapters translate codec errors into). |
 | `io` | `Source`, `Sink`, `Buffer`, `BufferedSource`, `BufferedSink`, `IoProvider`, `Io`, `TeeSink`. |

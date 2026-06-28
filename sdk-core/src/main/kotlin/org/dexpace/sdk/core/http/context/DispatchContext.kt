@@ -37,15 +37,23 @@ public data class DispatchContext(
 ) : CallContext {
     /**
      * Promotes this dispatch context into a [RequestContext] bound to [request] and stores
-     * the new context in [ContextStore] under this chain's [callKey]. After promotion this
-     * dispatch context becomes an intermediate link and must not be closed independently —
-     * close the returned [RequestContext] (or its own successor) instead.
+     * the new context in [ContextStore] under this chain's [callKey]. The optional
+     * [operationName] (a schema-defined operation id such as `"GetUser"`) is carried onto the
+     * [RequestContext] and forwarded down the chain so the tracing seam can label the operation;
+     * it does not affect the request or dispatch decision. After promotion this dispatch context
+     * becomes an intermediate link and must not be closed independently — close the returned
+     * [RequestContext] (or its own successor) instead.
      */
-    public fun toRequestContext(request: Request): RequestContext =
+    @JvmOverloads
+    public fun toRequestContext(
+        request: Request,
+        operationName: String? = null,
+    ): RequestContext =
         RequestContext(
             instrumentationContext = instrumentationContext,
             request = request,
             callKey = callKey,
+            operationName = operationName,
         ).also {
             ContextStore.set(it.callKey, it)
         }

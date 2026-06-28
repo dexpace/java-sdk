@@ -28,6 +28,7 @@ concerns.
     - [JDK 8 Compatibility](#jdk-8-compatibility)
     - [Cross-Compile Toolchain Discipline](#cross-compile-toolchain-discipline)
     - [Immutability and Builders](#immutability-and-builders)
+    - [Request URL Model](#request-url-model)
     - [Virtual Thread Safety](#virtual-thread-safety)
     - [Internal Visibility](#internal-visibility)
     - [Cancellation](#cancellation)
@@ -595,6 +596,18 @@ data class Request private constructor(
 - **`data class`**: Gives `equals()`, `hashCode()`, `toString()`, `copy()` for free
 - **`newBuilder()`**: Creates a pre-filled builder for modification
 - **`Builder<out T>`**: Generic interface ensuring all builders have `fun build(): T`
+
+### Request URL Model
+
+`Request` stores its target as a single resolved `java.net.URL` and layers the `QueryParams`
+multimap (`http.common`) on top for structured query manipulation, rather than modelling a fully
+deconstructed URL value object. This preserves the DNS-free equality contract — `Request` compares
+`url.toExternalForm()`, a pure string comparison, because `java.net.URL.equals` / `hashCode`
+resolve the host via DNS (blocking, and wrong for virtual hosts) — and puts a structured model
+where the manipulation pressure actually is (the query string). A deconstructed `Url` model and/or
+a `java.net.URI` migration remain deferred until richer path handling earns them; minimal
+path-template substitution lives in the `OperationParams` SPI. Full rationale and the alternatives
+weighed: see the "Request URL Model" section in [`http.md`](http.md).
 
 ### Virtual Thread Safety
 

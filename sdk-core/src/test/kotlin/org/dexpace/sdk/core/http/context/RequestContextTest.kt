@@ -53,6 +53,17 @@ class RequestContextTest {
     }
 
     @Test
+    fun `toExchangeContext carries the operation name forward`() {
+        val instr = FakeInstrumentationContext(TraceId(owned("opname")))
+        val parent = RequestContext(instr, request(), operationName = "GetUser")
+        ownedIds.add(parent.callKey)
+
+        val promoted = parent.toExchangeContext(response())
+
+        assertEquals("GetUser", promoted.operationName)
+    }
+
+    @Test
     fun `data class equality is by content`() {
         val instr = FakeInstrumentationContext(TraceId(owned("eq")))
         val req = request()

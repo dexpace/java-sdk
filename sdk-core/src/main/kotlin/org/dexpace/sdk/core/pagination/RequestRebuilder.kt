@@ -7,27 +7,32 @@
 
 package org.dexpace.sdk.core.pagination
 
+import org.dexpace.sdk.core.http.common.PercentEncoding
+import org.dexpace.sdk.core.http.common.QueryParams
 import org.dexpace.sdk.core.http.request.Request
 import java.net.URL
-import java.net.URLDecoder
-import java.net.URLEncoder
 
 /**
  * Internal helpers for building the next-page [Request] from an initial [Request] plus a
  * paging-state mutation.
  *
- * The functions here are pure URL-rewriting utilities — no I/O, no mutation of the
- * supplied [Request], and no allocation beyond the new request and URL. They exist so
- * pagination strategies can stay focused on extracting paging state from responses, while
- * the mechanical work of "produce a new request with this query param set" lives in one
- * place.
+ * The functions here are pure URL-rewriting utilities — no I/O and no mutation of the
+ * supplied [Request]. They exist so pagination strategies can stay focused on extracting
+ * paging state from responses, while the mechanical work of "produce a new request with this
+ * query param set" lives in one place.
  *
- * ## URL encoding
+ * ## Query manipulation
  *
- * All query manipulation uses `application/x-www-form-urlencoded` semantics (the JDK's
- * `URLEncoder` / `URLDecoder` with UTF-8) — the same convention browsers and servers use
- * for query strings. Pre-existing query segments are preserved verbatim; only the targeted
- * parameter is replaced.
+ * Both reading ([getQueryParam]) and writing ([setQueryParam]) operate on the raw query string
+ * directly — scanning or splicing segments and decoding/encoding only the targeted parameter via
+ * the shared [PercentEncoding] codec (RFC 3986 semantics: space → `%20`, literal `+` preserved).
+ * Every other segment is copied **verbatim**, so parameters the caller did not touch keep their
+ * exact wire form (a value-less `?flag` stays value-less; reserved characters are not rewritten).
+ *
+ * [QueryParams.encode] is deliberately *not* used to reassemble the whole query: it re-renders
+ * every parameter in canonical form (altering untouched segments) and would allocate a full
+ * multimap per page. This editor favours fidelity — and avoids that per-page allocation — over
+ * funnelling everything through the model; see the note on [QueryParams].
  *
  * ## URL.fragment / userInfo
  *
@@ -35,8 +40,6 @@ import java.net.URLEncoder
  * (fragment) exactly. Only the query string is mutated.
  */
 internal object RequestRebuilder {
-    private const val UTF_8: String = "UTF-8"
-
     /**
      * Returns a new [Request] cloned from [request] with the query parameter [name] set to
      * [value]. If [value] is `null`, removes the parameter entirely. If [name] already
@@ -76,7 +79,6 @@ internal object RequestRebuilder {
         name: String,
         value: String?,
     ): URL {
-        val encodedName = URLEncoder.encode(name, UTF_8)
         val existing = url.query
         val outParams: MutableList<String> = ArrayList()
         var replaced = false
@@ -84,54 +86,53 @@ internal object RequestRebuilder {
             for (segment in existing.split('&')) {
                 if (segment.isEmpty()) continue
                 val key = segment.substringBefore('=', segment)
-                if (decodeOrRaw(key) == name) {
+                if (PercentEncoding.decodeComponent(key) == name) {
                     if (!replaced && value != null) {
-                        outParams.add(encodedName + "=" + URLEncoder.encode(value, UTF_8))
+                        outParams.add(encodeParam(name, value))
                         replaced = true
                     }
                     // else: dropping this param (value == null) or already replaced once.
                 } else {
+                    // Untouched parameter — copy its raw segment byte-for-byte.
                     outParams.add(segment)
                 }
             }
         }
         if (!replaced && value != null) {
-            outParams.add(encodedName + "=" + URLEncoder.encode(value, UTF_8))
+            outParams.add(encodeParam(name, value))
         }
         val newQuery: String? = if (outParams.isEmpty()) null else outParams.joinToString("&")
         return rebuildUrl(url, newQuery)
     }
 
+    private fun encodeParam(
+        name: String,
+        value: String,
+    ): String = PercentEncoding.encodeComponent(name) + "=" + PercentEncoding.encodeComponent(value)
+
     /**
-     * Returns the value of the query parameter [name] from [url], or `null` if absent.
-     * The value is URL-decoded with UTF-8.
+     * Returns the value of the query parameter [name] from [url], or `null` if absent. The raw
+     * query is scanned directly (mirroring [setQueryParam]) and the matched name/value are
+     * decoded with RFC 3986 semantics via [PercentEncoding] — first match wins, and a value-less
+     * `?flag` reports `""`. No full [QueryParams] model is built per page.
      */
     fun getQueryParam(
         url: URL,
         name: String,
     ): String? {
-        val existing = url.query ?: return null
-        if (existing.isEmpty()) return null
+        val existing = url.query
+        if (existing.isNullOrEmpty()) return null
         for (segment in existing.split('&')) {
             if (segment.isEmpty()) continue
-            val key = segment.substringBefore('=', segment)
-            if (decodeOrRaw(key) == name) {
-                return decodeOrRaw(segment.substringAfter('=', ""))
+            val eq = segment.indexOf('=')
+            val key = if (eq < 0) segment else segment.substring(0, eq)
+            if (PercentEncoding.decodeComponent(key) == name) {
+                val rawValue = if (eq < 0) "" else segment.substring(eq + 1)
+                return PercentEncoding.decodeComponent(rawValue)
             }
         }
         return null
     }
-
-    private fun decodeOrRaw(raw: String): String =
-        try {
-            URLDecoder.decode(raw, UTF_8)
-        } catch (ignored: IllegalArgumentException) {
-            // Malformed percent-encoding — return raw so equality with caller's name still works
-            // for unencoded ASCII identifiers (the common case for pagination params).
-            // We intentionally swallow the exception here; pagination should not fail on malformed
-            // legacy URLs that the transport accepted.
-            raw
-        }
 
     private fun rebuildUrl(
         source: URL,

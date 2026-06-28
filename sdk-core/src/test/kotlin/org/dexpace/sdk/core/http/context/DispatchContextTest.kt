@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class DispatchContextTest {
@@ -49,6 +50,19 @@ class DispatchContextTest {
         assertEquals(dispatch.callKey, promoted.callKey)
         // Promotion registers the new context under the chain's call key.
         assertSame(promoted, ContextStore.get(promoted.callKey))
+        // No operation name supplied — the context carries null.
+        assertNull(promoted.operationName)
+    }
+
+    @Test
+    fun `toRequestContext carries an explicit operation name onto the promoted context`() {
+        val id = owned("opname")
+        val dispatch = DispatchContext(FakeInstrumentationContext(TraceId(id)))
+        ownedIds.add(dispatch.callKey)
+
+        val promoted = dispatch.toRequestContext(request(), "GetUser")
+
+        assertEquals("GetUser", promoted.operationName)
     }
 
     @Test
