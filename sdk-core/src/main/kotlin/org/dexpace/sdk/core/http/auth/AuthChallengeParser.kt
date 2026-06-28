@@ -142,13 +142,18 @@ public object AuthChallengeParser {
     @Suppress("ReturnCount")
     private fun parseAuthParamOrToken68(cursor: Cursor): Pair<String, String>? {
         val saved = cursor.position
+
+        fun rewindAsToken68(): Pair<String, String>? {
+            cursor.position = saved
+            val token68 = cursor.readToken68() ?: return null
+            return "token68" to token68
+        }
+
         val name = cursor.readToken() ?: return null
         cursor.skipOws()
         if (!cursor.hasMore() || cursor.peek() != '=') {
             // No `=` after the token — it's a token68.
-            cursor.position = saved
-            val token68 = cursor.readToken68() ?: return null
-            return "token68" to token68
+            return rewindAsToken68()
         }
         cursor.advance() // consume the first `=`
 
@@ -159,9 +164,7 @@ public object AuthChallengeParser {
         // entire `cmVhbA==` is recovered. Without this branch a doubly-padded
         // base64 token would be silently dropped.
         if (cursor.hasMore() && cursor.peek() == '=') {
-            cursor.position = saved
-            val token68 = cursor.readToken68() ?: return null
-            return "token68" to token68
+            return rewindAsToken68()
         }
         cursor.skipOws()
 
@@ -169,9 +172,7 @@ public object AuthChallengeParser {
         if (!cursor.hasMore() || cursor.peek() == ',') {
             // looked like `key=` with nothing after — try to treat the whole
             // thing as token68 (rewind and read it as such).
-            cursor.position = saved
-            val token68 = cursor.readToken68() ?: return null
-            return "token68" to token68
+            return rewindAsToken68()
         }
         val value = cursor.readTokenOrQuotedString() ?: return null
         return name.lowercase(Locale.US) to value
@@ -274,25 +275,18 @@ public object AuthChallengeParser {
             while (position < len) {
                 when (src[position]) {
                     ',' -> return
-                    '"' -> {
-                        // skip the quoted string — but if it's unterminated, just
-                        // jump to EOF.
-                        position++
-                        while (position < len && src[position] != '"') {
-                            if (src[position] == '\\' && position + 1 < len) position++
-                            position++
-                        }
-                        if (position < len) position++ // closing quote
-                    }
+                    // Reuse the escape-aware reader; on an unterminated string it
+                    // consumes through to EOF, exactly where recovery wants to land.
+                    '"' -> readQuotedString()
                     else -> position++
                 }
             }
         }
     }
 
-    private val TOKEN_PUNCTUATION: Set<Char> = "!#$%&'*+-.^_`|~".toSet()
+    private const val TOKEN_PUNCTUATION = "!#$%&'*+-.^_`|~"
 
-    private val TOKEN68_PUNCTUATION: Set<Char> = "-._~+/".toSet()
+    private const val TOKEN68_PUNCTUATION = "-._~+/"
 
     /** RFC 7230 token char: ALPHA / DIGIT / one of the punctuation set. */
     private fun isTokenChar(c: Char): Boolean =
