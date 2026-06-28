@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * [closed][close], whether that close is explicit, via a `use {}` / try-with-resources block,
  * implicit when iteration runs to completion, or implicit when the backing reader fails
  * mid-stream. This mirrors the close-on-partial-consume invariant
- * [org.dexpace.sdk.core.http.paging.PagedIterable] enforces: a consumer that pulls only the
+ * [org.dexpace.sdk.core.pagination.PagedIterable] enforces: a consumer that pulls only the
  * first few events and walks away never strands the response body or its pooled connection.
  *
  * Unlike the bare [Sequence] returned by [BufferedSource.readServerSentEvents], an `SseStream`

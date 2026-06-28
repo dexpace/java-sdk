@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-package org.dexpace.sdk.core.http.paging
+package org.dexpace.sdk.core.pagination
 
 /**
  * Mutable carrier for paging request parameters.
