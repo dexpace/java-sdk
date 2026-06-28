@@ -145,13 +145,10 @@ public class Paginator<T>
             // Index into currentPage.items for the next item to emit.
             private var currentItemIndex: Int = 0
 
-            // null = first iteration (use initialRequest); else the next-page request scheduled by
-            // the previous page's strategy.parse() call.
-            private var nextRequest: Request? = null
-
-            // true once we have fetched at least one page. Used to distinguish "never fetched" from
-            // "exhausted after fetching" — both have currentPage == null right after iteration ends.
-            private var started: Boolean = false
+            // The next request to fetch: seeded with initialRequest, then replaced after each page
+            // with that page's nextPageRequest(), or null once a page reports no successor (which
+            // ends the stream on the following advance()).
+            private var nextRequest: Request? = initialRequest
 
             // true after iteration is definitively over; prevents further fetches.
             private var done: Boolean = false
@@ -190,26 +187,11 @@ public class Paginator<T>
              * [currentPage]; `false` if iteration is now done.
              */
             private fun advance(): Boolean {
-                if (pagesFetched >= maxPages) {
-                    // Safety cap reached: stop before fetching a page we would otherwise yield,
-                    // even if the previous page still reports hasNext.
-                    done = true
-                    currentPage = null
-                    return false
-                }
-                val request: Request? =
-                    if (!started) {
-                        initialRequest
-                    } else {
-                        // We have a current page that's exhausted — see if it can produce a next.
-                        val finishedPage = currentPage
-                        if (finishedPage == null || !finishedPage.hasNext) {
-                            null
-                        } else {
-                            nextRequest ?: finishedPage.nextPageRequest()
-                        }
-                    }
-                if (request == null) {
+                val request = nextRequest
+                if (request == null || pagesFetched >= maxPages) {
+                    // Either no next request is scheduled (the previous page had no successor) or
+                    // the safety cap is reached — stop before fetching a page we would otherwise
+                    // yield, even if the previous page still reports hasNext.
                     done = true
                     currentPage = null
                     return false
@@ -222,11 +204,10 @@ public class Paginator<T>
                     } finally {
                         response.close()
                     }
-                started = true
                 currentPage = page
                 currentItemIndex = 0
                 // Compute the next request now so we don't have to retain the (closed) response.
-                // If this page has no next, nextRequest stays null; advance() will treat that as done.
+                // If this page has no next, nextRequest goes null; the next advance() ends the stream.
                 nextRequest = if (page.hasNext) page.nextPageRequest() else null
                 return true
             }
