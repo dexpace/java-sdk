@@ -372,6 +372,8 @@ defaults (per Square: `FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMEST
 
 ### WU-9: Pagination primitives
 
+> Superseded by #30 (pagination unification): `Page` is now an immutable value type, strategies return `PageInfo` (`nextRequest == null` = end of stream), and `SimplePage` was removed.
+
 **Status: shipped.** `Page`, `Paginator`, `PaginationStrategy`, and the three strategies
 (`Cursor` / `PageNumber` / `LinkHeader`) are in `sdk-core/.../pagination`, alongside
 helper types `SimplePage` and `RequestRebuilder`. `Paginator` gained a `maxPages` safety cap

@@ -14,8 +14,6 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
-import org.dexpace.sdk.core.io.Io
-import org.dexpace.sdk.io.OkioIoProvider
 import java.io.IOException
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
@@ -28,7 +26,7 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PagedIterableTest {
-    @BeforeTest fun setup() = Io.installProvider(OkioIoProvider)
+    @BeforeTest fun setup() = installIoProvider()
 
     private fun request(): Request =
         Request.builder().url(URL("https://api.example.com/items")).method(Method.GET).build()
@@ -167,6 +165,44 @@ class PagedIterableTest {
             )
         assertEquals(listOf(1, 2), iterable.toList())
         assertEquals(0, nextPageCalls.get(), "nextPage must not be called for an empty continuationToken")
+    }
+
+    // -------------------------------------------------------------------------
+    // Behavior 2b: continuationToken drives the next fetch when nextLink is null
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `continuationToken is used when nextLink is null and the next page is followed`() {
+        val observedToken = arrayOfNulls<String>(1)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1), nextLink = null, continuationToken = "tok") },
+                nextPage = { _, token ->
+                    observedToken[0] = token
+                    page(listOf(2))
+                },
+            )
+        assertEquals(listOf(1, 2), iterable.toList())
+        assertEquals("tok", observedToken[0], "continuationToken must drive nextPage when nextLink is null")
+    }
+
+    // -------------------------------------------------------------------------
+    // Behavior 2c: a null return from nextPage terminates iteration
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `null return from nextPage terminates iteration after first page`() {
+        val nextPageCalls = AtomicInteger(0)
+        val iterable =
+            PagedIterable<Int>(
+                firstPage = { page(listOf(1, 2), nextLink = "p2") },
+                nextPage = { _, _ ->
+                    nextPageCalls.incrementAndGet()
+                    null
+                },
+            )
+        assertEquals(listOf(1, 2), iterable.toList())
+        assertEquals(1, nextPageCalls.get(), "nextPage must be called exactly once before its null ends the stream")
     }
 
     // -------------------------------------------------------------------------

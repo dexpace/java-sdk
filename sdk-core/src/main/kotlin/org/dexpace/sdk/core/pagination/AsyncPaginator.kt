@@ -371,8 +371,9 @@ public class AsyncPaginator<T>
             }
 
             /**
-             * Emits a page's items to the consumer, then schedules the next request. Returns
-             * `true` to continue driving, `false` if the consumer threw (walk aborted).
+             * Delivers a parsed page to the page sink (which may emit the page's items or the
+             * whole page), then schedules the next request read from the [ParsedPage]. Returns
+             * `true` to continue driving, `false` if the sink threw (walk aborted).
              */
             private fun drainPage(page: ParsedPage<T>): Boolean {
                 try {
@@ -386,9 +387,10 @@ public class AsyncPaginator<T>
             }
 
             /**
-             * Executes [request], parses the response into a [Page], and closes the response —
-             * mirroring [Paginator]'s per-page lifecycle. The returned future completes with the
-             * parsed page or exceptionally if the transport or strategy fails.
+             * Executes [request], parses the response into a [PageInfo], snapshots a [Page], and
+             * closes the response — mirroring [Paginator]'s per-page lifecycle. The returned future
+             * completes with the resulting [ParsedPage] or exceptionally if the transport or
+             * strategy fails.
              */
             private fun fetchPage(request: Request): CompletableFuture<ParsedPage<T>> {
                 pagesFetched++
