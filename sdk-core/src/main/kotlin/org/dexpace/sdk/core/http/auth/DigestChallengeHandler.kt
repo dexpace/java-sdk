@@ -374,10 +374,7 @@ public class DigestChallengeHandler
             /** True if [qop] is absent (legacy) or contains the `auth` token (case-insensitive). */
             private fun qopSupportsAuth(qop: String?): Boolean {
                 if (qop == null) return true
-                for (token in qop.split(',')) {
-                    if (token.trim().equals("auth", ignoreCase = true)) return true
-                }
-                return false
+                return qop.split(',').any { it.trim().equals("auth", ignoreCase = true) }
             }
 
             /** Lower-case hex of a byte array — minimal allocation, no intermediate strings. */
