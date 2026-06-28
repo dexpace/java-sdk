@@ -280,4 +280,32 @@ class QueryParamsTest {
         val b = QueryParams.builder().add("t", "2").add("t", "1").build()
         assertNotEquals(a, b)
     }
+
+    @Test
+    fun `a name added with an empty value list yields params equal to empty`() {
+        // A name with no values contributes nothing to encode(), so it must not leave a
+        // phantom entry that breaks the "equal iff encode() identical" invariant.
+        val params = QueryParams.builder().add("a", emptyList()).build()
+        assertFalse(params.contains("a"))
+        assertTrue(params.isEmpty())
+        assertEquals("", params.encode())
+        assertEquals(QueryParams.empty(), params)
+        assertEquals(QueryParams.empty().hashCode(), params.hashCode())
+    }
+
+    @Test
+    fun `set with an empty value list drops the name`() {
+        val params = QueryParams.builder().add("a", "1").set("a", emptyList()).build()
+        assertFalse(params.contains("a"))
+        assertTrue(params.isEmpty())
+    }
+
+    @Test
+    fun `a value-less param is retained and not confused with an empty value list`() {
+        // add(name, null) stores a single empty-string value ("?flag"); that is NOT an empty
+        // list and must survive build().
+        val params = QueryParams.builder().add("flag", null as String?).build()
+        assertTrue(params.contains("flag"))
+        assertEquals("flag=", params.encode())
+    }
 }

@@ -201,7 +201,9 @@ public class QueryParams private constructor(
             }
 
         /**
-         * Replaces all values for [name] with [values].
+         * Replaces all values for [name] with [values]. An empty [values] list drops the
+         * parameter on [build] (a name with no values renders nothing), so it never leaves a
+         * phantom entry; pass `null` to [set] to remove a parameter explicitly.
          */
         public fun set(
             name: String,
@@ -228,9 +230,17 @@ public class QueryParams private constructor(
         public fun build(): QueryParams {
             // Deep, defensive copy so later builder mutations cannot reach into the built
             // instance and accessor-returned lists cannot be mutated via a cast.
+            //
+            // A name whose value list is empty (e.g. `add(name, emptyList())`) contributes
+            // nothing to encode(), so it is dropped here: keeping it would leave a phantom
+            // entry that is contains()==true yet invisible to encode(), breaking the
+            // "equal iff encode() identical" invariant. A value-less param keeps a single
+            // empty-string value (`[""]`), which is not an empty list and is retained.
             val snapshot = LinkedHashMap<String, List<String>>(paramsMap.size)
             paramsMap.forEach { (key, values) ->
-                snapshot[key] = Collections.unmodifiableList(ArrayList(values))
+                if (values.isNotEmpty()) {
+                    snapshot[key] = Collections.unmodifiableList(ArrayList(values))
+                }
             }
             return QueryParams(snapshot)
         }
