@@ -46,7 +46,7 @@ import java.time.Duration
  * ## Body replayability
  *
  * Eligibility is gated on re-sendability, keyed off whether the request carries a body:
- *  - **No body** — retried only when the method is idempotent ([IDEMPOTENT_METHODS]). Body-less
+ *  - **No body** — retried only when the method is idempotent (see [RetryPolicySupport]). Body-less
  *    retry safety keys off method idempotency, NOT off the absence of a body, so a body-less
  *    non-idempotent request — e.g. a bare `POST` to a trigger / activate-style endpoint — is NOT
  *    retried even though there is no payload to re-send: replaying it could duplicate the side

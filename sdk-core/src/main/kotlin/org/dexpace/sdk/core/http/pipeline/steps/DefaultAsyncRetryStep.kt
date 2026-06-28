@@ -54,7 +54,7 @@ import kotlin.concurrent.withLock
  * ## Re-sendability gating
  *
  * Identical to [DefaultRetryStep]:
- *  - **No body** — retried only when the method is idempotent ([IDEMPOTENT_METHODS]); a bare
+ *  - **No body** — retried only when the method is idempotent (see [RetryPolicySupport]); a bare
  *    non-idempotent `POST` is not retried even though there is nothing to re-send.
  *  - **Has a body** — retried only when [org.dexpace.sdk.core.http.request.RequestBody.isReplayable].
  *
