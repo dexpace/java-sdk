@@ -140,17 +140,6 @@ public open class BearerTokenAuthStep
         }
 
         /**
-         * Returns `true` when [response]'s `WWW-Authenticate` header advertises a `Bearer`
-         * challenge. A header with only non-bearer challenges (or one that does not parse) returns
-         * `false`. [AuthStep] guarantees the header is present before this hook runs; the explicit
-         * null-guard keeps the method correct if called from elsewhere.
-         */
-        private fun offersBearerChallenge(response: Response): Boolean {
-            val header = response.headers.get(HttpHeaderName.WWW_AUTHENTICATE) ?: return false
-            return AuthChallengeParser.parse(header).any { it.scheme == BEARER_SCHEME }
-        }
-
-        /**
          * Clears [cachedToken] iff it is still the token whose stamped header is [rejectedHeader].
          * Guarded by the same [lock] as the refresh path so the read-compare-clear is atomic
          * against a concurrent refresh. Routes the comparison through [bearerHeaderValue] so it
@@ -224,9 +213,21 @@ public open class BearerTokenAuthStep
             // Default refresh margin: refresh the bearer token 30 seconds before its expiry
             // so an in-flight request never carries a near-expired credential.
             private const val DEFAULT_REFRESH_MARGIN_SECONDS = 30L
-
-            // Lower-cased `Bearer` scheme name; AuthChallengeParser normalises schemes to lower
-            // case, so the eviction gate compares against this constant.
-            private const val BEARER_SCHEME = "bearer"
         }
     }
+
+/**
+ * Returns `true` when [response]'s `WWW-Authenticate` header advertises a `Bearer` challenge. A
+ * header with only non-bearer challenges (or one that does not parse) returns `false`. The
+ * [AuthStep] / [AsyncAuthStep] pillar guarantees the header is present before the challenge hook
+ * runs; the explicit null-guard keeps the function correct if called from elsewhere. Shared by
+ * [BearerTokenAuthStep] and [AsyncBearerTokenAuthStep].
+ */
+internal fun offersBearerChallenge(response: Response): Boolean {
+    val header = response.headers.get(HttpHeaderName.WWW_AUTHENTICATE) ?: return false
+    return AuthChallengeParser.parse(header).any { it.scheme == BEARER_SCHEME }
+}
+
+// Lower-cased `Bearer` scheme name; AuthChallengeParser normalises schemes to lower case, so the
+// eviction gate compares against this constant.
+internal const val BEARER_SCHEME: String = "bearer"
