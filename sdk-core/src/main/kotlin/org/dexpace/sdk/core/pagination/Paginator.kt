@@ -10,10 +10,7 @@ package org.dexpace.sdk.core.pagination
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
-import java.util.Spliterator
-import java.util.Spliterators
 import java.util.stream.Stream
-import java.util.stream.StreamSupport
 
 /**
  * Generic, strategy-driven paginator over an [HttpClient].
@@ -95,120 +92,34 @@ public class Paginator<T>
             require(maxPages > 0L) { "maxPages must be positive, was $maxPages" }
         }
 
-        /**
-         * Returns an [Iterable] that lazily walks every item across every page.
-         *
-         * Each call returns a **fresh** iterable — re-iterating restarts pagination from
-         * [initialRequest]. The iterable is single-pass per iterator (calling `iterator()`
-         * twice yields two independent iterators that each re-execute requests).
-         *
-         * @return Lazy iterable over all items.
-         */
-        public fun iterateAll(): Iterable<T> =
-            Iterable {
-                PaginatorIterator(httpClient, initialRequest, strategy, maxPages)
-            }
+        /** Lazy iterable over all items across all pages. Each call restarts pagination. */
+        public fun iterateAll(): Iterable<T> = Iterable { walker().items() }
 
-        /**
-         * Returns a sequential, ordered, unknown-size Java 8 [Stream] of every item across
-         * every page. Backed by the same iterator as [iterateAll], so the same laziness and
-         * lifecycle semantics apply.
-         *
-         * @return Lazy stream over all items.
-         */
-        public fun streamAll(): Stream<T> {
-            val spliterator =
-                Spliterators.spliteratorUnknownSize(
-                    iterateAll().iterator(),
-                    Spliterator.ORDERED,
-                )
-            return StreamSupport.stream(spliterator, false)
-        }
+        /** Sequential, ordered, unknown-size [Stream] over all items. */
+        public fun streamAll(): Stream<T> = walker().itemStream()
 
-        /**
-         * Single-thread iterator over all items across all pages.
-         *
-         * Holds the in-progress page and item index; on `hasNext()`, advances to the next
-         * page (executing exactly one HTTP request) when the current page is exhausted and
-         * the page reports `hasNext` and produces a non-null next request. Stops fetching
-         * once [maxPages] pages have been pulled.
-         */
-        private class PaginatorIterator<T>(
-            private val httpClient: HttpClient,
-            private val initialRequest: Request,
-            private val strategy: PaginationStrategy<T>,
-            private val maxPages: Long,
-        ) : Iterator<T> {
-            // null = no page fetched yet; the first hasNext() call triggers the initial fetch.
-            private var currentPage: PageInfo<T>? = null
+        /** Lazy page-level view exposing per-page status/headers/items. Each call restarts pagination. */
+        public fun byPage(): Iterable<Page<T>> = Iterable { walker().pages() }
 
-            // Index into currentPage.items for the next item to emit.
-            private var currentItemIndex: Int = 0
+        /** Sequential, ordered, unknown-size [Stream] over all pages. */
+        public fun pageStream(): Stream<Page<T>> = walker().pageStream()
 
-            // The next request to fetch: seeded with initialRequest, then replaced after each page
-            // with that page's nextPageRequest(), or null once a page reports no successor (which
-            // ends the stream on the following advance()).
-            private var nextRequest: Request? = initialRequest
-
-            // true after iteration is definitively over; prevents further fetches.
-            private var done: Boolean = false
-
-            // Number of pages (HTTP exchanges) fetched so far. Iteration stops once this reaches
-            // maxPages, guarding against servers that never advance their paging cursor.
-            private var pagesFetched: Long = 0L
-
-            override fun hasNext(): Boolean {
-                while (true) {
-                    val page = currentPage
-                    if (page != null && currentItemIndex < page.items.size) {
-                        return true
-                    }
-                    if (done) {
-                        return false
-                    }
-                    if (!advance()) {
-                        return false
-                    }
-                }
-            }
-
-            override fun next(): T {
-                if (!hasNext()) {
-                    throw NoSuchElementException("Paginator iterator exhausted.")
-                }
-                val page = currentPage!!
-                val item = page.items[currentItemIndex]
-                currentItemIndex++
-                return item
-            }
-
-            /**
-             * Fetches the next page. Returns `true` if a new page was loaded into
-             * [currentPage]; `false` if iteration is now done.
-             */
-            private fun advance(): Boolean {
-                val request = nextRequest
-                if (request == null || pagesFetched >= maxPages) {
-                    // Either no next request is scheduled (the previous page had no successor) or
-                    // the safety cap is reached — stop before fetching a page we would otherwise
-                    // yield, even if the previous page still reports hasNext.
-                    done = true
-                    currentPage = null
-                    return false
-                }
-                val response: Response = httpClient.execute(request)
-                pagesFetched++
-                val info: PageInfo<T> =
+        private fun walker(): PageWalker<T> {
+            var nextRequest: Request? = initialRequest
+            return PageWalker(
+                source = {
+                    val request = nextRequest ?: return@PageWalker null
+                    nextRequest = null
+                    val response: Response = httpClient.execute(request)
                     try {
-                        strategy.parse(response, initialRequest)
+                        val info: PageInfo<T> = strategy.parse(response, initialRequest)
+                        nextRequest = info.nextRequest
+                        Page.from(response, info.items)
                     } finally {
                         response.close()
                     }
-                currentPage = info
-                currentItemIndex = 0
-                // If this page has no next request, nextRequest goes null; the next advance() ends the stream.
-                nextRequest = info.nextRequest
-                return true
-            }
+                },
+                maxPages = maxPages,
+            )
         }
     }
