@@ -46,6 +46,18 @@ class PaginatorByPageTest {
         assertEquals(listOf("a", "b"), pages[0].items)
         assertEquals(listOf("c"), pages[1].items)
         assertEquals(200, pages[0].statusCode)
+        assertEquals(200, pages[1].statusCode)
+        assertEquals(2, client.callCount)
+    }
+
+    @Test
+    fun `pageStream yields one page per HTTP exchange`() {
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req -> textResponse(req, "items=a,b\ncursor=abc") }
+        client.on("https://api.example.com/items?cursor=abc") { req -> textResponse(req, "items=c\ncursor=") }
+        val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
+
+        assertEquals(2L, paginator.pageStream().count())
         assertEquals(2, client.callCount)
     }
 }

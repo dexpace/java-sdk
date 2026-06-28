@@ -26,7 +26,11 @@ class PageWalkerTest {
     @Test
     fun `maxPages caps the number of pages yielded`() {
         var produced = 0
-        val walker = PageWalker({ produced++; page("x$produced") }, maxPages = 2)
+        val walker =
+            PageWalker({
+                produced++
+                page("x$produced")
+            }, maxPages = 2)
         val collected = walker.pages().asSequence().toList()
         assertEquals(2, collected.size)
         assertEquals(2, produced) // never fetches a third page

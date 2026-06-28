@@ -16,28 +16,27 @@ import java.util.stream.Stream
  * Generic, strategy-driven paginator over an [HttpClient].
  *
  * A `Paginator` executes [initialRequest] against [httpClient], delegates response parsing
- * to [strategy], and exposes the resulting stream of items via either [iterateAll] (a lazy
- * `Iterable<T>`) or [streamAll] (a Java 8 `Stream<T>`). Pagination state — cursor,
- * page number, link URL — is derived from each response by the strategy; the paginator
- * itself stays stateless.
+ * to [strategy], and exposes the result two ways: as a stream of items — [iterateAll] (a lazy
+ * `Iterable<T>`) / [streamAll] (a Java 8 `Stream<T>`) — or as a stream of whole pages —
+ * [byPage] (a lazy `Iterable<Page<T>>`) / [pageStream] (a `Stream<Page<T>>`), where each
+ * [Page] carries its items plus per-page status, headers, and request. Pagination state —
+ * cursor, page number, link URL — is derived from each response by the strategy; the
+ * paginator itself stays stateless.
  *
  * ## Laziness
  *
  * Iteration is page-lazy: a new page is fetched only when the consumer pulls past the
  * last item of the current page. Specifically, exactly one HTTP exchange happens per
  * page yielded. No prefetch, no batch fetch — empty pages count toward the fetch budget,
- * but advancing past an exhausted page with `hasNext = false` does not trigger a fetch.
+ * but advancing past a page whose strategy returned a null next request does not trigger a fetch.
  *
  * ## Termination
  *
  * The iterator terminates when either:
  *
- * - the current page's items are exhausted AND `page.hasNext == false`, or
- * - the current page's items are exhausted AND `page.nextPageRequest()` returned `null`, or
+ * - the current page's items are exhausted AND the strategy returned a `PageInfo` with a
+ *   `null` next request (end of stream), or
  * - [maxPages] pages have already been fetched (the safety cap).
- *
- * The first two conditions are semantically distinct but produce the same outcome: end of
- * stream.
  *
  * ## Safety cap
  *
@@ -45,8 +44,8 @@ import java.util.stream.Stream
  * semantics). A misbehaving server that returns the same `rel="next"` link — or any other
  * unchanging paging cursor — on every page would otherwise drive an unbounded fetch loop.
  * **Production callers should set a finite cap.** Once [maxPages] pages have been yielded the
- * iterator stops fetching, even if the last page still reports `hasNext`. The cap counts
- * pages fetched (HTTP exchanges), not items.
+ * iterator stops fetching, even if the strategy still reports a non-null next request. The cap
+ * counts pages fetched (HTTP exchanges), not items.
  *
  * ## Response lifecycle
  *

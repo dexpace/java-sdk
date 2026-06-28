@@ -31,7 +31,7 @@ import java.util.function.Consumer
  *
  * Iteration is page-lazy in the same sense as [Paginator]: exactly one HTTP exchange happens
  * per page consumed. A new page is fetched only after the previous page has been drained to
- * the consumer and reports `hasNext` with a non-null next request. Empty pages still count
+ * the consumer and the strategy reports a non-null next request. Empty pages still count
  * toward the [maxPages] budget.
  *
  * ## Termination

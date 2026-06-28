@@ -81,6 +81,5 @@ public class PagedIterable<T>
 
         /** Sequential, ordered, unknown-size [Stream] of every [Page]. */
         @JvmOverloads
-        public fun pageStream(options: PagingOptions = PagingOptions()): Stream<Page<T>> =
-            walker(options).pageStream()
+        public fun pageStream(options: PagingOptions = PagingOptions()): Stream<Page<T>> = walker(options).pageStream()
     }

@@ -54,8 +54,14 @@ public class LinkHeaderPaginationStrategy<T>
             initialRequest: Request,
         ): PageInfo<T> {
             val items: List<T> = itemsExtractor(response)
+            // Some servers emit multiple `Link` headers (one per link-value) instead of a single
+            // comma-separated header. Joining the values with ',' normalizes both wire shapes into
+            // one string so a single parser handles either. An empty header list joins to "", which
+            // extractNextUrl already maps to null (no `rel="next"`).
             val nextUrlString: String? =
                 extractNextUrl(response.headers.values(linkHeader).joinToString(separator = ","))
+            // A `rel="next"` target that cannot be parsed into a valid URL ends the stream (null)
+            // rather than aborting iteration with a MalformedURLException from resolveNextUrl.
             val nextUrl: URL? =
                 if (nextUrlString.isNullOrEmpty()) null else resolveNextUrl(response, nextUrlString)
             val nextRequest: Request? =
