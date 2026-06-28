@@ -79,12 +79,11 @@ java-sdk/
         http/response/                Response, ResponseBody, LoggableResponseBody, Status, typed exception hierarchy
         http/common/                  Headers, MediaType, Protocol, CommonMediaTypes, ETag, HttpRange, conditions
         http/context/                 Call/dispatch/request/exchange contexts + ContextStore
-        http/paging/                  PagedIterable, PagedResponse, PagingOptions
         http/pipeline/                Stage-based sync/async pipeline runtime (+ .steps)
         http/sse/                     WHATWG Server-Sent Events reader/listener/events
         auth/                         Credentials, RFC 7235 challenge parsing, Basic/Digest/Composite handlers
         pipeline/                     Recovery-aware Request/Response/Execution pipeline primitives (+ .step, .step.retry)
-        pagination/                   Paginator + cursor/page-number/token/link-header strategies
+        pagination/                   Unified paging: Page/PageInfo, Paginator/AsyncPaginator (item- + page-level views), PagedIterable, strategies, PageWalker driver
         client/                       HttpClient + AsyncHttpClient interfaces (transport SPI)
         serde/                        Serialization abstractions + Tristate
         instrumentation/              Tracing, spans, scopes, logging (+ .metrics)
@@ -344,16 +343,20 @@ for usage examples.
 
 ### Pagination
 
-**Packages**: `org.dexpace.sdk.core.pagination`, `org.dexpace.sdk.core.http.paging`
+**Package**: `org.dexpace.sdk.core.pagination`
 
-Two complementary surfaces for walking multi-page responses.
+One unified package for walking multi-page responses, offering two complementary entry styles
+(strategy-driven and functional) over a single `Page` value type.
 
 | Type                                                            | Role                                                                  |
 |-----------------------------------------------------------------|-----------------------------------------------------------------------|
-| `Paginator<T>`                                                  | Lazily iterates pages by re-issuing requests through an `HttpClient`; carries a `maxPages` safety cap |
-| `PaginationStrategy<T>`                                         | Computes the next-page request (or stops) from the current page       |
+| `Page<T>` / `PageInfo<T>`                                       | Immutable value types: a fully-materialized page (items + snapshotted status/headers/request) and the strategy's parse result (items + next request) |
+| `Paginator<T>`                                                  | Strategy-driven sync paginator over an `HttpClient`; exposes item-level (`iterateAll` / `streamAll`) and page-level (`byPage` / `pageStream`) views; carries a `maxPages` safety cap |
+| `AsyncPaginator<T>`                                             | Non-blocking counterpart over an `AsyncHttpClient` (`forEachAsync` / `collectAllAsync` / `forEachPageAsync`) |
+| `PaginationStrategy<T>`                                         | Parses a response into a `PageInfo` — items plus the next-page request (or `null` to stop) |
 | `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `LinkHeaderPaginationStrategy` | The shipped strategies |
-| `PagedIterable<T>`                                              | First/next-page fetcher abstraction over `PagedResponse`, with its own `maxPages` cap |
+| `PagedIterable<T>`                                              | Functional, transport-agnostic first/next-page fetcher abstraction, with its own `maxPages` cap |
+| `PageWalker<T>` (internal)                                      | Shared driver behind the sync paths, exposing page and item iterators/streams |
 
 Token-style APIs (`next_page_token`, `pageToken`, …) are handled by `CursorPaginationStrategy`
 constructed with the query-param name set (e.g. `"page_token"`), so no separate token strategy is needed.
@@ -730,14 +733,13 @@ they should construct a fresh one.
 | `http.response.exception` | HttpException, HttpExceptionFactory, Retryable, RequestTimeoutException (and siblings), NetworkException |
 | `http.common`        | Headers, MediaType, CommonMediaTypes, Protocol, ETag, HttpRange, RequestConditions             |
 | `http.context`       | CallContext, DispatchContext, RequestContext, ExchangeContext, ContextStore                     |
-| `http.paging`        | PagedIterable, PagedResponse, PagingOptions                                                      |
 | `http.pipeline`      | HttpPipeline, HttpPipelineBuilder, HttpStep, Stage, AsyncHttpPipeline (+ `.steps`)              |
 | `http.sse`           | ServerSentEvent, ServerSentEventReader, ServerSentEventListener                                 |
 | `auth`               | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
 | `pipeline`           | RequestPipeline, ResponsePipeline, ExecutionPipeline, ResponseOutcome                           |
 | `pipeline.step`      | PipelineStep, RequestPipelineStep, ResponsePipelineStep, ResponseRecoveryStep, ClientIdentityStep, IdempotencyKeyStep |
 | `pipeline.step.retry`| RetryStep, RetrySettings, BackoffCalculator, RetryAfterParser                                   |
-| `pagination`         | Paginator, PaginationStrategy, Cursor/PageNumber/Token/LinkHeader strategies, Page              |
+| `pagination`         | Page, PageInfo, Paginator, AsyncPaginator, PaginationStrategy, Cursor/PageNumber/LinkHeader strategies, PagedIterable, PageWalker (internal) |
 | `client`             | HttpClient, AsyncHttpClient                                                                      |
 | `serde`              | Serde, Serializer, Deserializer, Tristate                                                        |
 | `instrumentation`    | InstrumentationContext, Span, NoopSpan, NoopInstrumentationContext, Tracer, TracingScope, TraceIdType, ClientLogger |

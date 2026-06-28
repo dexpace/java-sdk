@@ -727,64 +727,6 @@ public final class org/dexpace/sdk/core/http/context/RequestContext : org/dexpac
 	public fun toString ()Ljava/lang/String;
 }
 
-public abstract interface class org/dexpace/sdk/core/http/paging/FirstPageFetcher {
-	public abstract fun fetch (Lorg/dexpace/sdk/core/http/paging/PagingOptions;)Lorg/dexpace/sdk/core/http/paging/PagedResponse;
-}
-
-public abstract interface class org/dexpace/sdk/core/http/paging/NextPageFetcher {
-	public abstract fun fetch (Lorg/dexpace/sdk/core/http/paging/PagingOptions;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/paging/PagedResponse;
-}
-
-public final class org/dexpace/sdk/core/http/paging/PagedIterable : java/lang/Iterable, kotlin/jvm/internal/markers/KMappedMarker {
-	public fun <init> (Lorg/dexpace/sdk/core/http/paging/FirstPageFetcher;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/paging/FirstPageFetcher;Lorg/dexpace/sdk/core/http/paging/NextPageFetcher;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/paging/FirstPageFetcher;Lorg/dexpace/sdk/core/http/paging/NextPageFetcher;J)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/paging/FirstPageFetcher;Lorg/dexpace/sdk/core/http/paging/NextPageFetcher;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun byPage ()Lkotlin/sequences/Sequence;
-	public final fun byPage (Lorg/dexpace/sdk/core/http/paging/PagingOptions;)Lkotlin/sequences/Sequence;
-	public static synthetic fun byPage$default (Lorg/dexpace/sdk/core/http/paging/PagedIterable;Lorg/dexpace/sdk/core/http/paging/PagingOptions;ILjava/lang/Object;)Lkotlin/sequences/Sequence;
-	public fun iterator ()Ljava/util/Iterator;
-	public final fun stream ()Ljava/util/stream/Stream;
-}
-
-public final class org/dexpace/sdk/core/http/paging/PagedResponse : java/io/Closeable {
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun close ()V
-	public final fun getContinuationToken ()Ljava/lang/String;
-	public final fun getFirstLink ()Ljava/lang/String;
-	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
-	public final fun getLastLink ()Ljava/lang/String;
-	public final fun getNextLink ()Ljava/lang/String;
-	public final fun getPreviousLink ()Ljava/lang/String;
-	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
-	public final fun getResponse ()Lorg/dexpace/sdk/core/http/response/Response;
-	public final fun getStatusCode ()I
-	public final fun getValue ()Ljava/util/List;
-}
-
-public final class org/dexpace/sdk/core/http/paging/PagingOptions {
-	public fun <init> ()V
-	public fun <init> (Ljava/lang/Long;)V
-	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;)V
-	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
-	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getContinuationToken ()Ljava/lang/String;
-	public final fun getOffset ()Ljava/lang/Long;
-	public final fun getPageIndex ()Ljava/lang/Long;
-	public final fun getPageSize ()Ljava/lang/Long;
-	public final fun setContinuationToken (Ljava/lang/String;)V
-	public final fun setOffset (Ljava/lang/Long;)V
-	public final fun setPageIndex (Ljava/lang/Long;)V
-	public final fun setPageSize (Ljava/lang/Long;)V
-}
-
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline$Companion;
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/AsyncHttpClient;
@@ -2308,13 +2250,15 @@ public final class org/dexpace/sdk/core/pagination/AsyncPaginator {
 	public final fun collectAllAsync (Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
 	public final fun forEachAsync (Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;
 	public final fun forEachAsync (Ljava/util/function/Consumer;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forEachPageAsync (Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forEachPageAsync (Ljava/util/function/Consumer;Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
 	public fun <init> (Lkotlin/jvm/functions/Function1;)V
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
+	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
 public final class org/dexpace/sdk/core/pagination/CursorResult {
@@ -2330,17 +2274,61 @@ public final class org/dexpace/sdk/core/pagination/CursorResult {
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract interface class org/dexpace/sdk/core/pagination/FirstPageFetcher {
+	public abstract fun fetch (Lorg/dexpace/sdk/core/pagination/PagingOptions;)Lorg/dexpace/sdk/core/pagination/Page;
+}
+
 public final class org/dexpace/sdk/core/pagination/LinkHeaderPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
 	public fun <init> (Lkotlin/jvm/functions/Function1;)V
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
+	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
-public abstract interface class org/dexpace/sdk/core/pagination/Page {
-	public abstract fun getHasNext ()Z
-	public abstract fun getItems ()Ljava/util/List;
-	public abstract fun nextPageRequest ()Lorg/dexpace/sdk/core/http/request/Request;
+public abstract interface class org/dexpace/sdk/core/pagination/NextPageFetcher {
+	public abstract fun fetch (Lorg/dexpace/sdk/core/pagination/PagingOptions;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+}
+
+public final class org/dexpace/sdk/core/pagination/Page {
+	public static final field Companion Lorg/dexpace/sdk/core/pagination/Page$Companion;
+	public fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;)V
+	public fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;ILorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/request/Request;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;)Lorg/dexpace/sdk/core/pagination/Page;
+	public static final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public static final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public static final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public static final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public static final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public final fun getContinuationToken ()Ljava/lang/String;
+	public final fun getFirstLink ()Ljava/lang/String;
+	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
+	public final fun getItems ()Ljava/util/List;
+	public final fun getLastLink ()Ljava/lang/String;
+	public final fun getNextLink ()Ljava/lang/String;
+	public final fun getPreviousLink ()Ljava/lang/String;
+	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun getStatusCode ()I
+}
+
+public final class org/dexpace/sdk/core/pagination/Page$Companion {
+	public final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;)Lorg/dexpace/sdk/core/pagination/Page;
+	public final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public final fun from (Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/pagination/Page;
+	public static synthetic fun from$default (Lorg/dexpace/sdk/core/pagination/Page$Companion;Lorg/dexpace/sdk/core/http/response/Response;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/pagination/Page;
+}
+
+public final class org/dexpace/sdk/core/pagination/PageInfo {
+	public fun <init> (Ljava/util/List;Lorg/dexpace/sdk/core/http/request/Request;)V
+	public final fun getItems ()Ljava/util/List;
+	public final fun getNextRequest ()Lorg/dexpace/sdk/core/http/request/Request;
 }
 
 public final class org/dexpace/sdk/core/pagination/PageNumberPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
@@ -2348,19 +2336,53 @@ public final class org/dexpace/sdk/core/pagination/PageNumberPaginationStrategy 
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
 	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;I)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
+	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
+}
+
+public final class org/dexpace/sdk/core/pagination/PagedIterable : java/lang/Iterable, kotlin/jvm/internal/markers/KMappedMarker {
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/FirstPageFetcher;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/FirstPageFetcher;Lorg/dexpace/sdk/core/pagination/NextPageFetcher;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/FirstPageFetcher;Lorg/dexpace/sdk/core/pagination/NextPageFetcher;J)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/FirstPageFetcher;Lorg/dexpace/sdk/core/pagination/NextPageFetcher;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun byPage ()Ljava/lang/Iterable;
+	public final fun byPage (Lorg/dexpace/sdk/core/pagination/PagingOptions;)Ljava/lang/Iterable;
+	public static synthetic fun byPage$default (Lorg/dexpace/sdk/core/pagination/PagedIterable;Lorg/dexpace/sdk/core/pagination/PagingOptions;ILjava/lang/Object;)Ljava/lang/Iterable;
+	public fun iterator ()Ljava/util/Iterator;
+	public final fun pageStream ()Ljava/util/stream/Stream;
+	public final fun pageStream (Lorg/dexpace/sdk/core/pagination/PagingOptions;)Ljava/util/stream/Stream;
+	public static synthetic fun pageStream$default (Lorg/dexpace/sdk/core/pagination/PagedIterable;Lorg/dexpace/sdk/core/pagination/PagingOptions;ILjava/lang/Object;)Ljava/util/stream/Stream;
+	public final fun stream ()Ljava/util/stream/Stream;
 }
 
 public abstract interface class org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public abstract fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/Page;
+	public abstract fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
 public final class org/dexpace/sdk/core/pagination/Paginator {
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;)V
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;J)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun byPage ()Ljava/lang/Iterable;
 	public final fun iterateAll ()Ljava/lang/Iterable;
+	public final fun pageStream ()Ljava/util/stream/Stream;
 	public final fun streamAll ()Ljava/util/stream/Stream;
+}
+
+public final class org/dexpace/sdk/core/pagination/PagingOptions {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Long;)V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;)V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getContinuationToken ()Ljava/lang/String;
+	public final fun getOffset ()Ljava/lang/Long;
+	public final fun getPageIndex ()Ljava/lang/Long;
+	public final fun getPageSize ()Ljava/lang/Long;
+	public final fun setContinuationToken (Ljava/lang/String;)V
+	public final fun setOffset (Ljava/lang/Long;)V
+	public final fun setPageIndex (Ljava/lang/Long;)V
+	public final fun setPageSize (Ljava/lang/Long;)V
 }
 
 public final class org/dexpace/sdk/core/pipeline/ExecutionPipeline {

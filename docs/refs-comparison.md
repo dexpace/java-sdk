@@ -230,7 +230,7 @@ below records where each scheme's design was sourced from:
 ### Pagination
 
 `Paginator<T>` + `Page<T>` ship in `sdk-core`, driven by a `PaginationStrategy` (cursor,
-page-number, token, link-header), and `http.paging.PagedIterable` wraps the result. Reference
+page-number, token, link-header), and `pagination.PagedIterable` wraps the result. Reference
 designs we drew on:
 
 - **Square**: `SyncPagingIterable<T>` (`Iterable<T>` lazy iterator), `SyncPage<T>` (per-page holder), `BiDirectionalPage<T>` (forward + backward cursors), `CustomPager<T>` (user-implementation stub for HATEOAS).
