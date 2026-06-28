@@ -83,7 +83,7 @@ java-sdk/
         http/sse/                     WHATWG Server-Sent Events reader/listener/events
         auth/                         Credentials, RFC 7235 challenge parsing, Basic/Digest/Composite handlers
         pipeline/                     Recovery-aware Request/Response/Execution pipeline primitives (+ .step, .step.retry)
-        pagination/                   Unified paging: Page/PageInfo, Paginator/AsyncPaginator (item- + page-level views), PagedIterable, strategies, PageWalker driver
+        pagination/                   Unified paging: Page (raw per-page Response, Closeable)/PageInfo, Paginator/AsyncPaginator (item- + page-level views), CloseablePages, PagedIterable, strategies, PageWalker driver
         client/                       HttpClient + AsyncHttpClient interfaces (transport SPI)
         serde/                        Serialization abstractions + Tristate
         instrumentation/              Tracing, spans, scopes, logging (+ .metrics)
@@ -346,17 +346,18 @@ for usage examples.
 **Package**: `org.dexpace.sdk.core.pagination`
 
 One unified package for walking multi-page responses, offering two complementary entry styles
-(strategy-driven and functional) over a single `Page` value type.
+(strategy-driven and functional) over a single `Page` type that exposes the raw per-page `Response`.
 
 | Type                                                            | Role                                                                  |
 |-----------------------------------------------------------------|-----------------------------------------------------------------------|
-| `Page<T>` / `PageInfo<T>`                                       | Immutable value types: a fully-materialized page (items + snapshotted status/headers/request) and the strategy's parse result (items + next request) |
-| `Paginator<T>`                                                  | Strategy-driven sync paginator over an `HttpClient`; exposes item-level (`iterateAll` / `streamAll`) and page-level (`byPage` / `pageStream`) views; carries a `maxPages` safety cap |
-| `AsyncPaginator<T>`                                             | Non-blocking counterpart over an `AsyncHttpClient` (`forEachAsync` / `collectAllAsync` / `forEachPageAsync`) |
+| `Page<T>` / `PageInfo<T>`                                       | `Page<T>` exposes the raw per-page `Response` and is `Closeable`: its `items` are materialized and its `statusCode` / `headers` / `request` survive `close()`, while the raw response body/connection is live only while the page is current. `PageInfo<T>` is the strategy's parse result (items + next request) |
+| `CloseablePages<T>`                                             | Auto-closing, single-use page-level view returned by `byPage()`: closes each page as you advance past it and closes the page still held on view-`close()`; exposes `iterator()` / `stream()`. Wrap in `use {}` (Kotlin) / try-with-resources (Java) so an early break still releases the held page |
+| `Paginator<T>`                                                  | Strategy-driven sync paginator over an `HttpClient`; exposes item-level (`iterateAll` / `streamAll`, which eager-close each page so item consumers carry no close burden) and page-level (`byPage`, returning a `CloseablePages`) views; carries a `maxPages` safety cap |
+| `AsyncPaginator<T>`                                             | Non-blocking counterpart over an `AsyncHttpClient` (`forEachAsync` / `collectAllAsync` / `forEachPageAsync`); `forEachPageAsync` delivers a live page valid only during the consumer callback (the driver closes it as soon as the callback returns) |
 | `PaginationStrategy<T>`                                         | Parses a response into a `PageInfo` — items plus the next-page request (or `null` to stop) |
 | `CursorPaginationStrategy` / `PageNumberPaginationStrategy` / `LinkHeaderPaginationStrategy` | The shipped strategies |
 | `PagedIterable<T>`                                              | Functional, transport-agnostic first/next-page fetcher abstraction, with its own `maxPages` cap |
-| `PageWalker<T>` (internal)                                      | Shared driver behind the sync paths, exposing page and item iterators/streams |
+| `PageWalker<T>` (internal)                                      | Shared driver behind the sync paths, exposing a live-page iterator, an eager-closing item iterator, and an item stream |
 
 Token-style APIs (`next_page_token`, `pageToken`, …) are handled by `CursorPaginationStrategy`
 constructed with the query-param name set (e.g. `"page_token"`), so no separate token strategy is needed.
@@ -739,7 +740,7 @@ they should construct a fresh one.
 | `pipeline`           | RequestPipeline, ResponsePipeline, ExecutionPipeline, ResponseOutcome                           |
 | `pipeline.step`      | PipelineStep, RequestPipelineStep, ResponsePipelineStep, ResponseRecoveryStep, ClientIdentityStep, IdempotencyKeyStep |
 | `pipeline.step.retry`| RetryStep, RetrySettings, BackoffCalculator, RetryAfterParser                                   |
-| `pagination`         | Page, PageInfo, Paginator, AsyncPaginator, PaginationStrategy, Cursor/PageNumber/LinkHeader strategies, PagedIterable, PageWalker (internal) |
+| `pagination`         | Page (Closeable; raw per-page Response), PageInfo, CloseablePages, Paginator, AsyncPaginator, PaginationStrategy, Cursor/PageNumber/LinkHeader strategies, PagedIterable, PageWalker (internal) |
 | `client`             | HttpClient, AsyncHttpClient                                                                      |
 | `serde`              | Serde, Serializer, Deserializer, Tristate                                                        |
 | `instrumentation`    | InstrumentationContext, Span, NoopSpan, NoopInstrumentationContext, Tracer, TracingScope, TraceIdType, ClientLogger |
