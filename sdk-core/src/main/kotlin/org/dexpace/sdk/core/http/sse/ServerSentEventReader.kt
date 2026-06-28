@@ -77,7 +77,7 @@ public class ServerSentEventReader(private val source: BufferedSource) {
             // Comment line: latest wins. Per WHATWG SSE §9.2.6 the optional single
             // leading space after the `:` is stripped (same rule applied to field values).
             if (line[0] == ':') {
-                comment = line.substring(1).removePrefix(" ")
+                comment = valueFrom(line, 1)
                 hasField = true
                 continue
             }
@@ -91,14 +91,7 @@ public class ServerSentEventReader(private val source: BufferedSource) {
                 rawValue = ""
             } else {
                 field = line.substring(0, colon)
-                // Per spec: if the value starts with U+0020 SPACE, drop one.
-                val afterColon = colon + 1
-                rawValue =
-                    if (afterColon < line.length && line[afterColon] == ' ') {
-                        line.substring(afterColon + 1)
-                    } else {
-                        line.substring(afterColon)
-                    }
+                rawValue = valueFrom(line, colon + 1)
             }
 
             when (field) {
@@ -200,17 +193,30 @@ public class ServerSentEventReader(private val source: BufferedSource) {
      * representable range. The spec is silent on overflow; ignoring is conservative.
      */
     private fun parseRetryMillis(value: String): Long? {
-        if (value.isEmpty()) return null
-        var result = 0L
-        for (c in value) {
-            if (c !in '0'..'9') return null
-            val digit = (c - '0').toLong()
-            // Detect overflow before it happens so we don't wrap around.
-            if (result > (Long.MAX_VALUE - digit) / DECIMAL_BASE) return null
-            result = result * DECIMAL_BASE + digit
-        }
-        return result
+        // Spec allows ASCII digits only; this guard rejects signs and any other
+        // non-digit up front (toLongOrNull would otherwise accept a leading +/-).
+        // toLongOrNull then parses base-10 and returns null on empty input or on
+        // values past Long.MAX_VALUE — the same overflow boundary as the former
+        // hand-rolled loop.
+        if (value.any { it !in '0'..'9' }) return null
+        return value.toLongOrNull()
     }
+
+    /**
+     * Returns the value portion of [line] starting at [start], dropping a single
+     * leading U+0020 SPACE if present. WHATWG SSE §9.2.6 applies this optional
+     * single-space strip to both comment text and field values, so both code
+     * paths share this one implementation.
+     */
+    private fun valueFrom(
+        line: String,
+        start: Int,
+    ): String =
+        if (start < line.length && line[start] == ' ') {
+            line.substring(start + 1)
+        } else {
+            line.substring(start)
+        }
 
     private companion object {
         private const val LF: Byte = 0x0A
@@ -221,9 +227,6 @@ public class ServerSentEventReader(private val source: BufferedSource) {
         // Initial capacity for the per-event `data` line accumulator. SSE servers tend to
         // emit small numbers of data lines per event (one is typical); 4 covers the long tail.
         private const val DATA_ACCUMULATOR_INITIAL_CAP = 4
-
-        // Numeric base for `retry:` digit parsing — SSE retry values are unsigned decimals.
-        private const val DECIMAL_BASE = 10L
     }
 
     /**
@@ -237,20 +240,16 @@ public class ServerSentEventReader(private val source: BufferedSource) {
         private var count: Int = 0
 
         fun append(b: Byte) {
-            if (count == bytes.size) grow(count + 1)
+            if (count == bytes.size) grow()
             bytes[count++] = b
         }
 
         fun toUtf8(): String = if (count == 0) "" else String(bytes, 0, count, Charsets.UTF_8)
 
-        private fun grow(minCapacity: Int) {
-            val oldCap = bytes.size
-            val newCap =
-                when {
-                    oldCap == 0 -> INITIAL_CAP
-                    oldCap < minCapacity -> maxOf(oldCap * 2, minCapacity)
-                    else -> oldCap
-                }
+        // Called only when the array is full (count == bytes.size), so the first
+        // allocation is INITIAL_CAP and every later growth simply doubles.
+        private fun grow() {
+            val newCap = if (bytes.isEmpty()) INITIAL_CAP else bytes.size * 2
             bytes = bytes.copyOf(newCap)
         }
 

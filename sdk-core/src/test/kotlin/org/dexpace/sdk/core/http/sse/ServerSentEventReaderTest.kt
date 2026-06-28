@@ -489,8 +489,8 @@ class ServerSentEventReaderTest {
 
     @Test
     fun `retry value one above Long MAX VALUE is rejected via overflow guard`() {
-        // 9223372036854775808 — Long.MAX_VALUE + 1, exercises the
-        // `result > (Long.MAX_VALUE - digit) / 10` branch in parseRetryMillis.
+        // 9223372036854775808 — Long.MAX_VALUE + 1; one past the representable
+        // boundary, so parseRetryMillis rejects it rather than wrapping.
         val src = source("retry: 9223372036854775808\ndata: x\n\n")
         val event = ServerSentEventReader(src).next()
         assertNull(event?.retry, "value exceeding Long.MAX_VALUE must be rejected")
