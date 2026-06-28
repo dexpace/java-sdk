@@ -409,7 +409,7 @@ link-header strategies without over-engineering. Sync first; async adapter follo
 `sdk-core` rather than a standalone module, and the type names differ from the sketch below — the
 abstractions are credential-and-challenge-shaped instead of `AuthProvider`-shaped:
 
-- **Credentials** (`sdk-core/.../http/auth`): a sealed `Credential` interface with `BearerToken`
+- **Credentials** (`sdk-core/.../auth`): a sealed `Credential` interface with `BearerToken`
   (plus `BearerTokenProvider` for rotation) and `KeyCredential` / `NamedKeyCredential`. No
   `AuthProvider` / `BasicAuthProvider` / `OAuth2ClientCredentialsProvider` types — the planned
   OAuth client-credentials flow did **not** ship.

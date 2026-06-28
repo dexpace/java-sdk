@@ -178,7 +178,7 @@ below records where each scheme's design was sourced from:
 
 **What shipped, and what's left:**
 
-1. Auth lives in `sdk-core` (`http.auth`), not a separate `sdk-auth` module: a sealed `Credential` family + `ChallengeHandler` impls (Basic, Digest, Composite) + an `AuthStep` pillar (`BearerTokenAuthStep`, `KeyCredentialAuthStep`). The `AuthStep` base requires HTTPS, strips the cross-origin redirect marker so a caller credential is never re-stamped onto a server-chosen host, and exposes a `handleChallenge` hook for token-refresh / step-up flows.
+1. Auth lives in `sdk-core` (`auth`), not a separate `sdk-auth` module: a sealed `Credential` family + `ChallengeHandler` impls (Basic, Digest, Composite) + an `AuthStep` pillar (`BearerTokenAuthStep`, `KeyCredentialAuthStep`). The `AuthStep` base requires HTTPS, strips the cross-origin redirect marker so a caller credential is never re-stamped onto a server-chosen host, and exposes a `handleChallenge` hook for token-refresh / step-up flows.
 2. Token fetch is a `BearerTokenProvider` SAM (`fetch(scopes, params)`). A full OAuth2 client_credentials provider with coalesced refresh and 401 eviction is **not yet built** — the seam (`handleChallenge`) exists, the policy does not.
 3. Per-call auth override is **not yet exposed** — auth is wired per pipeline. Airbyte's per-client-only model is a real limitation for multi-tenant clients; a per-call override remains worth adding.
 
@@ -331,7 +331,7 @@ adapters where noted):
 - **Recovery step.** Recovery-aware `ResponsePipeline` folding a sealed `ResponseOutcome` (`Success` / `Failure`); `ResponseRecoveryStep` is the `AfterError` analog. [`pipeline/`]
 - **`HttpClient.close()` / lifecycle.** `AutoCloseable` on both SPIs and both transports; SDK-managed clients close, BYO clients don't. [`client/`]
 - **Idempotency-key step.** Auto-injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH`; caller-set header wins; pluggable key strategy. [`pipeline/step/IdempotencyKeyStep.kt`]
-- **Auth.** `Credential` family + RFC 7235 challenge parsing + Basic/Digest/Composite `ChallengeHandler`s + `AuthStep` pillar. [`http/auth/`, `http/pipeline/steps/`]
+- **Auth.** `Credential` family + RFC 7235 challenge parsing + Basic/Digest/Composite `ChallengeHandler`s + `AuthStep` pillar. [`auth/`, `http/pipeline/steps/`]
 - **`sdk-serde-jackson` adapter.** Kotlin + JSR-310 + Jdk8 modules; `FAIL_ON_UNKNOWN_PROPERTIES` and `WRITE_DATES_AS_TIMESTAMPS` disabled; `Tristate<T>` via `TristateModule`.
 - **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationStrategy` (cursor / page-number / token / link-header) with a `maxPages` cap; `PagedIterable` wrapper.
 - **Client identity header.** `ClientIdentityStep` building the `dexpace-sdk/<ver> jvm/<javaver>` token line.

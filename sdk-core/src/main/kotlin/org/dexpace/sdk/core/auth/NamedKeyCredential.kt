@@ -1,0 +1,35 @@
+/*
+ * Copyright (c) 2026 dexpace and Omar Aljarrah
+ *
+ * Licensed under the MIT License. See LICENSE in the project root.
+ * SPDX-License-Identifier: MIT
+ */
+
+package org.dexpace.sdk.core.auth
+
+/**
+ * Name + key credential. Used by SAS-style auth where the [name] is part of the canonical
+ * signing input — the key on its own is not enough to identify the principal.
+ *
+ * Stamping logic is service-specific (the canonical string and signing algorithm vary), so
+ * there is no shared `*AuthStep` for this credential; callers wire it into their own
+ * service-specific signing step.
+ *
+ * @param name the key identifier; must not be blank.
+ * @param key the secret material; must not be blank.
+ * @throws IllegalArgumentException if [name] or [key] is blank.
+ */
+public class NamedKeyCredential(public val name: String, public val key: String) : Credential {
+    init {
+        require(name.isNotBlank()) { "name must not be blank" }
+        require(key.isNotBlank()) { "key must not be blank" }
+    }
+
+    /**
+     * Redacts the secret [key]. Without this override any log line, exception message, or
+     * debugger that stringifies the credential would expose the key; this emits `key=***`
+     * instead while keeping the non-secret [name] for diagnostics. Identity equality is
+     * unaffected.
+     */
+    override fun toString(): String = "NamedKeyCredential(name=$name, key=***)"
+}

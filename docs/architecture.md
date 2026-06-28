@@ -77,11 +77,11 @@ java-sdk/
         http/request/                 Request, RequestBody, FileRequestBody, LoggableRequestBody, Method
         http/response/                Response, ResponseBody, LoggableResponseBody, Status, typed exception hierarchy
         http/common/                  Headers, MediaType, Protocol, CommonMediaTypes, ETag, HttpRange, conditions
-        http/auth/                    Credentials, RFC 7235 challenge parsing, Basic/Digest/Composite handlers
         http/context/                 Call/dispatch/request/exchange contexts + ContextStore
         http/paging/                  PagedIterable, PagedResponse, PagingOptions
         http/pipeline/                Stage-based sync/async pipeline runtime (+ .steps)
         http/sse/                     WHATWG Server-Sent Events reader/listener/events
+        auth/                         Credentials, RFC 7235 challenge parsing, Basic/Digest/Composite handlers
         pipeline/                     Recovery-aware Request/Response/Execution pipeline primitives (+ .step, .step.retry)
         pagination/                   Paginator + cursor/page-number/token/link-header strategies
         client/                       HttpClient + AsyncHttpClient interfaces (transport SPI)
@@ -207,7 +207,7 @@ documentation.
 
 ### Authentication
 
-**Package**: `org.dexpace.sdk.core.http.auth`
+**Package**: `org.dexpace.sdk.core.auth`
 
 Credential types and RFC 7235 challenge handling. Credentials authorize a request; challenge
 handlers answer `WWW-Authenticate` challenges parsed from a 401/407.
@@ -716,11 +716,11 @@ they should construct a fresh one.
 | `http.response`      | Response, ResponseBody, LoggableResponseBody, Status                                            |
 | `http.response.exception` | HttpException, HttpExceptionFactory, Retryable, RequestTimeoutException (and siblings), NetworkException |
 | `http.common`        | Headers, MediaType, CommonMediaTypes, Protocol, ETag, HttpRange, RequestConditions             |
-| `http.auth`          | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
 | `http.context`       | CallContext, DispatchContext, RequestContext, ExchangeContext, ContextStore                     |
 | `http.paging`        | PagedIterable, PagedResponse, PagingOptions                                                      |
 | `http.pipeline`      | HttpPipeline, HttpPipelineBuilder, HttpStep, Stage, AsyncHttpPipeline (+ `.steps`)              |
 | `http.sse`           | ServerSentEvent, ServerSentEventReader, ServerSentEventListener                                 |
+| `auth`               | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
 | `pipeline`           | RequestPipeline, ResponsePipeline, ExecutionPipeline, ResponseOutcome                           |
 | `pipeline.step`      | PipelineStep, RequestPipelineStep, ResponsePipelineStep, ResponseRecoveryStep, ClientIdentityStep, IdempotencyKeyStep |
 | `pipeline.step.retry`| RetryStep, RetrySettings, BackoffCalculator, RetryAfterParser                                   |

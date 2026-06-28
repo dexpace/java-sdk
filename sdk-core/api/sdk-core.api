@@ -1,3 +1,257 @@
+public final class org/dexpace/sdk/core/auth/AuthChallengeParser {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/auth/AuthChallengeParser;
+	public static final fun parse (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthDescriptor {
+	public static final field Companion Lorg/dexpace/sdk/core/auth/AuthDescriptor$Companion;
+	public synthetic fun <init> (Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun allowsAnonymous ()Z
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRequirements ()Ljava/util/List;
+	public final fun getSchemes ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/auth/AuthDescriptor$Builder;
+	public static final fun of (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthDescriptor;
+	public static final fun ofSchemes (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthDescriptor;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthDescriptor$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/AuthDescriptor;)V
+	public final fun addRequirement (Lorg/dexpace/sdk/core/auth/AuthRequirement;)Lorg/dexpace/sdk/core/auth/AuthDescriptor$Builder;
+	public final fun addScheme (Lorg/dexpace/sdk/core/auth/AuthScheme;)Lorg/dexpace/sdk/core/auth/AuthDescriptor$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/auth/AuthDescriptor;
+	public final fun requirements (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthDescriptor$Builder;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthDescriptor$Companion {
+	public final fun of (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthDescriptor;
+	public final fun ofSchemes (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthDescriptor;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthDescriptorResolver {
+	public static final field Companion Lorg/dexpace/sdk/core/auth/AuthDescriptorResolver$Companion;
+	public static final field INSTANCE Lorg/dexpace/sdk/core/auth/AuthDescriptorResolver;
+	public fun <init> ()V
+	public final fun resolve (Ljava/util/Set;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+	public final fun resolve (Ljava/util/Set;Lorg/dexpace/sdk/core/auth/AuthDescriptor;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+	public final fun resolve (Ljava/util/Set;Lorg/dexpace/sdk/core/auth/AuthDescriptor;Lorg/dexpace/sdk/core/auth/AuthDescriptor;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+	public final fun resolve (Ljava/util/Set;Lorg/dexpace/sdk/core/auth/AuthDescriptor;Lorg/dexpace/sdk/core/auth/AuthDescriptor;Lorg/dexpace/sdk/core/auth/AuthDescriptor;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+	public static synthetic fun resolve$default (Lorg/dexpace/sdk/core/auth/AuthDescriptorResolver;Ljava/util/Set;Lorg/dexpace/sdk/core/auth/AuthDescriptor;Lorg/dexpace/sdk/core/auth/AuthDescriptor;Lorg/dexpace/sdk/core/auth/AuthDescriptor;ILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthDescriptorResolver$Companion {
+}
+
+public final class org/dexpace/sdk/core/auth/AuthDescriptorTier : java/lang/Enum {
+	public static final field CLIENT Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+	public static final field OPERATION Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+	public static final field PER_CALL Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+	public static fun values ()[Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthRequirement {
+	public static final field Companion Lorg/dexpace/sdk/core/auth/AuthRequirement$Companion;
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOauthParams ()Ljava/util/Map;
+	public final fun getOauthScopes ()Ljava/util/List;
+	public final fun getScheme ()Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public fun hashCode ()I
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/auth/AuthRequirement$Builder;
+	public static final fun of (Lorg/dexpace/sdk/core/auth/AuthScheme;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public static final fun of (Lorg/dexpace/sdk/core/auth/AuthScheme;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public static final fun of (Lorg/dexpace/sdk/core/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthRequirement$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/AuthRequirement;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public final fun oauthParams (Ljava/util/Map;)Lorg/dexpace/sdk/core/auth/AuthRequirement$Builder;
+	public final fun oauthScopes (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthRequirement$Builder;
+	public final fun scheme (Lorg/dexpace/sdk/core/auth/AuthScheme;)Lorg/dexpace/sdk/core/auth/AuthRequirement$Builder;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthRequirement$Companion {
+	public final fun of (Lorg/dexpace/sdk/core/auth/AuthScheme;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public final fun of (Lorg/dexpace/sdk/core/auth/AuthScheme;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public final fun of (Lorg/dexpace/sdk/core/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public static synthetic fun of$default (Lorg/dexpace/sdk/core/auth/AuthRequirement$Companion;Lorg/dexpace/sdk/core/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;ILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthRequirement;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthResolution {
+	public fun <init> (Lorg/dexpace/sdk/core/auth/AuthRequirement;Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;)V
+	public final fun component1 ()Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public final fun component2 ()Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+	public final fun copy (Lorg/dexpace/sdk/core/auth/AuthRequirement;Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/auth/AuthResolution;Lorg/dexpace/sdk/core/auth/AuthRequirement;Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;ILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthResolution;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRequirement ()Lorg/dexpace/sdk/core/auth/AuthRequirement;
+	public final fun getScheme ()Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public final fun getTier ()Lorg/dexpace/sdk/core/auth/AuthDescriptorTier;
+	public fun hashCode ()I
+	public final fun isAnonymous ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthResolutionException : java/lang/RuntimeException {
+	public fun <init> (Ljava/util/List;Ljava/util/Set;)V
+	public final fun getAvailableSchemes ()Ljava/util/Set;
+	public final fun getRequiredSchemes ()Ljava/util/List;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthScheme : java/lang/Enum {
+	public static final field API_KEY Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public static final field BASIC Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public static final field DIGEST Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public static final field NO_AUTH Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public static final field OAUTH2 Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/auth/AuthScheme;
+	public static fun values ()[Lorg/dexpace/sdk/core/auth/AuthScheme;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthenticateChallenge {
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/util/Map;)Lorg/dexpace/sdk/core/auth/AuthenticateChallenge;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/auth/AuthenticateChallenge;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthenticateChallenge;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getParameters ()Ljava/util/Map;
+	public final fun getScheme ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/auth/AuthorizationHeader {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/auth/AuthorizationHeader;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/auth/BasicChallengeHandler : org/dexpace/sdk/core/auth/ChallengeHandler {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun canHandle (Ljava/util/List;)Z
+	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;Z)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+}
+
+public final class org/dexpace/sdk/core/auth/BearerToken : org/dexpace/sdk/core/auth/Credential {
+	public fun <init> (Ljava/lang/String;Ljava/time/Instant;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/time/Instant;
+	public final fun copy (Ljava/lang/String;Ljava/time/Instant;)Lorg/dexpace/sdk/core/auth/BearerToken;
+	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/auth/BearerToken;Ljava/lang/String;Ljava/time/Instant;ILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/BearerToken;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExpiresAt ()Ljava/time/Instant;
+	public final fun getToken ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isExpiredAt (Ljava/time/Instant;)Z
+	public final fun isExpiredAt (Ljava/time/Instant;Ljava/time/Duration;)Z
+	public static synthetic fun isExpiredAt$default (Lorg/dexpace/sdk/core/auth/BearerToken;Ljava/time/Instant;Ljava/time/Duration;ILjava/lang/Object;)Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class org/dexpace/sdk/core/auth/BearerTokenProvider {
+	public fun fetch (Ljava/util/List;)Lorg/dexpace/sdk/core/auth/BearerToken;
+	public abstract fun fetch (Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/auth/BearerToken;
+	public fun fetchAsync (Ljava/util/List;)Ljava/util/concurrent/CompletableFuture;
+	public fun fetchAsync (Ljava/util/List;Ljava/util/Map;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public final class org/dexpace/sdk/core/auth/BearerTokenProvider$DefaultImpls {
+	public static fun fetch (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/BearerToken;
+	public static fun fetchAsync (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;)Ljava/util/concurrent/CompletableFuture;
+	public static fun fetchAsync (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/util/Map;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public abstract interface class org/dexpace/sdk/core/auth/ChallengeHandler {
+	public static final field Companion Lorg/dexpace/sdk/core/auth/ChallengeHandler$Companion;
+	public abstract fun canHandle (Ljava/util/List;)Z
+	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public abstract fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;Z)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public static synthetic fun handleChallenges$default (Lorg/dexpace/sdk/core/auth/ChallengeHandler;Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;ZILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public static fun of ([Lorg/dexpace/sdk/core/auth/ChallengeHandler;)Lorg/dexpace/sdk/core/auth/ChallengeHandler;
+}
+
+public final class org/dexpace/sdk/core/auth/ChallengeHandler$Companion {
+	public final fun of ([Lorg/dexpace/sdk/core/auth/ChallengeHandler;)Lorg/dexpace/sdk/core/auth/ChallengeHandler;
+}
+
+public final class org/dexpace/sdk/core/auth/ChallengeHandler$DefaultImpls {
+	public static fun handleChallenges (Lorg/dexpace/sdk/core/auth/ChallengeHandler;Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public static synthetic fun handleChallenges$default (Lorg/dexpace/sdk/core/auth/ChallengeHandler;Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;ZILjava/lang/Object;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+}
+
+public abstract interface class org/dexpace/sdk/core/auth/Credential {
+}
+
+public final class org/dexpace/sdk/core/auth/DigestAlgorithm : java/lang/Enum {
+	public static final field Companion Lorg/dexpace/sdk/core/auth/DigestAlgorithm$Companion;
+	public static final field MD5 Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+	public static final field MD5_SESS Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+	public static final field SHA_256 Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+	public static final field SHA_256_SESS Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+	public static final fun fromString (Ljava/lang/String;)Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getHeaderName ()Ljava/lang/String;
+	public final fun getJavaName ()Ljava/lang/String;
+	public final fun getSessionVariant ()Z
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+	public static fun values ()[Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+}
+
+public final class org/dexpace/sdk/core/auth/DigestAlgorithm$Companion {
+	public final fun fromString (Ljava/lang/String;)Lorg/dexpace/sdk/core/auth/DigestAlgorithm;
+}
+
+public final class org/dexpace/sdk/core/auth/DigestChallengeHandler : org/dexpace/sdk/core/auth/ChallengeHandler {
+	public static final field Companion Lorg/dexpace/sdk/core/auth/DigestChallengeHandler$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun canHandle (Ljava/util/List;)Z
+	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;Z)Lorg/dexpace/sdk/core/auth/AuthorizationHeader;
+}
+
+public final class org/dexpace/sdk/core/auth/DigestChallengeHandler$Companion {
+}
+
+public final class org/dexpace/sdk/core/auth/KeyCredential : org/dexpace/sdk/core/auth/Credential {
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)V
+	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getApiKey ()Ljava/lang/String;
+	public final fun getHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
+	public final fun getPrefix ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/auth/NamedKeyCredential : org/dexpace/sdk/core/auth/Credential {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class org/dexpace/sdk/core/client/AsyncHttpClient : java/lang/AutoCloseable {
 	public fun close ()V
 	public abstract fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
@@ -65,260 +319,6 @@ public abstract interface class org/dexpace/sdk/core/generics/Builder {
 
 public final class org/dexpace/sdk/core/generics/BuilderChecksKt {
 	public static final fun checkRequired (Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthChallengeParser {
-	public static final field INSTANCE Lorg/dexpace/sdk/core/http/auth/AuthChallengeParser;
-	public static final fun parse (Ljava/lang/String;)Ljava/util/List;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthDescriptor {
-	public static final field Companion Lorg/dexpace/sdk/core/http/auth/AuthDescriptor$Companion;
-	public synthetic fun <init> (Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun allowsAnonymous ()Z
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getRequirements ()Ljava/util/List;
-	public final fun getSchemes ()Ljava/util/List;
-	public fun hashCode ()I
-	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/auth/AuthDescriptor$Builder;
-	public static final fun of (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;
-	public static final fun ofSchemes (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthDescriptor$Builder : org/dexpace/sdk/core/generics/Builder {
-	public fun <init> ()V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;)V
-	public final fun addRequirement (Lorg/dexpace/sdk/core/http/auth/AuthRequirement;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor$Builder;
-	public final fun addScheme (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor$Builder;
-	public synthetic fun build ()Ljava/lang/Object;
-	public fun build ()Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;
-	public final fun requirements (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor$Builder;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthDescriptor$Companion {
-	public final fun of (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;
-	public final fun ofSchemes (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthDescriptorResolver {
-	public static final field Companion Lorg/dexpace/sdk/core/http/auth/AuthDescriptorResolver$Companion;
-	public static final field INSTANCE Lorg/dexpace/sdk/core/http/auth/AuthDescriptorResolver;
-	public fun <init> ()V
-	public final fun resolve (Ljava/util/Set;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-	public final fun resolve (Ljava/util/Set;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-	public final fun resolve (Ljava/util/Set;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-	public final fun resolve (Ljava/util/Set;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-	public static synthetic fun resolve$default (Lorg/dexpace/sdk/core/http/auth/AuthDescriptorResolver;Ljava/util/Set;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;Lorg/dexpace/sdk/core/http/auth/AuthDescriptor;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthDescriptorResolver$Companion {
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthDescriptorTier : java/lang/Enum {
-	public static final field CLIENT Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-	public static final field OPERATION Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-	public static final field PER_CALL Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-	public static fun getEntries ()Lkotlin/enums/EnumEntries;
-	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-	public static fun values ()[Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthRequirement {
-	public static final field Companion Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Companion;
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getOauthParams ()Ljava/util/Map;
-	public final fun getOauthScopes ()Ljava/util/List;
-	public final fun getScheme ()Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public fun hashCode ()I
-	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Builder;
-	public static final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public static final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public static final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthRequirement$Builder : org/dexpace/sdk/core/generics/Builder {
-	public fun <init> ()V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthRequirement;)V
-	public synthetic fun build ()Ljava/lang/Object;
-	public fun build ()Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public final fun oauthParams (Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Builder;
-	public final fun oauthScopes (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Builder;
-	public final fun scheme (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Builder;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthRequirement$Companion {
-	public final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public final fun of (Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public static synthetic fun of$default (Lorg/dexpace/sdk/core/http/auth/AuthRequirement$Companion;Lorg/dexpace/sdk/core/http/auth/AuthScheme;Ljava/util/List;Ljava/util/Map;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthResolution {
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/AuthRequirement;Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;)V
-	public final fun component1 ()Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public final fun component2 ()Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-	public final fun copy (Lorg/dexpace/sdk/core/http/auth/AuthRequirement;Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/auth/AuthResolution;Lorg/dexpace/sdk/core/http/auth/AuthRequirement;Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthResolution;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getRequirement ()Lorg/dexpace/sdk/core/http/auth/AuthRequirement;
-	public final fun getScheme ()Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public final fun getTier ()Lorg/dexpace/sdk/core/http/auth/AuthDescriptorTier;
-	public fun hashCode ()I
-	public final fun isAnonymous ()Z
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthResolutionException : java/lang/RuntimeException {
-	public fun <init> (Ljava/util/List;Ljava/util/Set;)V
-	public final fun getAvailableSchemes ()Ljava/util/Set;
-	public final fun getRequiredSchemes ()Ljava/util/List;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthScheme : java/lang/Enum {
-	public static final field API_KEY Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public static final field BASIC Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public static final field DIGEST Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public static final field NO_AUTH Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public static final field OAUTH2 Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public static fun getEntries ()Lkotlin/enums/EnumEntries;
-	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-	public static fun values ()[Lorg/dexpace/sdk/core/http/auth/AuthScheme;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthenticateChallenge {
-	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/util/Map;
-	public final fun copy (Ljava/lang/String;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/AuthenticateChallenge;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/auth/AuthenticateChallenge;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthenticateChallenge;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getParameters ()Ljava/util/Map;
-	public final fun getScheme ()Ljava/lang/String;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/dexpace/sdk/core/http/auth/AuthorizationHeader {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getName ()Ljava/lang/String;
-	public final fun getValue ()Ljava/lang/String;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/dexpace/sdk/core/http/auth/BasicChallengeHandler : org/dexpace/sdk/core/http/auth/ChallengeHandler {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
-	public fun canHandle (Ljava/util/List;)Z
-	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;Z)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-}
-
-public final class org/dexpace/sdk/core/http/auth/BearerToken : org/dexpace/sdk/core/http/auth/Credential {
-	public fun <init> (Ljava/lang/String;Ljava/time/Instant;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/time/Instant;
-	public final fun copy (Ljava/lang/String;Ljava/time/Instant;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
-	public static synthetic fun copy$default (Lorg/dexpace/sdk/core/http/auth/BearerToken;Ljava/lang/String;Ljava/time/Instant;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getExpiresAt ()Ljava/time/Instant;
-	public final fun getToken ()Ljava/lang/String;
-	public fun hashCode ()I
-	public final fun isExpiredAt (Ljava/time/Instant;)Z
-	public final fun isExpiredAt (Ljava/time/Instant;Ljava/time/Duration;)Z
-	public static synthetic fun isExpiredAt$default (Lorg/dexpace/sdk/core/http/auth/BearerToken;Ljava/time/Instant;Ljava/time/Duration;ILjava/lang/Object;)Z
-	public fun toString ()Ljava/lang/String;
-}
-
-public abstract interface class org/dexpace/sdk/core/http/auth/BearerTokenProvider {
-	public fun fetch (Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
-	public abstract fun fetch (Ljava/util/List;Ljava/util/Map;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
-	public fun fetchAsync (Ljava/util/List;)Ljava/util/concurrent/CompletableFuture;
-	public fun fetchAsync (Ljava/util/List;Ljava/util/Map;)Ljava/util/concurrent/CompletableFuture;
-}
-
-public final class org/dexpace/sdk/core/http/auth/BearerTokenProvider$DefaultImpls {
-	public static fun fetch (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/BearerToken;
-	public static fun fetchAsync (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)Ljava/util/concurrent/CompletableFuture;
-	public static fun fetchAsync (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/util/Map;)Ljava/util/concurrent/CompletableFuture;
-}
-
-public abstract interface class org/dexpace/sdk/core/http/auth/ChallengeHandler {
-	public static final field Companion Lorg/dexpace/sdk/core/http/auth/ChallengeHandler$Companion;
-	public abstract fun canHandle (Ljava/util/List;)Z
-	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public abstract fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;Z)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public static synthetic fun handleChallenges$default (Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;ZILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public static fun of ([Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;)Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;
-}
-
-public final class org/dexpace/sdk/core/http/auth/ChallengeHandler$Companion {
-	public final fun of ([Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;)Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;
-}
-
-public final class org/dexpace/sdk/core/http/auth/ChallengeHandler$DefaultImpls {
-	public static fun handleChallenges (Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public static synthetic fun handleChallenges$default (Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;ZILjava/lang/Object;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-}
-
-public abstract interface class org/dexpace/sdk/core/http/auth/Credential {
-}
-
-public final class org/dexpace/sdk/core/http/auth/DigestAlgorithm : java/lang/Enum {
-	public static final field Companion Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm$Companion;
-	public static final field MD5 Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-	public static final field MD5_SESS Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-	public static final field SHA_256 Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-	public static final field SHA_256_SESS Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-	public static final fun fromString (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-	public static fun getEntries ()Lkotlin/enums/EnumEntries;
-	public final fun getHeaderName ()Ljava/lang/String;
-	public final fun getJavaName ()Ljava/lang/String;
-	public final fun getSessionVariant ()Z
-	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-	public static fun values ()[Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-}
-
-public final class org/dexpace/sdk/core/http/auth/DigestAlgorithm$Companion {
-	public final fun fromString (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/auth/DigestAlgorithm;
-}
-
-public final class org/dexpace/sdk/core/http/auth/DigestChallengeHandler : org/dexpace/sdk/core/http/auth/ChallengeHandler {
-	public static final field Companion Lorg/dexpace/sdk/core/http/auth/DigestChallengeHandler$Companion;
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun canHandle (Ljava/util/List;)Z
-	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-	public fun handleChallenges (Lorg/dexpace/sdk/core/http/request/Method;Ljava/net/URI;Ljava/util/List;Z)Lorg/dexpace/sdk/core/http/auth/AuthorizationHeader;
-}
-
-public final class org/dexpace/sdk/core/http/auth/DigestChallengeHandler$Companion {
-}
-
-public final class org/dexpace/sdk/core/http/auth/KeyCredential : org/dexpace/sdk/core/http/auth/Credential {
-	public fun <init> (Ljava/lang/String;)V
-	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)V
-	public fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getApiKey ()Ljava/lang/String;
-	public final fun getHeaderName ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
-	public final fun getPrefix ()Ljava/lang/String;
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/dexpace/sdk/core/http/auth/NamedKeyCredential : org/dexpace/sdk/core/http/auth/Credential {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
-	public final fun getKey ()Ljava/lang/String;
-	public final fun getName ()Ljava/lang/String;
-	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/common/CommonMediaTypes {
@@ -862,11 +862,11 @@ public abstract class org/dexpace/sdk/core/http/pipeline/steps/AsyncAuthStep : o
 }
 
 public class org/dexpace/sdk/core/http/pipeline/steps/AsyncBearerTokenAuthStep : org/dexpace/sdk/core/http/pipeline/steps/AsyncAuthStep {
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	protected fun authorizeRequestAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
 	protected fun authorizeRequestOnChallengeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;)Ljava/util/concurrent/CompletableFuture;
 	protected fun bearerHeaderValue (Ljava/lang/String;)Ljava/lang/String;
@@ -886,10 +886,10 @@ public abstract class org/dexpace/sdk/core/http/pipeline/steps/AuthStep : org/de
 }
 
 public class org/dexpace/sdk/core/http/pipeline/steps/BearerTokenAuthStep : org/dexpace/sdk/core/http/pipeline/steps/AuthStep {
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;)V
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/auth/BearerTokenProvider;Ljava/util/List;Ljava/time/Duration;Lorg/dexpace/sdk/core/util/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	protected fun authorizeRequest (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
 	protected fun authorizeRequestOnChallenge (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/request/Request;
 	protected fun bearerHeaderValue (Ljava/lang/String;)Ljava/lang/String;
@@ -1093,7 +1093,7 @@ public abstract class org/dexpace/sdk/core/http/pipeline/steps/InstrumentationSt
 }
 
 public class org/dexpace/sdk/core/http/pipeline/steps/KeyCredentialAuthStep : org/dexpace/sdk/core/http/pipeline/steps/AuthStep {
-	public fun <init> (Lorg/dexpace/sdk/core/http/auth/KeyCredential;)V
+	public fun <init> (Lorg/dexpace/sdk/core/auth/KeyCredential;)V
 	protected fun authorizeRequest (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
 }
 
@@ -2583,14 +2583,14 @@ public final class org/dexpace/sdk/core/util/ProxyOptions {
 	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;)V
 	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;)V
-	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;)V
-	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;Z)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/auth/ChallengeHandler;)V
+	public fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/auth/ChallengeHandler;Z)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/auth/ChallengeHandler;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun bypassesProxy (Ljava/lang/String;)Z
 	public static final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/util/ProxyOptions;
 	public final fun getAddress ()Ljava/net/InetSocketAddress;
 	public final fun getBypassAllHosts ()Z
-	public final fun getChallengeHandler ()Lorg/dexpace/sdk/core/http/auth/ChallengeHandler;
+	public final fun getChallengeHandler ()Lorg/dexpace/sdk/core/auth/ChallengeHandler;
 	public final fun getNonProxyHosts ()Ljava/util/List;
 	public final fun getPassword ()Ljava/lang/String;
 	public final fun getType ()Lorg/dexpace/sdk/core/util/ProxyOptions$Type;

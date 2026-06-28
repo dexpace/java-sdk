@@ -958,16 +958,16 @@ class JdkHttpTransportTest {
         }
     }
 
-    /** Minimal [org.dexpace.sdk.core.http.auth.ChallengeHandler] stub for the proxy challenge-handler acceptance test. */
-    private object NoopChallengeHandler : org.dexpace.sdk.core.http.auth.ChallengeHandler {
+    /** Minimal [org.dexpace.sdk.core.auth.ChallengeHandler] stub for the proxy challenge-handler acceptance test. */
+    private object NoopChallengeHandler : org.dexpace.sdk.core.auth.ChallengeHandler {
         override fun handleChallenges(
             method: Method,
             uri: java.net.URI,
-            challenges: List<org.dexpace.sdk.core.http.auth.AuthenticateChallenge>,
+            challenges: List<org.dexpace.sdk.core.auth.AuthenticateChallenge>,
             isProxy: Boolean,
-        ): org.dexpace.sdk.core.http.auth.AuthorizationHeader? = null
+        ): org.dexpace.sdk.core.auth.AuthorizationHeader? = null
 
-        override fun canHandle(challenges: List<org.dexpace.sdk.core.http.auth.AuthenticateChallenge>): Boolean = false
+        override fun canHandle(challenges: List<org.dexpace.sdk.core.auth.AuthenticateChallenge>): Boolean = false
     }
 
     /**
