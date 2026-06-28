@@ -1611,6 +1611,58 @@ public final class org/dexpace/sdk/core/http/sse/ServerSentEventReader {
 public final class org/dexpace/sdk/core/http/sse/ServerSentEvents {
 	public static final fun readServerSentEvents (Lorg/dexpace/sdk/core/io/BufferedSource;)Lkotlin/sequences/Sequence;
 	public static final fun readServerSentEventsAsIterable (Lorg/dexpace/sdk/core/io/BufferedSource;)Ljava/lang/Iterable;
+	public static final fun sseStream (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/sse/SseStream;
+	public static final fun typed (Lorg/dexpace/sdk/core/http/sse/SseStream;Lorg/dexpace/sdk/core/http/sse/SseEventMapper;)Lorg/dexpace/sdk/core/http/sse/TypedSseStream;
+}
+
+public abstract interface class org/dexpace/sdk/core/http/sse/SseEventMapper {
+	public static final field Companion Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Companion;
+	public static fun done ()Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+	public abstract fun map (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+	public static fun skip ()Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+	public static fun value (Ljava/lang/Object;)Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+}
+
+public final class org/dexpace/sdk/core/http/sse/SseEventMapper$Companion {
+	public final fun done ()Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+	public final fun skip ()Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+	public final fun value (Ljava/lang/Object;)Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result;
+}
+
+public abstract class org/dexpace/sdk/core/http/sse/SseEventMapper$Result {
+}
+
+public final class org/dexpace/sdk/core/http/sse/SseEventMapper$Result$Done : org/dexpace/sdk/core/http/sse/SseEventMapper$Result {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result$Done;
+}
+
+public final class org/dexpace/sdk/core/http/sse/SseEventMapper$Result$Skip : org/dexpace/sdk/core/http/sse/SseEventMapper$Result {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/http/sse/SseEventMapper$Result$Skip;
+}
+
+public final class org/dexpace/sdk/core/http/sse/SseEventMapper$Result$Value : org/dexpace/sdk/core/http/sse/SseEventMapper$Result {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun getModel ()Ljava/lang/Object;
+}
+
+public final class org/dexpace/sdk/core/http/sse/SseStream : java/lang/AutoCloseable, java/lang/Iterable, kotlin/jvm/internal/markers/KMappedMarker {
+	public static final field Companion Lorg/dexpace/sdk/core/http/sse/SseStream$Companion;
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;Ljava/io/Closeable;Lorg/dexpace/sdk/core/instrumentation/ClientLogger;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public static final fun from (Lorg/dexpace/sdk/core/io/BufferedSource;Ljava/io/Closeable;)Lorg/dexpace/sdk/core/http/sse/SseStream;
+	public static final fun fromReader (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;Ljava/io/Closeable;)Lorg/dexpace/sdk/core/http/sse/SseStream;
+	public fun iterator ()Ljava/util/Iterator;
+}
+
+public final class org/dexpace/sdk/core/http/sse/SseStream$Companion {
+	public final fun from (Lorg/dexpace/sdk/core/io/BufferedSource;Ljava/io/Closeable;)Lorg/dexpace/sdk/core/http/sse/SseStream;
+	public final fun fromReader (Lorg/dexpace/sdk/core/http/sse/ServerSentEventReader;Ljava/io/Closeable;)Lorg/dexpace/sdk/core/http/sse/SseStream;
+}
+
+public final class org/dexpace/sdk/core/http/sse/TypedSseStream : java/lang/AutoCloseable, java/lang/Iterable, kotlin/jvm/internal/markers/KMappedMarker {
+	public fun <init> (Lorg/dexpace/sdk/core/http/sse/SseStream;Lorg/dexpace/sdk/core/http/sse/SseEventMapper;)V
+	public fun close ()V
+	public fun iterator ()Ljava/util/Iterator;
 }
 
 public final class org/dexpace/sdk/core/instrumentation/ClientLogger {

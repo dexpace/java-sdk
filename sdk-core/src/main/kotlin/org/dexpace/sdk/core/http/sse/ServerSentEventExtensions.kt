@@ -9,6 +9,7 @@
 
 package org.dexpace.sdk.core.http.sse
 
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.io.BufferedSource
 
 /**
@@ -53,3 +54,36 @@ public fun BufferedSource.readServerSentEvents(): Sequence<ServerSentEvent> {
  */
 public fun BufferedSource.readServerSentEventsAsIterable(): Iterable<ServerSentEvent> =
     readServerSentEvents().asIterable()
+
+/**
+ * Opens an [SseStream] over this response's body, binding the stream's lifecycle to the
+ * response: closing the returned stream (explicitly, via `use {}` / try-with-resources, or
+ * implicitly when iteration completes) closes the response and releases its connection.
+ *
+ * Use this on a streaming response to consume events without stranding the body on a partial
+ * consume:
+ *
+ * ```
+ * response.sseStream().use { stream ->
+ *     for (event in stream) { /* handle event */ }
+ * }
+ * ```
+ *
+ * @throws IllegalStateException if the response has no body.
+ */
+public fun Response.sseStream(): SseStream {
+    val responseBody = checkNotNull(body) { "Response has no body to stream as Server-Sent Events" }
+    return SseStream.from(responseBody.source(), this)
+}
+
+/**
+ * Wraps this raw [SseStream] in a [TypedSseStream] that maps each event to a model `T` via
+ * [mapper], decoding lazily on consume. The returned adapter inherits this stream's lifecycle:
+ * closing it closes this stream (and the response).
+ *
+ * The [mapper] is the per-endpoint seam — it is where the [org.dexpace.sdk.core.serde.Serde]
+ * SPI is called and where done-sentinel / error-envelope conventions live.
+ *
+ * @param mapper Maps a raw event to a [SseEventMapper.Result].
+ */
+public fun <T> SseStream.typed(mapper: SseEventMapper<T>): TypedSseStream<T> = TypedSseStream(this, mapper)
