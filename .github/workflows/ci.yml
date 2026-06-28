@@ -27,7 +27,7 @@ jobs:
           # The styleguide directory is a git submodule; fetch it so the working tree matches local checkouts.
           submodules: recursive
 
-      # Install a single Temurin JDK 21. The build's Gradle daemon runs on this JVM, and the
+      # Install a single Corretto JDK 21. The build's Gradle daemon runs on this JVM, and the
       # foojay-resolver-convention plugin (settings.gradle.kts) auto-provisions the JDK 8 and
       # JDK 11 toolchains the Java-8 and JDK-11 modules require. JDK 21 also satisfies the
       # virtual-threads module's toolchain. JDK 21 (rather than the newest LTS) is deliberate:
@@ -35,7 +35,7 @@ jobs:
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: corretto
           java-version: '21'
 
       # Built-in Gradle dependency and build caching, plus wrapper validation.
@@ -43,4 +43,5 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build
+        timeout-minutes: 10
         run: ./gradlew build
