@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.http.request
 
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.io.BufferedSink
-import org.dexpace.sdk.core.io.IoProvider
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
@@ -99,8 +98,6 @@ public class FileRequestBody
         override fun contentLength(): Long = count
 
         override fun isReplayable(): Boolean = true
-
-        override fun toReplayable(provider: IoProvider): RequestBody = this
 
         @Throws(IOException::class)
         override fun writeTo(sink: BufferedSink) {

@@ -1048,7 +1048,6 @@ public final class org/dexpace/sdk/core/http/request/FileRequestBody : org/dexpa
 	public fun isReplayable ()Z
 	public fun mediaType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public final fun toByteBuffer ()Ljava/nio/ByteBuffer;
-	public fun toReplayable (Lorg/dexpace/sdk/core/io/IoProvider;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public fun writeTo (Lorg/dexpace/sdk/core/io/BufferedSink;)V
 }
 
@@ -1078,7 +1077,6 @@ public final class org/dexpace/sdk/core/http/request/Method : java/lang/Enum {
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public final fun getMethod ()Ljava/lang/String;
 	public final fun getPermitsRequestBody ()Z
-	public fun toString ()Ljava/lang/String;
 	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Method;
 	public static fun values ()[Lorg/dexpace/sdk/core/http/request/Method;
 }
