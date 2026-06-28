@@ -37,6 +37,13 @@ public enum class Method(public val permitsRequestBody: Boolean) {
     CONNECT(permitsRequestBody = false),
     ;
 
-    /** Canonical uppercase method token sent in the request line; identical to the enum [name]. */
+    /**
+     * Canonical uppercase method token sent in the request line; identical to the enum [name].
+     *
+     * `MemberNameEqualsClassName` is suppressed: the accessor is retained for API compatibility
+     * (`getMethod()`) and the token genuinely *is* the method's name, so renaming it would only
+     * obscure that and break callers.
+     */
+    @Suppress("MemberNameEqualsClassName")
     public val method: String get() = name
 }
