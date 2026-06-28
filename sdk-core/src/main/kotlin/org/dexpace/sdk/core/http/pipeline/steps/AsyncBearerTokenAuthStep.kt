@@ -7,7 +7,6 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
-import org.dexpace.sdk.core.http.auth.AuthChallengeParser
 import org.dexpace.sdk.core.http.auth.BearerToken
 import org.dexpace.sdk.core.http.auth.BearerTokenProvider
 import org.dexpace.sdk.core.http.common.HttpHeaderName
@@ -256,15 +255,6 @@ public open class AsyncBearerTokenAuthStep
         }
 
         /**
-         * Returns `true` when [response]'s `WWW-Authenticate` header advertises a `Bearer`
-         * challenge.
-         */
-        private fun offersBearerChallenge(response: Response): Boolean {
-            val header = response.headers.get(HttpHeaderName.WWW_AUTHENTICATE) ?: return false
-            return AuthChallengeParser.parse(header).any { it.scheme == BEARER_SCHEME }
-        }
-
-        /**
          * Clears [cachedToken] iff it is still the token whose stamped header is [rejectedHeader].
          * Guarded by the same [lock] as the fetch path so the read-compare-clear is atomic against
          * a concurrent refresh.
@@ -287,6 +277,5 @@ public open class AsyncBearerTokenAuthStep
 
         private companion object {
             private const val DEFAULT_REFRESH_MARGIN_SECONDS = 30L
-            private const val BEARER_SCHEME = "bearer"
         }
     }

@@ -80,6 +80,23 @@ public class HttpRetryOptions
             HttpRetryConditionPredicate(::defaultShouldRetryException),
         public val delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null },
     ) {
+        /**
+         * Returns a copy of these options with [maxRetries] replaced and every other field
+         * preserved. Used by the retry steps to apply the negative-`maxRetries` clamp without
+         * hand-rebuilding all eight fields at each call site.
+         */
+        internal fun withMaxRetries(maxRetries: Int): HttpRetryOptions =
+            HttpRetryOptions(
+                maxRetries = maxRetries,
+                baseDelay = baseDelay,
+                maxDelay = maxDelay,
+                fixedDelay = fixedDelay,
+                retryAfterHeaders = retryAfterHeaders,
+                shouldRetryCondition = shouldRetryCondition,
+                shouldRetryException = shouldRetryException,
+                delayFromCondition = delayFromCondition,
+            )
+
         public companion object {
             // The default retry count is the canonical SDK budget, kept in one place on
             // DefaultRetryStep (initial send + DEFAULT_MAX_RETRIES == RetrySettings.DEFAULT_MAX_ATTEMPTS).
