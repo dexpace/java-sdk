@@ -44,6 +44,10 @@ public class PagedIterable<T>
         private val nextPage: NextPageFetcher<T> = NextPageFetcher { _, _ -> null },
         private val maxPages: Long = Long.MAX_VALUE,
     ) : Iterable<T> {
+        init {
+            require(maxPages > 0L) { "maxPages must be positive, was $maxPages" }
+        }
+
         private fun walker(options: PagingOptions): PageWalker<T> {
             var started = false
             var previous: Page<T>? = null
