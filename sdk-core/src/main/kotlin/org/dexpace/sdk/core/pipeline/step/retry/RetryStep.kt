@@ -14,6 +14,7 @@ import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.http.response.exception.Retryable
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
+import org.dexpace.sdk.core.pipeline.failureOf
 import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
 import java.io.InterruptedIOException
 import java.time.Clock
@@ -289,11 +290,8 @@ public class RetryStep
         private fun executeOnce(attemptOrdinal: Int): ResponseOutcome =
             try {
                 ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal)))
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                ResponseOutcome.Failure(e)
             } catch (t: Throwable) {
-                ResponseOutcome.Failure(t)
+                failureOf(t)
             }
 
         /**
@@ -362,10 +360,7 @@ public class RetryStep
          * process-wide scheduler is a companion `by lazy` (SYNCHRONIZED), so it is initialised
          * at most once across the whole VM — no per-instance guard is involved.
          */
-        private fun resolveScheduler(): ScheduledExecutorService {
-            settings.scheduler?.let { return it }
-            return DEFAULT_SCHEDULER
-        }
+        private fun resolveScheduler(): ScheduledExecutorService = settings.scheduler ?: DEFAULT_SCHEDULER
 
         /**
          * Returns true when [error] is an SDK-classified retryable condition. Classification

@@ -152,11 +152,10 @@ public object RetryAfterParser {
             parseNumericSeconds(retryAfter)?.let { return it }
             parseHttpDate(retryAfter, now)?.let { return it }
         }
-        headers.get(HEADER_RETRY_AFTER_MS)?.trim()?.let { value ->
-            if (value.isNotEmpty()) parseMillis(value)?.let { return it }
-        }
-        headers.get(HEADER_X_MS_RETRY_AFTER_MS)?.trim()?.let { value ->
-            if (value.isNotEmpty()) parseMillis(value)?.let { return it }
+        for (header in arrayOf(HEADER_RETRY_AFTER_MS, HEADER_X_MS_RETRY_AFTER_MS)) {
+            headers.get(header)?.trim()?.let { value ->
+                if (value.isNotEmpty()) parseMillis(value)?.let { return it }
+            }
         }
         val rateLimitReset = headers.get(HEADER_X_RATELIMIT_RESET)?.trim()
         if (!rateLimitReset.isNullOrEmpty()) {

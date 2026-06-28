@@ -88,3 +88,17 @@ public sealed class ResponseOutcome {
             is Failure -> onFailure(error)
         }
 }
+
+/**
+ * Wraps [t] in a [ResponseOutcome.Failure]. When [t] is an [InterruptedException] the interrupt
+ * flag is restored on the current thread before wrapping, honouring the SDK's cancellation
+ * contract so a thread blocked on the surfaced outcome still observes the cancellation. Shared by
+ * [ExecutionPipeline], [ResponsePipeline], and [org.dexpace.sdk.core.pipeline.step.retry.RetryStep]
+ * so the interrupt-aware wrapper has exactly one definition.
+ */
+internal fun failureOf(t: Throwable): ResponseOutcome.Failure {
+    if (t is InterruptedException) {
+        Thread.currentThread().interrupt()
+    }
+    return ResponseOutcome.Failure(t)
+}
