@@ -89,7 +89,7 @@ public data class MediaType private constructor(
             parameters.entries.joinToString(separator = ";") { (key, value) ->
                 "$key=${formatParameterValue(value)}"
             }
-        return if (formattedParams.isEmpty()) "$type/$subtype" else "$type/$subtype;$formattedParams"
+        return if (formattedParams.isEmpty()) fullType else "$fullType;$formattedParams"
     }
 
     /**
@@ -142,7 +142,7 @@ public data class MediaType private constructor(
         ): MediaType {
             require(type.isNotBlank()) { "Type must not be blank" }
             require(subtype.isNotBlank()) { "Subtype must not be blank" }
-            require(!(type == "*" && subtype != "*")) {
+            require(type != "*" || subtype == "*") {
                 "Invalid media type format: type=$type, subtype=$subtype"
             }
 
@@ -179,7 +179,7 @@ public data class MediaType private constructor(
             val type = mimeString.substring(0, slashIndex).trim().lowercase(Locale.US)
             val subtype = mimeString.substring(slashIndex + 1).trim().lowercase(Locale.US)
 
-            require(!(type == "*" && subtype != "*")) {
+            require(type != "*" || subtype == "*") {
                 "Invalid media type format: $mediaType"
             }
 
@@ -201,27 +201,9 @@ public data class MediaType private constructor(
                         }
                         // RFC 7230 §3.2.6: strip surrounding double-quotes and unescape
                         // quoted-pair sequences (`\"` → `"`, `\\` → `\`).
-                        val value =
-                            if (rawValue.startsWith("\"") && rawValue.endsWith("\"") && rawValue.length >= 2) {
-                                val inner = rawValue.substring(1, rawValue.length - 1)
-                                val sb = StringBuilder(inner.length)
-                                var i = 0
-                                while (i < inner.length) {
-                                    if (inner[i] == '\\' && i + 1 < inner.length) {
-                                        sb.append(inner[i + 1])
-                                        i += 2
-                                    } else {
-                                        sb.append(inner[i])
-                                        i++
-                                    }
-                                }
-                                sb.toString()
-                            } else {
-                                rawValue
-                            }
                         // Keys are lower-cased for case-insensitive lookup; values are preserved
                         // because boundaries, base64 tokens, etc. are case-sensitive.
-                        key.lowercase(Locale.US) to value
+                        key.lowercase(Locale.US) to unescapeQuotedValue(rawValue)
                     }
 
             return MediaType(type, subtype, parametersMap)
@@ -264,6 +246,30 @@ public data class MediaType private constructor(
             }
             result.add(current.toString())
             return result
+        }
+
+        /**
+         * Strips the surrounding double-quotes from a parameter [rawValue] and unescapes its
+         * quoted-pair sequences (`\"` → `"`, `\\` → `\`), per RFC 7230 §3.2.6. A value that is
+         * not a `quoted-string` is returned unchanged. Inverse of [formatParameterValue].
+         */
+        private fun unescapeQuotedValue(rawValue: String): String {
+            if (!(rawValue.startsWith("\"") && rawValue.endsWith("\"") && rawValue.length >= 2)) {
+                return rawValue
+            }
+            val inner = rawValue.substring(1, rawValue.length - 1)
+            val sb = StringBuilder(inner.length)
+            var i = 0
+            while (i < inner.length) {
+                if (inner[i] == '\\' && i + 1 < inner.length) {
+                    sb.append(inner[i + 1])
+                    i += 2
+                } else {
+                    sb.append(inner[i])
+                    i++
+                }
+            }
+            return sb.toString()
         }
     }
 }

@@ -277,7 +277,10 @@ public data class Headers private constructor(
          */
         public fun addAll(headers: Headers): Builder =
             apply {
-                headers.entries().forEach { (key, values) ->
+                // Read the backing map directly (as the copy constructor above does) rather
+                // than entries(), whose defensively-copied snapshot would be discarded after
+                // this single iteration. Keys are already canonical, so merging is unchanged.
+                headers.headersMap.forEach { (key, values) ->
                     headersMap.computeIfAbsent(key) { mutableListOf() }.addAll(values)
                 }
             }
