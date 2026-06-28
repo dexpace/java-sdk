@@ -51,11 +51,14 @@ import java.util.function.Consumer
  *
  * ## Response lifecycle
  *
- * Each [Response] is closed by the paginator after the strategy has parsed it — including on
- * the exceptional path, where the response is closed before the result future is completed
- * exceptionally. Strategies MUST read everything they need synchronously inside `parse(...)`
- * and MUST NOT retain the response or its body past the call. Items in the returned [Page]
- * outlive the response.
+ * Each [Page] holds the live transport [Response]. The paginator closes that response exactly
+ * once per page: after the page has been drained to the consumer (page- or item-level), or, if
+ * the page is dropped undrained because the walk was settled externally, when it is discarded.
+ * A page whose strategy `parse(...)` throws is never built — its response is closed inline on
+ * that exceptional path before the result future completes exceptionally. Strategies MUST read
+ * everything they need synchronously inside `parse(...)` and MUST NOT retain the response or its
+ * body past the call. A page's raw [Response]/body is valid only while that page is being
+ * delivered (see [forEachPageAsync]); [Page.items] and the derived metadata outlive close.
  *
  * ## Consumer threading
  *
@@ -189,14 +192,15 @@ public class AsyncPaginator<T>
         public fun collectAllAsync(executor: Executor): CompletableFuture<List<T>> = collectInto(executor)
 
         /**
-         * Walks every page, invoking [consumer] for each fully-materialized [Page] in
-         * server-defined order. Each [Page] is a pure value carrying the page's items and
-         * snapshotted response metadata (status code, headers, request) — the response has
-         * already been closed before the consumer is called.
+         * Walks every page, invoking [consumer] for each [Page] in server-defined order. The page
+         * passed to [consumer] is **live**: its raw [Page.response]/body is open and readable for
+         * the duration of the callback. The driver closes that response immediately after `accept`
+         * returns, so the consumer MUST NOT retain the page or read its raw body afterwards;
+         * [Page.items] and the derived metadata (status code, headers, request) survive close.
          *
          * Cancellation, executor, and ordering semantics are identical to [forEachAsync].
          *
-         * @param consumer Invoked once per page.
+         * @param consumer Invoked once per page, with the page live for the callback's duration.
          * @return A future that completes when the walk finishes.
          */
         public fun forEachPageAsync(consumer: Consumer<in Page<T>>): CompletableFuture<Void> =
@@ -322,8 +326,12 @@ public class AsyncPaginator<T>
                     pendingPage = null
                     // If the result was settled from the outside (cancelled, timed out, or
                     // completed by the caller), drop the staged page undrained instead of
-                    // emitting it to the consumer.
-                    return if (!result.isDone && drainPage(staged)) Step.CONTINUE else Step.DONE
+                    // emitting it to the consumer — but close it so its Response is not leaked.
+                    if (result.isDone) {
+                        staged.page.close() // dropped undrained → release its Response
+                        return Step.DONE
+                    }
+                    return if (drainPage(staged)) Step.CONTINUE else Step.DONE
                 }
                 val request = nextRequest
                 if (request == null || result.isDone || pagesFetched >= maxPages) {
@@ -372,8 +380,9 @@ public class AsyncPaginator<T>
 
             /**
              * Delivers a parsed page to the page sink (which may emit the page's items or the
-             * whole page), then schedules the next request read from the [ParsedPage]. Returns
-             * `true` to continue driving, `false` if the sink threw (walk aborted).
+             * whole page), then schedules the next request read from the [ParsedPage]. The page's
+             * [Response] is closed in a `finally`, so it is released whether the sink succeeds or
+             * throws. Returns `true` to continue driving, `false` if the sink threw (walk aborted).
              */
             private fun drainPage(page: ParsedPage<T>): Boolean {
                 try {
@@ -382,15 +391,19 @@ public class AsyncPaginator<T>
                 } catch (t: Throwable) {
                     result.completeExceptionally(t)
                     return false
+                } finally {
+                    page.page.close() // release this page's Response (drained or threw)
                 }
                 return true
             }
 
             /**
-             * Executes [request], parses the response into a [PageInfo], snapshots a [Page], and
-             * closes the response — mirroring [Paginator]'s per-page lifecycle. The returned future
-             * completes with the resulting [ParsedPage] or exceptionally if the transport or
-             * strategy fails.
+             * Executes [request], parses the response into a [PageInfo], and builds a [Page] that
+             * **retains** the live response — mirroring [Paginator]'s per-page lifecycle. The page's
+             * response is closed later, on whichever path consumes it (drained in [drainPage], or
+             * dropped-and-closed in [step]); only a `parse` failure closes the response here, since
+             * such a page is never built. The returned future completes with the resulting
+             * [ParsedPage] or exceptionally if the transport or strategy fails.
              */
             private fun fetchPage(request: Request): CompletableFuture<ParsedPage<T>> {
                 pagesFetched++
@@ -416,15 +429,17 @@ public class AsyncPaginator<T>
                     }
                     if (response == null) {
                         // AsyncHttpClient forbids a null success completion; fail cleanly
-                        // rather than NPE on the parse/close below.
+                        // rather than NPE on the parse below.
                         error("AsyncHttpClient.executeAsync completed with a null Response")
                     }
-                    try {
-                        val info = strategy.parse(response, initialRequest)
-                        ParsedPage(Page(response, info.items), info.nextRequest)
-                    } finally {
-                        response.close()
-                    }
+                    val info =
+                        try {
+                            strategy.parse(response, initialRequest)
+                        } catch (t: Throwable) {
+                            response.close() // parse failed → this page never becomes a Page; release it now
+                            throw t
+                        }
+                    ParsedPage(Page(response, info.items), info.nextRequest)
                 }
             }
         }

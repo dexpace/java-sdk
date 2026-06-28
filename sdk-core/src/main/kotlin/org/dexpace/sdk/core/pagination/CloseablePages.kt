@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.core.pagination
 
+import java.io.IOException
 import java.util.Spliterator
 import java.util.Spliterators
 import java.util.stream.Stream
@@ -76,7 +77,13 @@ public class CloseablePages<T>
                 false,
             )
 
-        /** Closes the page currently held open (the one being inspected). Safe to call repeatedly. */
+        /**
+         * Closes the page currently held open (the one being inspected). Safe to call repeatedly.
+         *
+         * @throws IOException If the held page's [Page.close] (and thus its [Page.response] close)
+         *   fails.
+         */
+        @Throws(IOException::class)
         override fun close() {
             closeCurrent()
         }
