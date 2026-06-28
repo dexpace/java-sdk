@@ -24,17 +24,23 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * a collision-safe store key. One consequence of the generated default: two default-constructed
  * instances are not structurally equal, since each generates a distinct key — pin an explicit
  * [callKey] if you need equality.
+ *
+ * @property operationName Optional schema-defined operation id (e.g. `"GetUser"`) for this call,
+ *   or `null` for a raw request with no associated operation. Carried for the tracing seam
+ *   ([InstrumentationContext.httpTracerFactory]) and forwarded to the [ExchangeContext]; it does
+ *   not affect the request or dispatch decision.
  */
 public data class RequestContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
     override val callKey: String = DispatchContext.generateCallKey(instrumentationContext),
+    val operationName: String? = null,
 ) : CallContext {
     /**
      * Promotes this request context into an [ExchangeContext] bound to [response] and stores
-     * the new context in [ContextStore] under this chain's [callKey]. After promotion this
-     * request context becomes an intermediate link and must not be closed independently —
-     * close the returned [ExchangeContext] instead.
+     * the new context in [ContextStore] under this chain's [callKey]. The [operationName] is
+     * carried forward. After promotion this request context becomes an intermediate link and
+     * must not be closed independently — close the returned [ExchangeContext] instead.
      */
     public fun toExchangeContext(response: Response): ExchangeContext =
         ExchangeContext(
@@ -42,6 +48,7 @@ public data class RequestContext(
             request = request,
             response = response,
             callKey = callKey,
+            operationName = operationName,
         ).also {
             ContextStore.set(it.callKey, it)
         }

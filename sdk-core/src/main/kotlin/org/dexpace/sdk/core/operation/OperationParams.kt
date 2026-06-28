@@ -55,8 +55,10 @@ public interface OperationParams {
     public val pathTemplate: String
 
     /**
-     * A stable operation identifier (e.g. `"ListPets"`) for instrumentation, or `null`. Carried
-     * for the tracing seam; it does not affect the assembled request.
+     * A stable operation identifier (e.g. `"ListPets"`) for instrumentation, or `null`.
+     * [toRequestContext] carries it onto the [RequestContext] (and through to the
+     * [org.dexpace.sdk.core.http.context.ExchangeContext]) so the tracing seam can label the
+     * operation; it does **not** affect the assembled request's URL, headers, or body.
      */
     public val operationName: String? get() = null
 
@@ -90,10 +92,11 @@ public interface OperationParams {
 
     /**
      * Assembles the [Request] ([toRequest]) and promotes [dispatch] into a [RequestContext]
-     * carrying it — feeding the request into the context chain in one step.
+     * carrying it — feeding the request into the context chain in one step. [operationName] is
+     * carried onto the resulting context for the tracing seam.
      */
     public fun toRequestContext(
         baseUrl: String,
         dispatch: DispatchContext,
-    ): RequestContext = dispatch.toRequestContext(toRequest(baseUrl))
+    ): RequestContext = dispatch.toRequestContext(toRequest(baseUrl), operationName)
 }

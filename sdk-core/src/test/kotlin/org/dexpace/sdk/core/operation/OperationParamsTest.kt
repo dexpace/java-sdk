@@ -137,6 +137,29 @@ class OperationParamsTest {
     }
 
     @Test
+    fun `toRequestContext carries the operation name onto the context for the tracing seam`() {
+        val dispatch = DispatchContext.default()
+        val op = TestOp(Method.GET, "/pets", operationName = "ListPets")
+        val ctx = op.toRequestContext(base, dispatch)
+        try {
+            assertEquals("ListPets", ctx.operationName)
+        } finally {
+            ctx.close()
+        }
+    }
+
+    @Test
+    fun `toRequestContext leaves the operation name null when the operation declares none`() {
+        val dispatch = DispatchContext.default()
+        val ctx = TestOp(Method.GET, "/pets").toRequestContext(base, dispatch)
+        try {
+            assertNull(ctx.operationName)
+        } finally {
+            ctx.close()
+        }
+    }
+
+    @Test
     fun `toRequest merges a base URL query ahead of the operation query`() {
         val query = QueryParams.builder().add("limit", "20").build()
         val request = TestOp(Method.GET, "/pets", query = query).toRequest("https://api.example.com/v1?sv=X&sig=Y")

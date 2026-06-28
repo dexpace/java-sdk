@@ -790,8 +790,10 @@ parameterless operation overrides almost nothing.
   body/method compatibility.
 
 `toRequestContext` builds the `Request` and promotes a `DispatchContext` into a `RequestContext`
-carrying it, in one step. Execution stays the pipeline's job — the SPI stops at producing the
-request/context (error-mapping and deserialization compose at the service layer, not as pipeline
+carrying it, in one step. `operationName` (when set) is carried onto that `RequestContext` and
+forwarded down the chain to the `ExchangeContext`, so the tracing seam can label the operation; it
+never alters the assembled request. Execution stays the pipeline's job — the SPI stops at producing
+the request/context (error-mapping and deserialization compose at the service layer, not as pipeline
 stages).
 
 ```kotlin

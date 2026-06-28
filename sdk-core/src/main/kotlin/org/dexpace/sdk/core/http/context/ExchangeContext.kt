@@ -25,10 +25,16 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * a collision-safe store key. One consequence of the generated default: two default-constructed
  * instances are not structurally equal, since each generates a distinct key — pin an explicit
  * [callKey] if you need equality.
+ *
+ * @property operationName Optional schema-defined operation id (e.g. `"GetUser"`) for this call,
+ *   or `null` for a raw request with no associated operation. Carried forward from the
+ *   [RequestContext] for the tracing seam ([InstrumentationContext.httpTracerFactory]) so
+ *   post-exchange span finalizers can label the operation.
  */
 public data class ExchangeContext(
     override val instrumentationContext: InstrumentationContext,
     val request: Request,
     val response: Response,
     override val callKey: String = DispatchContext.generateCallKey(instrumentationContext),
+    val operationName: String? = null,
 ) : CallContext
