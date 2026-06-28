@@ -89,9 +89,11 @@ public value class ETag private constructor(private val raw: String) {
                 trimmed.length >= WEAK_FORM_MIN_LEN &&
                     trimmed.startsWith("W/\"") &&
                     trimmed.endsWith("\"")
+            // A strong-form value must open with `"`, which a `W/`-prefixed weak form never
+            // does, so no explicit weak-prefix exclusion is needed here.
             val isStrongForm =
                 trimmed.length >= 2 &&
-                    !trimmed.startsWith("W/") && trimmed.startsWith("\"") && trimmed.endsWith("\"")
+                    trimmed.startsWith("\"") && trimmed.endsWith("\"")
             require(isWeakForm || isStrongForm) { "malformed ETag: $raw" }
             return ETag(trimmed)
         }
