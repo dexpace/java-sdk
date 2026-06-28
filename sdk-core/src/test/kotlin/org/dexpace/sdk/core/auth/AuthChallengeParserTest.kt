@@ -413,6 +413,49 @@ class AuthChallengeParserTest {
     }
 
     @Test
+    fun `stray token after an unquoted param is rejected not parsed as a phantom challenge`() {
+        // `Digest realm=value extra` — `realm=value` is a valid auth-param, but `extra`
+        // is a bare token with no separating comma. RFC 7235 §2.1 permits only a comma
+        // (or EOF) after an auth-param, so the trailing token is malformed. The parser
+        // skips it (rather than silently dropping it and re-reading `extra` as the scheme
+        // of a second challenge) and emits the single Digest challenge with `realm=value`.
+        val challenges = AuthChallengeParser.parse("Digest realm=value extra")
+        assertEquals(1, challenges.size, "the stray token must not produce a second challenge")
+        assertEquals("digest", challenges[0].scheme)
+        assertEquals("value", challenges[0].parameters["realm"])
+        assertTrue(
+            challenges.none { it.scheme == "extra" },
+            "the stray trailing token must not be parsed as a phantom challenge scheme",
+        )
+    }
+
+    @Test
+    fun `stray token after a quoted param is rejected not parsed as a phantom challenge`() {
+        // Quoted-value variant of the stray-trailing-token case: `Digest realm="value" extra`.
+        val challenges = AuthChallengeParser.parse("""Digest realm="value" extra""")
+        assertEquals(1, challenges.size, "the stray token must not produce a second challenge")
+        assertEquals("digest", challenges[0].scheme)
+        assertEquals("value", challenges[0].parameters["realm"])
+        assertTrue(
+            challenges.none { it.scheme == "extra" },
+            "the stray trailing token must not be parsed as a phantom challenge scheme",
+        )
+    }
+
+    @Test
+    fun `stray token between a valid param and a comma-separated next challenge is dropped`() {
+        // `Digest realm=value extra, Basic realm="x"` — the stray `extra` after the
+        // first challenge's param is skipped up to the next top-level comma, and the
+        // following Basic challenge is still picked up cleanly.
+        val challenges = AuthChallengeParser.parse("""Digest realm=value extra, Basic realm="x"""")
+        assertEquals(2, challenges.size)
+        assertEquals("digest", challenges[0].scheme)
+        assertEquals("value", challenges[0].parameters["realm"])
+        assertEquals("basic", challenges[1].scheme)
+        assertEquals("x", challenges[1].parameters["realm"])
+    }
+
+    @Test
     fun `quote with only a backslash inside before close quote`() {
         // `"\"` — opens, sees backslash, advances, sees `"` (the close), appends
         // the `"` and continues. Then EOF: dangling. The parser returns null and
