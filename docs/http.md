@@ -438,6 +438,67 @@ headers.get("content-type")     // "application/json" (case-insensitive)
 headers.values("Cache-Control") // ["no-cache", "no-store"]
 ```
 
+### QueryParams
+
+`QueryParams` is an immutable, insertion-ordered, multi-valued model of a URL query string —
+the `?name=value&...` portion of a URL. It mirrors `Headers` in shape (private constructor,
+mutable `Builder`, multi-value semantics) but differs in three ways: names are
+**case-sensitive** (`?page=1` and `?Page=1` are distinct), values may be **empty or value-less**
+(`?flag` and `?flag=` both occur in the wild), and equality is **order-sensitive** — two
+instances are equal only if they `encode()` identically. (That last point is the one divergence
+from `Headers`, whose case-folded names make name order non-semantic; here order is a rendered
+property, so it counts.)
+
+```kotlin
+class QueryParams private constructor(
+    private val paramsMap: Map<String, List<String>>
+)
+```
+
+**Role — building queries, not editing URLs.** `QueryParams` is an *origination* model: it
+builds a query string from decoded names/values (for example, projecting an operation's inputs
+into a request). It is **not** a fidelity-preserving editor of an existing URL. `encode()`
+re-renders every parameter in canonical form, so round-tripping an arbitrary URL through `parse`
+then `encode` can change the wire form of parameters you never touched (`?flag` → `flag=`,
+reserved characters percent-encoded). Code that must edit one parameter of an existing URL while
+leaving the rest byte-for-byte — pagination's `RequestRebuilder` — splices the raw query string
+directly instead of going through `encode()`.
+
+**API:**
+
+| Method           | Description                                                                |
+|------------------|----------------------------------------------------------------------------|
+| `get(name)`      | First value for the name, or `null` if absent (`""` for a value-less param)|
+| `values(name)`   | All values for the name (unmodifiable), or empty list                      |
+| `contains(name)` | Whether any value is present for the name                                  |
+| `names()`        | Immutable, insertion-ordered snapshot of all parameter names               |
+| `entries()`      | Immutable snapshot as `Map.Entry<String, List<String>>`                    |
+| `size()`         | Total number of values across all names (derived, not tracked)             |
+| `isEmpty()`      | Whether there are no parameters                                            |
+| `encode()`       | RFC 3986 query string (space → `%20`, literal `+` → `%2B`), no leading `?` |
+| `newBuilder()`   | Returns a pre-filled `Builder` for modification                            |
+
+**Encoding.** `encode()` / `parse()` use **RFC 3986 query semantics** (via the internal
+`PercentEncoding` helper): a space is `%20` (not `+`), and a literal `+` is `%2B` — it is **not**
+read back as a space. This is deliberately *not* `application/x-www-form-urlencoded`: a query
+*assembled as a request body* uses the form scheme (`+` for spaces) and will be a separate
+form-body type, not `QueryParams.encode()`. `parse(encode(...))` round-trips names, values, and
+order; malformed percent-encoding falls back to raw text rather than throwing.
+
+**Builder:**
+
+```kotlin
+val params = QueryParams.builder()
+    .add("tag", "a")
+    .add("tag", "b")          // multi-value
+    .set("page", "2")         // replaces any existing "page"
+    .build()
+
+params.values("tag")          // ["a", "b"]
+params.get("page")            // "2"
+params.encode()               // "tag=a&tag=b&page=2"
+```
+
 ### MediaType
 
 `MediaType` represents a parsed MIME type with optional parameters:
@@ -685,6 +746,62 @@ Both implement `HttpClient` and `AsyncHttpClient` on a single class. See the REA
 
 ---
 
+## Operation Input Projection
+
+`OperationParams` (`org.dexpace.sdk.core.operation`) is the SPI a thin generated service implements
+once per operation to declare where each typed input belongs on the wire — **path**, **query**,
+**header**, or **body** — so generated code (and typed pagination) never splices a URL string. The
+runtime assembles the `Request` and feeds it into the context chain.
+
+```kotlin
+interface OperationParams {
+    val method: Method
+    val pathTemplate: String                 // "/pets/{petId}"; leading "/" optional
+    val operationName: String?               // for the tracing seam; default null
+
+    fun pathParams(): Map<String, String>    // default emptyMap()
+    fun queryParams(): QueryParams           // default empty
+    fun headers(): Headers                   // default empty
+    fun body(): RequestBody?                 // default null
+
+    fun toRequest(baseUrl: String): Request
+    fun toRequestContext(baseUrl: String, dispatch: DispatchContext): RequestContext
+}
+```
+
+Only `method` and `pathTemplate` are required; the four projections default to empty, so a
+parameterless operation overrides almost nothing.
+
+**Assembly** (`toRequest`):
+
+- **Path** — each `{name}` in `pathTemplate` is replaced with its `pathParams()` value,
+  percent-encoded as a path segment (`/` → `%2F`), so a value cannot inject extra segments. A
+  `{name}` with no value throws `IllegalArgumentException`.
+- **Query** — `queryParams().encode()` (RFC 3986) is appended after `?`.
+- **Base URL** — treated as a verbatim prefix; a trailing `/` is trimmed and exactly one `/` joins
+  it to the resolved path, so `https://api.example.com/v1` + `/pets` → `…/v1/pets`.
+- **Headers / body / method** — set verbatim from the projections; `Request.build()` validates
+  body/method compatibility.
+
+`toRequestContext` builds the `Request` and promotes a `DispatchContext` into a `RequestContext`
+carrying it, in one step. Execution stays the pipeline's job — the SPI stops at producing the
+request/context (error-mapping and deserialization compose at the service layer, not as pipeline
+stages).
+
+```kotlin
+class ListPets(private val limit: Int?) : OperationParams {
+    override val method = Method.GET
+    override val pathTemplate = "/pets"
+    override fun queryParams() =
+        QueryParams.builder().apply { limit?.let { set("limit", it.toString()) } }.build()
+}
+
+val request = ListPets(limit = 20).toRequest("https://api.example.com")  // GET …/pets?limit=20
+val response = httpClient.execute(request)
+```
+
+---
+
 ## Design Decisions
 
 ### Bodies Over the SDK's I/O Abstraction
@@ -748,6 +865,36 @@ Specific API choices driven by JDK 8 targeting:
 | `Thread.threadId()` (Java 19+)        | `Thread.currentThread().id`                 |
 | `java.net.http.HttpClient` (Java 11+) | `HttpClient` interface (transport-agnostic) |
 | `HttpHeaders` (Java 11+)              | Custom `Headers` class                      |
+
+### Request URL Model
+
+`Request` stores its target as a single resolved `java.net.URL` (a string-backed container),
+**not** a fully deconstructed URL value object (scheme / host / port / path-segments / query).
+Structured query manipulation is layered on top via the `QueryParams` multimap.
+
+**Decision: keep `java.net.URL` as the URL container; layer `QueryParams` for query
+manipulation.**
+
+- **DNS-free equality is preserved.** `Request` equality compares `url.toExternalForm()` — a
+  pure string comparison with no network I/O — because `java.net.URL.equals` / `hashCode`
+  resolve the host via DNS (blocking, and wrong for virtual hosts sharing an address). Keeping
+  the resolved-URL container carries that contract over unchanged.
+- **The query is where the manipulation pressure is.** Pagination and (later) operation-input
+  projection manipulate the query, not the host or path. `QueryParams` puts a structured,
+  multi-valued, well-tested model exactly there, without forcing a rewrite of how transports
+  consume a URL.
+- **Transports already speak `java.net.URL` / strings.** Both reference transports accept a
+  resolved URL or string directly; a deconstructed model would add an assembly step at every
+  transport boundary for no functional gain today.
+
+Path-template *substitution* (`/pets/{id}` + values → an encoded path) lands minimally with the
+`OperationParams` SPI — see "Operation Input Projection" above. What remains **deferred** is a
+*structured* URL model: a deconstructed `Url` value object and/or a move from `java.net.URL` to
+`java.net.URI`. `URI` gives DNS-free equality natively (no `toExternalForm()` workaround) and
+exposes the raw query and path, but parses more strictly and touches every transport boundary. The
+container choice (`URL` vs `URI` vs deconstructed) is best decided when richer path handling
+(per-segment typing, matrix params) actually earns it; the minimal template substitution above does
+not require it.
 
 ---
 
@@ -860,6 +1007,10 @@ exchangeCtx.close()
 | `NetworkException.kt`      | `http.response.exception`| public     | Transport-level failure (IOException sibling)|
 | `HttpExceptionFactory.kt`  | `http.response.exception`| public     | `Response` → typed exception dispatcher      |
 | `Headers.kt`               | `http.common`            | public     | Immutable multi-map + builder                |
+| `QueryParams.kt`           | `http.common`            | public     | Immutable query-string multi-map + builder   |
+| `PercentEncoding.kt`       | `http.common`            | internal   | RFC 3986 URL-component percent-encoding (query + path) |
+| `OperationParams.kt`       | `operation`              | public     | SPI: project operation inputs → `Request` + context  |
+| `OperationRequestAssembler.kt` | `operation`          | internal   | Assembles a `Request` from an `OperationParams`       |
 | `MediaType.kt`             | `http.common`            | public     | Parsed MIME type with charset extraction     |
 | `CommonMediaTypes.kt`      | `http.common`            | public     | Media type constants                         |
 | `Protocol.kt`              | `http.common`            | public     | HTTP protocol version enum                   |
