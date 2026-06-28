@@ -40,7 +40,7 @@ public class HttpPipeline internal constructor(
     @Throws(IOException::class)
     public fun send(request: Request): Response {
         if (stepArray.isEmpty()) return httpClient.execute(request)
-        val state = PipelineCallState(this, request, httpClient)
+        val state = PipelineCallState(this, request)
         return PipelineNext(state).process()
     }
 

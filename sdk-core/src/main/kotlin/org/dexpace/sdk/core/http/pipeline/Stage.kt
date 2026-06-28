@@ -17,8 +17,9 @@ package org.dexpace.sdk.core.http.pipeline
  * Sparse [order] values (100s apart) leave room to insert new stages later without
  * renumbering existing ones.
  *
- * @property order Run-order key used by [HttpPipelineBuilder.build] to emit steps; lower
- *   values run first.
+ * @property order Stable numeric identity for the stage; ascends with declaration order.
+ *   The builder emits steps in declaration order (`Stage.entries`), not by reading this
+ *   value — it exists as a stable, sortable inspection key for callers.
  * @property isPillar True if the stage admits at most one step (singleton). False for
  *   user-extensible stages backed by an ordered deque.
  */

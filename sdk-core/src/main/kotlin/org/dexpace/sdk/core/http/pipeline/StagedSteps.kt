@@ -84,14 +84,7 @@ internal class StagedSteps<S : Any>(
     fun reload(steps: List<S>) {
         perStage.clear()
         pillars.clear()
-        for (s in steps) {
-            val stage = stageOf(s)
-            if (stage.isPillar) {
-                installPillar(s, stage)
-            } else {
-                perStage.getOrPut(stage) { ArrayDeque() }.addLast(s)
-            }
-        }
+        steps.forEach(::append)
     }
 
     /**

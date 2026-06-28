@@ -27,7 +27,7 @@ public class PipelineNext internal constructor(private val state: PipelineCallSt
     public fun process(): Response {
         val nextStep = state.advance()
         return if (nextStep == null) {
-            state.httpClient.execute(state.request)
+            state.pipeline.httpClient.execute(state.request)
         } else {
             nextStep.process(state.request, this)
         }
