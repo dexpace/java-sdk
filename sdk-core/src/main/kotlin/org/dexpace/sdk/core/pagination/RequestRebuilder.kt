@@ -114,11 +114,9 @@ internal object RequestRebuilder {
         if (existing.isEmpty()) return null
         for (segment in existing.split('&')) {
             if (segment.isEmpty()) continue
-            val eq = segment.indexOf('=')
-            val rawKey = if (eq >= 0) segment.substring(0, eq) else segment
-            if (decodeOrRaw(rawKey) == name) {
-                val rawValue = if (eq >= 0) segment.substring(eq + 1) else ""
-                return decodeOrRaw(rawValue)
+            val key = segment.substringBefore('=', segment)
+            if (decodeOrRaw(key) == name) {
+                return decodeOrRaw(segment.substringAfter('=', ""))
             }
         }
         return null
