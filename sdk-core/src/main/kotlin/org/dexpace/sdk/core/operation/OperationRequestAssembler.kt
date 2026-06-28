@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.operation
 
 import org.dexpace.sdk.core.http.common.PercentEncoding
 import org.dexpace.sdk.core.http.request.Request
+import java.net.MalformedURLException
 
 /**
  * Assembles a [Request] from an [OperationParams] projection and a base URL. Internal — callers
@@ -16,8 +17,11 @@ import org.dexpace.sdk.core.http.request.Request
  *
  * The path template is resolved by substituting each `{name}` with its percent-encoded path
  * parameter; the query is rendered by [org.dexpace.sdk.core.http.common.QueryParams.encode]; and
- * the base URL is treated as a verbatim prefix (one `/` between it and the resolved path), so the
- * scheme/host/port/base-path of [baseUrl] carry through unchanged.
+ * the base URL's scheme/host/port/base-path carry through unchanged. The resolved path is inserted
+ * after the base path but **before** any query the base URL already carries (e.g. a signed/SAS
+ * base such as `https://host/c?sig=…`), and the operation's query is appended after the base
+ * query. A fragment on the base URL is rejected — it cannot be composed with a path/query and is
+ * never sent on the wire, so it is almost certainly a mistake.
  */
 internal object OperationRequestAssembler {
     private val TEMPLATE_VARIABLE = Regex("""\{([^/}]+)}""")
@@ -28,12 +32,22 @@ internal object OperationRequestAssembler {
     ): Request {
         val path = resolvePath(params.pathTemplate, params.pathParams())
         val query = params.queryParams().encode()
-        return Request.builder()
-            .method(params.method)
-            .url(buildUrl(baseUrl, path, query))
-            .headers(params.headers())
-            .body(params.body())
-            .build()
+        val url = buildUrl(baseUrl, path, query)
+        return try {
+            Request.builder()
+                .method(params.method)
+                .url(url)
+                .headers(params.headers())
+                .body(params.body())
+                .build()
+        } catch (e: MalformedURLException) {
+            // Surface a malformed base URL (e.g. missing scheme) as the SPI's documented
+            // IllegalArgumentException rather than leaking a checked IOException to callers.
+            throw IllegalArgumentException(
+                "Cannot assemble a request: base URL '$baseUrl' resolved to a malformed URL '$url'",
+                e,
+            )
+        }
     }
 
     private fun resolvePath(
@@ -53,13 +67,31 @@ internal object OperationRequestAssembler {
         path: String,
         query: String,
     ): String {
-        val sb = StringBuilder(baseUrl.trimEnd('/'))
+        require('#' !in baseUrl) {
+            "Base URL must not contain a fragment ('#'): '$baseUrl'"
+        }
+        // Split off any query the base URL already carries so the resolved path is inserted
+        // before it (`host/base?sig=…` + `/pets` → `host/base/pets?sig=…`), instead of being
+        // swallowed into a query value.
+        val queryStart = baseUrl.indexOf('?')
+        val prefix = if (queryStart < 0) baseUrl else baseUrl.substring(0, queryStart)
+        val baseQuery = if (queryStart < 0) "" else baseUrl.substring(queryStart + 1)
+
+        val sb = StringBuilder(prefix.trimEnd('/'))
         if (path.isNotEmpty()) {
             if (!path.startsWith("/")) sb.append('/')
             sb.append(path)
         }
-        if (query.isNotEmpty()) {
-            sb.append('?').append(query)
+        // Base query first (it is ambient — auth tokens, API keys), operation query appended.
+        // Both sides are already percent-encoded wire form, so they concatenate verbatim.
+        val mergedQuery =
+            when {
+                baseQuery.isEmpty() -> query
+                query.isEmpty() -> baseQuery
+                else -> "$baseQuery&$query"
+            }
+        if (mergedQuery.isNotEmpty()) {
+            sb.append('?').append(mergedQuery)
         }
         return sb.toString()
     }

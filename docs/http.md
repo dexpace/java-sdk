@@ -778,8 +778,14 @@ parameterless operation overrides almost nothing.
   percent-encoded as a path segment (`/` → `%2F`), so a value cannot inject extra segments. A
   `{name}` with no value throws `IllegalArgumentException`.
 - **Query** — `queryParams().encode()` (RFC 3986) is appended after `?`.
-- **Base URL** — treated as a verbatim prefix; a trailing `/` is trimmed and exactly one `/` joins
-  it to the resolved path, so `https://api.example.com/v1` + `/pets` → `…/v1/pets`.
+- **Base URL** — the scheme/host/port/base-path carry through unchanged; a trailing `/` is trimmed
+  and exactly one `/` joins it to the resolved path, so `https://api.example.com/v1` + `/pets` →
+  `…/v1/pets`. A query already on the base URL is preserved: the resolved path is inserted **before**
+  it and the operation's query is appended after it, so a signed base
+  `https://host/c?sig=…` + `/pets?limit=20` → `https://host/c/pets?sig=…&limit=20`. A **fragment**
+  on the base URL is rejected (`IllegalArgumentException`) — it cannot be composed with a path/query
+  and is never sent on the wire — and a base URL that resolves to a malformed URL (e.g. no scheme)
+  also throws `IllegalArgumentException` rather than leaking a checked `MalformedURLException`.
 - **Headers / body / method** — set verbatim from the projections; `Request.build()` validates
   body/method compatibility.
 

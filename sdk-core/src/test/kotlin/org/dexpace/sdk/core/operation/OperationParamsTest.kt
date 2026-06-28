@@ -135,4 +135,31 @@ class OperationParamsTest {
             ctx.close()
         }
     }
+
+    @Test
+    fun `toRequest merges a base URL query ahead of the operation query`() {
+        val query = QueryParams.builder().add("limit", "20").build()
+        val request = TestOp(Method.GET, "/pets", query = query).toRequest("https://api.example.com/v1?sv=X&sig=Y")
+        assertEquals("https://api.example.com/v1/pets?sv=X&sig=Y&limit=20", request.url.toExternalForm())
+    }
+
+    @Test
+    fun `toRequest preserves a base URL query when the operation contributes none`() {
+        val request = TestOp(Method.GET, "/pets").toRequest("https://api.example.com?sv=X")
+        assertEquals("https://api.example.com/pets?sv=X", request.url.toExternalForm())
+    }
+
+    @Test
+    fun `toRequest rejects a base URL carrying a fragment`() {
+        assertFailsWith<IllegalArgumentException> {
+            TestOp(Method.GET, "/pets").toRequest("https://api.example.com/v1#frag")
+        }
+    }
+
+    @Test
+    fun `toRequest throws IllegalArgumentException for a malformed base URL`() {
+        assertFailsWith<IllegalArgumentException> {
+            TestOp(Method.GET, "/pets").toRequest("api.example.com")
+        }
+    }
 }

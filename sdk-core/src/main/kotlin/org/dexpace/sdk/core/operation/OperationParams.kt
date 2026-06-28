@@ -78,9 +78,13 @@ public interface OperationParams {
     /**
      * Assembles the [Request] for this operation against [baseUrl] (e.g.
      * `https://api.example.com` or `https://api.example.com/v1`). A trailing `/` on [baseUrl] is
-     * trimmed before the resolved path is joined.
+     * trimmed before the resolved path is joined. If [baseUrl] already carries a query (e.g. a
+     * signed/SAS base such as `https://host/c?sig=…`), the resolved path is inserted before it and
+     * this operation's query is appended after it.
      *
-     * @throws IllegalArgumentException if a `{name}` in [pathTemplate] has no [pathParams] value.
+     * @throws IllegalArgumentException if a `{name}` in [pathTemplate] has no [pathParams] value,
+     *   if [baseUrl] carries a fragment (`#…`), or if [baseUrl] resolves to a malformed URL
+     *   (e.g. it has no scheme).
      */
     public fun toRequest(baseUrl: String): Request = OperationRequestAssembler.assemble(baseUrl, this)
 
