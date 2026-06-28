@@ -24,7 +24,10 @@ import java.net.MalformedURLException
  * never sent on the wire, so it is almost certainly a mistake.
  */
 internal object OperationRequestAssembler {
-    private val TEMPLATE_VARIABLE = Regex("""\{([^/}]+)}""")
+    // A `{name}` placeholder: any run of characters up to the first '}'. The class is `[^}]` (not
+    // `[^/}]`) so a stray '/' inside the braces is captured as the variable name and fails fast as
+    // a missing path parameter, rather than leaving an unsubstituted `{a/b}` literal in the URL.
+    private val TEMPLATE_VARIABLE = Regex("""\{([^}]+)}""")
 
     internal fun assemble(
         baseUrl: String,
@@ -92,15 +95,16 @@ internal object OperationRequestAssembler {
             sb.append(path)
         }
         // Base query first (it is ambient — auth tokens, API keys), operation query appended.
-        // Both sides are already percent-encoded wire form, so they concatenate verbatim; a
-        // trailing '&' already on the base query is reused as the separator rather than doubled
-        // into an empty `&&` segment.
+        // Both sides are already percent-encoded wire form, so they concatenate verbatim. A
+        // trailing '&' on the base query is its own separator: drop it before joining, so it
+        // neither doubles into an empty `&&` segment when an operation query follows nor survives
+        // as a dangling separator when the base contributes the only query.
+        val trimmedBase = baseQuery.removeSuffix("&")
         val mergedQuery =
             when {
-                baseQuery.isEmpty() -> query
-                query.isEmpty() -> baseQuery
-                baseQuery.endsWith('&') -> baseQuery + query
-                else -> "$baseQuery&$query"
+                trimmedBase.isEmpty() -> query
+                query.isEmpty() -> trimmedBase
+                else -> "$trimmedBase&$query"
             }
         if (mergedQuery.isNotEmpty()) {
             sb.append('?').append(mergedQuery)

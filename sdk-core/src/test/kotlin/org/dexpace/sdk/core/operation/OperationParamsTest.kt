@@ -111,6 +111,15 @@ class OperationParamsTest {
     }
 
     @Test
+    fun `toRequest fails fast on a template variable containing a slash rather than emitting it literally`() {
+        // A malformed `{a/b}` placeholder is captured whole as the variable name; with no matching
+        // path parameter it fails fast instead of leaking an unsubstituted `{a/b}` into the URL.
+        assertFailsWith<IllegalArgumentException> {
+            TestOp(Method.GET, "/pets/{a/b}").toRequest(base)
+        }
+    }
+
+    @Test
     fun `minimal operation uses empty defaults`() {
         val op = MinimalOp()
         assertTrue(op.pathParams().isEmpty())
@@ -185,6 +194,14 @@ class OperationParamsTest {
         val query = QueryParams.builder().add("b", "2").build()
         val request = TestOp(Method.GET, "/pets", query = query).toRequest("https://api.example.com/v1?a=1&")
         assertEquals("https://api.example.com/v1/pets?a=1&b=2", request.url.toExternalForm())
+    }
+
+    @Test
+    fun `toRequest drops a dangling base query separator when the operation contributes none`() {
+        // A trailing '&' on the base query is its own separator, not an empty parameter; with no
+        // operation query to join it must not survive as a dangling `?a=1&`.
+        val request = TestOp(Method.GET, "/pets").toRequest("https://api.example.com/v1?a=1&")
+        assertEquals("https://api.example.com/v1/pets?a=1", request.url.toExternalForm())
     }
 
     @Test
