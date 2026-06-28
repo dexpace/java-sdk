@@ -112,7 +112,7 @@ public class ResponsePipeline
                                 ResponseOutcome.Success(step.execute(inResponse, context))
                             } catch (t: Throwable) {
                                 closeQuietly(inResponse, t)
-                                handleStepThrowable(t)
+                                failureOf(t)
                             }
                         }
                         is ResponseOutcome.Failure -> return inbound
@@ -137,19 +137,8 @@ public class ResponsePipeline
                 if (outcome is ResponseOutcome.Success) {
                     closeQuietly(outcome.response, t)
                 }
-                handleStepThrowable(t)
+                failureOf(t)
             }
-
-        /**
-         * Converts a step-raised throwable into a [ResponseOutcome.Failure]. [InterruptedException]
-         * preserves the interrupt flag on the current thread per the SDK's cancellation contract.
-         */
-        private fun handleStepThrowable(t: Throwable): ResponseOutcome.Failure {
-            if (t is InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
-            return ResponseOutcome.Failure(t)
-        }
 
         /**
          * Closes [response], swallowing any close error so it never masks [primary]. A failure to

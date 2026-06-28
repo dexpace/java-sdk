@@ -128,23 +128,33 @@ public class RetrySettings
                 this.attemptHeaderName = settings.attemptHeaderName
             }
 
+            /**
+             * Validates a [Duration] setting: it must be non-negative and small enough that the
+             * backoff math can convert it to nanoseconds without overflowing. Shared by the
+             * [totalTimeout], [initialDelay], and [maxDelay] setters; [name] names the offending
+             * field in the rejection message.
+             */
+            private fun requireRepresentable(
+                name: String,
+                value: Duration,
+            ) {
+                require(!value.isNegative) { "$name must be non-negative" }
+                require(value <= MAX_NANO_REPRESENTABLE_DELAY) {
+                    "$name must be representable in nanoseconds (≤ ~292 years); got $value"
+                }
+            }
+
             /** Sets [RetrySettings.totalTimeout]. Must be non-negative. */
             public fun totalTimeout(totalTimeout: Duration): RetrySettingsBuilder =
                 apply {
-                    require(!totalTimeout.isNegative) { "totalTimeout must be non-negative" }
-                    require(totalTimeout <= MAX_NANO_REPRESENTABLE_DELAY) {
-                        "totalTimeout must be representable in nanoseconds (≤ ~292 years); got $totalTimeout"
-                    }
+                    requireRepresentable("totalTimeout", totalTimeout)
                     this.totalTimeout = totalTimeout
                 }
 
             /** Sets [RetrySettings.initialDelay]. Must be non-negative. */
             public fun initialDelay(initialDelay: Duration): RetrySettingsBuilder =
                 apply {
-                    require(!initialDelay.isNegative) { "initialDelay must be non-negative" }
-                    require(initialDelay <= MAX_NANO_REPRESENTABLE_DELAY) {
-                        "initialDelay must be representable in nanoseconds (≤ ~292 years); got $initialDelay"
-                    }
+                    requireRepresentable("initialDelay", initialDelay)
                     this.initialDelay = initialDelay
                 }
 
@@ -158,10 +168,7 @@ public class RetrySettings
             /** Sets [RetrySettings.maxDelay]. Must be non-negative. */
             public fun maxDelay(maxDelay: Duration): RetrySettingsBuilder =
                 apply {
-                    require(!maxDelay.isNegative) { "maxDelay must be non-negative" }
-                    require(maxDelay <= MAX_NANO_REPRESENTABLE_DELAY) {
-                        "maxDelay must be representable in nanoseconds (≤ ~292 years); got $maxDelay"
-                    }
+                    requireRepresentable("maxDelay", maxDelay)
                     this.maxDelay = maxDelay
                 }
 

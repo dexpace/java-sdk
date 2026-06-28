@@ -109,15 +109,4 @@ public class ExecutionPipeline
                 failureOf(t)
             }
         }
-
-        /**
-         * Wraps [t] in a [ResponseOutcome.Failure]. [InterruptedException] preserves the interrupt
-         * flag on the current thread per the SDK's cancellation contract.
-         */
-        private fun failureOf(t: Throwable): ResponseOutcome.Failure {
-            if (t is InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
-            return ResponseOutcome.Failure(t)
-        }
     }
