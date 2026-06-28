@@ -43,6 +43,29 @@ class PercentEncodingTest {
     }
 
     @Test
+    fun `encode leaves the unreserved tilde untouched`() {
+        // '~' is in the RFC 3986 unreserved set; URLEncoder over-encodes it to %7E, which the
+        // codec corrects back to '~'.
+        assertEquals("~", PercentEncoding.encodeComponent("~"))
+        assertEquals("~user", PercentEncoding.encodeComponent("~user"))
+    }
+
+    @Test
+    fun `encode percent-encodes the reserved asterisk`() {
+        // '*' is a sub-delimiter (reserved), not unreserved; URLEncoder leaves it raw, which the
+        // codec corrects to %2A so a component value cannot smuggle a reserved character.
+        assertEquals("%2A", PercentEncoding.encodeComponent("*"))
+        assertEquals("a%2Ab", PercentEncoding.encodeComponent("a*b"))
+    }
+
+    @Test
+    fun `encode then decode round-trips the corrected tilde and asterisk`() {
+        val original = "~a*b"
+        assertEquals("~a%2Ab", PercentEncoding.encodeComponent(original))
+        assertEquals(original, PercentEncoding.decodeComponent(PercentEncoding.encodeComponent(original)))
+    }
+
+    @Test
     fun `encode percent-encodes multibyte utf8 as utf8 bytes`() {
         assertEquals("%C3%A9", PercentEncoding.encodeComponent("é")) // é
     }

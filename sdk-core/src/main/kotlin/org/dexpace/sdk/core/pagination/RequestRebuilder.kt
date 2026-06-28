@@ -23,16 +23,16 @@ import java.net.URL
  *
  * ## Query manipulation
  *
- * Reading a parameter ([getQueryParam]) goes through the structured [QueryParams] model.
- * Writing one ([setQueryParam]) splices the raw query string directly — replacing or
- * appending only the targeted parameter and copying every other segment **verbatim** — so
- * parameters the caller did not touch keep their exact wire form (a value-less `?flag` stays
- * value-less; reserved characters are not rewritten). Newly written names and values are
- * percent-encoded with RFC 3986 semantics (space → `%20`) via [PercentEncoding].
+ * Both reading ([getQueryParam]) and writing ([setQueryParam]) operate on the raw query string
+ * directly — scanning or splicing segments and decoding/encoding only the targeted parameter via
+ * the shared [PercentEncoding] codec (RFC 3986 semantics: space → `%20`, literal `+` preserved).
+ * Every other segment is copied **verbatim**, so parameters the caller did not touch keep their
+ * exact wire form (a value-less `?flag` stays value-less; reserved characters are not rewritten).
  *
  * [QueryParams.encode] is deliberately *not* used to reassemble the whole query: it re-renders
- * every parameter in canonical form, which would alter untouched segments. This editor favours
- * fidelity over funnelling everything through the model — see the note on [QueryParams].
+ * every parameter in canonical form (altering untouched segments) and would allocate a full
+ * multimap per page. This editor favours fidelity — and avoids that per-page allocation — over
+ * funnelling everything through the model; see the note on [QueryParams].
  *
  * ## URL.fragment / userInfo
  *
@@ -111,13 +111,28 @@ internal object RequestRebuilder {
     ): String = PercentEncoding.encodeComponent(name) + "=" + PercentEncoding.encodeComponent(value)
 
     /**
-     * Returns the value of the query parameter [name] from [url], or `null` if absent.
-     * The value is decoded with RFC 3986 semantics (see [QueryParams.parse]).
+     * Returns the value of the query parameter [name] from [url], or `null` if absent. The raw
+     * query is scanned directly (mirroring [setQueryParam]) and the matched name/value are
+     * decoded with RFC 3986 semantics via [PercentEncoding] — first match wins, and a value-less
+     * `?flag` reports `""`. No full [QueryParams] model is built per page.
      */
     fun getQueryParam(
         url: URL,
         name: String,
-    ): String? = QueryParams.parse(url.query).get(name)
+    ): String? {
+        val existing = url.query
+        if (existing.isNullOrEmpty()) return null
+        for (segment in existing.split('&')) {
+            if (segment.isEmpty()) continue
+            val eq = segment.indexOf('=')
+            val key = if (eq < 0) segment else segment.substring(0, eq)
+            if (PercentEncoding.decodeComponent(key) == name) {
+                val rawValue = if (eq < 0) "" else segment.substring(eq + 1)
+                return PercentEncoding.decodeComponent(rawValue)
+            }
+        }
+        return null
+    }
 
     private fun rebuildUrl(
         source: URL,

@@ -150,6 +150,21 @@ class OperationParamsTest {
     }
 
     @Test
+    fun `toRequest preserves a significant trailing slash when the path is empty`() {
+        // An empty path template targets the base resource itself; the base's trailing slash is
+        // semantic (some routers distinguish /v1/ from /v1) and must not be silently stripped.
+        val request = TestOp(Method.GET, "").toRequest("https://api.example.com/v1/")
+        assertEquals("https://api.example.com/v1/", request.url.toExternalForm())
+    }
+
+    @Test
+    fun `toRequest does not double the separator when the base query ends with an ampersand`() {
+        val query = QueryParams.builder().add("b", "2").build()
+        val request = TestOp(Method.GET, "/pets", query = query).toRequest("https://api.example.com/v1?a=1&")
+        assertEquals("https://api.example.com/v1/pets?a=1&b=2", request.url.toExternalForm())
+    }
+
+    @Test
     fun `toRequest rejects a base URL carrying a fragment`() {
         assertFailsWith<IllegalArgumentException> {
             TestOp(Method.GET, "/pets").toRequest("https://api.example.com/v1#frag")

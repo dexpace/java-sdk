@@ -21,19 +21,32 @@ import java.net.URLEncoder
  *
  * - **encode**: `URLEncoder` emits `+` for a space, so the `+`s it produces are exactly the
  *   spaces — rewrite them to `%20`. Any literal `+` in the input is already `%2B` by then.
+ *   `URLEncoder`'s notion of "safe" also diverges from RFC 3986 in two characters, both
+ *   corrected here so the output matches the RFC 3986 unreserved set exactly: it leaves `*`
+ *   (a sub-delimiter, *reserved*) unencoded — rewritten to `%2A` — and over-encodes `~`
+ *   (unreserved) to `%7E` — rewritten back to `~`.
  * - **decode**: `URLDecoder` would turn `+` into a space, so escape literal `+` to `%2B`
- *   before decoding, leaving real spaces (`%20`) to decode normally.
+ *   before decoding, leaving real spaces (`%20`) to decode normally. (`%2A` decodes back to
+ *   `*` and a bare `~` is left untouched, so the encode corrections round-trip cleanly.)
  *
- * The encoder percent-encodes everything except RFC 3986 unreserved characters, which makes it
- * safe for both query components and path segments: a `/` becomes `%2F`, so a path-parameter
- * value cannot inject extra path segments. A query string assembled as a form *body* would need
- * the form scheme instead; that is a separate concern (a future form-body type).
+ * The encoder percent-encodes everything except the RFC 3986 unreserved set
+ * (`A–Z`, `a–z`, `0–9`, `-`, `.`, `_`, `~`), which makes it safe for both query components and
+ * path segments: a `/` becomes `%2F`, so a path-parameter value cannot inject extra path
+ * segments. A query string assembled as a form *body* would need the form scheme instead; that
+ * is a separate concern (a future form-body type).
  */
 internal object PercentEncoding {
     private const val UTF_8: String = "UTF-8"
 
-    /** Percent-encodes a single URL component (space → `%20`, literal `+` → `%2B`, `/` → `%2F`). */
-    internal fun encodeComponent(component: String): String = URLEncoder.encode(component, UTF_8).replace("+", "%20")
+    /**
+     * Percent-encodes a single URL component to the RFC 3986 unreserved set: space → `%20`,
+     * literal `+` → `%2B`, `/` → `%2F`, `*` → `%2A`; the unreserved `~` is left as `~`.
+     */
+    internal fun encodeComponent(component: String): String =
+        URLEncoder.encode(component, UTF_8)
+            .replace("+", "%20")
+            .replace("*", "%2A")
+            .replace("%7E", "~")
 
     /**
      * Decodes a single URL component. A literal `+` stays a `+` (RFC 3986, not a space).

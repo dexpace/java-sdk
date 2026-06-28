@@ -77,17 +77,29 @@ internal object OperationRequestAssembler {
         val prefix = if (queryStart < 0) baseUrl else baseUrl.substring(0, queryStart)
         val baseQuery = if (queryStart < 0) "" else baseUrl.substring(queryStart + 1)
 
-        val sb = StringBuilder(prefix.trimEnd('/'))
+        val sb = StringBuilder(prefix)
+        // Join the resolved path with exactly one '/'. A trailing '/' on the base is only
+        // significant when there is no path to join, so an empty path leaves the base untouched
+        // (e.g. `https://host/v1/` stays `…/v1/`) rather than being silently stripped.
         if (path.isNotEmpty()) {
-            if (!path.startsWith("/")) sb.append('/')
+            val baseEndsWithSlash = prefix.endsWith('/')
+            val pathStartsWithSlash = path.startsWith('/')
+            if (baseEndsWithSlash && pathStartsWithSlash) {
+                sb.setLength(sb.length - 1)
+            } else if (!baseEndsWithSlash && !pathStartsWithSlash) {
+                sb.append('/')
+            }
             sb.append(path)
         }
         // Base query first (it is ambient — auth tokens, API keys), operation query appended.
-        // Both sides are already percent-encoded wire form, so they concatenate verbatim.
+        // Both sides are already percent-encoded wire form, so they concatenate verbatim; a
+        // trailing '&' already on the base query is reused as the separator rather than doubled
+        // into an empty `&&` segment.
         val mergedQuery =
             when {
                 baseQuery.isEmpty() -> query
                 query.isEmpty() -> baseQuery
+                baseQuery.endsWith('&') -> baseQuery + query
                 else -> "$baseQuery&$query"
             }
         if (mergedQuery.isNotEmpty()) {

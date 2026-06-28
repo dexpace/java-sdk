@@ -96,4 +96,9 @@ class RequestRebuilderTest {
     fun `getQueryParam reads a literal plus as a plus`() {
         assertEquals("a+b", RequestRebuilder.getQueryParam(url("https://api.example.com/items?q=a+b"), "q"))
     }
+
+    @Test
+    fun `getQueryParam reports an empty string for a value-less flag`() {
+        assertEquals("", RequestRebuilder.getQueryParam(url("https://api.example.com/items?flag&page=2"), "flag"))
+    }
 }
