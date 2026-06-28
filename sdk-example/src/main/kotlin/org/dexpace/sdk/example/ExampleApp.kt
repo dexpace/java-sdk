@@ -12,8 +12,8 @@ import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
+import org.dexpace.sdk.core.auth.KeyCredential
 import org.dexpace.sdk.core.client.HttpClient
-import org.dexpace.sdk.core.http.auth.KeyCredential
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.pipeline.HttpPipeline

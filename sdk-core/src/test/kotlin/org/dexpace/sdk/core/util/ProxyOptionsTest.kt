@@ -7,10 +7,10 @@
 
 package org.dexpace.sdk.core.util
 
+import org.dexpace.sdk.core.auth.AuthenticateChallenge
+import org.dexpace.sdk.core.auth.AuthorizationHeader
+import org.dexpace.sdk.core.auth.ChallengeHandler
 import org.dexpace.sdk.core.config.ConfigurationBuilder
-import org.dexpace.sdk.core.http.auth.AuthenticateChallenge
-import org.dexpace.sdk.core.http.auth.AuthorizationHeader
-import org.dexpace.sdk.core.http.auth.ChallengeHandler
 import org.dexpace.sdk.core.http.request.Method
 import java.net.InetSocketAddress
 import java.net.URI

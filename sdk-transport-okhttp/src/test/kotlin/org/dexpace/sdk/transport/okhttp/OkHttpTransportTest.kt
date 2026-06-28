@@ -13,7 +13,7 @@ import mockwebserver3.junit5.StartStop
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okio.Buffer
-import org.dexpace.sdk.core.http.auth.BasicChallengeHandler
+import org.dexpace.sdk.core.auth.BasicChallengeHandler
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.FileRequestBody

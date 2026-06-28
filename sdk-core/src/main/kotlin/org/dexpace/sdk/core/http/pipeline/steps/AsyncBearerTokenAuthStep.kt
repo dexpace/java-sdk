@@ -7,8 +7,8 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
-import org.dexpace.sdk.core.http.auth.BearerToken
-import org.dexpace.sdk.core.http.auth.BearerTokenProvider
+import org.dexpace.sdk.core.auth.BearerToken
+import org.dexpace.sdk.core.auth.BearerTokenProvider
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response

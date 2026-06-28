@@ -7,8 +7,8 @@
 
 package org.dexpace.sdk.core.util
 
+import org.dexpace.sdk.core.auth.ChallengeHandler
 import org.dexpace.sdk.core.config.Configuration
-import org.dexpace.sdk.core.http.auth.ChallengeHandler
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.net.InetSocketAddress
 import java.net.URI

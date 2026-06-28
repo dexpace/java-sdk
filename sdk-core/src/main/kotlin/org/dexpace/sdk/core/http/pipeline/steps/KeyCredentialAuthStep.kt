@@ -7,7 +7,7 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
-import org.dexpace.sdk.core.http.auth.KeyCredential
+import org.dexpace.sdk.core.auth.KeyCredential
 import org.dexpace.sdk.core.http.request.Request
 
 /**

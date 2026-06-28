@@ -48,9 +48,10 @@ unpublished and not listed below: `sdk-shrink-test`, a test-only R8 shrink-survi
 
 Key `sdk-core` packages (`org.dexpace.sdk.core.*`): `client` (the `HttpClient`/`AsyncHttpClient` transport
 SPIs), `http.request` / `http.response` / `http.common` (immutable models), `http.context` (context promotion
-chain), `http.auth` (credentials, RFC 7235 challenges, Digest), `http.sse` (WHATWG Server-Sent Events),
+chain), `http.sse` (WHATWG Server-Sent Events),
 `http.paging` (`PagedIterable`), `http.pipeline` (+`.steps` — stage-based sync/async pipeline runtime),
-`pipeline` (+`.step`, `.step.retry` — recovery-aware Request/Response/Execution pipeline primitives),
+`auth` (credentials, RFC 7235 challenges, Digest), `pipeline` (+`.step`, `.step.retry` — recovery-aware
+Request/Response/Execution pipeline primitives),
 `pagination` (Paginator + 4 strategies), `serde` (incl. `Tristate`), `instrumentation` (+`.metrics`), `io`,
 `config`, `util`, `generics`. The full package map with highlights is in `README.md`.
 

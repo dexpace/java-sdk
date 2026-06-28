@@ -9,8 +9,8 @@ package org.dexpace.sdk.core.http.pipeline.steps;
 
 import java.util.List;
 import java.util.Map;
-import org.dexpace.sdk.core.http.auth.BearerToken;
-import org.dexpace.sdk.core.http.auth.BearerTokenProvider;
+import org.dexpace.sdk.core.auth.BearerToken;
+import org.dexpace.sdk.core.auth.BearerTokenProvider;
 
 /**
  * Test-only {@link BearerTokenProvider} that returns {@code null} from

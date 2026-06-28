@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap
  * To stop a missed close from leaking unboundedly, the backing map is **bounded** to
  * [MAX_TRACKED_CONTEXTS] entries: after each insert ([set] / [put]) the map is drained back
  * under the cap, mirroring the proven bound in
- * [DigestChallengeHandler][org.dexpace.sdk.core.http.auth.DigestChallengeHandler]'s nonce
+ * [DigestChallengeHandler][org.dexpace.sdk.core.auth.DigestChallengeHandler]'s nonce
  * counters. The bound is a backstop, not a substitute for closing — it caps memory but a
  * leaked entry still holds its graph alive until evicted, and eviction is by arbitrary victim
  * (see [drainToCap]), so a still-live call could lose its registry entry under heavy leak
@@ -124,7 +124,7 @@ public object ContextStore {
 
     /**
      * Drains the backing map back under [MAX_TRACKED_CONTEXTS] after an insert. Mirrors
-     * [DigestChallengeHandler][org.dexpace.sdk.core.http.auth.DigestChallengeHandler]'s
+     * [DigestChallengeHandler][org.dexpace.sdk.core.auth.DigestChallengeHandler]'s
      * post-insert drain loop: rather than a single check-then-evict-then-insert (a non-atomic
      * race that a burst of concurrent inserts can overshoot and then sit at the cap forever),
      * each insert drains until the map is back under the cap, so the map converges to the
