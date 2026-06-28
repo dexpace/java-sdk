@@ -11,34 +11,32 @@ import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.io.BufferedSource
 import java.io.Closeable
 import java.io.IOException
-import java.io.InputStream
 
 /**
  * Represents the body of an HTTP response.
  *
- * A `ResponseBody` provides access to the raw bytes of an HTTP response through [byteStream],
- * with convenience methods [bytes] and [string] for common consumption patterns. The body
- * **must be closed** after use to release the underlying connection — prefer Kotlin's `use {}`
- * or Java's try-with-resources.
+ * A `ResponseBody` exposes the raw bytes of an HTTP response through a single [source] accessor
+ * returning a [BufferedSource]. The body **must be closed** after use to release the underlying
+ * connection — prefer Kotlin's `use {}` or Java's try-with-resources, and close it explicitly even
+ * when the body is skipped without reading.
  *
- * This class uses only `java.io` APIs with no external dependencies, making it compatible
- * with JDK 8+ and safe to use from platform threads, virtual threads, Kotlin coroutines,
- * and reactive schedulers. The underlying [InputStream] performs blocking I/O; callers in
+ * This class depends only on the SDK's [BufferedSource] I/O seam with no external dependencies,
+ * making it compatible with JDK 8+ and safe to use from platform threads, virtual threads, Kotlin
+ * coroutines, and reactive schedulers. Reading from [source] performs blocking I/O; callers in
  * non-blocking contexts should dispatch to an appropriate scheduler (e.g., `Dispatchers.IO`,
  * `Schedulers.boundedElastic()`).
  *
  * ## Thread safety
  *
- * Instances are **not** thread-safe. The stream returned by [byteStream] should be read
- * from a single thread only. For concurrent access, wrap with
- * [LoggableResponseBody] which
- * buffers the content and provides thread-safe, repeatable reads.
+ * Instances are **not** thread-safe. The [BufferedSource] returned by [source] should be read
+ * from a single thread only. For concurrent or repeatable access, wrap with
+ * [LoggableResponseBody], which buffers the content and provides thread-safe, repeatable reads.
  *
  * ## Single-use contract
  *
- * The base `ResponseBody` can only be read once — [byteStream] returns the same stream on
- * every call, and once consumed, the bytes are gone. Use [bytes] or [string] for a
- * one-shot read, or wrap with `LoggableResponseBody` for repeatable access.
+ * The base `ResponseBody` can only be read once — [source] returns the same [BufferedSource] on
+ * every call, and once that source is consumed, the bytes are gone. Wrap with
+ * [LoggableResponseBody] for repeatable access.
  *
  * @see LoggableResponseBody for a buffered wrapper that
  *      supports repeatable reads and non-destructive logging.

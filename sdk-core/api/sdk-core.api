@@ -1435,6 +1435,7 @@ public class org/dexpace/sdk/core/http/response/exception/GoneException : org/de
 public abstract class org/dexpace/sdk/core/http/response/exception/HttpException : java/lang/RuntimeException, org/dexpace/sdk/core/http/response/exception/Retryable {
 	public static final field Companion Lorg/dexpace/sdk/core/http/response/exception/HttpException$Companion;
 	public static final field DEFAULT_SNAPSHOT_BYTES I
+	protected fun <init> (Lorg/dexpace/sdk/core/http/response/Response;Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Object;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/response/Status;Lorg/dexpace/sdk/core/http/common/Headers;Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/lang/String;Ljava/lang/Throwable;)V

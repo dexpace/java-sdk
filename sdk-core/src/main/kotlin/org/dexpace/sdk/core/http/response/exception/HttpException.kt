@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.response.exception
 
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.io.Buffer
@@ -75,6 +76,18 @@ public abstract class HttpException
         cause: Throwable? = null,
         public val value: Any? = null,
     ) : RuntimeException(message ?: defaultMessage(status), cause), Retryable {
+        /**
+         * Convenience constructor that unpacks [status], [headers], and [body] from a [response].
+         * The per-status subclasses expose a `(response, message?, cause?, value?)` surface and
+         * delegate here. `protected` so it is reachable only from subclasses.
+         */
+        protected constructor(
+            response: Response,
+            message: String?,
+            cause: Throwable?,
+            value: Any?,
+        ) : this(response.status, response.headers, response.body, message, cause, value)
+
         /**
          * Whether this exception represents a retryable condition. Derived from
          * [RetryUtils.isRetryable] over [status]'s code so it can never disagree with the
