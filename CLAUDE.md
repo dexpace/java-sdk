@@ -52,7 +52,7 @@ chain), `http.sse` (WHATWG Server-Sent Events),
 `http.pipeline` (+`.steps` — stage-based sync/async pipeline runtime),
 `auth` (credentials, RFC 7235 challenges, Digest), `pipeline` (+`.step`, `.step.retry` — recovery-aware
 Request/Response/Execution pipeline primitives),
-`pagination` (unified paging: `Page` — raw per-page `Response`, `Closeable` — /`PageInfo`,
+`pagination` (unified paging: `Page` (raw per-page `Response`, `Closeable`) / `PageInfo`,
 `Paginator`/`AsyncPaginator` with item- and page-level views, the auto-closing `CloseablePages`
 view returned by `byPage()`, `PagedIterable`, 3 strategies, internal `PageWalker` driver),
 `serde` (incl. `Tristate`),
