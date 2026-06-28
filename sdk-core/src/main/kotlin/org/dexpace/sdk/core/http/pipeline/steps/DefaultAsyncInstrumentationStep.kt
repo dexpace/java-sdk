@@ -109,7 +109,7 @@ public class DefaultAsyncInstrumentationStep
             // .handle do NOT get MDC by default. We capture the MDC snapshot INSIDE the
             // use{} block (after makeCurrentWithLoggingContext has pushed trace.id / span.id)
             // and restore it in each branch of the .handle callback.
-            var mdc: MdcSnapshot = MdcSnapshot.capture() // will be overwritten inside the scope
+            lateinit var mdc: MdcSnapshot
             val downstream: CompletableFuture<Response> =
                 span.makeCurrentWithLoggingContext().use {
                     // Capture after the scope has pushed trace.id / span.id so the snapshot carries them.
