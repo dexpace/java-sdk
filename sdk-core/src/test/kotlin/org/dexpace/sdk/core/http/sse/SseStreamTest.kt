@@ -18,7 +18,11 @@ import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
 import java.io.Closeable
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,6 +37,24 @@ class SseStreamTest {
     }
 
     private fun source(text: String): BufferedSource = Io.provider.source(text.toByteArray(Charsets.UTF_8))
+
+    /**
+     * A source that replays [text] and then throws on the next read, standing in for a transport
+     * whose connection drops mid-stream.
+     */
+    private fun failingSourceAfter(text: String): BufferedSource {
+        val backing = Io.provider.buffer().also { it.write(text.toByteArray(Charsets.UTF_8)) }
+        return object : BufferedSource by backing {
+            override fun exhausted(): Boolean = false
+
+            override fun readByte(): Byte {
+                if (backing.size == 0L) throw IOException("simulated connection drop")
+                return backing.readByte()
+            }
+
+            override fun peek(): BufferedSource = backing.peek()
+        }
+    }
 
     /** Records how many times close() ran, standing in for a Response/body. */
     private class CountingCloseable : Closeable {
@@ -128,31 +150,102 @@ class SseStreamTest {
     }
 
     @Test
-    fun `reader exception propagates and leaves the resource closeable`() {
+    fun `mid-stream reader failure propagates and releases the resource`() {
         val resource = CountingCloseable()
-        val goodPart = "data: good\n\n".toByteArray(Charsets.UTF_8)
-        val backing = Io.provider.buffer().also { it.write(goodPart) }
-        val failingSource =
-            object : BufferedSource by backing {
-                override fun exhausted(): Boolean = false
-
-                override fun readByte(): Byte {
-                    if (backing.size == 0L) throw IOException("simulated connection drop")
-                    return backing.readByte()
-                }
-
-                override fun peek(): BufferedSource = backing.peek()
-            }
-
-        val stream = SseStream.from(failingSource, resource)
+        val stream = SseStream.from(failingSourceAfter("data: good\n\n"), resource)
         val iter = stream.iterator()
 
         assertEquals(listOf("good"), iter.next().data)
-        // The mid-stream drop surfaces on the next pull.
+        // The mid-stream drop surfaces on the next pull...
         assertFailsWith<IOException> { iter.hasNext() }
-        // The stream stayed open after the failure, so the caller can still release it.
+        // ...and releases the response on the way out, so a consumer iterating without use{}
+        // never strands the connection.
+        assertEquals(1, resource.closeCount.get())
+        // close() remains a safe, idempotent no-op after the automatic release.
         stream.close()
         assertEquals(1, resource.closeCount.get())
+    }
+
+    @Test
+    fun `toList propagates a mid-stream failure but still releases the resource`() {
+        val resource = CountingCloseable()
+        val stream = SseStream.from(failingSourceAfter("data: good\n\n"), resource)
+
+        // A bare terminal operation (no use{}) still releases the response on a mid-stream drop.
+        assertFailsWith<IOException> { stream.toList() }
+        assertEquals(1, resource.closeCount.get())
+    }
+
+    @Test
+    fun `a resource close failure on clean end-of-stream does not discard already-read events`() {
+        val stream =
+            SseStream.from(source("data: a\n\ndata: b\n\n"), Closeable { throw IOException("release failed") })
+
+        // Every event was read successfully; a failure to release the connection on the terminal
+        // pull must not turn that into a thrown result and lose the collected events.
+        val events = stream.toList()
+
+        assertEquals(2, events.size)
+        assertEquals(listOf("a"), events[0].data)
+        assertEquals(listOf("b"), events[1].data)
+    }
+
+    @Test
+    fun `explicit close surfaces a resource close failure`() {
+        val stream = SseStream.from(source("data: a\n\n"), Closeable { throw IOException("release failed") })
+
+        // Unlike automatic end-of-stream cleanup, an explicit close() is the caller asking to
+        // release, so a release failure is propagated to them.
+        assertFailsWith<IOException> { stream.close() }
+    }
+
+    @Test
+    fun `close during a blocked read cancels the iteration via an IOException`() {
+        val readStarted = CountDownLatch(1)
+        val releaseLatch = CountDownLatch(1)
+        val released = AtomicBoolean(false)
+        val resource =
+            Closeable {
+                released.set(true)
+                releaseLatch.countDown()
+            }
+        // A source that blocks inside readByte() until the resource is closed, then fails the way a
+        // real transport does when its socket is closed out from under an in-flight read.
+        val blockingSource =
+            object : BufferedSource by Io.provider.buffer() {
+                override fun exhausted(): Boolean = false
+
+                // Empty peek => the reader's BOM probe finds no BOM and does not block here.
+                override fun peek(): BufferedSource = Io.provider.buffer()
+
+                override fun readByte(): Byte {
+                    readStarted.countDown()
+                    releaseLatch.await(2, TimeUnit.SECONDS)
+                    throw IOException("source closed during read")
+                }
+            }
+        val stream = SseStream.from(blockingSource, resource)
+        val iter = stream.iterator()
+        val failure = AtomicReference<Throwable?>()
+        val readerThread =
+            Thread {
+                try {
+                    iter.hasNext()
+                } catch (t: Throwable) {
+                    failure.set(t)
+                }
+            }
+        readerThread.start()
+
+        // Wait until the iterating thread is parked inside the blocking read, then cancel.
+        assertTrue(readStarted.await(2, TimeUnit.SECONDS))
+        stream.close()
+        readerThread.join(TimeUnit.SECONDS.toMillis(2))
+
+        // Cancelling an in-flight read surfaces as an IOException to the iterating thread (not a
+        // clean end), and the resource is released exactly once.
+        assertTrue(failure.get() is IOException, "expected IOException, got ${failure.get()}")
+        assertTrue(released.get())
     }
 
     @Test

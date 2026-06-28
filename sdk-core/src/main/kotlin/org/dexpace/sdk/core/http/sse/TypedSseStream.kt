@@ -36,8 +36,9 @@ package org.dexpace.sdk.core.http.sse
  * and closes the stream.
  *
  * **Errors.** A mapper that throws (decode failure, mapped error-envelope) propagates the
- * exception to the consumer's pull; the underlying [SseStream] stays open so the caller's
- * `use {}` / try-with-resources still closes the response on the way out.
+ * exception to the consumer's pull, but the underlying [SseStream] is released first, so even a
+ * consumer iterating without `use {}` does not strand the connection. A failure to release is
+ * attached to the mapper error as a suppressed throwable.
  *
  * **Threading**: not thread-safe for iteration — drive a single iterator from one thread.
  * [close] is safe from another thread (delegates to [SseStream.close]).
@@ -62,9 +63,25 @@ public class TypedSseStream<T>(
 
     /**
      * Closes the adapter and the underlying [SseStream] (and thereby the response). Idempotent.
+     * A failure to release is propagated, mirroring [SseStream.close].
      */
     override fun close() {
         events.close()
+    }
+
+    /**
+     * Releases the underlying [SseStream] on an iterator-driven terminal path (a
+     * [SseEventMapper.Result.Done] sentinel or a mapper failure), where a failure to release must
+     * not become the iteration's outcome. A close failure is attached to [primary] as a suppressed
+     * throwable when a mapper error is in flight, and otherwise dropped (the values were already
+     * delivered). Mirrors [SseStream]'s own end-of-stream cleanup.
+     */
+    private fun releaseQuietly(primary: Throwable?) {
+        try {
+            events.close()
+        } catch (closeError: Throwable) {
+            primary?.addSuppressed(closeError)
+        }
     }
 
     private inner class MappingIterator(
@@ -73,17 +90,32 @@ public class TypedSseStream<T>(
         override fun computeNext() {
             // Pull raw events until the mapper yields a value, signals Done, or the stream ends.
             // Skips don't surface to the caller; only taken elements are decoded (lazy decode).
+            // (A reader failure surfaces from raw and has already released the stream; see
+            // SseStream.) Only the mapper call needs its own release-on-failure here.
             while (raw.hasNext()) {
                 val event = raw.next()
-                when (val result = mapper.map(event.event, event.data.joinToString("\n"))) {
+                val result =
+                    try {
+                        mapper.map(event.event, event.data.joinToString("\n"))
+                    } catch (mapperError: Throwable) {
+                        // A mapper failure (decode error, mapped error-envelope) releases the
+                        // underlying stream before propagating, so a consumer iterating without
+                        // use{} never strands the connection; a release failure is suppressed.
+                        releaseQuietly(mapperError)
+                        throw mapperError
+                    }
+                when (result) {
                     is SseEventMapper.Result.Value -> {
                         setNext(result.model)
                         return
                     }
                     SseEventMapper.Result.Skip -> continue
                     SseEventMapper.Result.Done -> {
+                        // Clean end at the done-sentinel: the values before it were already
+                        // delivered, so a release failure here is dropped rather than discarding
+                        // them (an explicit close()/use{} still surfaces a release failure).
                         done()
-                        close()
+                        releaseQuietly(primary = null)
                         return
                     }
                 }

@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.io.OkioIoProvider
 import java.io.Closeable
+import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
@@ -151,7 +152,7 @@ class TypedSseStreamTest {
     }
 
     @Test
-    fun `mapper exceptions propagate and leave the stream closeable`() {
+    fun `mapper exceptions propagate and release the underlying resource`() {
         val resource = CountingCloseable()
         val raw = stream(event("boom"), resource)
         val typed =
@@ -160,9 +161,27 @@ class TypedSseStreamTest {
             }
 
         assertFailsWith<IllegalStateException> { typed.iterator().next() }
-        // The underlying stream stayed open; the caller can still release it.
+        // The mapper failure releases the underlying stream, so a consumer iterating without use{}
+        // never strands the connection.
+        assertEquals(1, resource.closeCount.get())
+        // close() remains a safe, idempotent no-op after the automatic release.
         typed.close()
         assertEquals(1, resource.closeCount.get())
+    }
+
+    @Test
+    fun `a resource close failure on the done sentinel does not discard already-mapped values`() {
+        val raw =
+            SseStream.from(
+                source(event(chunkJson("a")) + event("[DONE]")),
+                Closeable { throw IOException("release failed") },
+            )
+
+        // The values before the done-sentinel were delivered; a failure to release on the sentinel
+        // must not turn that into a thrown result and lose them.
+        val chunks = TypedSseStream(raw, chunkMapper(RecordingDeserializer())).toList()
+
+        assertEquals(listOf(Chunk("a")), chunks)
     }
 
     @Test

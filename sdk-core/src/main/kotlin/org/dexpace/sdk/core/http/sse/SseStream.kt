@@ -10,8 +10,6 @@ package org.dexpace.sdk.core.http.sse
 import org.dexpace.sdk.core.io.BufferedSource
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 /**
  * An [AutoCloseable] [Iterable] of [ServerSentEvent] whose lifecycle is bound to the
@@ -20,10 +18,10 @@ import kotlin.concurrent.withLock
  * `SseStream` closes the [resource] it was opened over — typically the
  * [org.dexpace.sdk.core.http.response.Response] (or its body) — whenever the stream is
  * [closed][close], whether that close is explicit, via a `use {}` / try-with-resources block,
- * or implicit when iteration runs to completion. This mirrors the close-on-partial-consume
- * invariant [org.dexpace.sdk.core.http.paging.PagedIterable] enforces: a consumer that pulls
- * only the first few events and walks away never strands the response body or its pooled
- * connection.
+ * implicit when iteration runs to completion, or implicit when the backing reader fails
+ * mid-stream. This mirrors the close-on-partial-consume invariant
+ * [org.dexpace.sdk.core.http.paging.PagedIterable] enforces: a consumer that pulls only the
+ * first few events and walks away never strands the response body or its pooled connection.
  *
  * Unlike the bare [Sequence] returned by [BufferedSource.readServerSentEvents], an `SseStream`
  * **owns** the response. The [ServerSentEventReader] it drives is single-pass and stateful, so
@@ -35,15 +33,24 @@ import kotlin.concurrent.withLock
  *   [IllegalStateException] — the is-closed guard.
  * - When the backing reader reports end-of-stream the iterator terminates cleanly **and**
  *   closes the stream, releasing the response without a separate [close] call.
+ * - When the backing reader **fails** mid-stream the error propagates to the caller, but the
+ *   response is released first, so even a consumer iterating without `use {}` does not strand
+ *   the connection. A failure to release is attached to the reader error as a suppressed
+ *   throwable.
  *
  * `close()` is idempotent and propagates to [resource] exactly once. The underlying response
- * `close()` is itself expected to be idempotent, so a redundant [close] here is harmless.
+ * `close()` is itself expected to be idempotent, so a redundant [close] here is harmless. A
+ * release failure during **automatic** cleanup (clean end-of-stream) is dropped — the events
+ * were already delivered, so it must not turn a successful read into a thrown result; a release
+ * failure during an **explicit** [close] is propagated to the caller.
  *
  * **Threading**: not thread-safe for iteration — drive a single iterator from one thread, as
  * with the backing reader. [close] is safe to call from another thread (e.g. to cancel a
- * long-lived stream); it takes a lock and flips an atomic guard, so a concurrent [close]
- * races cleanly with iteration and the iterating thread observes the closed state on its next
- * pull.
+ * long-lived stream); it flips an atomic guard, so a concurrent [close] races cleanly with
+ * iteration. A thread parked **between** pulls observes the closed state and ends cleanly on
+ * its next pull; a thread blocked **inside** an in-flight read when [close] tears the resource
+ * down typically sees that read fail, so the cancellation surfaces to the iterating thread as
+ * an [java.io.IOException] rather than a clean end. Either way the resource is released once.
  *
  * @property reader The WHATWG parser driving the byte stream. Owned by this stream.
  * @property resource The response (or body) whose lifecycle this stream governs; closed once
@@ -55,7 +62,6 @@ public class SseStream private constructor(
 ) : AutoCloseable, Iterable<ServerSentEvent> {
     private val closed = AtomicBoolean(false)
     private val iteratorTaken = AtomicBoolean(false)
-    private val closeLock = ReentrantLock()
 
     /**
      * Returns the single-pass iterator over the stream's events.
@@ -78,30 +84,58 @@ public class SseStream private constructor(
     /**
      * Closes the stream and the underlying [resource]. Idempotent: only the first call
      * propagates to [resource]; later calls are no-ops. Safe to call concurrently with
-     * iteration.
+     * iteration. A failure to release [resource] is propagated to the caller — an explicit
+     * close is the caller asking to release, so they own the failure.
      */
     override fun close() {
         if (closed.compareAndSet(false, true)) {
-            closeLock.withLock { resource.close() }
+            resource.close()
+        }
+    }
+
+    /**
+     * Releases [resource] exactly once on an iterator-driven terminal path (clean end-of-stream
+     * or a mid-stream reader failure), where the caller is not the one invoking [close] and a
+     * failure to release must not become the iteration's outcome. A close failure is attached to
+     * [primary] as a suppressed throwable when a reader error is in flight, and otherwise dropped
+     * (the events were already delivered). Mirrors the close-on-failure helper in
+     * [org.dexpace.sdk.core.pipeline.ResponsePipeline].
+     */
+    private fun releaseQuietly(primary: Throwable?) {
+        if (!closed.compareAndSet(false, true)) return
+        try {
+            resource.close()
+        } catch (closeError: Throwable) {
+            primary?.addSuppressed(closeError)
         }
     }
 
     private inner class SseIterator : AbstractIterator<ServerSentEvent>() {
         override fun computeNext() {
-            // An out-of-band close() (e.g. cancellation from another thread) ends iteration
-            // cleanly rather than reading from a resource that is being torn down.
+            // An out-of-band close() (e.g. cancellation from another thread, between pulls) ends
+            // iteration cleanly rather than reading from a resource that is being torn down.
             if (closed.get()) {
                 done()
                 return
             }
-            // Reader exceptions (mid-stream connection drops) propagate to the caller; the
-            // stream stays open so the caller can still close()/use{} the response on the way
-            // out. AbstractIterator transitions to FAILED, matching PagedIterable's contract.
-            val event = reader.next()
+            val event =
+                try {
+                    reader.next()
+                } catch (readerError: Throwable) {
+                    // A mid-stream reader failure (e.g. a dropped connection) releases the response
+                    // before propagating, so a consumer iterating without use{} never strands the
+                    // connection; any release failure is attached as suppressed. AbstractIterator
+                    // then transitions to FAILED. (A close() racing an in-flight read also lands
+                    // here, surfacing the cancellation as that read's IOException.)
+                    releaseQuietly(readerError)
+                    throw readerError
+                }
             if (event == null) {
-                // Clean end-of-stream: release the response without a separate close() call.
+                // Clean end-of-stream: release the response. The events were already delivered, so
+                // a release failure must not turn a successful read into a thrown result — it is
+                // dropped here (an explicit close()/use{} still surfaces a release failure).
                 done()
-                close()
+                releaseQuietly(primary = null)
                 return
             }
             setNext(event)
