@@ -10,7 +10,6 @@ package org.dexpace.sdk.core.http.sse
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -27,28 +26,12 @@ class ServerSentEventTest {
     }
 
     @Test
-    fun `exposed data list cannot be downcast to MutableList and mutated`() {
-        val event = ServerSentEvent(data = listOf("x", "y"))
-
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = event.data as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("z") }
-        assertFailsWith<UnsupportedOperationException> { asMutable[0] = "q" }
-        assertFailsWith<UnsupportedOperationException> { asMutable.removeAt(0) }
-        assertFailsWith<UnsupportedOperationException> { asMutable.clear() }
-        assertEquals(listOf("x", "y"), event.data)
-    }
-
-    @Test
     fun `copy also defensively copies its data argument`() {
         val original = ServerSentEvent(id = "1", data = listOf("a"))
         val replacement = mutableListOf("b", "c")
         val copied = original.copy(data = replacement)
         replacement.add("d")
         assertEquals(listOf("b", "c"), copied.data)
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = copied.data as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("e") }
     }
 
     @Test

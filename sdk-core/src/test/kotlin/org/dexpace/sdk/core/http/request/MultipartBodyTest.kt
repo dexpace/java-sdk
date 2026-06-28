@@ -320,13 +320,13 @@ class MultipartBodyTest {
     }
 
     @Test
-    fun `parts list is unmodifiable`() {
-        val body = MultipartBody.builder().boundary("B").addPart("a", "1", StringSerde).build()
+    fun `parts is a defensive copy`() {
+        val builder = MultipartBody.builder().boundary("B").addPart("a", "1", StringSerde)
+        val body = builder.build()
         assertEquals(1, body.parts.size)
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (body.parts as MutableList<MultipartBody.Part>).clear()
-        }
+        // Mutating the source after construction must not affect the built body.
+        builder.addPart("b", "2", StringSerde)
+        assertEquals(1, body.parts.size)
     }
 
     @Test

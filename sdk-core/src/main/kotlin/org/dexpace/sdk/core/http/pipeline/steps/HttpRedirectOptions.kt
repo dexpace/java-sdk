@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.http.pipeline.steps
 
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Method
-import java.util.Collections
 import java.util.EnumSet
 
 /**
@@ -57,9 +56,9 @@ public class HttpRedirectOptions
         public val shouldRedirect: HttpRedirectPredicate? = null,
     ) {
         /**
-         * Methods that follow a redirect. Stored as an unmodifiable defensive copy so neither a
-         * later mutation of the caller-supplied [EnumSet] nor a mutation through this accessor can
-         * change the configured policy after construction.
+         * Methods that follow a redirect. Stored as a defensive copy, exposed as a read-only [Set],
+         * so a later mutation of the caller-supplied [EnumSet] cannot change the configured policy
+         * after construction.
          */
-        public val allowedMethods: Set<Method> = Collections.unmodifiableSet(EnumSet.copyOf(allowedMethods))
+        public val allowedMethods: Set<Method> = EnumSet.copyOf(allowedMethods)
     }

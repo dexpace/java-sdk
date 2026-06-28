@@ -10,7 +10,6 @@ package org.dexpace.sdk.core.pipeline.step
 import org.dexpace.sdk.core.http.context.DispatchContext
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import java.util.Collections
 import java.util.EnumSet
 import java.util.UUID
 import java.util.function.Supplier
@@ -221,14 +220,15 @@ public class IdempotencyKeyStep private constructor(
         public fun default(): IdempotencyKeyStep = Builder().build()
 
         /**
-         * Returns an immutable snapshot of [methods]. Empty sets fall back to an empty
-         * unmodifiable view (avoids materialising a zero-size [EnumSet]).
+         * Returns a point-in-time snapshot of [methods] exposed through Kotlin's read-only
+         * [Set] type. Empty sets fall back to an empty set (avoids materialising a zero-size
+         * [EnumSet]).
          */
         private fun freezeMethods(methods: Set<Method>): Set<Method> =
             if (methods.isEmpty()) {
                 emptySet()
             } else {
-                Collections.unmodifiableSet(EnumSet.copyOf(methods))
+                EnumSet.copyOf(methods)
             }
     }
 }

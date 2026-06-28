@@ -108,16 +108,11 @@ class AuthDescriptorTest {
     }
 
     @Test
-    fun `requirements view is unmodifiable and defensively copied`() {
+    fun `requirements view is a defensive copy`() {
         val source = mutableListOf(AuthRequirement.of(AuthScheme.OAUTH2))
         val descriptor = AuthDescriptor.of(source)
         source.add(AuthRequirement.of(AuthScheme.API_KEY))
         assertEquals(listOf(AuthScheme.OAUTH2), descriptor.schemes)
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (descriptor.requirements as MutableList<AuthRequirement>)
-                .add(AuthRequirement.of(AuthScheme.BASIC))
-        }
     }
 
     @Test

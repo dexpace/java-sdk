@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.auth
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class AuthResolutionExceptionTest {
@@ -38,7 +37,7 @@ class AuthResolutionExceptionTest {
     }
 
     @Test
-    fun `exposed collections are unmodifiable defensive copies`() {
+    fun `exposed collections are defensive copies`() {
         val required = mutableListOf(AuthScheme.OAUTH2)
         val available = mutableSetOf(AuthScheme.BASIC)
         val ex = AuthResolutionException(required, available)
@@ -46,14 +45,6 @@ class AuthResolutionExceptionTest {
         available.add(AuthScheme.DIGEST)
         assertEquals(listOf(AuthScheme.OAUTH2), ex.requiredSchemes)
         assertEquals(setOf(AuthScheme.BASIC), ex.availableSchemes)
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (ex.requiredSchemes as MutableList<AuthScheme>).add(AuthScheme.DIGEST)
-        }
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (ex.availableSchemes as MutableSet<AuthScheme>).add(AuthScheme.DIGEST)
-        }
     }
 
     @Test

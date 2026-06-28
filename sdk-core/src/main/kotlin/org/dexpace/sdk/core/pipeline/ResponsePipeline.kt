@@ -11,7 +11,6 @@ import org.dexpace.sdk.core.http.context.DispatchContext
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.pipeline.step.ResponsePipelineStep
 import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
-import java.util.Collections
 
 /**
  * Recovery-aware response-processing pipeline. Folds an inbound [ResponseOutcome] through two
@@ -40,8 +39,9 @@ import java.util.Collections
  * and fed to the next recovery step — recovery exceptions never bypass downstream recovery.
  *
  * ## Thread-safety
- * Instances are immutable after construction (both step lists are wrapped in unmodifiable
- * views). Safe to share across threads provided the underlying steps are thread-safe.
+ * Instances are immutable after construction (both step lists are defensively copied and
+ * exposed as read-only Lists). Safe to share across threads provided the underlying steps are
+ * thread-safe.
  *
  * ## Exception semantics
  * [apply] does not throw. All exceptions raised by step execution are converted to
@@ -70,11 +70,11 @@ public class ResponsePipeline
         responseSteps: List<ResponsePipelineStep> = emptyList(),
         recoverySteps: List<ResponseRecoveryStep> = emptyList(),
     ) {
-        /** Unmodifiable defensive view of the response steps. */
-        public val responseSteps: List<ResponsePipelineStep> = Collections.unmodifiableList(responseSteps.toList())
+        /** Defensive copy of the response steps, exposed as a read-only List. */
+        public val responseSteps: List<ResponsePipelineStep> = responseSteps.toList()
 
-        /** Unmodifiable defensive view of the recovery steps. */
-        public val recoverySteps: List<ResponseRecoveryStep> = Collections.unmodifiableList(recoverySteps.toList())
+        /** Defensive copy of the recovery steps, exposed as a read-only List. */
+        public val recoverySteps: List<ResponseRecoveryStep> = recoverySteps.toList()
 
         /**
          * Threads [outcome] through the response-step chain (success path only) and then through

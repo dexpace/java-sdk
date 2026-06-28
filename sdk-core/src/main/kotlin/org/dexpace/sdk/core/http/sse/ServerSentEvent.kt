@@ -8,7 +8,6 @@
 package org.dexpace.sdk.core.http.sse
 
 import java.time.Duration
-import java.util.Collections
 
 /**
  * A single Server-Sent Event parsed from a stream, per the WHATWG SSE spec
@@ -33,10 +32,10 @@ import java.util.Collections
  *   SSE §9.2.6, an `id:` field whose value contains a U+0000 NULL byte is ignored entirely,
  *   so it never appears here and never updates the last event ID.
  * @property event Last `event:` field seen in this event block, or `null` if absent.
- * @property data All `data:` field values seen in this event block, in order. This is an
- *   unmodifiable defensive copy taken at construction: the caller's list (and any later
- *   mutation of it) cannot reach inside the event, and the exposed list cannot be downcast to
- *   [MutableList] and altered. It participates in value semantics like any other property.
+ * @property data All `data:` field values seen in this event block, in order. This is a
+ *   defensive copy taken at construction: the caller's list (and any later mutation of it)
+ *   cannot reach inside the event. It is exposed through Kotlin's read-only [List] type and
+ *   participates in value semantics like any other property.
  * @property comment Most recent comment line, or `null` if none was seen.
  * @property retry Reconnect interval advised by the server, or `null` if not advised.
  */
@@ -49,7 +48,7 @@ public class ServerSentEvent
         public val comment: String? = null,
         public val retry: Duration? = null,
     ) {
-        public val data: List<String> = Collections.unmodifiableList(ArrayList(data))
+        public val data: List<String> = ArrayList(data)
 
         /**
          * True if this event has no meaningful payload. Useful when filtering out
@@ -75,7 +74,7 @@ public class ServerSentEvent
 
         /**
          * Returns a copy of this event with the supplied fields replaced. Like the constructor,
-         * the [data] argument is defensively copied into a fresh unmodifiable list.
+         * the [data] argument is defensively copied into a fresh list.
          */
         @JvmOverloads
         public fun copy(

@@ -11,7 +11,6 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import java.io.IOException
-import java.util.Collections
 
 /**
  * Immutable HTTP pipeline runtime. Holds an ordered, stage-sorted [Array] of [HttpStep]s
@@ -30,8 +29,8 @@ public class HttpPipeline internal constructor(
     public val httpClient: HttpClient,
     internal val stepArray: Array<HttpStep>,
 ) {
-    /** Unmodifiable list view of the ordered steps. Backed by [stepArray]; for inspection only. */
-    public val steps: List<HttpStep> = Collections.unmodifiableList(stepArray.asList())
+    /** Read-only list view of the ordered steps. Backed by [stepArray]; for inspection only. */
+    public val steps: List<HttpStep> = stepArray.asList()
 
     /**
      * Runs [request] through the pipeline. Empty pipelines short-circuit directly to

@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.http.common
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -233,22 +232,24 @@ class QueryParamsTest {
     }
 
     @Test
-    fun `values list is unmodifiable`() {
-        val params = QueryParams.builder().add("a", "1").build()
-
-        @Suppress("UNCHECKED_CAST")
-        val asMutable = params.values("a") as MutableList<String>
-        assertFailsWith<UnsupportedOperationException> { asMutable.add("x") }
+    fun `values list is a defensive copy isolated from the source list`() {
+        val source = mutableListOf("1")
+        val params = QueryParams.builder().add("a", source).build()
+        // Mutating the list passed into the builder must not reach the built instance.
+        source.add("x")
+        assertEquals(listOf("1"), params.values("a"))
     }
 
     @Test
-    fun `entries snapshot is immutable and reflects all names`() {
-        val params = QueryParams.builder().add("a", "1").add("a", "2").add("b", "3").build()
+    fun `entries snapshot is a defensive copy and reflects all names`() {
+        val source = mutableListOf("1", "2")
+        val params = QueryParams.builder().add("a", source).add("b", "3").build()
         val entries = params.entries()
         assertEquals(2, entries.size)
-        assertFailsWith<UnsupportedOperationException> {
-            (entries as MutableSet<*>).clear()
-        }
+        // Mutating the source list afterwards must not change the exposed value list.
+        source.add("x")
+        val aValues = entries.first { it.key == "a" }.value
+        assertEquals(listOf("1", "2"), aValues)
     }
 
     @Test

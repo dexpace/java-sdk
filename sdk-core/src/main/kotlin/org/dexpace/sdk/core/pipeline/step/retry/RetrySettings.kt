@@ -11,7 +11,6 @@ import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.request.Method
 import java.time.Duration
-import java.util.Collections
 import java.util.concurrent.ScheduledExecutorService
 
 // Largest delay representable as Long nanoseconds (~292 years). A larger value overflows
@@ -227,8 +226,8 @@ public class RetrySettings
                     maxDelay = maxDelay,
                     maxAttempts = maxAttempts,
                     jitter = jitter,
-                    retryableStatuses = Collections.unmodifiableSet(LinkedHashSet(retryableStatuses)),
-                    retryableMethods = Collections.unmodifiableSet(LinkedHashSet(retryableMethods)),
+                    retryableStatuses = LinkedHashSet(retryableStatuses),
+                    retryableMethods = LinkedHashSet(retryableMethods),
                     scheduler = scheduler,
                     attemptHeaderName = attemptHeaderName,
                 )
@@ -290,15 +289,13 @@ public class RetrySettings
              */
             @JvmField
             public val DEFAULT_RETRYABLE_STATUSES: Set<Int> =
-                Collections.unmodifiableSet(
-                    linkedSetOf(
-                        SC_REQUEST_TIMEOUT,
-                        SC_TOO_MANY_REQUESTS,
-                        SC_INTERNAL_ERROR,
-                        SC_BAD_GATEWAY,
-                        SC_UNAVAILABLE,
-                        SC_GATEWAY_TIMEOUT,
-                    ),
+                linkedSetOf(
+                    SC_REQUEST_TIMEOUT,
+                    SC_TOO_MANY_REQUESTS,
+                    SC_INTERNAL_ERROR,
+                    SC_BAD_GATEWAY,
+                    SC_UNAVAILABLE,
+                    SC_GATEWAY_TIMEOUT,
                 )
 
             /**
@@ -308,9 +305,7 @@ public class RetrySettings
              */
             @JvmField
             public val DEFAULT_RETRYABLE_METHODS: Set<Method> =
-                Collections.unmodifiableSet(
-                    linkedSetOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE),
-                )
+                linkedSetOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE)
 
             // Spelled-out status constants to satisfy detekt's MagicNumber rule.
             private const val SC_REQUEST_TIMEOUT = 408

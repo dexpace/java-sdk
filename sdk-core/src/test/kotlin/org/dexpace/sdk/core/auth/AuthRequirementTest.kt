@@ -42,19 +42,6 @@ class AuthRequirementTest {
     }
 
     @Test
-    fun `exposed collections are unmodifiable`() {
-        val req = AuthRequirement.of(AuthScheme.OAUTH2, listOf("read"), mapOf("a" to "1"))
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (req.oauthScopes as MutableList<String>).add("write")
-        }
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (req.oauthParams as MutableMap<String, Any>)["b"] = "2"
-        }
-    }
-
-    @Test
     fun `builder requires a scheme`() {
         val ex = assertFailsWith<IllegalStateException> { AuthRequirement.Builder().build() }
         assertEquals("scheme is required", ex.message)

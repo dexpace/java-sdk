@@ -13,7 +13,6 @@ import org.dexpace.sdk.core.serde.Serde
 import java.io.IOException
 import java.nio.file.Path
 import java.security.SecureRandom
-import java.util.Collections
 
 /**
  * A `multipart/form-data` [RequestBody] (RFC 7578) made up of one or more [Part]s separated by a
@@ -55,8 +54,8 @@ public class MultipartBody private constructor(
     public val boundary: String,
     parts: List<Part>,
 ) : RequestBody() {
-    /** An unmodifiable view of the parts in send order. */
-    public val parts: List<Part> = Collections.unmodifiableList(ArrayList(parts))
+    /** A defensive copy of the parts in send order, exposed as a read-only List. */
+    public val parts: List<Part> = ArrayList(parts)
 
     private val contentType: MediaType =
         MediaType.of("multipart", "form-data", mapOf("boundary" to boundary))

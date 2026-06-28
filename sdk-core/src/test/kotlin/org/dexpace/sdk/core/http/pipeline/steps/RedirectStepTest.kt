@@ -866,19 +866,13 @@ class RedirectStepTest {
     // ----------------- Defensive copy of allowedMethods (I-4) -----------------
 
     @Test
-    fun `allowedMethods is an immutable defensive copy decoupled from the caller's EnumSet`() {
+    fun `allowedMethods is a defensive copy decoupled from the caller's EnumSet`() {
         val mutable = EnumSet.of(Method.GET, Method.HEAD)
         val options = HttpRedirectOptions(allowedMethods = mutable)
 
         // Mutating the caller's set after construction must not change the stored policy.
         mutable.add(Method.POST)
         assertFalse(options.allowedMethods.contains(Method.POST), "stored set must be decoupled from caller's set")
-
-        // The exposed set must itself reject mutation.
-        assertFailsWith<UnsupportedOperationException> {
-            @Suppress("UNCHECKED_CAST")
-            (options.allowedMethods as MutableSet<Method>).add(Method.POST)
-        }
     }
 
     // ----------------- Integration: full pipeline -----------------

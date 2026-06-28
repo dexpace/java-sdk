@@ -7,8 +7,6 @@
 
 package org.dexpace.sdk.core.http.common
 
-import java.util.Collections
-
 // Public API surface — not every accessor/mutator on this class is referenced within this module; SDK consumers may use any.
 
 /**
@@ -66,9 +64,10 @@ public class QueryParams private constructor(
 
     /**
      * Returns all values for the given parameter name in insertion order, or an empty list
-     * if the name is absent. The returned list is unmodifiable.
+     * if the name is absent. The returned list is a point-in-time snapshot exposed through
+     * Kotlin's read-only [List] type.
      */
-    public fun values(name: String): List<String> = paramsMap[name]?.let(Collections::unmodifiableList) ?: emptyList()
+    public fun values(name: String): List<String> = paramsMap[name] ?: emptyList()
 
     /**
      * Returns `true` if any value is present for the given parameter name.
@@ -76,24 +75,24 @@ public class QueryParams private constructor(
     public fun contains(name: String): Boolean = paramsMap.containsKey(name)
 
     /**
-     * Returns an unmodifiable snapshot of all parameter names at the time of the call, in
-     * insertion order.
+     * Returns a defensive snapshot of all parameter names at the time of the call, in
+     * insertion order, exposed through Kotlin's read-only [Set] type.
      */
-    public fun names(): Set<String> = Collections.unmodifiableSet(LinkedHashSet(paramsMap.keys))
+    public fun names(): Set<String> = LinkedHashSet(paramsMap.keys)
 
     /**
-     * Returns an unmodifiable snapshot of all parameter entries at the time of the call.
+     * Returns a defensive snapshot of all parameter entries at the time of the call.
      *
-     * Each entry's value list is itself unmodifiable, so callers cannot mutate this
-     * [QueryParams] instance through the returned set, its entries
-     * ([Map.Entry.setValue]), or the per-name value lists.
+     * The snapshot is isolated from this [QueryParams] instance: mutating the builder it
+     * came from cannot reach these entries. Each entry's value list and the entry set are
+     * exposed through Kotlin's read-only [List] / [Set] types.
      */
     public fun entries(): Set<Map.Entry<String, List<String>>> {
         val snapshot = LinkedHashMap<String, List<String>>(paramsMap.size)
         paramsMap.forEach { (key, value) ->
-            snapshot[key] = Collections.unmodifiableList(value)
+            snapshot[key] = value
         }
-        return Collections.unmodifiableMap(snapshot).entries
+        return snapshot.entries
     }
 
     /**
@@ -229,7 +228,7 @@ public class QueryParams private constructor(
         /** Builds an immutable [QueryParams] from the builder's current state. */
         public fun build(): QueryParams {
             // Deep, defensive copy so later builder mutations cannot reach into the built
-            // instance and accessor-returned lists cannot be mutated via a cast.
+            // instance; the per-name value lists are isolated copies.
             //
             // A name whose value list is empty (e.g. `add(name, emptyList())`) contributes
             // nothing to encode(), so it is dropped here: keeping it would leave a phantom
@@ -239,7 +238,7 @@ public class QueryParams private constructor(
             val snapshot = LinkedHashMap<String, List<String>>(paramsMap.size)
             paramsMap.forEach { (key, values) ->
                 if (values.isNotEmpty()) {
-                    snapshot[key] = Collections.unmodifiableList(ArrayList(values))
+                    snapshot[key] = ArrayList(values)
                 }
             }
             return QueryParams(snapshot)

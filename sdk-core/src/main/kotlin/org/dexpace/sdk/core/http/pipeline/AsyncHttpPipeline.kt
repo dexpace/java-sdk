@@ -11,7 +11,6 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
-import java.util.Collections
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -32,8 +31,8 @@ public class AsyncHttpPipeline internal constructor(
     public val httpClient: AsyncHttpClient,
     internal val stepArray: Array<AsyncHttpStep>,
 ) {
-    /** Unmodifiable list view of the ordered steps. Backed by [stepArray]; for inspection only. */
-    public val steps: List<AsyncHttpStep> = Collections.unmodifiableList(stepArray.asList())
+    /** Read-only list view of the ordered steps. Backed by [stepArray]; for inspection only. */
+    public val steps: List<AsyncHttpStep> = stepArray.asList()
 
     /**
      * Runs [request] through the pipeline. Empty pipelines short-circuit directly to
