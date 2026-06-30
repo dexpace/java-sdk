@@ -45,21 +45,20 @@ public class PageNumberPaginationStrategy<T>
         override fun parse(
             response: Response,
             initialRequest: Request,
-        ): Page<T> {
+        ): PageInfo<T> {
             val items: List<T> = itemsExtractor(response)
             // Empty page → end of stream. Defensive against servers that "succeed" with an
             // empty list rather than 404 / a sentinel field once you've paged off the end.
             if (items.isEmpty()) {
-                return SimplePage(items = items, hasNext = false, nextRequest = null)
+                return PageInfo(items = items, nextRequest = null)
             }
-
             val executedUrl = response.request.url
             val executedPageParam: String? = RequestRebuilder.getQueryParam(executedUrl, pageParam)
             val executedPage: Int = parsePageOrDefault(executedPageParam, startPage)
             val nextPage: Int = executedPage + 1
             val nextRequest: Request =
                 RequestRebuilder.withQueryParam(initialRequest, pageParam, nextPage.toString())
-            return SimplePage(items = items, hasNext = true, nextRequest = nextRequest)
+            return PageInfo(items = items, nextRequest = nextRequest)
         }
 
         private fun parsePageOrDefault(

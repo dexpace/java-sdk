@@ -52,26 +52,21 @@ public class LinkHeaderPaginationStrategy<T>
         override fun parse(
             response: Response,
             initialRequest: Request,
-        ): Page<T> {
+        ): PageInfo<T> {
             val items: List<T> = itemsExtractor(response)
-            // Some servers emit multiple Link headers (one per link-value) instead of a single
-            // comma-separated header. Join with ',' so a single parser handles both shapes; an
-            // empty values list joins to "", and extractNextUrl("") already returns null.
+            // Some servers emit multiple `Link` headers (one per link-value) instead of a single
+            // comma-separated header. Joining the values with ',' normalizes both wire shapes into
+            // one string so a single parser handles either. An empty header list joins to "", which
+            // extractNextUrl already maps to null (no `rel="next"`).
             val nextUrlString: String? =
                 extractNextUrl(response.headers.values(linkHeader).joinToString(separator = ","))
-            // Resolve the (possibly relative) next-link target against the originating page's
-            // URL. A target that cannot be parsed into a valid URL ends the stream instead of
-            // aborting the whole iteration with a MalformedURLException.
+            // A `rel="next"` target that cannot be parsed into a valid URL ends the stream (null)
+            // rather than aborting iteration with a MalformedURLException from resolveNextUrl.
             val nextUrl: URL? =
                 if (nextUrlString.isNullOrEmpty()) null else resolveNextUrl(response, nextUrlString)
-            val hasNext: Boolean = nextUrl != null
             val nextRequest: Request? =
-                if (nextUrl != null) {
-                    RequestRebuilder.withUrl(initialRequest, nextUrl)
-                } else {
-                    null
-                }
-            return SimplePage(items = items, hasNext = hasNext, nextRequest = nextRequest)
+                if (nextUrl != null) RequestRebuilder.withUrl(initialRequest, nextUrl) else null
+            return PageInfo(items = items, nextRequest = nextRequest)
         }
 
         /**

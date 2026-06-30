@@ -10,37 +10,33 @@ package org.dexpace.sdk.core.pagination
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
-import java.util.Spliterator
-import java.util.Spliterators
 import java.util.stream.Stream
-import java.util.stream.StreamSupport
 
 /**
  * Generic, strategy-driven paginator over an [HttpClient].
  *
  * A `Paginator` executes [initialRequest] against [httpClient], delegates response parsing
- * to [strategy], and exposes the resulting stream of items via either [iterateAll] (a lazy
- * `Iterable<T>`) or [streamAll] (a Java 8 `Stream<T>`). Pagination state — cursor,
- * page number, link URL — is derived from each response by the strategy; the paginator
- * itself stays stateless.
+ * to [strategy], and exposes the result two ways: as a stream of items — [iterateAll] (a lazy
+ * `Iterable<T>`) / [streamAll] (a Java 8 `Stream<T>`) — or as a stream of whole pages —
+ * [byPage] (an auto-closing [CloseablePages] view), where each [Page] holds the live transport
+ * [Response] plus its materialized items and per-page status/headers/request. Pagination state —
+ * cursor, page number, link URL — is derived from each response by the strategy; the
+ * paginator itself stays stateless.
  *
  * ## Laziness
  *
  * Iteration is page-lazy: a new page is fetched only when the consumer pulls past the
  * last item of the current page. Specifically, exactly one HTTP exchange happens per
  * page yielded. No prefetch, no batch fetch — empty pages count toward the fetch budget,
- * but advancing past an exhausted page with `hasNext = false` does not trigger a fetch.
+ * but advancing past a page whose strategy returned a null next request does not trigger a fetch.
  *
  * ## Termination
  *
  * The iterator terminates when either:
  *
- * - the current page's items are exhausted AND `page.hasNext == false`, or
- * - the current page's items are exhausted AND `page.nextPageRequest()` returned `null`, or
+ * - the current page's items are exhausted AND the strategy returned a `PageInfo` with a
+ *   `null` next request (end of stream), or
  * - [maxPages] pages have already been fetched (the safety cap).
- *
- * The first two conditions are semantically distinct but produce the same outcome: end of
- * stream.
  *
  * ## Safety cap
  *
@@ -48,16 +44,19 @@ import java.util.stream.StreamSupport
  * semantics). A misbehaving server that returns the same `rel="next"` link — or any other
  * unchanging paging cursor — on every page would otherwise drive an unbounded fetch loop.
  * **Production callers should set a finite cap.** Once [maxPages] pages have been yielded the
- * iterator stops fetching, even if the last page still reports `hasNext`. The cap counts
- * pages fetched (HTTP exchanges), not items.
+ * iterator stops fetching, even if the strategy still reports a non-null next request. The cap
+ * counts pages fetched (HTTP exchanges), not items.
  *
  * ## Response lifecycle
  *
- * Each [Response] returned by the transport is closed by the paginator after the strategy
- * has parsed it. Strategies MUST read everything they need from the response synchronously
- * inside `parse(...)`; they MUST NOT retain references to the response or its body past
- * the call. The items in the returned [Page] are owned by the strategy (typically already
- * deserialized into application objects) and outlive the response.
+ * Each [Page] retains the live [Response] so callers can inspect raw per-page status/headers
+ * via [byPage]. Strategies MUST still read the body synchronously inside `parse(...)` (the body
+ * is single-use, so they typically drain it to materialize the page's items) and MUST NOT retain
+ * the response or its body past the call. The SDK closes each page's response for you: the item
+ * views ([iterateAll]/[streamAll]) eager-close each page after copying its items, and [byPage]
+ * returns an auto-closing [CloseablePages] view. The materialized items outlive the response. A
+ * response is closed immediately if `parse(...)` throws, so a failing strategy never strands a
+ * connection.
  *
  * ## Thread-safety
  *
@@ -95,121 +94,37 @@ public class Paginator<T>
             require(maxPages > 0L) { "maxPages must be positive, was $maxPages" }
         }
 
-        /**
-         * Returns an [Iterable] that lazily walks every item across every page.
-         *
-         * Each call returns a **fresh** iterable — re-iterating restarts pagination from
-         * [initialRequest]. The iterable is single-pass per iterator (calling `iterator()`
-         * twice yields two independent iterators that each re-execute requests).
-         *
-         * @return Lazy iterable over all items.
-         */
-        public fun iterateAll(): Iterable<T> =
-            Iterable {
-                PaginatorIterator(httpClient, initialRequest, strategy, maxPages)
-            }
+        /** Lazy iterable over all items across all pages. Each call restarts pagination. */
+        public fun iterateAll(): Iterable<T> = Iterable { walker().items() }
+
+        /** Sequential, ordered, unknown-size [Stream] over all items. */
+        public fun streamAll(): Stream<T> = walker().itemStream()
 
         /**
-         * Returns a sequential, ordered, unknown-size Java 8 [Stream] of every item across
-         * every page. Backed by the same iterator as [iterateAll], so the same laziness and
-         * lifecycle semantics apply.
-         *
-         * @return Lazy stream over all items.
+         * Auto-closing page-level view exposing each page's live [Response] (raw status/headers).
+         * Each call restarts pagination and returns a fresh single-use view; wrap it in `use { }` /
+         * try-with-resources so an early break releases the held page (see [CloseablePages]).
          */
-        public fun streamAll(): Stream<T> {
-            val spliterator =
-                Spliterators.spliteratorUnknownSize(
-                    iterateAll().iterator(),
-                    Spliterator.ORDERED,
-                )
-            return StreamSupport.stream(spliterator, false)
-        }
+        public fun byPage(): CloseablePages<T> = CloseablePages(walker().pages())
 
-        /**
-         * Single-thread iterator over all items across all pages.
-         *
-         * Holds the in-progress page and item index; on `hasNext()`, advances to the next
-         * page (executing exactly one HTTP request) when the current page is exhausted and
-         * the page reports `hasNext` and produces a non-null next request. Stops fetching
-         * once [maxPages] pages have been pulled.
-         */
-        private class PaginatorIterator<T>(
-            private val httpClient: HttpClient,
-            private val initialRequest: Request,
-            private val strategy: PaginationStrategy<T>,
-            private val maxPages: Long,
-        ) : Iterator<T> {
-            // null = no page fetched yet; the first hasNext() call triggers the initial fetch.
-            private var currentPage: Page<T>? = null
-
-            // Index into currentPage.items for the next item to emit.
-            private var currentItemIndex: Int = 0
-
-            // The next request to fetch: seeded with initialRequest, then replaced after each page
-            // with that page's nextPageRequest(), or null once a page reports no successor (which
-            // ends the stream on the following advance()).
-            private var nextRequest: Request? = initialRequest
-
-            // true after iteration is definitively over; prevents further fetches.
-            private var done: Boolean = false
-
-            // Number of pages (HTTP exchanges) fetched so far. Iteration stops once this reaches
-            // maxPages, guarding against servers that never advance their paging cursor.
-            private var pagesFetched: Long = 0L
-
-            override fun hasNext(): Boolean {
-                while (true) {
-                    val page = currentPage
-                    if (page != null && currentItemIndex < page.items.size) {
-                        return true
-                    }
-                    if (done) {
-                        return false
-                    }
-                    if (!advance()) {
-                        return false
-                    }
-                }
-            }
-
-            override fun next(): T {
-                if (!hasNext()) {
-                    throw NoSuchElementException("Paginator iterator exhausted.")
-                }
-                val page = currentPage!!
-                val item = page.items[currentItemIndex]
-                currentItemIndex++
-                return item
-            }
-
-            /**
-             * Fetches the next page. Returns `true` if a new page was loaded into
-             * [currentPage]; `false` if iteration is now done.
-             */
-            private fun advance(): Boolean {
-                val request = nextRequest
-                if (request == null || pagesFetched >= maxPages) {
-                    // Either no next request is scheduled (the previous page had no successor) or
-                    // the safety cap is reached — stop before fetching a page we would otherwise
-                    // yield, even if the previous page still reports hasNext.
-                    done = true
-                    currentPage = null
-                    return false
-                }
-                val response: Response = httpClient.execute(request)
-                pagesFetched++
-                val page: Page<T> =
-                    try {
-                        strategy.parse(response, initialRequest)
-                    } finally {
-                        response.close()
-                    }
-                currentPage = page
-                currentItemIndex = 0
-                // Compute the next request now so we don't have to retain the (closed) response.
-                // If this page has no next, nextRequest goes null; the next advance() ends the stream.
-                nextRequest = if (page.hasNext) page.nextPageRequest() else null
-                return true
-            }
+        private fun walker(): PageWalker<T> {
+            var nextRequest: Request? = initialRequest
+            return PageWalker(
+                source = {
+                    val request = nextRequest ?: return@PageWalker null
+                    nextRequest = null
+                    val response: Response = httpClient.execute(request)
+                    val info: PageInfo<T> =
+                        try {
+                            strategy.parse(response, initialRequest)
+                        } catch (t: Throwable) {
+                            response.close() // parse failed → this page never becomes a Page; release it now
+                            throw t
+                        }
+                    nextRequest = info.nextRequest
+                    Page(response, info.items)
+                },
+                maxPages = maxPages,
+            )
         }
     }

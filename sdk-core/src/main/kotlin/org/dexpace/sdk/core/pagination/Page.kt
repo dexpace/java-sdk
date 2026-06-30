@@ -7,48 +7,82 @@
 
 package org.dexpace.sdk.core.pagination
 
+import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.Response
+import java.io.Closeable
+import java.io.IOException
 
 /**
- * A single page of items produced by a [PaginationStrategy].
+ * A single page of results that holds the live transport [Response].
  *
- * `Page` is the unit of work shared between a [Paginator] and its strategy. The paginator
- * receives a `Page<T>` per HTTP exchange, yields its [items], and consults [hasNext] +
- * [nextPageRequest] to decide whether (and how) to fetch the following page.
+ * `Page` carries two kinds of state with different lifetimes:
  *
- * ## Thread-safety
+ * - **Materialized/derived state that survives [close].** [items] are already drained from the
+ *   response body into a `List<T>`, and [statusCode], [headers] and [request] are derived from
+ *   the [Response] object (which outlives [close] — closing only releases the body/connection).
+ *   All of these remain readable after [close].
+ * - **The raw [response] body/connection, valid only until [close].** Reading [response] (its
+ *   body stream, in particular) is only safe while the page is "current"; once the page is
+ *   closed the body/connection is released.
  *
- * Implementations must be immutable and safe to share across threads. Strategies typically
- * implement this interface with simple data-class-style holders.
+ * Paging metadata covers HATEOAS links ([nextLink], [previousLink], [firstLink], [lastLink])
+ * and an opaque [continuationToken]; strategy-produced pages leave the link/token fields `null`
+ * (the strategy folds that state into the next request).
  *
- * ## Empty-page handling
+ * ## Ownership and closing
  *
- * A `Page` MAY have `items.isEmpty()` and `hasNext = true` — the strategy decides whether
- * an empty payload signals "more pages may follow" or "end of stream". The paginator does
- * **not** terminate on an empty page; it terminates when either [hasNext] is `false` or
- * [nextPageRequest] returns `null`.
+ * Whoever pulls a `Page` owns closing it. The SDK handles this for you on both common paths:
+ *
+ * - **Item-level** iteration ([PagedIterable.iterator], [Paginator.iterateAll], the `stream`
+ *   variants) closes each page automatically — it copies the materialized [items], closes the
+ *   page, then yields the items, so item consumers carry no close burden and a partial consume
+ *   never strands a connection.
+ * - **Page-level** iteration ([PagedIterable.byPage] / [Paginator.byPage]) returns an
+ *   auto-closing [CloseablePages] view; wrap it in `use { }` / try-with-resources so an early
+ *   break still releases the held page.
+ *
+ * A `Page` handed to you directly (e.g. by a [FirstPageFetcher]) is owned by the SDK once built;
+ * fetchers must NOT close the [Response] themselves.
  *
  * @param T Element type carried in [items].
+ * @property response Live transport response backing this page; its body/connection is valid
+ *   only until [close].
+ * @property items Items on the page, fully materialized; survive [close]. Never `null`; may be empty.
+ * @property continuationToken Opaque cursor for the next page, or `null`.
+ * @property nextLink HATEOAS `rel="next"` link, or `null`.
+ * @property previousLink HATEOAS `rel="prev"` link, or `null`.
+ * @property firstLink HATEOAS `rel="first"` link, or `null`.
+ * @property lastLink HATEOAS `rel="last"` link, or `null`.
  */
-public interface Page<T> {
-    /**
-     * Items on this page, in server-defined order. Never `null`; may be empty.
-     */
-    public val items: List<T>
+public class Page<T>
+    @JvmOverloads
+    constructor(
+        public val response: Response,
+        public val items: List<T>,
+        public val continuationToken: String? = null,
+        public val nextLink: String? = null,
+        public val previousLink: String? = null,
+        public val firstLink: String? = null,
+        public val lastLink: String? = null,
+    ) : Closeable {
+        /** HTTP status code, derived from [response]; survives [close]. */
+        public val statusCode: Int get() = response.status.code
 
-    /**
-     * Indicates whether the paginator should attempt to fetch another page. Strategies
-     * compute this from the response (e.g. presence of a next cursor, a `rel="next"` link,
-     * a non-empty page).
-     */
-    public val hasNext: Boolean
+        /** Response headers, derived from [response]; survive [close]. */
+        public val headers: Headers get() = response.headers
 
-    /**
-     * Returns the [Request] the paginator should execute to fetch the page following this
-     * one, or `null` if there is no next page. Implementations build the next request from
-     * the initial-request template plus paging state (cursor, page number, link URL, …).
-     *
-     * @return The next page's request, or `null` if there is none.
-     */
-    public fun nextPageRequest(): Request?
-}
+        /** Request that produced this page, derived from [response]; survives [close]. */
+        public val request: Request get() = response.request
+
+        /**
+         * Releases the underlying [response] body/connection. [items], [statusCode], [headers]
+         * and [request] remain readable afterwards; only the raw [response] body becomes invalid.
+         *
+         * @throws IOException If the response's close fails.
+         */
+        @Throws(IOException::class)
+        override fun close() {
+            response.close()
+        }
+    }

@@ -402,27 +402,33 @@ class AsyncPaginatorTest {
     }
 
     @Test
-    fun `a throwing nextPageRequest surfaces through the result future`() {
+    fun `a parse failure on a subsequent page surfaces through the result future`() {
         val client = StubAsyncHttpClient()
-        client.on("https://api.example.com/items") { req -> textResponse(req, "a,b") }
-        // A page that claims a next page exists but throws while building its request.
-        val strategy =
-            PaginationStrategy<String> { _, _ ->
-                object : Page<String> {
-                    override val items: List<String> = listOf("a", "b")
-                    override val hasNext: Boolean = true
-
-                    override fun nextPageRequest(): Request? = error("cannot build next page request")
-                }
+        client.on("https://api.example.com/items") { req ->
+            textResponse(
+                req,
+                "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/items?page=2") { req -> textResponse(req, "c") }
+        // A strategy that succeeds on page 1 but throws from parse() on page 2.
+        val delegate = strategy()
+        var callCount = 0
+        val erroring =
+            PaginationStrategy<String> { response, request ->
+                if (++callCount > 1) error("cannot parse subsequent page")
+                delegate.parse(response, request)
             }
-        val paginator = AsyncPaginator(client, initialRequest(), strategy)
+        val paginator = AsyncPaginator(client, initialRequest(), erroring)
 
         val ex =
             assertFailsWith<ExecutionException> {
                 paginator.collectAllAsync().get(5, TimeUnit.SECONDS)
             }
         assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
-        assertEquals("cannot build next page request", ex.cause?.message)
+        assertEquals("cannot parse subsequent page", ex.cause?.message)
     }
 
     @Test
@@ -559,6 +565,339 @@ class AsyncPaginatorTest {
             }
         assertTrue(ex.cause is RejectedExecutionException, "cause was ${ex.cause}")
     }
+
+    @Test
+    fun `forEachPageAsync delivers rich pages in order`() {
+        val client = threePageClient()
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val collectedPages = java.util.concurrent.CopyOnWriteArrayList<Page<String>>()
+        paginator.forEachPageAsync { page -> collectedPages.add(page) }.join()
+
+        assertEquals(3, collectedPages.size)
+        assertEquals(listOf("a", "b"), collectedPages[0].items)
+        assertEquals(listOf("c", "d"), collectedPages[1].items)
+        assertEquals(listOf("e"), collectedPages[2].items)
+        assertTrue(collectedPages.all { it.statusCode == 200 }, "all pages must carry HTTP 200")
+    }
+
+    @Test
+    fun `forEachPageAsync delivers live pages closed only after the consumer returns`() {
+        // Each page carries its own close counter so we can prove the page is LIVE during the
+        // callback (counter still 0) and closed exactly once right after the consumer returns.
+        val counters = listOf(AtomicInteger(0), AtomicInteger(0), AtomicInteger(0))
+        val client = StubAsyncHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            closeRecordingResponse(
+                req,
+                counters[0],
+                body = "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/items?page=2") { req ->
+            closeRecordingResponse(
+                req,
+                counters[1],
+                body = "c,d",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=3>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/items?page=3") { req ->
+            closeRecordingResponse(req, counters[2], body = "e")
+        }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val index = AtomicInteger(0)
+        val failure = AtomicReference<String?>(null)
+        paginator
+            .forEachPageAsync { page ->
+                val i = index.getAndIncrement()
+                // The page is live during the callback: its raw response, headers and items are
+                // all readable, and the response has NOT been closed yet (counter still 0).
+                if (page.statusCode != 200) {
+                    failure.compareAndSet(null, "page $i statusCode ${page.statusCode}")
+                }
+                if (page.response.status.code != 200) {
+                    failure.compareAndSet(null, "page $i response not readable")
+                }
+                if (i < 2 && page.headers.get("Link") == null) {
+                    failure.compareAndSet(null, "page $i Link header not readable")
+                }
+                if (page.items.isEmpty()) {
+                    failure.compareAndSet(null, "page $i items not readable")
+                }
+                if (counters[i].get() != 0) {
+                    failure.compareAndSet(null, "page $i closed during callback (counter=${counters[i].get()})")
+                }
+            }.get(5, TimeUnit.SECONDS)
+
+        assertEquals(null, failure.get(), "live-page invariant violated")
+        assertEquals(3, index.get(), "all three pages must be delivered")
+        counters.forEachIndexed { i, counter ->
+            assertEquals(1, counter.get(), "page $i response must be closed exactly once after the callback")
+        }
+    }
+
+    @Test
+    fun `a page fetched but dropped on external settle is closed and never leaks`() {
+        // Drive the walk one trampoline task at a time on a manual executor so the test can
+        // settle the result AFTER page 1 is staged but BEFORE it is drained. step() must then drop
+        // the staged page AND close its response — proving the cancel path releases the connection.
+        val page1Transport = CompletableFuture<Response>()
+        val page1Closes = AtomicInteger(0)
+        val secondPageCalls = AtomicInteger(0)
+        val client =
+            AsyncHttpClient { req ->
+                if (req.url.toString() == "https://api.example.com/items") {
+                    page1Transport
+                } else {
+                    secondPageCalls.incrementAndGet()
+                    CompletableFuture.completedFuture(textResponse(req, "c,d"))
+                }
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val executor = ManualExecutor()
+        val pagesDelivered = AtomicInteger(0)
+        val result = paginator.forEachPageAsync({ pagesDelivered.incrementAndGet() }, executor)
+
+        // Task 1: drive() fetches page 1 and suspends on the pending transport future.
+        assertTrue(executor.runNext(), "the initial drive task must be queued")
+        assertFalse(result.isDone, "walk must be suspended on the in-flight page")
+
+        // Completing the transport stages page 1 (live, retaining its response) and queues the
+        // next drive task — but does NOT drain it yet.
+        page1Transport.complete(
+            closeRecordingResponse(
+                initialRequest(),
+                page1Closes,
+                body = "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            ),
+        )
+        assertEquals(0, page1Closes.get(), "staged page must still be live before draining")
+
+        // Settle the result from the outside before the staged page is drained.
+        result.cancel(true)
+
+        // Task 2: drive() sees a staged page with result already done → drops AND closes it.
+        assertTrue(executor.runNext(), "the drain task must be queued")
+        executor.runAll()
+
+        assertTrue(result.isCancelled)
+        assertEquals(0, pagesDelivered.get(), "a dropped page must not reach the consumer")
+        assertEquals(1, page1Closes.get(), "dropped page's response must be closed exactly once (no leak)")
+        assertEquals(0, secondPageCalls.get(), "no further page is fetched after the result settles")
+    }
+
+    @Test
+    fun `forEachAsync closes each page after draining its items`() {
+        // Item path: drainPage copies items to the consumer and then closes the page in its
+        // finally, so every fetched page's response is released exactly once.
+        val counters = listOf(AtomicInteger(0), AtomicInteger(0))
+        val client = StubAsyncHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            closeRecordingResponse(
+                req,
+                counters[0],
+                body = "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/items?page=2") { req ->
+            closeRecordingResponse(req, counters[1], body = "c,d")
+        }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val seen = ArrayList<String>()
+        paginator.forEachAsync { seen.add(it) }.get(5, TimeUnit.SECONDS)
+
+        assertEquals(listOf("a", "b", "c", "d"), seen)
+        assertEquals(1, counters[0].get(), "page 1 must be closed after draining")
+        assertEquals(1, counters[1].get(), "page 2 must be closed after draining")
+    }
+
+    @Test
+    fun `a parse failure on a subsequent page closes that page's response and fails the walk`() {
+        val page1Closes = AtomicInteger(0)
+        val page2Closes = AtomicInteger(0)
+        val client = StubAsyncHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            closeRecordingResponse(
+                req,
+                page1Closes,
+                body = "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/items?page=2") { req ->
+            closeRecordingResponse(req, page2Closes, body = "c")
+        }
+        // Succeeds on page 1, throws from parse() on page 2.
+        val delegate = strategy()
+        var callCount = 0
+        val erroring =
+            PaginationStrategy<String> { response, request ->
+                if (++callCount > 1) error("cannot parse subsequent page")
+                delegate.parse(response, request)
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), erroring)
+
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.collectAllAsync().get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is IllegalStateException, "cause was ${ex.cause}")
+        assertEquals("cannot parse subsequent page", ex.cause?.message)
+        assertEquals(1, page1Closes.get(), "page 1 was drained → response closed once")
+        assertEquals(1, page2Closes.get(), "page 2 parse failed → response closed once on the parse path")
+    }
+
+    @Test
+    fun `a staged page's response is closed when the re-entry dispatch is rejected`() {
+        // The executor allows the initial drive dispatch but rejects the re-entry that the
+        // deferred-completion callback schedules after staging page 1. The walk must fail with the
+        // rejection AND release the staged page's live Response — otherwise that connection leaks
+        // because drive() never runs again to drain or drop the page.
+        val page1Transport = CompletableFuture<Response>()
+        val page1Closes = AtomicInteger(0)
+        val client =
+            AsyncHttpClient { req ->
+                if (req.url.toString() == "https://api.example.com/items") {
+                    page1Transport
+                } else {
+                    CompletableFuture.completedFuture(textResponse(req, "c,d"))
+                }
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        // allowed = 1: the initial dispatch runs inline; the re-entry dispatch is rejected.
+        val executor = RejectAfterNExecutor(allowed = 1)
+        val result = paginator.forEachAsync({ }, executor)
+
+        // The initial dispatch ran inline and suspended on the in-flight page; nothing failed yet.
+        assertFalse(result.isDone, "walk must be suspended on the in-flight page")
+
+        // Completing the transport stages page 1 (live, retaining its response) and triggers the
+        // re-entry dispatch, which the executor now rejects.
+        page1Transport.complete(
+            closeRecordingResponse(
+                initialRequest(),
+                page1Closes,
+                body = "a,b",
+                extraHeaders =
+                    mapOf("Link" to "<https://api.example.com/items?page=2>; rel=\"next\""),
+            ),
+        )
+
+        val ex =
+            assertFailsWith<ExecutionException> {
+                result.get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is RejectedExecutionException, "cause was ${ex.cause}")
+        assertEquals(
+            1,
+            page1Closes.get(),
+            "staged page's response must be closed on a rejected re-dispatch (no leak)",
+        )
+    }
+
+    @Test
+    fun `a throwing close on the drain path completes the result exceptionally instead of hanging`() {
+        // A single terminal page whose response close() throws. drainPage delivers the page's
+        // items (sink succeeds), then close() throws in the release step. The walk must surface
+        // that failure through the result future rather than let it escape the trampoline and
+        // leave the result unsettled (a caller's get() would otherwise hang).
+        val client = StubAsyncHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            closeThrowingResponse(req, "a,b")
+        }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val seen = ArrayList<String>()
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.forEachAsync { seen.add(it) }.get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(ex.cause is IOException, "cause was ${ex.cause}")
+        assertEquals(listOf("a", "b"), seen, "items are delivered before the close failure surfaces")
+    }
+}
+
+/**
+ * A single-thread, caller-driven [Executor]: tasks are queued and run only when the test pumps
+ * them via [runNext]/[runAll]. Lets a test interleave external settling of the result future with
+ * the paginator's trampoline tasks deterministically, without sleeps.
+ */
+private class ManualExecutor : Executor {
+    private val tasks = java.util.concurrent.ConcurrentLinkedQueue<Runnable>()
+
+    override fun execute(command: Runnable) {
+        tasks.add(command)
+    }
+
+    /** Runs the next queued task, if any. Returns `true` if a task ran. */
+    fun runNext(): Boolean {
+        val task = tasks.poll() ?: return false
+        task.run()
+        return true
+    }
+
+    /** Drains the queue, running tasks (including any they enqueue) until empty. */
+    fun runAll() {
+        while (runNext()) {
+            // keep draining
+        }
+    }
+}
+
+/**
+ * An [Executor] that runs the first [allowed] dispatches inline and rejects every dispatch after
+ * that with a [RejectedExecutionException]. Lets a test allow the paginator's initial drive entry
+ * but reject the re-entry the deferred-completion callback schedules — deterministically, no sleeps.
+ */
+private class RejectAfterNExecutor(
+    private val allowed: Int,
+) : Executor {
+    private val dispatches = AtomicInteger(0)
+
+    override fun execute(command: Runnable) {
+        if (dispatches.getAndIncrement() < allowed) {
+            command.run()
+        } else {
+            throw RejectedExecutionException("executor rejected dispatch")
+        }
+    }
+}
+
+/**
+ * A [textResponse] whose body `close()` always throws, letting tests exercise the paginator's
+ * defensive close handling on the drain path.
+ */
+private fun closeThrowingResponse(
+    request: Request,
+    body: String,
+): Response {
+    val delegate = textResponse(request, body)
+    val throwingBody =
+        object : ResponseBody() {
+            override fun mediaType(): MediaType? = delegate.body?.mediaType()
+
+            override fun contentLength(): Long = delegate.body?.contentLength() ?: -1L
+
+            override fun source(): BufferedSource = delegate.body!!.source()
+
+            override fun close() {
+                throw IOException("close exploded on drain")
+            }
+        }
+    return delegate.newBuilder().body(throwingBody).build()
 }
 
 /**

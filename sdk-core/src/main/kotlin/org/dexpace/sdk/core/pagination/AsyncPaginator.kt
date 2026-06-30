@@ -31,15 +31,14 @@ import java.util.function.Consumer
  *
  * Iteration is page-lazy in the same sense as [Paginator]: exactly one HTTP exchange happens
  * per page consumed. A new page is fetched only after the previous page has been drained to
- * the consumer and reports `hasNext` with a non-null next request. Empty pages still count
+ * the consumer and the strategy reports a non-null next request. Empty pages still count
  * toward the [maxPages] budget.
  *
  * ## Termination
  *
  * The walk completes when any of:
  *
- * - the current page reports `hasNext == false`, or
- * - the current page's `nextPageRequest()` returns `null`, or
+ * - the strategy returns a `null` next request (end of stream), or
  * - [maxPages] pages have been fetched (the safety cap), or
  * - the consumer throws, or a transport/parse failure occurs (the result future completes
  *   exceptionally).
@@ -52,11 +51,14 @@ import java.util.function.Consumer
  *
  * ## Response lifecycle
  *
- * Each [Response] is closed by the paginator after the strategy has parsed it — including on
- * the exceptional path, where the response is closed before the result future is completed
- * exceptionally. Strategies MUST read everything they need synchronously inside `parse(...)`
- * and MUST NOT retain the response or its body past the call. Items in the returned [Page]
- * outlive the response.
+ * Each [Page] holds the live transport [Response]. The paginator closes that response exactly
+ * once per page: after the page has been drained to the consumer (page- or item-level), or, if
+ * the page is dropped undrained because the walk was settled externally, when it is discarded.
+ * A page whose strategy `parse(...)` throws is never built — its response is closed inline on
+ * that exceptional path before the result future completes exceptionally. Strategies MUST read
+ * everything they need synchronously inside `parse(...)` and MUST NOT retain the response or its
+ * body past the call. A page's raw [Response]/body is valid only while that page is being
+ * delivered (see [forEachPageAsync]); [Page.items] and the derived metadata outlive close.
  *
  * ## Consumer threading
  *
@@ -146,7 +148,8 @@ public class AsyncPaginator<T>
          * @param consumer Invoked once per item. See the class-level "Consumer threading" KDoc.
          * @return A future that completes when the walk finishes.
          */
-        public fun forEachAsync(consumer: Consumer<in T>): CompletableFuture<Void> = startWalk(consumer, null)
+        public fun forEachAsync(consumer: Consumer<in T>): CompletableFuture<Void> =
+            startWalk({ page -> page.items.forEach(consumer::accept) }, null)
 
         /**
          * Like [forEachAsync], but runs the page-draining driver — and therefore every
@@ -165,7 +168,7 @@ public class AsyncPaginator<T>
         public fun forEachAsync(
             consumer: Consumer<in T>,
             executor: Executor,
-        ): CompletableFuture<Void> = startWalk(consumer, executor)
+        ): CompletableFuture<Void> = startWalk({ page -> page.items.forEach(consumer::accept) }, executor)
 
         /**
          * Collects every item across every page into a single list, in server-defined order.
@@ -188,18 +191,45 @@ public class AsyncPaginator<T>
          */
         public fun collectAllAsync(executor: Executor): CompletableFuture<List<T>> = collectInto(executor)
 
+        /**
+         * Walks every page, invoking [consumer] for each [Page] in server-defined order. The page
+         * passed to [consumer] is **live**: its raw [Page.response]/body is open and readable for
+         * the duration of the callback. The driver closes that response immediately after `accept`
+         * returns, so the consumer MUST NOT retain the page or read its raw body afterwards;
+         * [Page.items] and the derived metadata (status code, headers, request) survive close.
+         *
+         * Cancellation, executor, and ordering semantics are identical to [forEachAsync].
+         *
+         * @param consumer Invoked once per page, with the page live for the callback's duration.
+         * @return A future that completes when the walk finishes.
+         */
+        public fun forEachPageAsync(consumer: Consumer<in Page<T>>): CompletableFuture<Void> =
+            startWalk({ page -> consumer.accept(page) }, null)
+
+        /**
+         * Like [forEachPageAsync], but runs the page-draining driver on [executor].
+         *
+         * @param consumer Invoked once per page, on [executor].
+         * @param executor Executor on which the driver and consumer run.
+         * @return A future that completes when the walk finishes.
+         */
+        public fun forEachPageAsync(
+            consumer: Consumer<in Page<T>>,
+            executor: Executor,
+        ): CompletableFuture<Void> = startWalk({ page -> consumer.accept(page) }, executor)
+
         private fun startWalk(
-            consumer: Consumer<in T>,
+            pageSink: (Page<T>) -> Unit,
             executor: Executor?,
         ): CompletableFuture<Void> {
             val result = CompletableFuture<Void>()
-            Walk(consumer, executor, result).start()
+            Walk(pageSink, executor, result).start()
             return result
         }
 
         private fun collectInto(executor: Executor?): CompletableFuture<List<T>> {
             val items = ArrayList<T>()
-            return startWalk({ items.add(it) }, executor).thenApply { items }
+            return startWalk({ page -> items.addAll(page.items) }, executor).thenApply { items }
         }
 
         /**
@@ -207,7 +237,7 @@ public class AsyncPaginator<T>
          * invocations.
          */
         private inner class Walk(
-            private val consumer: Consumer<in T>,
+            private val pageSink: (Page<T>) -> Unit,
             private val executor: Executor?,
             private val result: CompletableFuture<Void>,
         ) {
@@ -218,7 +248,7 @@ public class AsyncPaginator<T>
             // would otherwise recurse into the loop that scheduled it. We trampoline instead —
             // whichever stack frame owns the loop picks up the staged work.
             private val driving = AtomicBoolean(false)
-            private var pendingPage: Page<T>? = null
+            private var pendingPage: ParsedPage<T>? = null
 
             // The transport future for the page currently being fetched: null until the first
             // fetch, thereafter the most recently dispatched exchange (it is never reset to null,
@@ -254,7 +284,29 @@ public class AsyncPaginator<T>
                     try {
                         ex.execute { drive() }
                     } catch (t: Throwable) {
+                        // The re-entry dispatch was rejected, so drive() will never run again. A
+                        // page staged by the deferred-completion callback would otherwise keep its
+                        // live Response open with nothing left to close it — release it here. No
+                        // other frame is in drive() at this point, so touching pendingPage is safe.
+                        closeStagedPageQuietly()
                         result.completeExceptionally(t)
+                    }
+                }
+            }
+
+            /**
+             * Closes a staged-but-undrained page and clears [pendingPage], swallowing any close
+             * error so it cannot mask the failure that is being propagated. Only safe to call when
+             * no [drive] frame is concurrently touching [pendingPage].
+             */
+            private fun closeStagedPageQuietly() {
+                val staged = pendingPage
+                pendingPage = null
+                if (staged != null) {
+                    try {
+                        staged.page.close()
+                    } catch (_: Throwable) {
+                        // Best-effort release; the original failure is what propagates.
                     }
                 }
             }
@@ -293,11 +345,7 @@ public class AsyncPaginator<T>
             private fun step(): Step {
                 val staged = pendingPage
                 if (staged != null) {
-                    pendingPage = null
-                    // If the result was settled from the outside (cancelled, timed out, or
-                    // completed by the caller), drop the staged page undrained instead of
-                    // emitting it to the consumer.
-                    return if (!result.isDone && drainPage(staged)) Step.CONTINUE else Step.DONE
+                    return drainStaged(staged)
                 }
                 val request = nextRequest
                 if (request == null || result.isDone || pagesFetched >= maxPages) {
@@ -329,11 +377,27 @@ public class AsyncPaginator<T>
             }
 
             /**
+             * Handles the page already staged in [pendingPage]: drains it to the sink, or — if the
+             * result was settled from the outside (cancelled, timed out, or completed by the caller)
+             * — drops it undrained, closing it so its [Response] is not leaked. The result is then
+             * already settled, so a throwing close cannot be reported: release it best-effort and
+             * swallow any error.
+             */
+            private fun drainStaged(staged: ParsedPage<T>): Step {
+                if (result.isDone) {
+                    closeStagedPageQuietly() // dropped undrained → release its Response
+                    return Step.DONE
+                }
+                pendingPage = null
+                return if (drainPage(staged)) Step.CONTINUE else Step.DONE
+            }
+
+            /**
              * Stages a completed page future for draining. Returns `true` to continue driving,
              * `false` if the future failed (the walk is then terminated exceptionally).
              */
-            private fun stagePage(future: CompletableFuture<Page<T>>): Boolean {
-                val page: Page<T> =
+            private fun stagePage(future: CompletableFuture<ParsedPage<T>>): Boolean {
+                val page: ParsedPage<T> =
                     try {
                         future.join()
                     } catch (t: Throwable) {
@@ -345,35 +409,46 @@ public class AsyncPaginator<T>
             }
 
             /**
-             * Emits a page's items to the consumer, then schedules the next request. Returns
-             * `true` to continue driving, `false` if the consumer threw (walk aborted).
+             * Delivers a parsed page to the page sink (which may emit the page's items or the
+             * whole page), then schedules the next request read from the [ParsedPage]. The page's
+             * [Response] is always released, whether the sink succeeds or throws; a failing
+             * `close()` is reported through the result future rather than escaping the trampoline.
+             * Returns `true` to continue driving, `false` if the sink threw (walk aborted).
              */
-            private fun drainPage(page: Page<T>): Boolean {
-                try {
-                    val items = page.items
-                    var i = 0
-                    val size = items.size
-                    while (i < size) {
-                        consumer.accept(items[i])
-                        i++
+            private fun drainPage(page: ParsedPage<T>): Boolean {
+                val sinkThrew: Boolean =
+                    try {
+                        pageSink(page.page)
+                        nextRequest = page.nextRequest
+                        false
+                    } catch (t: Throwable) {
+                        result.completeExceptionally(t)
+                        true
                     }
-                    // Compute the next request inside the guard: a Page whose hasNext /
-                    // nextPageRequest() throws (e.g. a malformed cursor) must surface through
-                    // the result future, not escape the driver and strand the walk.
-                    nextRequest = if (page.hasNext) page.nextPageRequest() else null
+                try {
+                    page.page.close() // release this page's Response (drained or threw)
                 } catch (t: Throwable) {
-                    result.completeExceptionally(t)
-                    return false
+                    // A throwing close must not escape the trampoline: on the sink-success path
+                    // that would abandon the walk with the result future never settled (the
+                    // caller's get() hangs). Report it instead — the walk then terminates cleanly
+                    // on the next step(). If the sink already failed, the result carries that
+                    // cause; keep it and swallow this best-effort close error.
+                    if (!result.isDone) {
+                        result.completeExceptionally(t)
+                    }
                 }
-                return true
+                return !sinkThrew
             }
 
             /**
-             * Executes [request], parses the response into a [Page], and closes the response —
-             * mirroring [Paginator]'s per-page lifecycle. The returned future completes with the
-             * parsed page or exceptionally if the transport or strategy fails.
+             * Executes [request], parses the response into a [PageInfo], and builds a [Page] that
+             * **retains** the live response — mirroring [Paginator]'s per-page lifecycle. The page's
+             * response is closed later, on whichever path consumes it (drained in [drainPage], or
+             * dropped-and-closed in [step]); only a `parse` failure closes the response here, since
+             * such a page is never built. The returned future completes with the resulting
+             * [ParsedPage] or exceptionally if the transport or strategy fails.
              */
-            private fun fetchPage(request: Request): CompletableFuture<Page<T>> {
+            private fun fetchPage(request: Request): CompletableFuture<ParsedPage<T>> {
                 pagesFetched++
                 val transportFuture: CompletableFuture<Response> =
                     try {
@@ -397,14 +472,17 @@ public class AsyncPaginator<T>
                     }
                     if (response == null) {
                         // AsyncHttpClient forbids a null success completion; fail cleanly
-                        // rather than NPE on the parse/close below.
+                        // rather than NPE on the parse below.
                         error("AsyncHttpClient.executeAsync completed with a null Response")
                     }
-                    try {
-                        strategy.parse(response, initialRequest)
-                    } finally {
-                        response.close()
-                    }
+                    val info =
+                        try {
+                            strategy.parse(response, initialRequest)
+                        } catch (t: Throwable) {
+                            response.close() // parse failed → this page never becomes a Page; release it now
+                            throw t
+                        }
+                    ParsedPage(Page(response, info.items), info.nextRequest)
                 }
             }
         }
@@ -412,3 +490,9 @@ public class AsyncPaginator<T>
 
 /** Outcome of a single step of [AsyncPaginator]'s trampoline loop. */
 private enum class Step { CONTINUE, DONE, SUSPEND }
+
+/** A parsed page plus the request that fetches the next one (null at end of stream). */
+private class ParsedPage<T>(
+    val page: Page<T>,
+    val nextRequest: Request?,
+)
