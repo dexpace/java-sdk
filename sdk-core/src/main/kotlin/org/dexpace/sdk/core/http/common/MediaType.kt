@@ -24,10 +24,13 @@ import java.util.Locale
  * (i.e. the bare accept-anything form). Half-wildcard combinations follow normal
  * validation rules.
  *
- * The type, subtype, and parameter keys/values may not contain ASCII control characters — CR, LF,
+ * The type, subtype, and parameter keys/values may not contain an ASCII control character — CR, LF,
  * the rest of the C0 range, and DEL, with HTAB the one permitted exception (RFC 7230 allows it in a
- * `quoted-string`); construction throws [IllegalArgumentException] otherwise. This keeps any of them
- * from injecting an extra header line wherever the media type is rendered into a header.
+ * `quoted-string`) — nor a non-ASCII byte (`0x80`+); construction throws [IllegalArgumentException]
+ * otherwise. Rejecting control characters keeps any of them from injecting an extra header line
+ * wherever the media type is rendered into a header; rejecting non-ASCII keeps the rendered form
+ * within the strict outbound header-value grammar (it shares [isProhibitedInValue] with header-value
+ * validation), so a media type can always be set as a `Content-Type` header without a late rejection.
  *
  * @property type The primary type (e.g., "application", "text").
  * @property subtype The subtype (e.g., "json", "plain").
@@ -42,16 +45,17 @@ public data class MediaType private constructor(
 ) {
     init {
         // A media type is routinely rendered into a header (its own Content-Type, or a multipart
-        // boundary / part Content-Type). Reject control characters in the type, subtype, and every
-        // parameter key/value so none of them can smuggle a CR/LF — and thus an extra header line —
-        // into that output. Validating in the constructor covers every construction path (of, parse,
-        // and copy).
+        // boundary / part Content-Type). Reject control characters and non-ASCII bytes in the type,
+        // subtype, and every parameter key/value so none of them can smuggle a CR/LF — and thus an
+        // extra header line — into that output, and so the rendered form always satisfies the strict
+        // outbound header-value grammar (see isHeaderUnsafe). Validating in the constructor covers
+        // every construction path (of, parse, and copy).
         require(type.none(::isHeaderUnsafe) && subtype.none(::isHeaderUnsafe)) {
-            "Media type must not contain control characters: \"$type/$subtype\""
+            "Media type must not contain control characters or non-ASCII bytes: \"$type/$subtype\""
         }
         parameters.forEach { (key, value) ->
             require(key.none(::isHeaderUnsafe) && value.none(::isHeaderUnsafe)) {
-                "Media type parameter must not contain control characters: \"$key\""
+                "Media type parameter must not contain control characters or non-ASCII bytes: \"$key\""
             }
         }
     }
@@ -144,22 +148,19 @@ public data class MediaType private constructor(
             ch in TOKEN_SPECIALS
 
     /**
-     * True if [ch] is an ASCII control character disallowed inside a header value — any C0 control
-     * (code < 0x20) or DEL (0x7F), **except** HTAB, which RFC 7230 permits in a `quoted-string`.
+     * True if [ch] is disallowed inside a header value, delegating to the shared outbound
+     * header-value predicate ([isProhibitedInValue]) so a media type's rendered form and the
+     * `Content-Type` header value it becomes agree on the accepted byte set: every C0 control and
+     * DEL (except HTAB, which RFC 7230 permits in a `quoted-string`), plus every non-ASCII byte.
      * Rejecting these keeps a parameter from carrying a CR/LF (and thus an extra header line)
-     * wherever this media type is rendered, while still allowing the tabs the wire form supports.
+     * wherever this media type is rendered, and from carrying a byte the strict outbound grammar
+     * would reject once the type is set as a `Content-Type` header.
      */
-    private fun isHeaderUnsafe(ch: Char): Boolean = ch != '\t' && (ch.code < FIRST_PRINTABLE_ASCII || ch.code == DEL)
+    private fun isHeaderUnsafe(ch: Char): Boolean = isProhibitedInValue(ch.code)
 
     public companion object {
         /** RFC 7230 §3.2.6 `tchar` punctuation (the non-alphanumeric members of the token set). */
         private const val TOKEN_SPECIALS: String = "!#$%&'*+-.^_`|~"
-
-        /** Code point of the first printable ASCII character (space); everything below is a C0 control. */
-        private const val FIRST_PRINTABLE_ASCII: Int = 0x20
-
-        /** Code point of the ASCII DEL control character. */
-        private const val DEL: Int = 0x7F
 
         /**
          * Constructs a [MediaType] from explicit parts. All inputs are lower-cased and

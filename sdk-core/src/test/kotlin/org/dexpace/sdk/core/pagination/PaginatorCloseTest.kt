@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -68,6 +69,41 @@ class PaginatorCloseTest {
             }
         assertEquals("parse exploded", ex.message)
         assertEquals(1, closes.get(), "response must be closed even when parse throws")
+    }
+
+    @Test
+    fun `sync parse failure attaches a throwing close as suppressed and does not mask the parse error`() {
+        // When releasing the page whose parse failed, a close() that itself throws must not replace
+        // the parse failure the caller needs to see — it is attached as suppressed instead.
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req -> closeFailingResponse(req, "items=a,b", "close exploded") }
+        val failing = PaginationStrategy<String> { _, _ -> throw IOException("parse exploded") }
+        val paginator = Paginator(client, initialRequest(), failing)
+
+        val ex =
+            assertFailsWith<IOException> {
+                paginator.iterateAll().iterator().hasNext()
+            }
+        assertEquals("parse exploded", ex.message, "the parse failure must propagate, not the close failure")
+        val suppressed = ex.suppressed.toList()
+        assertEquals(1, suppressed.size, "the close failure must be attached as suppressed, not swallowed or masking")
+        assertEquals("close exploded", suppressed.first().message)
+    }
+
+    @Test
+    fun `byPage stream rethrows a failing page close as UncheckedIOException on stream close`() {
+        // Stream.close() declares no checked exception, so a held page whose close() throws IOException
+        // must surface as an UncheckedIOException (not a sneaky-thrown, uncatchable-by-type checked one).
+        val client =
+            StubHttpClient().on("https://api.example.com/items") { req ->
+                closeFailingResponse(req, "items=a,b\ncursor=abc", "held page close exploded")
+            }
+        val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
+
+        val stream = paginator.byPage().stream()
+        stream.findFirst() // pulls page 1, leaves it held open
+        val ex = assertFailsWith<UncheckedIOException> { stream.close() }
+        assertEquals("held page close exploded", ex.cause?.message, "the original IOException must be the cause")
     }
 
     @Test

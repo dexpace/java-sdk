@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.pagination
 
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.util.stream.Stream
 
 /**
@@ -83,8 +84,23 @@ public class CloseablePages<T>
          *
          * Equivalently, this [CloseablePages] is itself the close handle — closing it also releases
          * the held page: `byPage().use { it.stream().findFirst() }`.
+         *
+         * [Stream.close] declares no checked exception, so the `IOException` from [close] is
+         * rethrown wrapped in an [UncheckedIOException] (as the JDK's own `Files.lines` does) rather
+         * than sneaky-thrown undeclared — a Java caller can then `catch (UncheckedIOException)` at
+         * the try-with-resources site instead of an uncatchable-by-type checked exception.
          */
-        public fun stream(): Stream<Page<T>> = orderedStream(iterator(), Runnable { close() })
+        public fun stream(): Stream<Page<T>> =
+            orderedStream(
+                iterator(),
+                Runnable {
+                    try {
+                        close()
+                    } catch (e: IOException) {
+                        throw UncheckedIOException(e)
+                    }
+                },
+            )
 
         /**
          * Closes the page currently held open (the one being inspected). Safe to call repeatedly.

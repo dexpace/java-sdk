@@ -303,6 +303,38 @@ class HeadersTest {
     }
 
     @Test
+    fun `addUnsafeNonAscii preserves a non-ASCII value the outbound grammar would reject`() {
+        // The inbound path exists so a response header carrying legal obs-text (e.g. a Latin-1
+        // Content-Disposition filename) survives, where the strict outbound add/set would reject it.
+        val eAcute = 233.toChar() // 'é' (U+00E9)
+        val value = "attachment; filename=\"caf" + eAcute + ".pdf\""
+        // Guard: the outbound grammar still rejects the same value, so this is a genuine relaxation.
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("Content-Disposition", value) }
+
+        val headers = Headers.builder().addUnsafeNonAscii("Content-Disposition", value).build()
+        assertEquals(value, headers.get("Content-Disposition"))
+    }
+
+    @Test
+    fun `addUnsafeNonAscii permits horizontal tab but rejects control characters in the value`() {
+        val tabbed = Headers.builder().addUnsafeNonAscii("X-Tabbed", "left\tright").build()
+        assertEquals("left\tright", tabbed.get("X-Tabbed"))
+
+        // A CR/LF/NUL/DEL in a parsed value is still refused — defence-in-depth against a
+        // misbehaving transport, matching the pre-existing outbound guard.
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Bad", "a\rb") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Bad", "a\u0000b") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Bad", "a\u007Fb") }
+    }
+
+    @Test
+    fun `addUnsafeNonAscii still validates the name strictly`() {
+        val eAcute = 233.toChar() // 'é' (U+00E9)
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Caf" + eAcute, "v") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Evil\nInjected", "v") }
+    }
+
+    @Test
     fun `set with null still removes even though value validation is in place`() {
         // Removal must not run value validation — null is the documented removal signal.
         val headers =

@@ -13,6 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
+import org.dexpace.sdk.core.instrumentation.LogLevel
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import org.dexpace.sdk.core.http.request.Request as SdkRequest
@@ -57,11 +58,20 @@ internal class RequestAdapter(
      * Whether this drop of [rawName] should log at `WARN` (else verbose), per [droppedHeaderLogging].
      * Internal for direct policy testing: the transport test modules run on `slf4j-nop` and cannot
      * capture emitted log output, so the dedup decision is asserted here rather than through logs.
+     *
+     * Callers MUST gate this behind `logger.canLog(LogLevel.WARNING)` (see [adapt]): under
+     * `ONCE_PER_HEADER` the call has the side effect of recording [rawName], so spending it while
+     * `WARN` is disabled would consume the one-shot without emitting anything and hide the drop if
+     * the level is later raised. The `ONCE_PER_HEADER` set is bounded at [MAX_WARNED_DROPPED_HEADERS]
+     * entries so a caller synthesising unbounded distinct non-token names cannot grow it without
+     * limit on a transport-lifetime adapter; past the bound, further first-drops log at verbose.
      */
     internal fun shouldWarnForDroppedHeader(rawName: String): Boolean =
         when (droppedHeaderLogging) {
             DroppedHeaderLogging.PER_OCCURRENCE -> true
-            DroppedHeaderLogging.ONCE_PER_HEADER -> warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
+            DroppedHeaderLogging.ONCE_PER_HEADER ->
+                warnedDroppedHeaders.size < MAX_WARNED_DROPPED_HEADERS &&
+                    warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
             DroppedHeaderLogging.VERBOSE_ONLY -> false
         }
 
@@ -79,9 +89,10 @@ internal class RequestAdapter(
                 // Header names and values are validated upstream by Headers.Builder to printable
                 // ASCII (control characters and non-ASCII bytes are rejected at construction), which
                 // closes the request/header-splitting surface. OkHttp is stricter still: it restricts
-                // a name to the RFC 7230 token bytes 0x21-0x7e and a value to tab plus 0x20-0x7e, so a
-                // model-valid but non-token header — e.g. a name carrying an interior space (0x20) —
-                // makes addHeader throw an unchecked IllegalArgumentException. Catch it and drop just
+                // a name to 0x21-0x7e (printable ASCII minus space — a superset of the RFC 7230 token
+                // grammar, which also excludes separators like '(' and '@') and a value to tab plus
+                // 0x20-0x7e, so a model-valid but non-token header — e.g. a name carrying an interior
+                // space (0x20) — makes addHeader throw an unchecked IllegalArgumentException. Catch it and drop just
                 // that header, mirroring the JDK transport's attachHeaders, so the exception never
                 // escapes adapt (and therefore sync execute, declared @Throws(IOException)) as an
                 // unchecked failure a caller's catch(IOException) would miss.
@@ -93,7 +104,10 @@ internal class RequestAdapter(
                     // non-token header only this transport refuses. How loudly it surfaces is the
                     // caller's DroppedHeaderLogging choice; the default warns once per header name and
                     // logs the rest at verbose so a hot path re-setting it does not flood the log.
-                    val event = if (shouldWarnForDroppedHeader(rawName)) logger.atWarning() else logger.atVerbose()
+                    // Gate the dedup on canLog(WARNING) so its one-shot side effect is spent only when
+                    // WARN can actually be emitted (see shouldWarnForDroppedHeader).
+                    val warn = logger.canLog(LogLevel.WARNING) && shouldWarnForDroppedHeader(rawName)
+                    val event = if (warn) logger.atWarning() else logger.atVerbose()
                     event
                         .event("transport.okhttp.header.rejected")
                         .field("name", rawName)
@@ -146,5 +160,13 @@ internal class RequestAdapter(
          * stateless, so a single instance is safe to reuse across requests and threads.
          */
         private val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody()
+
+        /**
+         * Upper bound on the `ONCE_PER_HEADER` dedup set. The adapter lives for the transport's
+         * lifetime, so an unbounded set would leak one entry per distinct dropped header name; a
+         * caller deriving names from request data could grow it without limit. Past this many
+         * distinct names, further first-drops fall through to verbose rather than being recorded.
+         */
+        private const val MAX_WARNED_DROPPED_HEADERS: Int = 1024
     }
 }

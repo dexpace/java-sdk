@@ -63,6 +63,13 @@ internal fun <T> PaginationStrategy<T>.parseOrClose(
     try {
         parse(response, initialRequest)
     } catch (t: Throwable) {
-        response.close() // parse failed → this page never becomes a Page; release it now
+        // parse failed → this page never becomes a Page; release it now. A failure closing the
+        // response must not mask the parse failure that is actually propagating, so attach it as
+        // suppressed rather than letting it replace `t`.
+        try {
+            response.close()
+        } catch (closeFailure: Throwable) {
+            t.addSuppressed(closeFailure)
+        }
         throw t
     }

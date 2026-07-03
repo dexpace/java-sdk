@@ -74,10 +74,15 @@ internal fun requireValidHeaderName(rawName: String): String {
  * broader control-character set closes the same splitting/injection surface the name check does
  * while staying narrower than the strict field-value grammar.
  *
- * Non-ASCII bytes (code point `>= 0x80`) are rejected as well: RFC 7230 field-values are ASCII,
- * and every shipped reference transport rejects a non-ASCII value, so — mirroring the name check —
- * a value no transport can put on the wire is refused here at construction rather than accepted by
- * the model and then silently dropped mid-dispatch. [name] only labels the error message; the value
+ * Non-ASCII bytes (code point `>= 0x80`) are rejected as well, matching OkHttp's field-value
+ * grammar (HTAB plus printable ASCII `0x20`–`0x7E`). The shipped transports are not unanimous here
+ * — the JDK `HttpClient` will serialise obs-text (`0x80`+) on the wire — so the model deliberately
+ * takes the *most restrictive* shipped transport's stance: a value it accepts is sendable by every
+ * shipped transport, and a value only some can encode is refused at construction rather than
+ * silently dropped by the stricter one mid-dispatch. This governs **outbound, caller-set** values;
+ * a header parsed from an already-received response takes the lenient
+ * [requireValidInboundHeaderValue] path (via `Headers.Builder.addUnsafeNonAscii`), which preserves
+ * the obs-text a server may legitimately send. [name] only labels the error message; the value
  * itself is never echoed, so a secret or oversized value is not leaked into a log line.
  *
  * @throws IllegalArgumentException if any value contains a prohibited control character or a
@@ -93,9 +98,34 @@ internal fun requireValidHeaderValues(
             require(!isProhibitedInValue(ch.code)) {
                 "Header value for '$name' must be ASCII: it must not contain control characters " +
                     "(carriage return, line feed, NUL, or other C0/DEL bytes, except horizontal tab) " +
-                    "or non-ASCII bytes; control characters enable request/header splitting, and no " +
-                    "reference transport can encode a non-ASCII value."
+                    "or non-ASCII bytes; control characters enable request/header splitting, and " +
+                    "OkHttp's field-value grammar rejects a non-ASCII value."
             }
+        }
+    }
+}
+
+/**
+ * Validates the [value] of an *inbound* (response) header [name] leniently. Like OkHttp's
+ * `addUnsafeNonAscii`/`addLenient` read path, the ASCII restriction is dropped so **non-ASCII bytes
+ * are permitted**; unlike that path — which does no value validation at all — control characters are
+ * still rejected here as defence-in-depth against a misbehaving transport (a stray CR/LF/NUL has no
+ * place in a parsed field-value). RFC 7230 explicitly allows obs-text (`0x80`+) in field-content,
+ * and a server legitimately puts Latin-1 bytes in values such as a `Content-Disposition` filename;
+ * applying the stricter outbound grammar of [requireValidHeaderValues] to a response would silently
+ * strip those headers. [name] only labels the error message; the value itself is never echoed.
+ *
+ * @throws IllegalArgumentException if [value] contains a prohibited control character
+ */
+@JvmSynthetic
+internal fun requireValidInboundHeaderValue(
+    name: String,
+    value: String,
+) {
+    value.forEach { ch ->
+        require(!isProhibitedInInboundValue(ch.code)) {
+            "Inbound header value for '$name' must not contain control characters (carriage " +
+                "return, line feed, NUL, or other C0/DEL bytes, except horizontal tab)."
         }
     }
 }
@@ -107,11 +137,21 @@ internal fun requireValidHeaderValues(
 private fun isProhibitedInName(code: Int): Boolean = code <= LAST_C0_CONTROL || code >= DEL_CONTROL
 
 /**
- * Whether [code] is prohibited in a header value — the same set as for a name, minus horizontal tab
- * (`0x09`), which RFC 7230 permits as field-value whitespace.
+ * Whether [code] is prohibited in an outbound header value — the same set as for a name, minus
+ * horizontal tab (`0x09`), which RFC 7230 permits as field-value whitespace. Shared with [MediaType]
+ * so a media type's rendered form and the header value it becomes agree on the accepted byte set.
  */
-private fun isProhibitedInValue(code: Int): Boolean =
+@JvmSynthetic
+internal fun isProhibitedInValue(code: Int): Boolean =
     (code <= LAST_C0_CONTROL && code != HORIZONTAL_TAB) || code >= DEL_CONTROL
+
+/**
+ * Whether [code] is prohibited in an *inbound* header value: control characters (`0x00`–`0x1F`
+ * except HTAB, plus DEL `0x7F`) are still rejected, but non-ASCII bytes (`0x80`+) are permitted —
+ * the obs-text a server may legitimately send. See [requireValidInboundHeaderValue].
+ */
+private fun isProhibitedInInboundValue(code: Int): Boolean =
+    (code <= LAST_C0_CONTROL && code != HORIZONTAL_TAB) || code == DEL_CONTROL
 
 /**
  * Renders [name] for an error message with every control character replaced by its `\uXXXX`
@@ -137,8 +177,10 @@ private const val HORIZONTAL_TAB: Int = 0x09
 private const val LAST_C0_CONTROL: Int = 0x1F
 
 /**
- * The DEL control character (`0x7F`). Used as the low bound of the rejected high range: DEL and
- * every byte above it (the non-ASCII bytes, `0x80`+) are prohibited in both names and values.
+ * The DEL control character (`0x7F`). Used as the low bound of the rejected high range: for a name
+ * and an outbound value, DEL and every byte above it (the non-ASCII bytes, `0x80`+) are prohibited
+ * (`code >= DEL_CONTROL`); an inbound value rejects only DEL itself (`code == DEL_CONTROL`),
+ * permitting obs-text.
  */
 private const val DEL_CONTROL: Int = 0x7F
 

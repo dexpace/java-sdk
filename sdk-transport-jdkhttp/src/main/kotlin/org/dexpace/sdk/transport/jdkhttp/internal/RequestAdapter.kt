@@ -10,6 +10,7 @@ package org.dexpace.sdk.transport.jdkhttp.internal
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
+import org.dexpace.sdk.core.instrumentation.LogLevel
 import java.net.http.HttpRequest
 import java.time.Duration
 import java.util.Locale
@@ -49,11 +50,20 @@ internal class RequestAdapter(
      * Whether this drop of [rawName] should log at `WARN` (else verbose), per [droppedHeaderLogging].
      * Internal for direct policy testing: the transport test modules run on `slf4j-nop` and cannot
      * capture emitted log output, so the dedup decision is asserted here rather than through logs.
+     *
+     * Callers MUST gate this behind `logger.canLog(LogLevel.WARNING)` (see [attachHeaders]): under
+     * `ONCE_PER_HEADER` the call has the side effect of recording [rawName], so spending it while
+     * `WARN` is disabled would consume the one-shot without emitting anything and hide the drop if
+     * the level is later raised. The `ONCE_PER_HEADER` set is bounded at [MAX_WARNED_DROPPED_HEADERS]
+     * entries so a caller synthesising unbounded distinct non-token names cannot grow it without
+     * limit on a transport-lifetime adapter; past the bound, further first-drops log at verbose.
      */
     internal fun shouldWarnForDroppedHeader(rawName: String): Boolean =
         when (droppedHeaderLogging) {
             DroppedHeaderLogging.PER_OCCURRENCE -> true
-            DroppedHeaderLogging.ONCE_PER_HEADER -> warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
+            DroppedHeaderLogging.ONCE_PER_HEADER ->
+                warnedDroppedHeaders.size < MAX_WARNED_DROPPED_HEADERS &&
+                    warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
             DroppedHeaderLogging.VERBOSE_ONLY -> false
         }
 
@@ -154,7 +164,10 @@ internal class RequestAdapter(
                     // non-token header only this transport refuses. How loudly it surfaces is the
                     // caller's DroppedHeaderLogging choice; the default warns once per header name and
                     // logs the rest at verbose so a hot path re-setting it does not flood the log.
-                    val event = if (shouldWarnForDroppedHeader(rawName)) logger.atWarning() else logger.atVerbose()
+                    // Gate the dedup on canLog(WARNING) so its one-shot side effect is spent only when
+                    // WARN can actually be emitted (see shouldWarnForDroppedHeader).
+                    val warn = logger.canLog(LogLevel.WARNING) && shouldWarnForDroppedHeader(rawName)
+                    val event = if (warn) logger.atWarning() else logger.atVerbose()
                     event
                         .event("transport.jdkhttp.header.rejected")
                         .field("name", rawName)
@@ -163,5 +176,15 @@ internal class RequestAdapter(
                 }
             }
         }
+    }
+
+    private companion object {
+        /**
+         * Upper bound on the `ONCE_PER_HEADER` dedup set. The adapter lives for the transport's
+         * lifetime, so an unbounded set would leak one entry per distinct dropped header name; a
+         * caller deriving names from request data could grow it without limit. Past this many
+         * distinct names, further first-drops fall through to verbose rather than being recorded.
+         */
+        private const val MAX_WARNED_DROPPED_HEADERS: Int = 1024
     }
 }

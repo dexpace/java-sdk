@@ -293,6 +293,29 @@ class JdkHttpTransportTest {
         assertTrue(xCustomValues.containsAll(listOf("alpha", "beta")), "expected both custom values in $xCustomValues")
     }
 
+    @Test
+    fun `inboundResponseHeaderWithNonAsciiValueIsPreserved`() {
+        // RFC 7230 permits obs-text (0x80+) in a field-value — e.g. a Latin-1 Content-Disposition
+        // filename — and the JDK client decodes response header bytes as ISO-8859-1, surfacing them.
+        // The response adapter must preserve the header, not silently drop it (the strict outbound
+        // grammar would reject it; the inbound path relaxes only the ASCII restriction).
+        val eAcute = 233.toChar() // 'é' (U+00E9)
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                // addHeaderLenient bypasses MockWebServer's own strict value grammar so the raw
+                // obs-text byte reaches the wire, exactly as a real server would send it.
+                .addHeaderLenient("Content-Disposition", "attachment; filename=\"caf" + eAcute + ".pdf\"")
+                .build(),
+        )
+        val request = Request.builder().method(Method.GET).url(server.url("/obs-text").toUrl()).build()
+        transport.execute(request).use { response ->
+            val value = response.headers.get("Content-Disposition")
+            assertNotNull(value, "obs-text response header must be preserved, not dropped")
+            assertTrue(value.any { it.code >= 0x80 }, "the non-ASCII byte must survive: $value")
+        }
+    }
+
     // -------- restricted headers --------
 
     @Test

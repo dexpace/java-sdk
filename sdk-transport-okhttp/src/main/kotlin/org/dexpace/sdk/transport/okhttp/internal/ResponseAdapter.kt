@@ -92,14 +92,16 @@ internal class ResponseAdapter(
     /**
      * Copies one inbound (response) header into [headersBuilder].
      *
-     * The model layer's `add` validation is an **outbound** injection guard — it stops an SDK
-     * caller from putting a CR/LF or other control character into a *request* that is then
-     * serialised to a server. A response has already been received; OkHttp parses response headers
-     * leniently and can surface a control byte (notably over HTTP/2), so a strict re-validation
-     * here would let one odd server header throw out of `add` and, via the outer catch, fail the
-     * entire response. Catch that rejection and drop just the offending header — the body and the
-     * rest of the headers still reach the caller. The header name is logged (not the value, which
-     * may be sensitive) at verbose, mirroring the request adapter's drop-and-log.
+     * A response has already been received, so the outbound field-value grammar does not apply:
+     * RFC 7230 permits obs-text (`0x80`+) in a field-value, and OkHttp parses response headers
+     * leniently and surfaces such bytes (e.g. a Latin-1 `Content-Disposition` filename). Copying
+     * through the strict [Headers.Builder.add] would reject those and silently strip legitimate
+     * headers, so this uses [Headers.Builder.addUnsafeNonAscii], which preserves non-ASCII bytes
+     * while still rejecting control characters (a CR/LF/NUL has no place in a parsed value). A
+     * genuinely malformed header — a control byte in the value, or a control/non-ASCII byte in the
+     * name — still throws; catch that and drop just the offending header so the body and the rest of
+     * the headers still reach the caller. The header name is logged (not the value, which may be
+     * sensitive) at verbose, mirroring the request adapter's drop-and-log.
      */
     private fun addInboundHeader(
         headersBuilder: Headers.Builder,
@@ -107,7 +109,7 @@ internal class ResponseAdapter(
         value: String,
     ) {
         try {
-            headersBuilder.add(name, value)
+            headersBuilder.addUnsafeNonAscii(name, value)
         } catch (e: IllegalArgumentException) {
             logger.atVerbose()
                 .event("transport.okhttp.response.header.dropped")

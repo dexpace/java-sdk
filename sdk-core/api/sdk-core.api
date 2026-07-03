@@ -406,6 +406,7 @@ public final class org/dexpace/sdk/core/http/common/Headers$Builder {
 	public final fun add (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun add (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/util/List;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun addAll (Lorg/dexpace/sdk/core/http/common/Headers;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
+	public final fun addUnsafeNonAscii (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun build ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun remove (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun remove (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;

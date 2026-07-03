@@ -223,6 +223,23 @@ class MediaTypeTest {
         }
     }
 
+    @Test
+    fun `of rejects a non-ASCII byte in a parameter value`() {
+        // The rendered media type becomes a Content-Type header value, which the strict outbound
+        // grammar restricts to ASCII; a non-ASCII parameter must be refused at construction rather
+        // than accepted and then rejected when set as a header. The message names non-ASCII too, not
+        // just control characters.
+        val eAcute = 233.toChar() // 'é' (U+00E9): non-ASCII, not a control character
+        val ex =
+            assertFailsWith<IllegalArgumentException> {
+                MediaType.of("text", "plain", mapOf("title" to "caf" + eAcute))
+            }
+        assertTrue(
+            ex.message?.contains("non-ASCII") == true,
+            "message must mention non-ASCII, not only control characters: ${ex.message}",
+        )
+    }
+
     // ---- charset accessor -------------------------------------------------------
 
     @Test
