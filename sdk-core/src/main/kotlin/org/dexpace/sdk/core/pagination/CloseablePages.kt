@@ -8,10 +8,7 @@
 package org.dexpace.sdk.core.pagination
 
 import java.io.IOException
-import java.util.Spliterator
-import java.util.Spliterators
 import java.util.stream.Stream
-import java.util.stream.StreamSupport
 
 /**
  * Auto-closing, single-use page-level view over a lazy pagination walk.
@@ -72,12 +69,22 @@ public class CloseablePages<T>
             }
         }
 
-        /** Sequential, ORDERED, unknown-size stream over the same auto-closing iteration. */
-        public fun stream(): Stream<Page<T>> =
-            StreamSupport.stream(
-                Spliterators.spliteratorUnknownSize(iterator(), Spliterator.ORDERED),
-                false,
-            )
+        /**
+         * Sequential, ORDERED, unknown-size stream over the same auto-closing iteration.
+         *
+         * The stream registers [close] as its close handler, so a short-circuiting terminal
+         * (`findFirst`, `limit`, `anyMatch`) that abandons the stream without exhausting it still
+         * releases the page left held open — **provided the stream is closed**. Wrap it in
+         * try-with-resources (Java) / `use { }` (Kotlin):
+         *
+         * ```java
+         * try (Stream<Page<X>> s = pages.stream()) { s.findFirst(); } // closes the held page
+         * ```
+         *
+         * Equivalently, this [CloseablePages] is itself the close handle — closing it also releases
+         * the held page: `byPage().use { it.stream().findFirst() }`.
+         */
+        public fun stream(): Stream<Page<T>> = orderedStream(iterator(), Runnable { close() })
 
         /**
          * Closes the page currently held open (the one being inspected). Safe to call repeatedly.

@@ -54,24 +54,24 @@ internal class RequestAdapter(
                 continue
             }
             for (value in values) {
-                // Header names and values are validated upstream by Headers.Builder (names reject
-                // control characters; values reject control characters except horizontal tab),
-                // which closes the request/header-splitting surface. OkHttp is stricter still: it
-                // rejects any byte outside printable ASCII in a name (0x21-0x7e) or value (tab and
-                // 0x20-0x7e), so a model-valid non-ASCII (e.g. UTF-8) name or value — which the SDK
-                // deliberately permits — would make addHeader throw an unchecked
-                // IllegalArgumentException. Catch it and drop just that header, mirroring the JDK
-                // transport's attachHeaders, so the exception never escapes adapt (and therefore
-                // sync execute, declared @Throws(IOException)) as an unchecked failure a caller's
-                // catch(IOException) would miss.
+                // Header names and values are validated upstream by Headers.Builder to printable
+                // ASCII (control characters and non-ASCII bytes are rejected at construction), which
+                // closes the request/header-splitting surface. OkHttp is stricter still: it restricts
+                // a name to the RFC 7230 token bytes 0x21-0x7e and a value to tab plus 0x20-0x7e, so a
+                // model-valid but non-token header — e.g. a name carrying an interior space (0x20) —
+                // makes addHeader throw an unchecked IllegalArgumentException. Catch it and drop just
+                // that header, mirroring the JDK transport's attachHeaders, so the exception never
+                // escapes adapt (and therefore sync execute, declared @Throws(IOException)) as an
+                // unchecked failure a caller's catch(IOException) would miss.
                 try {
                     builder.addHeader(rawName, value)
                 } catch (e: IllegalArgumentException) {
-                    // Warn (not verbose): this is a header the caller explicitly set being silently
-                    // dropped because this transport cannot encode it — surfaced by default so the
-                    // loss is visible. Restricted-header drops below stay at verbose (expected, the
-                    // transport recomputes them), as does the inbound response-header drop.
-                    logger.atWarning()
+                    // Verbose (not warn): the model already rejects at construction the names/values
+                    // no transport can encode (control + non-ASCII), so this residual drop is a
+                    // model-valid but non-token header only this transport refuses. Log it quietly —
+                    // like the restricted-header pre-drop above — instead of warning on every request,
+                    // which a hot path re-setting such a header would turn into high-volume noise.
+                    logger.atVerbose()
                         .event("transport.okhttp.header.rejected")
                         .field("name", rawName)
                         .cause(e)

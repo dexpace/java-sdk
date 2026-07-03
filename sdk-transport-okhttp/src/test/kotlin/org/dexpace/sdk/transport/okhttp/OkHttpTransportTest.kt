@@ -331,42 +331,42 @@ class OkHttpTransportTest {
 
     @Test
     fun headerRejectedByOkHttpStricterRuleIsDroppedNotThrown() {
-        // The SDK model layer permits non-ASCII header names/values (it rejects only control
-        // characters), but OkHttp restricts both to printable ASCII and throws an unchecked
-        // IllegalArgumentException otherwise. The adapter must drop such a header — mirroring the
-        // JDK transport — so the exception never escapes execute()'s @Throws(IOException) contract.
-        // The offending byte is built with toChar() to keep it unambiguous in source.
-        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6): valid UTF-8, not printable ASCII
+        // The SDK model layer permits any printable-ASCII header name (it rejects only control and
+        // non-ASCII bytes), but OkHttp restricts a name to the RFC 7230 token bytes 0x21-0x7e and
+        // throws an unchecked IllegalArgumentException otherwise. The adapter must drop such a header
+        // — mirroring the JDK transport — so the exception never escapes execute()'s
+        // @Throws(IOException) contract. A space (0x20) is a model-valid, non-token name byte; built
+        // with toChar() to keep it unambiguous in source.
+        val space = 32.toChar() // 0x20: printable ASCII the model permits, but not an RFC 7230 token char
         server.enqueue(MockResponse.Builder().code(200).body("ok").build())
         val request =
             Request.builder()
                 .method(Method.GET)
-                .url(server.url("/non-ascii").toUrl())
-                .addHeader("X-Uni" + oUmlaut + "code", "plain") // non-ASCII name
-                .addHeader("X-Plain", "v" + oUmlaut + "lue") // non-ASCII value
+                .url(server.url("/non-token-name").toUrl())
+                .addHeader("X-Uni" + space + "code", "plain") // non-token name (interior space)
                 .addHeader("X-Pass-Through", "kept")
                 .build()
-        // execute must NOT throw; the rejected headers are simply absent on the wire.
+        // execute must NOT throw; the rejected header is simply absent on the wire.
         transport.execute(request).use { response ->
             assertEquals(200, response.status.code)
         }
         val recorded = server.takeRequest()
-        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-ASCII name must be dropped")
-        assertNull(recorded.headers["X-Plain"], "header carrying a non-ASCII value must be dropped")
+        assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 
     @Test
     fun headerRejectedByOkHttpStricterRuleIsDroppedNotThrownAsync() {
-        // The adapter runs on the async path too. A header OkHttp rejects must be dropped so the
-        // future completes normally (not exceptionally) and the request still dispatches.
-        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6)
+        // The adapter runs on the async path too. A header OkHttp rejects (here a non-token name
+        // carrying an interior space) must be dropped so the future completes normally (not
+        // exceptionally) and the request still dispatches.
+        val space = 32.toChar() // 0x20: model-valid printable ASCII, not an RFC 7230 token char
         server.enqueue(MockResponse.Builder().code(200).body("ok").build())
         val request =
             Request.builder()
                 .method(Method.GET)
-                .url(server.url("/non-ascii-async").toUrl())
-                .addHeader("X-Uni" + oUmlaut + "code", "plain")
+                .url(server.url("/non-token-name-async").toUrl())
+                .addHeader("X-Uni" + space + "code", "plain")
                 .addHeader("X-Pass-Through", "kept")
                 .build()
         val response = transport.executeAsync(request).get(5, TimeUnit.SECONDS)
@@ -374,7 +374,7 @@ class OkHttpTransportTest {
             assertEquals(200, it.status.code)
         }
         val recorded = server.takeRequest()
-        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-ASCII name must be dropped")
+        assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 

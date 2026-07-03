@@ -28,19 +28,22 @@ package org.dexpace.sdk.core.http.common
  *    and `0x7F`), which covers CR, LF, and NUL. An embedded `\r`/`\n` is the same
  *    request/header-splitting vector guarded against for header values: once the name is
  *    serialised an attacker could inject a new header or a second request. A NUL or other control
- *    character is illegal in a field-name, and the two reference transports handle it differently at
- *    their raw API (OkHttp's `addHeader` throws unchecked, the JDK builder drops it); their adapters
- *    now catch and drop uniformly, but a splitting vector should never get that far. Validating here
- *    rejects it loudly at construction — fast, uniform, and transport-independent.
+ *    character is illegal in a field-name; validating here rejects it loudly at construction —
+ *    fast, uniform, and transport-independent.
+ *  - **Any non-ASCII byte** (code point `>= 0x80`). RFC 7230 field-names are ASCII `token`s, and
+ *    every shipped reference transport (OkHttp, the JDK `HttpClient`) rejects a non-ASCII name at
+ *    its own model layer, so a name no transport can put on the wire is refused here at
+ *    construction rather than accepted by the model and then silently dropped mid-dispatch.
  *
- * Policy: the control-character set is intentionally narrower than RFC 7230's full `tchar`
- * allow-list — restricting names to `tchar` would reject some non-ASCII names that certain
- * transports accept, whereas the control-character set is illegal everywhere and covers the
- * splitting/injection surface. This mirrors the conservative stance taken for values in
+ * Policy: the accepted set is printable ASCII (`0x20`–`0x7E`) — still wider than RFC 7230's
+ * `tchar`, so a name a transport's stricter grammar rejects (e.g. an interior space) is left for
+ * the transport to drop rather than pre-judged here. Control characters and non-ASCII bytes, which
+ * no transport can encode, are rejected outright. This mirrors the stance taken for values in
  * [requireValidHeaderValues].
  *
  * @return the trimmed, validated name
- * @throws IllegalArgumentException if the trimmed name is blank or contains a control character
+ * @throws IllegalArgumentException if the trimmed name is blank, or contains a control character or
+ *   a non-ASCII byte
  */
 @JvmSynthetic
 internal fun requireValidHeaderName(rawName: String): String {
@@ -48,9 +51,10 @@ internal fun requireValidHeaderName(rawName: String): String {
     require(trimmed.isNotEmpty()) { "Header name must not be blank." }
     trimmed.forEach { ch ->
         require(!isProhibitedInName(ch.code)) {
-            "Header name '${escapeControlCharacters(rawName)}' must not contain control characters " +
-                "(carriage return, line feed, NUL, or other C0/DEL bytes); " +
-                "such characters enable request/header splitting."
+            "Header name '${escapeControlCharacters(rawName)}' must be printable ASCII: it must not " +
+                "contain control characters (carriage return, line feed, NUL, or other C0/DEL bytes) " +
+                "or non-ASCII bytes; control characters enable request/header splitting, and no " +
+                "reference transport can encode a non-ASCII name."
         }
     }
     return trimmed
@@ -70,12 +74,14 @@ internal fun requireValidHeaderName(rawName: String): String {
  * broader control-character set closes the same splitting/injection surface the name check does
  * while staying narrower than the strict field-value grammar.
  *
- * Non-ASCII (for example UTF-8) bytes are NOT rejected — that is the conservative stance shared
- * with the name check: a value some transports accept is not refused at the model layer. [name]
- * only labels the error message; the value itself is never echoed, so a secret or oversized value
- * is not leaked into a log line.
+ * Non-ASCII bytes (code point `>= 0x80`) are rejected as well: RFC 7230 field-values are ASCII,
+ * and every shipped reference transport rejects a non-ASCII value, so — mirroring the name check —
+ * a value no transport can put on the wire is refused here at construction rather than accepted by
+ * the model and then silently dropped mid-dispatch. [name] only labels the error message; the value
+ * itself is never echoed, so a secret or oversized value is not leaked into a log line.
  *
- * @throws IllegalArgumentException if any value contains a prohibited control character
+ * @throws IllegalArgumentException if any value contains a prohibited control character or a
+ *   non-ASCII byte
  */
 @JvmSynthetic
 internal fun requireValidHeaderValues(
@@ -85,23 +91,27 @@ internal fun requireValidHeaderValues(
     values.forEach { value ->
         value.forEach { ch ->
             require(!isProhibitedInValue(ch.code)) {
-                "Header value for '$name' must not contain control characters (carriage return, " +
-                    "line feed, NUL, or other C0/DEL bytes, except horizontal tab); " +
-                    "such characters enable request/header splitting."
+                "Header value for '$name' must be ASCII: it must not contain control characters " +
+                    "(carriage return, line feed, NUL, or other C0/DEL bytes, except horizontal tab) " +
+                    "or non-ASCII bytes; control characters enable request/header splitting, and no " +
+                    "reference transport can encode a non-ASCII value."
             }
         }
     }
 }
 
-/** Whether [code] is a control character prohibited in a header name — the full C0 range and DEL. */
-private fun isProhibitedInName(code: Int): Boolean = code <= LAST_C0_CONTROL || code == DEL_CONTROL
+/**
+ * Whether [code] is prohibited in a header name — the full C0 range, DEL, and every non-ASCII byte
+ * (`>= 0x80`). `code >= DEL_CONTROL` covers DEL (`0x7F`) and all of `0x80`+ in one comparison.
+ */
+private fun isProhibitedInName(code: Int): Boolean = code <= LAST_C0_CONTROL || code >= DEL_CONTROL
 
 /**
- * Whether [code] is a control character prohibited in a header value — the same set as for a name,
- * minus horizontal tab (`0x09`), which RFC 7230 permits as field-value whitespace.
+ * Whether [code] is prohibited in a header value — the same set as for a name, minus horizontal tab
+ * (`0x09`), which RFC 7230 permits as field-value whitespace.
  */
 private fun isProhibitedInValue(code: Int): Boolean =
-    (code <= LAST_C0_CONTROL && code != HORIZONTAL_TAB) || code == DEL_CONTROL
+    (code <= LAST_C0_CONTROL && code != HORIZONTAL_TAB) || code >= DEL_CONTROL
 
 /**
  * Renders [name] for an error message with every control character replaced by its `\uXXXX`
@@ -126,7 +136,10 @@ private const val HORIZONTAL_TAB: Int = 0x09
 /** Highest code point in the C0 control range (US, `0x1F`); everything at or below is illegal in a name. */
 private const val LAST_C0_CONTROL: Int = 0x1F
 
-/** The DEL control character (`0x7F`), the lone control code above the C0 range. */
+/**
+ * The DEL control character (`0x7F`). Used as the low bound of the rejected high range: DEL and
+ * every byte above it (the non-ASCII bytes, `0x80`+) are prohibited in both names and values.
+ */
 private const val DEL_CONTROL: Int = 0x7F
 
 /** Radix for rendering a control character's code point as the hex digits of a `\uXXXX` escape. */

@@ -31,6 +31,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AsyncPaginatorTest {
@@ -827,6 +828,96 @@ class AsyncPaginatorTest {
             }
         assertTrue(ex.cause is IOException, "cause was ${ex.cause}")
         assertEquals(listOf("a", "b"), seen, "items are delivered before the close failure surfaces")
+    }
+
+    @Test
+    fun `a throwing sink over a throwing close surfaces the sink failure, not the close error`() {
+        // drainPage intersection: the sink throws AND the page's close() throws. The sink cause is
+        // recorded first and settles the result; the subsequent close IOException must be swallowed
+        // (result already done), so the caller sees the sink failure — not the close error. The two
+        // inputs were only ever tested in isolation before.
+        val client = StubAsyncHttpClient()
+        client.on("https://api.example.com/items") { req -> closeThrowingResponse(req, "a,b") }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val sinkBoom = RuntimeException("sink exploded")
+        val ex =
+            assertFailsWith<ExecutionException> {
+                paginator.forEachAsync { throw sinkBoom }.get(5, TimeUnit.SECONDS)
+            }
+        assertSame(sinkBoom, ex.cause, "the sink failure must be the surfaced cause, not the close IOException")
+    }
+
+    @Test
+    fun `a throwing close on a staged page dropped by a rejected re-dispatch is swallowed`() {
+        // closeStagedPageQuietly on the rejected-re-dispatch path: mirrors the rejected-re-dispatch
+        // leak test, but the staged page's close() throws. resume()'s catch calls
+        // closeStagedPageQuietly(), which must swallow the close IOException so the
+        // RejectedExecutionException — the real failure — is what the result carries.
+        val page1Transport = CompletableFuture<Response>()
+        val client =
+            AsyncHttpClient { req ->
+                if (req.url.toString() == "https://api.example.com/items") {
+                    page1Transport
+                } else {
+                    CompletableFuture.completedFuture(textResponse(req, "c,d"))
+                }
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        // allowed = 1: the initial dispatch runs inline; the re-entry dispatch is rejected.
+        val executor = RejectAfterNExecutor(allowed = 1)
+        val result = paginator.forEachAsync({ }, executor)
+        assertFalse(result.isDone, "walk must be suspended on the in-flight page")
+
+        // Staging page 1 triggers the re-entry dispatch, which the executor rejects; the staged
+        // page's throwing close() must not mask the rejection.
+        page1Transport.complete(closeThrowingResponse(initialRequest(), "a,b"))
+
+        val ex =
+            assertFailsWith<ExecutionException> {
+                result.get(5, TimeUnit.SECONDS)
+            }
+        assertTrue(
+            ex.cause is RejectedExecutionException,
+            "the rejection must survive the swallowed close error, cause was ${ex.cause}",
+        )
+    }
+
+    @Test
+    fun `a throwing close on a page dropped by external settle is swallowed, leaving a clean cancellation`() {
+        // closeStagedPageQuietly on the external-settle drop path: mirrors the external-settle
+        // drop-leak test, but the dropped page's close() throws. drainStaged() drops the page via
+        // closeStagedPageQuietly() after the result was cancelled; the close IOException must be
+        // swallowed so the result stays a clean cancellation.
+        val page1Transport = CompletableFuture<Response>()
+        val client =
+            AsyncHttpClient { req ->
+                if (req.url.toString() == "https://api.example.com/items") {
+                    page1Transport
+                } else {
+                    CompletableFuture.completedFuture(textResponse(req, "c,d"))
+                }
+            }
+        val paginator = AsyncPaginator(client, initialRequest(), strategy())
+
+        val executor = ManualExecutor()
+        val pagesDelivered = AtomicInteger(0)
+        val result = paginator.forEachPageAsync({ pagesDelivered.incrementAndGet() }, executor)
+
+        assertTrue(executor.runNext(), "the initial drive task must be queued")
+        assertFalse(result.isDone, "walk must be suspended on the in-flight page")
+
+        // Stage page 1 (retaining its throwing-close response), then settle from outside before it
+        // is drained so drainStaged() drops-and-closes it.
+        page1Transport.complete(closeThrowingResponse(initialRequest(), "a,b"))
+        result.cancel(true)
+
+        assertTrue(executor.runNext(), "the drop task must be queued")
+        executor.runAll()
+
+        assertTrue(result.isCancelled, "external cancellation stands; the swallowed close error must not override it")
+        assertEquals(0, pagesDelivered.get(), "a dropped page must not reach the consumer")
     }
 }
 
