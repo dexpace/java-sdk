@@ -1,9 +1,10 @@
 public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport : org/dexpace/sdk/core/client/AsyncHttpClient, org/dexpace/sdk/core/client/HttpClient {
 	public static final field Companion Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Companion;
-	public synthetic fun <init> (Lokhttp3/OkHttpClient;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lokhttp3/OkHttpClient;ZLorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public static final fun builder ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public fun close ()V
 	public static final fun create (Lokhttp3/OkHttpClient;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
+	public static final fun create (Lokhttp3/OkHttpClient;Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
 	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
 }
@@ -13,6 +14,7 @@ public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder : or
 	public fun build ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
 	public final fun callTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun connectTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun droppedHeaderLogging (Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun followRedirects (Z)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun proxy (Lorg/dexpace/sdk/core/util/ProxyOptions;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun readTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
@@ -22,5 +24,7 @@ public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder : or
 public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Companion {
 	public final fun builder ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun create (Lokhttp3/OkHttpClient;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
+	public final fun create (Lokhttp3/OkHttpClient;Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
+	public static synthetic fun create$default (Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Companion;Lokhttp3/OkHttpClient;Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;ILjava/lang/Object;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
 }
 

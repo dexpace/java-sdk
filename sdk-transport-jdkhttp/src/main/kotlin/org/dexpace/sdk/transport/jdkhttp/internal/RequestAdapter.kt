@@ -9,8 +9,11 @@ package org.dexpace.sdk.transport.jdkhttp.internal
 
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import java.net.http.HttpRequest
 import java.time.Duration
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import org.dexpace.sdk.core.http.request.Request as SdkRequest
 
 /**
@@ -29,12 +32,31 @@ import org.dexpace.sdk.core.http.request.Request as SdkRequest
  *     when non-null. JDK 11+ enforces the timeout from connect through response-headers
  *     receipt.
  *
- * Stateless — the [logger] is the only field, used to attribute the DEBUG log naming dropped
- * headers to the transport.
+ * Carries the [logger] (to attribute the dropped-header log to the transport) and the
+ * [droppedHeaderLogging] policy with its per-header WARN-dedup state; otherwise stateless and safe
+ * to share across requests and threads.
  */
 internal class RequestAdapter(
     private val logger: ClientLogger,
+    private val droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER,
 ) {
+    // Header names already WARN-logged under ONCE_PER_HEADER, keyed by lower-cased name so a re-set
+    // of the same header (any casing) warns at most once per transport. Thread-safe: an async
+    // transport adapts requests on many threads.
+    private val warnedDroppedHeaders: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Whether this drop of [rawName] should log at `WARN` (else verbose), per [droppedHeaderLogging].
+     * Internal for direct policy testing: the transport test modules run on `slf4j-nop` and cannot
+     * capture emitted log output, so the dedup decision is asserted here rather than through logs.
+     */
+    internal fun shouldWarnForDroppedHeader(rawName: String): Boolean =
+        when (droppedHeaderLogging) {
+            DroppedHeaderLogging.PER_OCCURRENCE -> true
+            DroppedHeaderLogging.ONCE_PER_HEADER -> warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
+            DroppedHeaderLogging.VERBOSE_ONLY -> false
+        }
+
     /**
      * Adapts [request] into a JDK [HttpRequest]. [responseTimeout] is applied per-request via
      * `HttpRequest.Builder.timeout(...)` when non-null.
@@ -127,16 +149,17 @@ internal class RequestAdapter(
                 try {
                     builder.header(rawName, value)
                 } catch (e: IllegalArgumentException) {
-                    // Verbose (not warn): the model already rejects at construction the names/values
-                    // no transport can encode (control + non-ASCII), so this residual drop is a
-                    // model-valid but non-token header only this transport refuses. Log it quietly —
-                    // like the restricted-header pre-drop above — instead of warning on every request,
-                    // which a hot path re-setting such a header would turn into high-volume noise.
-                    logger.atVerbose()
+                    // The model already rejects at construction the names/values no transport can
+                    // encode (control + non-ASCII), so this residual drop is a model-valid but
+                    // non-token header only this transport refuses. How loudly it surfaces is the
+                    // caller's DroppedHeaderLogging choice; the default warns once per header name and
+                    // logs the rest at verbose so a hot path re-setting it does not flood the log.
+                    val event = if (shouldWarnForDroppedHeader(rawName)) logger.atWarning() else logger.atVerbose()
+                    event
                         .event("transport.jdkhttp.header.rejected")
                         .field("name", rawName)
                         .cause(e)
-                        .log("JDK rejected header name/value; dropping before dispatch")
+                        .log("JDK rejected header name/value it cannot encode; dropping before dispatch")
                 }
             }
         }

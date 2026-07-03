@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.transport.okhttp.internal.RequestAdapter
 import org.dexpace.sdk.transport.okhttp.internal.ResponseAdapter
@@ -67,8 +68,9 @@ public class OkHttpTransport private constructor(
      * decision in [close] per the SDK's ownership-aware lifecycle contract.
      */
     private val owned: Boolean,
+    droppedHeaderLogging: DroppedHeaderLogging,
 ) : HttpClient, AsyncHttpClient {
-    private val requestAdapter: RequestAdapter = RequestAdapter(log)
+    private val requestAdapter: RequestAdapter = RequestAdapter(log, droppedHeaderLogging)
     private val responseAdapter: ResponseAdapter = ResponseAdapter(log)
 
     /**
@@ -260,9 +262,16 @@ public class OkHttpTransport private constructor(
          * BYO factory: wrap a fully-configured [OkHttpClient]. The supplied client is used
          * verbatim — the SDK does not override `followRedirects`, timeouts, or interceptors,
          * and [close] will NOT shut down this client (the caller owns its lifecycle).
+         *
+         * @param droppedHeaderLogging how the transport logs a model-valid header OkHttp cannot
+         *   encode and therefore drops. Defaults to [DroppedHeaderLogging.ONCE_PER_HEADER].
          */
         @JvmStatic
-        public fun create(client: OkHttpClient): OkHttpTransport = OkHttpTransport(client, owned = false)
+        @JvmOverloads
+        public fun create(
+            client: OkHttpClient,
+            droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER,
+        ): OkHttpTransport = OkHttpTransport(client, owned = false, droppedHeaderLogging = droppedHeaderLogging)
 
         /** Returns a fresh [Builder] for SDK-managed [OkHttpClient] construction. */
         @JvmStatic
@@ -285,6 +294,7 @@ public class OkHttpTransport private constructor(
         private var callTimeout: Duration? = null
         private var proxy: ProxyOptions? = null
         private var followRedirects: Boolean = false
+        private var droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER
 
         /** Sets the connect timeout (TCP handshake + TLS handshake). */
         public fun connectTimeout(d: Duration): Builder =
@@ -328,6 +338,16 @@ public class OkHttpTransport private constructor(
             }
 
         /**
+         * How the transport logs a model-valid header OkHttp cannot encode and therefore drops
+         * (e.g. a name with an interior space). Defaults to [DroppedHeaderLogging.ONCE_PER_HEADER]
+         * — one `WARN` the first time each such header is seen, the rest at verbose.
+         */
+        public fun droppedHeaderLogging(policy: DroppedHeaderLogging): Builder =
+            apply {
+                this.droppedHeaderLogging = policy
+            }
+
+        /**
          * Builds an [OkHttpTransport]. The underlying [OkHttpClient] is created with the
          * knobs configured above; unconfigured knobs fall through to OkHttp's library
          * defaults. The transport owns the resulting client, so [OkHttpTransport.close]
@@ -349,7 +369,7 @@ public class OkHttpTransport private constructor(
             // consume-guard. Disable it on SDK-managed clients only; BYO clients keep their
             // own configuration.
             okBuilder.retryOnConnectionFailure(false)
-            return OkHttpTransport(okBuilder.build(), owned = true)
+            return OkHttpTransport(okBuilder.build(), owned = true, droppedHeaderLogging = droppedHeaderLogging)
         }
 
         /**

@@ -22,6 +22,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.io.OkioIoProvider
@@ -352,6 +353,34 @@ class OkHttpTransportTest {
         }
         val recorded = server.takeRequest()
         assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped")
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun droppedHeaderLoggingPolicyIsWiredThroughTheBuilder() {
+        // Wiring smoke test: a transport built with a non-default DroppedHeaderLogging still adapts
+        // the request, drops the non-token header, and dispatches. The log *level* is not asserted
+        // (tests run on slf4j-nop); the policy decision itself is unit-tested in
+        // RequestAdapterDroppedHeaderLoggingTest.
+        val space = 32.toChar() // 0x20: model-valid printable ASCII, not an RFC 7230 token char
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/policy-wiring").toUrl())
+                .addHeader("X-Uni" + space + "code", "plain")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        OkHttpTransport.builder()
+            .droppedHeaderLogging(DroppedHeaderLogging.VERBOSE_ONLY)
+            .build()
+            .use { policyTransport ->
+                policyTransport.execute(request).use { response ->
+                    assertEquals(200, response.status.code)
+                }
+            }
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped under any policy")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 
