@@ -105,6 +105,15 @@ class HttpHeaderNameTest {
     }
 
     @Test
+    fun `fromString rejects a name with a non-ASCII byte`() {
+        // The typed API shares Headers.Builder's tightened validation: RFC 7230 field-names are
+        // ASCII and no reference transport can encode a non-ASCII name, so it is refused at
+        // construction rather than accepted at the model layer and dropped mid-dispatch.
+        val eAcute = 233.toChar() // 'é' (U+00E9): non-ASCII
+        assertFailsWith<IllegalArgumentException> { HttpHeaderName.fromString("X-Caf" + eAcute) }
+    }
+
+    @Test
     fun `concurrent fromString calls converge on a single interned instance`() {
         // Pick a name not used by any well-known constant or other test so this race
         // is genuinely the first interning of the key.

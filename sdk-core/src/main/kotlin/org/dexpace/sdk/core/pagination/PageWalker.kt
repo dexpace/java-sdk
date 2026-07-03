@@ -7,17 +7,15 @@
 
 package org.dexpace.sdk.core.pagination
 
-import java.util.Spliterator
-import java.util.Spliterators
 import java.util.stream.Stream
-import java.util.stream.StreamSupport
 
 /**
  * Internal lazy driver shared by [Paginator] and [PagedIterable]. Pulls pages from [source]
  * — which fully encapsulates its own paging state (cursor, next request, link) and returns
  * `null` at end of stream — and stops after [maxPages] pages. Page-lazy: [source] is invoked
- * only when the consumer pulls the next page. Also the single home for the iterator→`Stream`
- * adaptation, so the public wrappers do not each re-implement it.
+ * only when the consumer pulls the next page. Its [itemStream] goes through the shared
+ * [orderedStream] adapter (which the page-level [CloseablePages] view also uses), so the
+ * iterator→`Stream` boilerplate lives in one place rather than in each public wrapper.
  *
  * Page closing is split by view: [items] eager-closes each page before yielding any of its
  * items (so a partial item-consume never strands a connection), while [pages] yields **live**
@@ -32,7 +30,7 @@ internal class PageWalker<T>(
     private val maxPages: Long,
 ) {
     init {
-        require(maxPages > 0L) { "maxPages must be positive, was $maxPages" }
+        requirePositiveMaxPages(maxPages)
     }
 
     /**
@@ -66,11 +64,5 @@ internal class PageWalker<T>(
         }
 
     /** Sequential, ORDERED, unknown-size [Stream] over [items]. */
-    fun itemStream(): Stream<T> = streamOf(items())
-
-    private fun <E> streamOf(iterator: Iterator<E>): Stream<E> =
-        StreamSupport.stream(
-            Spliterators.spliteratorUnknownSize(iterator, Spliterator.ORDERED),
-            false,
-        )
+    fun itemStream(): Stream<T> = orderedStream(items())
 }

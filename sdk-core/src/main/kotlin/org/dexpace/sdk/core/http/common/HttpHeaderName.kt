@@ -24,8 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
  * first caller to intern a given name "wins"; subsequent lookups with different casing
  * yield the same shared instance.
  *
- * Whitespace is trimmed from the input before interning, and the name is validated: a blank name
- * or one carrying an interior control character is rejected (see [fromString]).
+ * Whitespace is trimmed from the input before interning, and the name is validated: a blank name,
+ * or one carrying an interior control character or a non-ASCII byte, is rejected (see [fromString]).
  *
  * Designed for Java 8 bytecode compatibility — no APIs newer than Java 8 are used.
  */
@@ -220,12 +220,14 @@ public class HttpHeaderName private constructor(
          *
          * The name is validated up front by [requireValidHeaderName]: a blank name, or one whose
          * trimmed form contains an interior control character (CR, LF, NUL, or any other C0/DEL
-         * byte), is rejected with an [IllegalArgumentException]. This is the same guard the
-         * String-keyed [Headers.Builder] API applies, so an interned name carried through the typed
-         * header API is guaranteed control-character-free and cannot reach a transport as a
-         * header-splitting vector.
+         * byte) or a non-ASCII byte (code point >= 0x80), is rejected with an
+         * [IllegalArgumentException]. This is the same guard the String-keyed [Headers.Builder] API
+         * applies, so an interned name carried through the typed header API is guaranteed to be
+         * printable ASCII — control-character-free (it cannot reach a transport as a header-splitting
+         * vector) and free of the non-ASCII bytes no reference transport can encode.
          *
-         * @throws IllegalArgumentException if [name] is blank or contains a control character
+         * @throws IllegalArgumentException if [name] is blank, or contains a control character or a
+         *   non-ASCII byte
          */
         @JvmStatic
         public fun fromString(name: String): HttpHeaderName {

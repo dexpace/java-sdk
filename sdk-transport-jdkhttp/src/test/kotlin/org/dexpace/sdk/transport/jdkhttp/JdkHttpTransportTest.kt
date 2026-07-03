@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.ProxyOptions
@@ -292,6 +293,29 @@ class JdkHttpTransportTest {
         assertTrue(xCustomValues.containsAll(listOf("alpha", "beta")), "expected both custom values in $xCustomValues")
     }
 
+    @Test
+    fun `inboundResponseHeaderWithNonAsciiValueIsPreserved`() {
+        // RFC 7230 permits obs-text (0x80+) in a field-value — e.g. a Latin-1 Content-Disposition
+        // filename — and the JDK client decodes response header bytes as ISO-8859-1, surfacing them.
+        // The response adapter must preserve the header, not silently drop it (the strict outbound
+        // grammar would reject it; the inbound path relaxes only the ASCII restriction).
+        val eAcute = 233.toChar() // 'é' (U+00E9)
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                // addHeaderLenient bypasses MockWebServer's own strict value grammar so the raw
+                // obs-text byte reaches the wire, exactly as a real server would send it.
+                .addHeaderLenient("Content-Disposition", "attachment; filename=\"caf" + eAcute + ".pdf\"")
+                .build(),
+        )
+        val request = Request.builder().method(Method.GET).url(server.url("/obs-text").toUrl()).build()
+        transport.execute(request).use { response ->
+            val value = response.headers.get("Content-Disposition")
+            assertNotNull(value, "obs-text response header must be preserved, not dropped")
+            assertTrue(value.any { it.code >= 0x80 }, "the non-ASCII byte must survive: $value")
+        }
+    }
+
     // -------- restricted headers --------
 
     @Test
@@ -330,18 +354,19 @@ class JdkHttpTransportTest {
 
     @Test
     fun `headerRejectedByJdkIsDroppedNotThrown`() {
-        // The SDK model layer permits a non-ASCII header name (it rejects only control characters),
-        // but the JDK's field-name grammar rejects a non-token byte. The adapter must drop it rather
-        // than let the unchecked IllegalArgumentException escape execute()'s @Throws(IOException)
-        // contract — the same drop-and-log path the OkHttp adapter now mirrors. Built with toChar()
-        // so the offending byte is unambiguous in source.
-        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6): not an RFC 7230 token char
+        // The SDK model layer permits any printable-ASCII header name (it rejects only control and
+        // non-ASCII bytes), but the JDK's field-name grammar rejects a non-token byte. The adapter
+        // must drop it rather than let the unchecked IllegalArgumentException escape execute()'s
+        // @Throws(IOException) contract — the same drop-and-log path the OkHttp adapter mirrors. A
+        // space (0x20) is a model-valid, non-token name byte; built with toChar() so it is
+        // unambiguous in source.
+        val space = 32.toChar() // 0x20: printable ASCII the model permits, but not an RFC 7230 token char
         server.enqueue(MockResponse.Builder().code(200).body("ok").build())
         val request =
             Request.builder()
                 .method(Method.GET)
                 .url(server.url("/non-token-name").toUrl())
-                .addHeader("X-Uni" + oUmlaut + "code", "plain")
+                .addHeader("X-Uni" + space + "code", "plain")
                 .addHeader("X-Pass-Through", "kept")
                 .build()
         // execute must NOT throw; the rejected header is simply absent on the wire.
@@ -349,22 +374,52 @@ class JdkHttpTransportTest {
             assertEquals(200, response.status.code)
         }
         val recorded = server.takeRequest()
-        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-token name must be dropped")
+        assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped")
+        assertEquals("kept", recorded.headers["X-Pass-Through"])
+    }
+
+    @Test
+    fun `droppedHeaderLoggingPolicyIsWiredThroughTheBuilder`() {
+        // Wiring smoke test: a transport built with a non-default DroppedHeaderLogging still adapts
+        // the request, drops the non-token header, and dispatches. The log *level* is not asserted
+        // (tests run on slf4j-nop); the policy decision itself is unit-tested in
+        // RequestAdapterDroppedHeaderLoggingTest.
+        val space = 32.toChar() // 0x20: model-valid printable ASCII, not an RFC 7230 token char
+        server.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(server.url("/policy-wiring").toUrl())
+                .addHeader("X-Uni" + space + "code", "plain")
+                .addHeader("X-Pass-Through", "kept")
+                .build()
+        JdkHttpTransport.builder()
+            .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+            .droppedHeaderLogging(DroppedHeaderLogging.VERBOSE_ONLY)
+            .build()
+            .use { policyTransport ->
+                policyTransport.execute(request).use { response ->
+                    assertEquals(200, response.status.code)
+                }
+            }
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped under any policy")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 
     @Test
     fun `headerRejectedByJdkIsDroppedNotThrownAsync`() {
-        // The adapter runs on the async path too. A header the JDK rejects must be dropped so the
-        // future completes normally (not exceptionally) and the request still dispatches —
-        // mirroring the sync drop-not-throw path and the OkHttp transport's async coverage.
-        val oUmlaut = 246.toChar() // 'o' with diaeresis (U+00F6): not an RFC 7230 token char
+        // The adapter runs on the async path too. A header the JDK rejects (here a non-token name
+        // carrying an interior space) must be dropped so the future completes normally (not
+        // exceptionally) and the request still dispatches — mirroring the sync drop-not-throw path
+        // and the OkHttp transport's async coverage.
+        val space = 32.toChar() // 0x20: model-valid printable ASCII, not an RFC 7230 token char
         server.enqueue(MockResponse.Builder().code(200).body("ok").build())
         val request =
             Request.builder()
                 .method(Method.GET)
                 .url(server.url("/non-token-name-async").toUrl())
-                .addHeader("X-Uni" + oUmlaut + "code", "plain")
+                .addHeader("X-Uni" + space + "code", "plain")
                 .addHeader("X-Pass-Through", "kept")
                 .build()
         val response = transport.executeAsync(request).get(5, TimeUnit.SECONDS)
@@ -372,7 +427,7 @@ class JdkHttpTransportTest {
             assertEquals(200, it.status.code)
         }
         val recorded = server.takeRequest()
-        assertNull(recorded.headers["X-Uni" + oUmlaut + "code"], "non-token name must be dropped")
+        assertNull(recorded.headers["X-Uni" + space + "code"], "non-token name must be dropped")
         assertEquals("kept", recorded.headers["X-Pass-Through"])
     }
 

@@ -11,7 +11,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 
 /**
- * Parses a [Response] into a [Page] and uses the [initialRequest] as a template for
+ * Parses a [Response] into a [PageInfo] and uses the [initialRequest] as a template for
  * building the next page's request.
  *
  * `PaginationStrategy` is the seam that lets the [Paginator] support any wire convention —
@@ -34,7 +34,7 @@ import org.dexpace.sdk.core.http.response.Response
  */
 public fun interface PaginationStrategy<T> {
     /**
-     * Parses [response] into a [Page] of items. Uses [initialRequest] as a template for
+     * Parses [response] into a [PageInfo] of items. Uses [initialRequest] as a template for
      * the next page's URL/headers/method/body, mutating only what the wire convention
      * demands (e.g. swapping the cursor query param, replacing the URL with a
      * `Link: rel="next"` value).

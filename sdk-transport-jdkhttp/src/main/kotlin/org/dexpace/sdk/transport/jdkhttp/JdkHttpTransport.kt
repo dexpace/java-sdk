@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.transport.jdkhttp.internal.RequestAdapter
 import org.dexpace.sdk.transport.jdkhttp.internal.ResponseAdapter
@@ -84,9 +85,10 @@ public class JdkHttpTransport private constructor(
      * left untouched.
      */
     private val ownedExecutor: ExecutorService?,
+    droppedHeaderLogging: DroppedHeaderLogging,
 ) : HttpClient, AsyncHttpClient {
     private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.jdkhttp.JdkHttpTransport")
-    private val requestAdapter: RequestAdapter = RequestAdapter(log)
+    private val requestAdapter: RequestAdapter = RequestAdapter(log, droppedHeaderLogging)
     private val responseAdapter: ResponseAdapter = ResponseAdapter(log)
 
     /**
@@ -241,13 +243,24 @@ public class JdkHttpTransport private constructor(
          * [responseTimeout], when non-`null`, is applied to every outgoing request via
          * [java.net.http.HttpRequest.Builder.timeout] — the JDK client does not expose a
          * global response-timeout knob. Defaults to `null` (no per-request timeout).
+         *
+         * @param droppedHeaderLogging how the transport logs a model-valid header the JDK client
+         *   cannot encode and therefore drops. Defaults to [DroppedHeaderLogging.ONCE_PER_HEADER].
          */
         @JvmStatic
         @JvmOverloads
         public fun create(
             client: java.net.http.HttpClient,
             responseTimeout: Duration? = null,
-        ): JdkHttpTransport = JdkHttpTransport(client, responseTimeout, owned = false, ownedExecutor = null)
+            droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER,
+        ): JdkHttpTransport =
+            JdkHttpTransport(
+                client,
+                responseTimeout,
+                owned = false,
+                ownedExecutor = null,
+                droppedHeaderLogging = droppedHeaderLogging,
+            )
 
         /** Returns a fresh [Builder] for SDK-managed [java.net.http.HttpClient] construction. */
         @JvmStatic
@@ -298,6 +311,7 @@ public class JdkHttpTransport private constructor(
         private var proxy: ProxyOptions? = null
         private var followRedirects: Boolean = false
         private var httpVersion: HttpVersion = HttpVersion.HTTP_2
+        private var droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER
 
         /** Sets the connect timeout (TCP handshake + TLS handshake). */
         public fun connectTimeout(d: Duration): Builder =
@@ -343,6 +357,17 @@ public class JdkHttpTransport private constructor(
             }
 
         /**
+         * How the transport logs a model-valid header the JDK client cannot encode and therefore
+         * drops (e.g. a name with an interior space). Defaults to
+         * [DroppedHeaderLogging.ONCE_PER_HEADER] — one `WARN` the first time each such header is
+         * seen, the rest at verbose.
+         */
+        public fun droppedHeaderLogging(policy: DroppedHeaderLogging): Builder =
+            apply {
+                this.droppedHeaderLogging = policy
+            }
+
+        /**
          * Builds a [JdkHttpTransport]. The underlying [java.net.http.HttpClient] is created
          * with the knobs configured above; unconfigured knobs fall through to the JDK's
          * library defaults. The transport owns the resulting client, so
@@ -371,7 +396,13 @@ public class JdkHttpTransport private constructor(
             // executor when one isn't supplied via `Builder.executor`. When the Builder
             // exposes an executor knob in the future, capture it here and pass it through
             // to the [JdkHttpTransport] constructor so [close] can shut it down.
-            return JdkHttpTransport(clientBuilder.build(), responseTimeout, owned = true, ownedExecutor = null)
+            return JdkHttpTransport(
+                clientBuilder.build(),
+                responseTimeout,
+                owned = true,
+                ownedExecutor = null,
+                droppedHeaderLogging = droppedHeaderLogging,
+            )
         }
 
         /**

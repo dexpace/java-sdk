@@ -78,7 +78,7 @@ import java.util.stream.Stream
  * @property httpClient Transport used to execute each page request.
  * @property initialRequest Request used to fetch the first page; also passed to the
  *   strategy as a template for building subsequent page requests.
- * @property strategy Strategy that parses each response into a [Page].
+ * @property strategy Strategy that parses each response into a [PageInfo].
  * @property maxPages Safety cap on the total number of pages (HTTP exchanges) the iterator
  *   will fetch. Defaults to `Long.MAX_VALUE` (unbounded). Must be positive.
  */
@@ -91,7 +91,7 @@ public class Paginator<T>
         private val maxPages: Long = Long.MAX_VALUE,
     ) {
         init {
-            require(maxPages > 0L) { "maxPages must be positive, was $maxPages" }
+            requirePositiveMaxPages(maxPages)
         }
 
         /** Lazy iterable over all items across all pages. Each call restarts pagination. */
@@ -114,13 +114,7 @@ public class Paginator<T>
                     val request = nextRequest ?: return@PageWalker null
                     nextRequest = null
                     val response: Response = httpClient.execute(request)
-                    val info: PageInfo<T> =
-                        try {
-                            strategy.parse(response, initialRequest)
-                        } catch (t: Throwable) {
-                            response.close() // parse failed → this page never becomes a Page; release it now
-                            throw t
-                        }
+                    val info: PageInfo<T> = strategy.parseOrClose(response, initialRequest)
                     nextRequest = info.nextRequest
                     Page(response, info.items)
                 },

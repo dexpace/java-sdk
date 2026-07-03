@@ -9,8 +9,12 @@ package org.dexpace.sdk.transport.jdkhttp.internal
 
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
+import org.dexpace.sdk.core.instrumentation.LogLevel
 import java.net.http.HttpRequest
 import java.time.Duration
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import org.dexpace.sdk.core.http.request.Request as SdkRequest
 
 /**
@@ -29,12 +33,40 @@ import org.dexpace.sdk.core.http.request.Request as SdkRequest
  *     when non-null. JDK 11+ enforces the timeout from connect through response-headers
  *     receipt.
  *
- * Stateless — the [logger] is the only field, used to attribute the DEBUG log naming dropped
- * headers to the transport.
+ * Carries the [logger] (to attribute the dropped-header log to the transport) and the
+ * [droppedHeaderLogging] policy with its per-header WARN-dedup state; otherwise stateless and safe
+ * to share across requests and threads.
  */
 internal class RequestAdapter(
     private val logger: ClientLogger,
+    private val droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER,
 ) {
+    // Header names already WARN-logged under ONCE_PER_HEADER, keyed by lower-cased name so a re-set
+    // of the same header (any casing) warns at most once per transport. Thread-safe: an async
+    // transport adapts requests on many threads.
+    private val warnedDroppedHeaders: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Whether this drop of [rawName] should log at `WARN` (else verbose), per [droppedHeaderLogging].
+     * Internal for direct policy testing: the transport test modules run on `slf4j-nop` and cannot
+     * capture emitted log output, so the dedup decision is asserted here rather than through logs.
+     *
+     * Callers MUST gate this behind `logger.canLog(LogLevel.WARNING)` (see [attachHeaders]): under
+     * `ONCE_PER_HEADER` the call has the side effect of recording [rawName], so spending it while
+     * `WARN` is disabled would consume the one-shot without emitting anything and hide the drop if
+     * the level is later raised. The `ONCE_PER_HEADER` set is bounded at [MAX_WARNED_DROPPED_HEADERS]
+     * entries so a caller synthesising unbounded distinct non-token names cannot grow it without
+     * limit on a transport-lifetime adapter; past the bound, further first-drops log at verbose.
+     */
+    internal fun shouldWarnForDroppedHeader(rawName: String): Boolean =
+        when (droppedHeaderLogging) {
+            DroppedHeaderLogging.PER_OCCURRENCE -> true
+            DroppedHeaderLogging.ONCE_PER_HEADER ->
+                warnedDroppedHeaders.size < MAX_WARNED_DROPPED_HEADERS &&
+                    warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
+            DroppedHeaderLogging.VERBOSE_ONLY -> false
+        }
+
     /**
      * Adapts [request] into a JDK [HttpRequest]. [responseTimeout] is applied per-request via
      * `HttpRequest.Builder.timeout(...)` when non-null.
@@ -104,13 +136,12 @@ internal class RequestAdapter(
      * `IllegalArgumentException` escape [adapt] (and therefore `execute`, declared
      * `@Throws(IOException)`) where a caller's `catch(IOException)` would not observe it.
      *
-     * Upstream `Headers.Builder` validation closes the request/header-splitting surface
-     * (control-character names, and control-character values bar horizontal tab, are rejected
-     * before they reach here), but it does not mirror the JDK's full field-name/value grammar.
-     * The `IllegalArgumentException` caught
-     * here is therefore the JDK refusing either a name in its restricted set or a model-valid
-     * name/value it nonetheless rejects (e.g. a non-token / non-ASCII byte the SDK deliberately
-     * permits) — not a control-character splitting vector, which never gets this far.
+     * Upstream `Headers.Builder` validation restricts names and values to printable ASCII (control
+     * characters and non-ASCII bytes are rejected at construction), closing the request/header-
+     * splitting surface, but it does not mirror the JDK's full field-name/value token grammar. The
+     * `IllegalArgumentException` caught here is therefore the JDK refusing either a name in its
+     * restricted set or a model-valid but non-token name/value (e.g. one carrying an interior
+     * space) — not a control-character splitting vector, which never gets this far.
      */
     private fun attachHeaders(
         builder: HttpRequest.Builder,
@@ -128,17 +159,32 @@ internal class RequestAdapter(
                 try {
                     builder.header(rawName, value)
                 } catch (e: IllegalArgumentException) {
-                    // Warn (not verbose): this is a header the caller explicitly set being silently
-                    // dropped because this transport cannot encode it — surfaced by default so the
-                    // loss is visible. Restricted-header drops above stay at verbose (expected, the
-                    // JDK recomputes or forbids them), as does the inbound response-header drop.
-                    logger.atWarning()
+                    // The model already rejects at construction the names/values no transport can
+                    // encode (control + non-ASCII), so this residual drop is a model-valid but
+                    // non-token header only this transport refuses. How loudly it surfaces is the
+                    // caller's DroppedHeaderLogging choice; the default warns once per header name and
+                    // logs the rest at verbose so a hot path re-setting it does not flood the log.
+                    // Gate the dedup on canLog(WARNING) so its one-shot side effect is spent only when
+                    // WARN can actually be emitted (see shouldWarnForDroppedHeader).
+                    val warn = logger.canLog(LogLevel.WARNING) && shouldWarnForDroppedHeader(rawName)
+                    val event = if (warn) logger.atWarning() else logger.atVerbose()
+                    event
                         .event("transport.jdkhttp.header.rejected")
                         .field("name", rawName)
                         .cause(e)
-                        .log("JDK rejected header name/value; dropping before dispatch")
+                        .log("JDK rejected header name/value it cannot encode; dropping before dispatch")
                 }
             }
         }
+    }
+
+    private companion object {
+        /**
+         * Upper bound on the `ONCE_PER_HEADER` dedup set. The adapter lives for the transport's
+         * lifetime, so an unbounded set would leak one entry per distinct dropped header name; a
+         * caller deriving names from request data could grow it without limit. Past this many
+         * distinct names, further first-drops fall through to verbose rather than being recorded.
+         */
+        private const val MAX_WARNED_DROPPED_HEADERS: Int = 1024
     }
 }

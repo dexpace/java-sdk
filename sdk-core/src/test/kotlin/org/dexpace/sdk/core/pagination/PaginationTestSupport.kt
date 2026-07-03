@@ -135,6 +135,46 @@ private fun closeRecordingBody(
     }
 }
 
+/**
+ * Convenience: a 200 OK response whose body reads normally but whose `close()` always throws an
+ * [java.io.IOException] with [closeMessage]. Lets tests exercise the close-failure paths — the
+ * parse-failure suppression in [parseOrClose] and the stream close handler's `UncheckedIOException`
+ * wrapping in [CloseablePages.stream].
+ */
+internal fun closeFailingResponse(
+    request: Request,
+    body: String = "",
+    closeMessage: String = "close exploded",
+): Response =
+    Response.builder()
+        .request(request)
+        .protocol(Protocol.HTTP_1_1)
+        .status(Status.OK)
+        .headers(Headers.Builder().build())
+        .body(closeFailingBody(body, closeMessage))
+        .build()
+
+private fun closeFailingBody(
+    content: String,
+    closeMessage: String,
+): ResponseBody {
+    val bytes = content.toByteArray(Charsets.UTF_8)
+    return object : ResponseBody() {
+        private var cachedSource: org.dexpace.sdk.core.io.BufferedSource? = null
+
+        override fun mediaType(): org.dexpace.sdk.core.http.common.MediaType? = null
+
+        override fun contentLength(): Long = bytes.size.toLong()
+
+        override fun source(): org.dexpace.sdk.core.io.BufferedSource =
+            cachedSource ?: Io.provider.source(bytes).also { cachedSource = it }
+
+        override fun close() {
+            throw java.io.IOException(closeMessage)
+        }
+    }
+}
+
 /** Install the Okio IoProvider so test response bodies are readable. */
 internal fun installIoProvider() {
     Io.installProvider(OkioIoProvider)

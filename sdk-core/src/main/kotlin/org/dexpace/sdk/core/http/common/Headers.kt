@@ -160,6 +160,36 @@ public data class Headers private constructor(
             }
 
         /**
+         * Adds an inbound (already-received) header, permitting non-ASCII (obs-text) bytes in
+         * [value] that the strict outbound [add] grammar rejects.
+         *
+         * A transport uses this when copying a *response*'s headers into the model. RFC 7230 allows
+         * obs-text (`0x80`+) in a field-value — a server legitimately puts Latin-1 bytes in values
+         * such as a `Content-Disposition` filename — and both reference transports surface such
+         * values on read, so validating them with the outbound grammar would silently drop
+         * legitimate response headers. The name is still validated strictly (control and non-ASCII
+         * bytes rejected); in the value, only the ASCII restriction is relaxed — control characters
+         * are still rejected. Like OkHttp's `addUnsafeNonAscii` this relaxes the value's ASCII
+         * restriction; unlike it (whose `addLenient` validates nothing on the value), the
+         * control-character guard is kept here as defence-in-depth.
+         *
+         * @param name the header name
+         * @param value the header value, which may contain non-ASCII bytes
+         * @return this builder
+         * @throws IllegalArgumentException if [name] is blank or contains a control/non-ASCII byte,
+         *   or [value] contains a prohibited control character
+         */
+        public fun addUnsafeNonAscii(
+            name: String,
+            value: String,
+        ): Builder =
+            apply {
+                val trimmedName = requireValidHeaderName(name)
+                requireValidInboundHeaderValue(trimmedName, value)
+                headersMap.computeIfAbsent(canonicalKey(trimmedName)) { mutableListOf() }.add(value)
+            }
+
+        /**
          * Adds a header with the specified typed name and value.
          */
         public fun add(

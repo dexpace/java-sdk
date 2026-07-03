@@ -57,8 +57,9 @@ import java.util.function.Consumer
  * A page whose strategy `parse(...)` throws is never built — its response is closed inline on
  * that exceptional path before the result future completes exceptionally. Strategies MUST read
  * everything they need synchronously inside `parse(...)` and MUST NOT retain the response or its
- * body past the call. A page's raw [Response]/body is valid only while that page is being
- * delivered (see [forEachPageAsync]); [Page.items] and the derived metadata outlive close.
+ * body past the call. A page's raw [Response] is open only while that page is being delivered (see
+ * [forEachPageAsync]) — its body is typically already drained by the strategy, so only per-page
+ * metadata is reliably readable there; [Page.items] and the derived metadata outlive close.
  *
  * ## Consumer threading
  *
@@ -118,7 +119,7 @@ import java.util.function.Consumer
  * @property asyncHttpClient Async transport used to execute each page request.
  * @property initialRequest Request used to fetch the first page; also passed to the strategy
  *   as a template for building subsequent page requests.
- * @property strategy Strategy that parses each response into a [Page].
+ * @property strategy Strategy that parses each response into a [PageInfo].
  * @property maxPages Safety cap on the total number of pages (HTTP exchanges) the walk will
  *   fetch. Defaults to `Long.MAX_VALUE` (unbounded). Must be positive.
  */
@@ -131,7 +132,7 @@ public class AsyncPaginator<T>
         private val maxPages: Long = Long.MAX_VALUE,
     ) {
         init {
-            require(maxPages > 0L) { "maxPages must be positive, was $maxPages" }
+            requirePositiveMaxPages(maxPages)
         }
 
         /**
@@ -193,10 +194,13 @@ public class AsyncPaginator<T>
 
         /**
          * Walks every page, invoking [consumer] for each [Page] in server-defined order. The page
-         * passed to [consumer] is **live**: its raw [Page.response]/body is open and readable for
-         * the duration of the callback. The driver closes that response immediately after `accept`
-         * returns, so the consumer MUST NOT retain the page or read its raw body afterwards;
-         * [Page.items] and the derived metadata (status code, headers, request) survive close.
+         * passed to [consumer] is **live**: its [Page.response] is still open for the duration of
+         * the callback, so per-page metadata (status, headers) is readable. The body, however, is
+         * single-use and every shipped strategy drains it inside `parse(...)` to materialize
+         * [Page.items], so it is typically already consumed — do not rely on re-reading it. The
+         * driver closes the response immediately after `accept` returns, so the consumer MUST NOT
+         * retain the page; [Page.items] and the derived metadata (status code, headers, request)
+         * survive close.
          *
          * Cancellation, executor, and ordering semantics are identical to [forEachAsync].
          *
@@ -475,13 +479,7 @@ public class AsyncPaginator<T>
                         // rather than NPE on the parse below.
                         error("AsyncHttpClient.executeAsync completed with a null Response")
                     }
-                    val info =
-                        try {
-                            strategy.parse(response, initialRequest)
-                        } catch (t: Throwable) {
-                            response.close() // parse failed → this page never becomes a Page; release it now
-                            throw t
-                        }
+                    val info = strategy.parseOrClose(response, initialRequest)
                     ParsedPage(Page(response, info.items), info.nextRequest)
                 }
             }

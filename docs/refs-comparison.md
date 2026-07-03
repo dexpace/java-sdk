@@ -230,7 +230,7 @@ below records where each scheme's design was sourced from:
 ### Pagination
 
 `Paginator<T>` + `Page<T>` ship in `sdk-core`, driven by a `PaginationStrategy` (cursor,
-page-number, token, link-header), and `pagination.PagedIterable` wraps the result. Reference
+page-number, link-header), and `pagination.PagedIterable` wraps the result. Reference
 designs we drew on:
 
 - **Square**: `SyncPagingIterable<T>` (`Iterable<T>` lazy iterator), `SyncPage<T>` (per-page holder), `BiDirectionalPage<T>` (forward + backward cursors), `CustomPager<T>` (user-implementation stub for HATEOAS).
@@ -240,7 +240,7 @@ designs we drew on:
 **What shipped, and what's left:**
 
 1. `Paginator<T>` and `Page<T>` are in `sdk-core`. `iterateAll()` returns a lazy `Iterable<T>`; `streamAll()` returns a Java 8 `Stream<T>`. Each call hands back an independent iterator with its own state.
-2. The strategy is injected via `PaginationStrategy`, with concrete impls covering cursor (`next_cursor` / `prev_cursor`), page-number, token, and link-header (RFC 8288). A `maxPages` cap guards against servers that never advance their cursor.
+2. The strategy is injected via `PaginationStrategy`, with three concrete impls: cursor (`CursorPaginationStrategy`, forward-only), page-number, and link-header (RFC 8288). Token-style APIs (`next_page_token`, `pageToken`, …) reuse `CursorPaginationStrategy` with a configurable query-param name, so no separate token strategy ships (see `architecture.md`). A `maxPages` cap guards against servers that never advance their cursor.
 3. Async variants for `sdk-async-coroutines` (`Flow<T>`) and `sdk-async-reactor` (`Flux<T>`) are not yet built.
 4. `BiDirectionalPage` is deferred until a real API needs it; Square's pattern is good when needed.
 
@@ -333,7 +333,7 @@ adapters where noted):
 - **Idempotency-key step.** Auto-injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH`; caller-set header wins; pluggable key strategy. [`pipeline/step/IdempotencyKeyStep.kt`]
 - **Auth.** `Credential` family + RFC 7235 challenge parsing + Basic/Digest/Composite `ChallengeHandler`s + `AuthStep` pillar. [`auth/`, `http/pipeline/steps/`]
 - **`sdk-serde-jackson` adapter.** Kotlin + JSR-310 + Jdk8 modules; `FAIL_ON_UNKNOWN_PROPERTIES` and `WRITE_DATES_AS_TIMESTAMPS` disabled; `Tristate<T>` via `TristateModule`.
-- **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationStrategy` (cursor / page-number / token / link-header) with a `maxPages` cap; `PagedIterable` wrapper.
+- **Pagination primitives.** `Paginator<T>` + `Page<T>` + `PaginationStrategy` (cursor / page-number / link-header) with a `maxPages` cap; `PagedIterable` wrapper.
 - **Client identity header.** `ClientIdentityStep` building the `dexpace-sdk/<ver> jvm/<javaver>` token line.
 - **Tracer event vocabulary + metrics seam.** `HttpTracer` with named retry/request/response events; `Meter`/`LongCounter`/`DoubleHistogram` separate from tracing.
 - **SSE streaming.** WHATWG reader in `sdk-core`; backpressured `Flux<ServerSentEvent>` in `sdk-async-reactor`.

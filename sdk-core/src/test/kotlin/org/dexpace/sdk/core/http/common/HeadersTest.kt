@@ -281,15 +281,57 @@ class HeadersTest {
                 .add("X-Plain", "hello world")
                 .set("Authorization", "Bearer abc.def-ghi")
                 .add(HttpHeaderName.SET_COOKIE, "id=42; Path=/")
-                // Horizontal tab is the one permitted control character, and UTF-8 is not a control
-                // character at all, so both pass the conservative check.
-                .set("X-Unicode", "café\tvalue")
+                // Horizontal tab is the one permitted control character; printable ASCII plus tab
+                // passes the check.
+                .set("X-Tabbed", "left\tright")
                 .build()
 
         assertEquals("hello world", headers.get("X-Plain"))
         assertEquals("Bearer abc.def-ghi", headers.get("Authorization"))
         assertEquals("id=42; Path=/", headers.get(HttpHeaderName.SET_COOKIE))
-        assertEquals("café\tvalue", headers.get("X-Unicode"))
+        assertEquals("left\tright", headers.get("X-Tabbed"))
+    }
+
+    @Test
+    fun `value validation rejects a non-ASCII byte`() {
+        // RFC 7230 field-values are ASCII, and both reference transports reject a non-ASCII value,
+        // so the model refuses it at construction rather than accepting a value no transport can put
+        // on the wire (previously it was permitted at the model layer and dropped mid-dispatch).
+        val eAcute = 233.toChar() // 'é' (U+00E9): valid UTF-8, non-ASCII
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Foo", "caf" + eAcute) }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().set("X-Foo", "caf" + eAcute) }
+    }
+
+    @Test
+    fun `addUnsafeNonAscii preserves a non-ASCII value the outbound grammar would reject`() {
+        // The inbound path exists so a response header carrying legal obs-text (e.g. a Latin-1
+        // Content-Disposition filename) survives, where the strict outbound add/set would reject it.
+        val eAcute = 233.toChar() // 'é' (U+00E9)
+        val value = "attachment; filename=\"caf" + eAcute + ".pdf\""
+        // Guard: the outbound grammar still rejects the same value, so this is a genuine relaxation.
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("Content-Disposition", value) }
+
+        val headers = Headers.builder().addUnsafeNonAscii("Content-Disposition", value).build()
+        assertEquals(value, headers.get("Content-Disposition"))
+    }
+
+    @Test
+    fun `addUnsafeNonAscii permits horizontal tab but rejects control characters in the value`() {
+        val tabbed = Headers.builder().addUnsafeNonAscii("X-Tabbed", "left\tright").build()
+        assertEquals("left\tright", tabbed.get("X-Tabbed"))
+
+        // A CR/LF/NUL/DEL in a parsed value is still refused — defence-in-depth against a
+        // misbehaving transport, matching the pre-existing outbound guard.
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Bad", "a\rb") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Bad", "a\u0000b") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Bad", "a\u007Fb") }
+    }
+
+    @Test
+    fun `addUnsafeNonAscii still validates the name strictly`() {
+        val eAcute = 233.toChar() // 'é' (U+00E9)
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Caf" + eAcute, "v") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().addUnsafeNonAscii("X-Evil\nInjected", "v") }
     }
 
     @Test
@@ -368,6 +410,15 @@ class HeadersTest {
         assertFailsWith<IllegalArgumentException> {
             Headers.builder().set("X-Evil\u0000Injected", listOf("v"))
         }
+    }
+
+    @Test
+    fun `add and set reject a name containing a non-ASCII byte`() {
+        // RFC 7230 field-names are ASCII, and no reference transport can encode a non-ASCII name, so
+        // it is refused at construction rather than accepted and dropped mid-dispatch.
+        val eAcute = 233.toChar() // 'é' (U+00E9): non-ASCII, not an RFC 7230 token char
+        assertFailsWith<IllegalArgumentException> { Headers.builder().add("X-Caf" + eAcute, "v") }
+        assertFailsWith<IllegalArgumentException> { Headers.builder().set("X-Caf" + eAcute, listOf("v")) }
     }
 
     @Test

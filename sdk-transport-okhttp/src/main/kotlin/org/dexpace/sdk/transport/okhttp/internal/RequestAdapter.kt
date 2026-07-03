@@ -12,6 +12,10 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
+import org.dexpace.sdk.core.instrumentation.LogLevel
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import org.dexpace.sdk.core.http.request.Request as SdkRequest
 import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
 
@@ -37,12 +41,40 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  *     request body.")` — cannot reach here: `Request.RequestBuilder.build` rejects a body on
  *     GET/HEAD/TRACE/CONNECT at construction, so `request.body` is always `null` for those methods.
  *
- * The adapter is stateless — the [logger] is the only field it carries so the DEBUG log
- * naming dropped headers attributes to the transport.
+ * The adapter carries the [logger] (so the dropped-header log attributes to the transport) and the
+ * [droppedHeaderLogging] policy with its per-header WARN-dedup state; it is otherwise stateless and
+ * safe to share across requests and threads.
  */
 internal class RequestAdapter(
     private val logger: ClientLogger,
+    private val droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER,
 ) {
+    // Header names already WARN-logged under ONCE_PER_HEADER, keyed by lower-cased name so a re-set
+    // of the same header (any casing) warns at most once per transport. Thread-safe: an async
+    // transport adapts requests on many threads.
+    private val warnedDroppedHeaders: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Whether this drop of [rawName] should log at `WARN` (else verbose), per [droppedHeaderLogging].
+     * Internal for direct policy testing: the transport test modules run on `slf4j-nop` and cannot
+     * capture emitted log output, so the dedup decision is asserted here rather than through logs.
+     *
+     * Callers MUST gate this behind `logger.canLog(LogLevel.WARNING)` (see [adapt]): under
+     * `ONCE_PER_HEADER` the call has the side effect of recording [rawName], so spending it while
+     * `WARN` is disabled would consume the one-shot without emitting anything and hide the drop if
+     * the level is later raised. The `ONCE_PER_HEADER` set is bounded at [MAX_WARNED_DROPPED_HEADERS]
+     * entries so a caller synthesising unbounded distinct non-token names cannot grow it without
+     * limit on a transport-lifetime adapter; past the bound, further first-drops log at verbose.
+     */
+    internal fun shouldWarnForDroppedHeader(rawName: String): Boolean =
+        when (droppedHeaderLogging) {
+            DroppedHeaderLogging.PER_OCCURRENCE -> true
+            DroppedHeaderLogging.ONCE_PER_HEADER ->
+                warnedDroppedHeaders.size < MAX_WARNED_DROPPED_HEADERS &&
+                    warnedDroppedHeaders.add(rawName.lowercase(Locale.US))
+            DroppedHeaderLogging.VERBOSE_ONLY -> false
+        }
+
     fun adapt(request: SdkRequest): Request {
         val builder = Request.Builder().url(request.url.toExternalForm())
         for ((rawName, values) in request.headers.entries()) {
@@ -54,28 +86,33 @@ internal class RequestAdapter(
                 continue
             }
             for (value in values) {
-                // Header names and values are validated upstream by Headers.Builder (names reject
-                // control characters; values reject control characters except horizontal tab),
-                // which closes the request/header-splitting surface. OkHttp is stricter still: it
-                // rejects any byte outside printable ASCII in a name (0x21-0x7e) or value (tab and
-                // 0x20-0x7e), so a model-valid non-ASCII (e.g. UTF-8) name or value — which the SDK
-                // deliberately permits — would make addHeader throw an unchecked
-                // IllegalArgumentException. Catch it and drop just that header, mirroring the JDK
-                // transport's attachHeaders, so the exception never escapes adapt (and therefore
-                // sync execute, declared @Throws(IOException)) as an unchecked failure a caller's
-                // catch(IOException) would miss.
+                // Header names and values are validated upstream by Headers.Builder to printable
+                // ASCII (control characters and non-ASCII bytes are rejected at construction), which
+                // closes the request/header-splitting surface. OkHttp is stricter still: it restricts
+                // a name to 0x21-0x7e (printable ASCII minus space — a superset of the RFC 7230 token
+                // grammar, which also excludes separators like '(' and '@') and a value to tab plus
+                // 0x20-0x7e, so a model-valid but non-token header — e.g. a name carrying an interior
+                // space (0x20) — makes addHeader throw an unchecked IllegalArgumentException. Catch it and drop just
+                // that header, mirroring the JDK transport's attachHeaders, so the exception never
+                // escapes adapt (and therefore sync execute, declared @Throws(IOException)) as an
+                // unchecked failure a caller's catch(IOException) would miss.
                 try {
                     builder.addHeader(rawName, value)
                 } catch (e: IllegalArgumentException) {
-                    // Warn (not verbose): this is a header the caller explicitly set being silently
-                    // dropped because this transport cannot encode it — surfaced by default so the
-                    // loss is visible. Restricted-header drops below stay at verbose (expected, the
-                    // transport recomputes them), as does the inbound response-header drop.
-                    logger.atWarning()
+                    // The model already rejects at construction the names/values no transport can
+                    // encode (control + non-ASCII), so this residual drop is a model-valid but
+                    // non-token header only this transport refuses. How loudly it surfaces is the
+                    // caller's DroppedHeaderLogging choice; the default warns once per header name and
+                    // logs the rest at verbose so a hot path re-setting it does not flood the log.
+                    // Gate the dedup on canLog(WARNING) so its one-shot side effect is spent only when
+                    // WARN can actually be emitted (see shouldWarnForDroppedHeader).
+                    val warn = logger.canLog(LogLevel.WARNING) && shouldWarnForDroppedHeader(rawName)
+                    val event = if (warn) logger.atWarning() else logger.atVerbose()
+                    event
                         .event("transport.okhttp.header.rejected")
                         .field("name", rawName)
                         .cause(e)
-                        .log("OkHttp rejected header name/value; dropping before dispatch")
+                        .log("OkHttp rejected header name/value it cannot encode; dropping before dispatch")
                 }
             }
         }
@@ -123,5 +160,13 @@ internal class RequestAdapter(
          * stateless, so a single instance is safe to reuse across requests and threads.
          */
         private val EMPTY_BODY: RequestBody = ByteArray(0).toRequestBody()
+
+        /**
+         * Upper bound on the `ONCE_PER_HEADER` dedup set. The adapter lives for the transport's
+         * lifetime, so an unbounded set would leak one entry per distinct dropped header name; a
+         * caller deriving names from request data could grow it without limit. Past this many
+         * distinct names, further first-drops fall through to verbose rather than being recorded.
+         */
+        private const val MAX_WARNED_DROPPED_HEADERS: Int = 1024
     }
 }

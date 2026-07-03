@@ -406,6 +406,7 @@ public final class org/dexpace/sdk/core/http/common/Headers$Builder {
 	public final fun add (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun add (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/util/List;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun addAll (Lorg/dexpace/sdk/core/http/common/Headers;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
+	public final fun addUnsafeNonAscii (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun build ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun remove (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
 	public final fun remove (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/http/common/Headers$Builder;
@@ -1829,6 +1830,15 @@ public final class org/dexpace/sdk/core/instrumentation/ClientLogger {
 }
 
 public final class org/dexpace/sdk/core/instrumentation/ClientLogger$Companion {
+}
+
+public final class org/dexpace/sdk/core/instrumentation/DroppedHeaderLogging : java/lang/Enum {
+	public static final field ONCE_PER_HEADER Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;
+	public static final field PER_OCCURRENCE Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;
+	public static final field VERBOSE_ONLY Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;
+	public static fun values ()[Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;
 }
 
 public abstract interface class org/dexpace/sdk/core/instrumentation/HttpTracer {
