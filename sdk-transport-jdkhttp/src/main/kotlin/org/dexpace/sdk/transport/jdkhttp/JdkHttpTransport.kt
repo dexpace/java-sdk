@@ -277,6 +277,16 @@ public class JdkHttpTransport private constructor(
          * assignment.
          */
         internal const val DEFAULT_RESPONSE_TIMEOUT_SECONDS: Long = 30L
+
+        /**
+         * Default connect timeout in seconds applied when the [Builder] is used without
+         * an explicit [Builder.connectTimeout] call. 10 s covers most real-world TCP + TLS
+         * handshake latencies while keeping test feedback tight on dead ports.
+         *
+         * Internal for the same reason as [DEFAULT_RESPONSE_TIMEOUT_SECONDS] — callers rely
+         * on the [Builder]'s default rather than reading this constant.
+         */
+        internal const val DEFAULT_CONNECT_TIMEOUT_SECONDS: Long = 10L
     }
 
     /**
@@ -298,7 +308,8 @@ public class JdkHttpTransport private constructor(
      * [java.net.http.HttpClient] directly and pass it to [JdkHttpTransport.create].
      *
      * Defaults:
-     *  - `connectTimeout`: not set (the JDK applies its platform default).
+     *  - `connectTimeout`: 10 seconds (TCP + TLS handshake budget). Pass `null` to
+     *    `connectTimeout(null)` to disable and fall back to the JDK platform default.
      *  - `responseTimeout`: 30 seconds (applied per-request).
      *  - `proxy`: none.
      *  - `followRedirects`: `false` (SDK has `DefaultRedirectStep`).
@@ -306,15 +317,18 @@ public class JdkHttpTransport private constructor(
      */
     public class Builder internal constructor() : SdkBuilder<JdkHttpTransport> {
         private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.jdkhttp.JdkHttpTransport.Builder")
-        private var connectTimeout: Duration? = null
+        private var connectTimeout: Duration? = Duration.ofSeconds(DEFAULT_CONNECT_TIMEOUT_SECONDS)
         private var responseTimeout: Duration? = Duration.ofSeconds(DEFAULT_RESPONSE_TIMEOUT_SECONDS)
         private var proxy: ProxyOptions? = null
         private var followRedirects: Boolean = false
         private var httpVersion: HttpVersion = HttpVersion.HTTP_2
         private var droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER
 
-        /** Sets the connect timeout (TCP handshake + TLS handshake). */
-        public fun connectTimeout(d: Duration): Builder =
+        /**
+         * Sets the connect timeout (TCP + TLS handshake). Pass `null` to disable the
+         * timeout and fall back to the JDK's platform default (effectively infinite).
+         */
+        public fun connectTimeout(d: Duration?): Builder =
             apply {
                 this.connectTimeout = d
             }
