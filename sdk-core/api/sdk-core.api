@@ -961,6 +961,7 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationO
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;Ljava/util/Set;Ljava/util/Set;ZLorg/dexpace/sdk/core/instrumentation/Tracer;Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;Ljava/util/Set;Ljava/util/Set;ZLorg/dexpace/sdk/core/instrumentation/Tracer;Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;I)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;Ljava/util/Set;Ljava/util/Set;ZLorg/dexpace/sdk/core/instrumentation/Tracer;Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
 	public final fun getAllowedHeaderNames ()Ljava/util/Set;
 	public final fun getAllowedQueryParamNames ()Ljava/util/Set;
 	public final fun getBodyPreviewMaxBytes ()I
@@ -968,9 +969,24 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationO
 	public final fun getMeter ()Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;
 	public final fun getTracer ()Lorg/dexpace/sdk/core/instrumentation/Tracer;
 	public final fun isRedactedHeaderNamesLoggingEnabled ()Z
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun allowedHeaderNames (Ljava/util/Set;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun allowedQueryParamNames (Ljava/util/Set;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun bodyPreviewMaxBytes (I)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions;
+	public final fun isRedactedHeaderNamesLoggingEnabled (Z)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun logLevel (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun meter (Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun tracer (Lorg/dexpace/sdk/core/instrumentation/Tracer;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel : java/lang/Enum {
@@ -1007,6 +1023,7 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectConditio
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions {
+	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Companion;
 	public fun <init> ()V
 	public fun <init> (I)V
 	public fun <init> (ILjava/util/EnumSet;)V
@@ -1015,12 +1032,30 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions 
 	public fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZ)V
 	public fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZLorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;)V
 	public synthetic fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZLorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
 	public final fun getAllowSchemeDowngrade ()Z
 	public final fun getAllowedMethods ()Ljava/util/Set;
 	public final fun getFollow303 ()Z
 	public final fun getLocationHeader ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
 	public final fun getMaxHops ()I
 	public final fun getShouldRedirect ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun allowSchemeDowngrade (Z)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun allowedMethods (Ljava/util/EnumSet;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions;
+	public final fun follow303 (Z)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun locationHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun maxHops (I)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun shouldRedirect (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
 }
 
 public abstract interface class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate {
@@ -1065,7 +1100,9 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions {
 	public fun <init> (ILjava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/util/List;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)V
 	public fun <init> (ILjava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/util/List;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;)V
 	public synthetic fun <init> (ILjava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/util/List;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
 	public static final fun fixed (ILjava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
+	public static final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
 	public final fun getBaseDelay ()Ljava/time/Duration;
 	public final fun getDelayFromCondition ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;
 	public final fun getFixedDelay ()Ljava/time/Duration;
@@ -1074,10 +1111,27 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions {
 	public final fun getRetryAfterHeaders ()Ljava/util/List;
 	public final fun getShouldRetryCondition ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;
 	public final fun getShouldRetryException ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun baseDelay (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
+	public final fun delayFromCondition (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun fixedDelay (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun maxDelay (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun maxRetries (I)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun retryAfterHeaders (Ljava/util/List;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun shouldRetryCondition (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun shouldRetryException (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
 	public final fun fixed (ILjava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
+	public final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
 }
 
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/InstrumentationStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
