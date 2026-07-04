@@ -6,6 +6,7 @@ public final class org/dexpace/sdk/serde/jackson/JacksonObjectMappers {
 public final class org/dexpace/sdk/serde/jackson/JacksonSerde : org/dexpace/sdk/core/serde/Serde {
 	public static final field Companion Lorg/dexpace/sdk/serde/jackson/JacksonSerde$Companion;
 	public synthetic fun <init> (Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun contentType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public final fun deserializeAs (Ljava/io/InputStream;Lcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public final fun deserializeAs (Ljava/lang/String;Lcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public final fun deserializeAs ([BLcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;

@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.http.request
 
 import org.dexpace.sdk.core.http.common.Headers
 import org.dexpace.sdk.core.http.common.HttpHeaderName
-import java.net.MalformedURLException
 import java.net.URL
 import java.net.URLStreamHandler
 import kotlin.test.Test
@@ -195,19 +194,16 @@ class RequestTest {
     }
 
     @Test
-    fun `url String setter throws MalformedURLException on bad input`() {
-        assertFailsWith<MalformedURLException> {
+    fun `url String setter throws IllegalArgumentException on bad input`() {
+        assertFailsWith<IllegalArgumentException> {
             Request.builder().url("not-a-valid-url")
         }
     }
 
     @Test
-    fun `build throws when method is missing`() {
-        val ex =
-            assertFailsWith<IllegalStateException> {
-                Request.builder().url("https://example.test").build()
-            }
-        assertEquals("method is required", ex.message)
+    fun `build without explicit method defaults to GET`() {
+        val req = Request.builder().url("https://example.test").build()
+        assertEquals(Method.GET, req.method)
     }
 
     @Test

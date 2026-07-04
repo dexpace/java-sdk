@@ -537,7 +537,13 @@ public final class org/dexpace/sdk/core/http/common/HttpRange$Companion {
 }
 
 public final class org/dexpace/sdk/core/http/common/MediaType {
+	public static final field APPLICATION_FORM_URLENCODED Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field APPLICATION_JSON Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field APPLICATION_OCTET_STREAM Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field APPLICATION_XML Lorg/dexpace/sdk/core/http/common/MediaType;
 	public static final field Companion Lorg/dexpace/sdk/core/http/common/MediaType$Companion;
+	public static final field TEXT_HTML Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field TEXT_PLAIN Lorg/dexpace/sdk/core/http/common/MediaType;
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
@@ -1231,17 +1237,21 @@ public final class org/dexpace/sdk/core/http/request/Request {
 	public final fun component3 ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun component4 ()Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public fun equals (Ljava/lang/Object;)Z
+	public static final fun get (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getBody ()Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun getMethod ()Lorg/dexpace/sdk/core/http/request/Method;
 	public final fun getUrl ()Ljava/net/URL;
 	public fun hashCode ()I
 	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public static final fun post (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/request/Request$Companion {
 	public final fun builder ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun get (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun post (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 }
 
 public final class org/dexpace/sdk/core/http/request/Request$RequestBuilder : org/dexpace/sdk/core/generics/Builder {
@@ -1249,16 +1259,28 @@ public final class org/dexpace/sdk/core/http/request/Request$RequestBuilder : or
 	public fun <init> (Lorg/dexpace/sdk/core/http/request/Request;)V
 	public final fun addHeader (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun addHeader (Ljava/lang/String;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun addHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun addHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun addHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun body (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public synthetic fun build ()Ljava/lang/Object;
 	public fun build ()Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun delete ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun get ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun head ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun headers (Lorg/dexpace/sdk/core/http/common/Headers;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun method (Lorg/dexpace/sdk/core/http/request/Method;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun patch (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun post (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun put (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun removeHeader (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun removeHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun setHeader (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun setHeader (Ljava/lang/String;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun setHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun setHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun url (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun url (Ljava/net/URI;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun url (Ljava/net/URL;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 }
 
@@ -1268,6 +1290,8 @@ public abstract class org/dexpace/sdk/core/http/request/RequestBody {
 	public fun contentLength ()J
 	public static final fun create (Ljava/io/InputStream;J)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/io/InputStream;JLorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;Ljava/nio/charset/Charset;)Lorg/dexpace/sdk/core/http/request/RequestBody;
@@ -1296,6 +1320,8 @@ public abstract class org/dexpace/sdk/core/http/request/RequestBody {
 public final class org/dexpace/sdk/core/http/request/RequestBody$Companion {
 	public final fun create (Ljava/io/InputStream;J)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/io/InputStream;JLorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;Ljava/nio/charset/Charset;)Lorg/dexpace/sdk/core/http/request/RequestBody;
@@ -1314,6 +1340,7 @@ public final class org/dexpace/sdk/core/http/request/RequestBody$Companion {
 	public final fun create ([B)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create ([BLorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/io/InputStream;JLorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;Ljava/nio/charset/Charset;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/nio/file/Path;Lorg/dexpace/sdk/core/http/common/MediaType;JJILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/util/Map;Ljava/nio/charset/Charset;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
@@ -2642,8 +2669,13 @@ public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 }
 
 public abstract interface class org/dexpace/sdk/core/serde/Serde {
+	public fun contentType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public abstract fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public abstract fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
+}
+
+public final class org/dexpace/sdk/core/serde/Serde$DefaultImpls {
+	public static fun contentType (Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/common/MediaType;
 }
 
 public class org/dexpace/sdk/core/serde/SerdeException : java/lang/RuntimeException {
