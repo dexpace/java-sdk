@@ -1375,6 +1375,7 @@ public final class org/dexpace/sdk/core/http/response/Response : java/io/Closeab
 	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getStatus ()Lorg/dexpace/sdk/core/http/response/Status;
 	public fun hashCode ()I
+	public final fun isSuccessful ()Z
 	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/response/Response$ResponseBuilder;
 	public fun toString ()Ljava/lang/String;
 }
@@ -1405,6 +1406,7 @@ public final class org/dexpace/sdk/core/http/response/Response$ResponseBuilder :
 public abstract class org/dexpace/sdk/core/http/response/ResponseBody : java/io/Closeable {
 	public static final field Companion Lorg/dexpace/sdk/core/http/response/ResponseBody$Companion;
 	public fun <init> ()V
+	public final fun bytes ()[B
 	public abstract fun close ()V
 	public abstract fun contentLength ()J
 	public static final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
@@ -1412,6 +1414,9 @@ public abstract class org/dexpace/sdk/core/http/response/ResponseBody : java/io/
 	public static final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;J)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public abstract fun mediaType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public abstract fun source ()Lorg/dexpace/sdk/core/io/BufferedSource;
+	public final fun string ()Ljava/lang/String;
+	public final fun string (Ljava/nio/charset/Charset;)Ljava/lang/String;
+	public static synthetic fun string$default (Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/nio/charset/Charset;ILjava/lang/Object;)Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
@@ -1419,6 +1424,12 @@ public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;J)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/response/ResponseBody$Companion;Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;JILjava/lang/Object;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
+}
+
+public final class org/dexpace/sdk/core/http/response/ResponseExtensionsKt {
+	public static final fun bodyAs (Lorg/dexpace/sdk/core/http/response/exception/HttpException;Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/lang/Class;)Ljava/lang/Object;
+	public static final fun deserialize (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Ljava/lang/Object;
+	public static final fun throwOnError (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
 public abstract interface class org/dexpace/sdk/core/http/response/ResponseHandler {
@@ -1506,6 +1517,11 @@ public final class org/dexpace/sdk/core/http/response/Status {
 	public final fun getCode ()I
 	public final fun getStatusName ()Ljava/lang/String;
 	public fun hashCode ()I
+	public final fun isClientError ()Z
+	public final fun isError ()Z
+	public final fun isInformational ()Z
+	public final fun isRedirect ()Z
+	public final fun isServerError ()Z
 	public final fun isSuccess ()Z
 	public fun toString ()Ljava/lang/String;
 }

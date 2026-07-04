@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.response.exception
 
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.Status
 
 /**
  * Maps a non-2xx [Response] to the matching [HttpException] subclass.
@@ -73,7 +74,7 @@ public object HttpExceptionFactory {
      * use this rather than re-declaring the range.
      */
     @JvmStatic
-    public fun isErrorStatus(code: Int): Boolean = code in SC_CLIENT_ERROR_MIN..SC_SERVER_ERROR_MAX
+    public fun isErrorStatus(code: Int): Boolean = Status.fromCode(code).isError
 
     /**
      * Maps [response] to its [HttpException] subclass, or returns `null` when the status is not
