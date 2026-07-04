@@ -159,6 +159,31 @@ public data class MediaType private constructor(
     private fun isHeaderUnsafe(ch: Char): Boolean = isProhibitedInValue(ch.code)
 
     public companion object {
+        // --- Common media-type shortcuts -----------------------------------------------
+        // Delegate to CommonMediaTypes (single source of truth). Exposed as @JvmField so
+        // Java callers see a plain static field (MediaType.APPLICATION_JSON) rather than a
+        // generated getter.
+
+        /** `application/json` — delegates to [CommonMediaTypes.APPLICATION_JSON]. */
+        @JvmField public val APPLICATION_JSON: MediaType = CommonMediaTypes.APPLICATION_JSON
+
+        /** `text/plain` — delegates to [CommonMediaTypes.TEXT_PLAIN]. */
+        @JvmField public val TEXT_PLAIN: MediaType = CommonMediaTypes.TEXT_PLAIN
+
+        /** `application/octet-stream` — delegates to [CommonMediaTypes.APPLICATION_OCTET_STREAM]. */
+        @JvmField public val APPLICATION_OCTET_STREAM: MediaType = CommonMediaTypes.APPLICATION_OCTET_STREAM
+
+        /** `application/x-www-form-urlencoded` — delegates to [CommonMediaTypes.APPLICATION_FORM_URLENCODED]. */
+        @JvmField public val APPLICATION_FORM_URLENCODED: MediaType = CommonMediaTypes.APPLICATION_FORM_URLENCODED
+
+        /** `text/html` — delegates to [CommonMediaTypes.TEXT_HTML]. */
+        @JvmField public val TEXT_HTML: MediaType = CommonMediaTypes.TEXT_HTML
+
+        /** `application/xml` — delegates to [CommonMediaTypes.APPLICATION_XML]. */
+        @JvmField public val APPLICATION_XML: MediaType = CommonMediaTypes.APPLICATION_XML
+
+        // -------------------------------------------------------------------------------
+
         /** RFC 7230 §3.2.6 `tchar` punctuation (the non-alphanumeric members of the token set). */
         private const val TOKEN_SPECIALS: String = "!#$%&'*+-.^_`|~"
 

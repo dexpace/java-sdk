@@ -7,6 +7,9 @@
 
 package org.dexpace.sdk.core.serde
 
+import org.dexpace.sdk.core.http.common.CommonMediaTypes
+import org.dexpace.sdk.core.http.common.MediaType
+
 /**
  * Bundle of serialization / deserialization strategies for a single wire format (JSON, XML, etc.).
  *
@@ -21,4 +24,14 @@ public interface Serde {
 
     /** Decoder used for reading values out of wire bytes / strings / streams. */
     public val deserializer: Deserializer
+
+    /**
+     * The media type produced by this serde's serializer. Used as the default `Content-Type` when
+     * creating a [org.dexpace.sdk.core.http.request.RequestBody] via
+     * [org.dexpace.sdk.core.http.request.RequestBody.Companion.create]. Implementations may
+     * override to reflect a different wire format (e.g. `application/xml`).
+     *
+     * Default: `application/json`.
+     */
+    public fun contentType(): MediaType = CommonMediaTypes.APPLICATION_JSON
 }
