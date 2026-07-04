@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.serde.DeserializationException
 import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.SerializationException
@@ -33,6 +34,12 @@ import kotlin.test.assertTrue
 class JacksonSerdeTest {
     // Kotlin data class with a nested object, list, java.time.Instant, Optional<T>, Tristate<T>.
     data class Inner(val tag: String, val score: Int)
+
+    // Minimal DTO with a Tristate field; used to verify PATCH-field serialization correctness.
+    data class PatchDto(
+        val name: String = "",
+        val description: Tristate<String> = Tristate.Absent,
+    )
 
     data class FullModel(
         val name: String,
@@ -182,6 +189,72 @@ class JacksonSerdeTest {
         assertEquals(0, tracker.closeCount, "from(plain mapper) must not close the caller InputStream")
     }
 
+    // ----- T10: from(mapper) must register TristateModule (silent-corruption fix) -----
+
+    @Test
+    fun `from bare ObjectMapper round-trips Tristate present`() {
+        val serde = JacksonSerde.from(ObjectMapper().registerKotlinModule())
+        val dto = PatchDto(name = "x", description = Tristate.Present("patch-value"))
+        val json = serde.serializer.serialize(dto)
+        assertTrue(json.contains("\"description\""), "Present field must appear in JSON: $json")
+        assertTrue(json.contains("\"patch-value\""), "Present value must appear in JSON: $json")
+    }
+
+    @Test
+    fun `from bare ObjectMapper serializes Tristate absent by omitting the field`() {
+        val serde = JacksonSerde.from(ObjectMapper().registerKotlinModule())
+        val dto = PatchDto(name = "y", description = Tristate.Absent)
+        val json = serde.serializer.serialize(dto)
+        assertFalse(json.contains("\"description\""), "Absent field must be omitted from JSON: $json")
+    }
+
+    @Test
+    fun `from bare ObjectMapper serializes Tristate null as JSON null`() {
+        val serde = JacksonSerde.from(ObjectMapper().registerKotlinModule())
+        val dto = PatchDto(name = "z", description = Tristate.Null)
+        val json = serde.serializer.serialize(dto)
+        assertTrue(json.contains("\"description\""), "Null field key must appear in JSON: $json")
+        assertTrue(json.contains(":null"), "Null field value must be JSON null: $json")
+    }
+
+    @Test
+    fun `from does not mutate the caller's original mapper`() {
+        val original = ObjectMapper().registerKotlinModule()
+        JacksonSerde.from(original)
+        // If from() mutated original (added TristateModule), Tristate.Absent would be omitted.
+        // Without TristateModule, ObjectMapper treats Tristate.Absent as a regular object and
+        // includes the field in the output.
+        val dto = PatchDto(name = "check", description = Tristate.Absent)
+        val json = original.writeValueAsString(dto)
+        assertTrue(json.contains("\"description\""), "Original mapper must not be mutated by from(): $json")
+    }
+
+    @Test
+    fun `from with registerTristate false skips auto-registration`() {
+        // Callers who already registered TristateModule manually should opt out to avoid
+        // a double registration. The copy of their mapper already has the module.
+        val pre = ObjectMapper().registerKotlinModule().also { it.registerModule(TristateModule()) }
+        val serde = JacksonSerde.from(pre, registerTristate = false)
+        // Serde is functional because TristateModule was pre-registered by the caller.
+        val dto = PatchDto(name = "a", description = Tristate.Present("v"))
+        val json = serde.serializer.serialize(dto)
+        assertTrue(json.contains("\"description\""))
+        assertTrue(json.contains("\"v\""))
+    }
+
+    // ----- T8-jackson: jsonBody convenience -----
+
+    @Test
+    fun `jsonBody produces application-json body with expected content length and media type`() {
+        val serde = JacksonSerde.withDefaults()
+        val dto = Inner("hello", 42)
+        val body = jsonBody(serde, dto)
+        val expectedBytes = serde.serializer.serializeToByteArray(dto)
+        assertEquals(MediaType.parse("application/json"), body.mediaType())
+        assertEquals(expectedBytes.size.toLong(), body.contentLength())
+        assertTrue(body.isReplayable())
+    }
+
     // Java-style builder-pattern class. Jackson's @JsonDeserialize(builder = ...) + @JsonPOJOBuilder
     // is the canonical builder-friendly immutability pattern called out in the spec.
     @JsonDeserialize(builder = BuilderModel.Builder::class)
@@ -228,11 +301,16 @@ class JacksonSerdeTest {
     }
 
     @Test
-    fun `JacksonSerde from caller-supplied mapper uses that mapper`() {
+    fun `JacksonSerde from caller-supplied mapper produces a working serde backed by a copy`() {
         val mapper = JacksonObjectMappers.defaultObjectMapper()
         val serde = JacksonSerde.from(mapper)
-        // The same mapper instance is exposed via the `mapper` property.
-        assertTrue(serde.mapper === mapper)
+        // from() works on a defensive copy — never the same reference as the caller's mapper.
+        assertFalse(serde.mapper === mapper, "from() must back the serde with a copy, not the original mapper")
+        // The serde is fully functional via the copy.
+        val dto = Inner("check", 1)
+        val json = serde.serializer.serialize(dto)
+        val back: Inner = serde.deserializer.deserialize(json, Inner::class.java)
+        assertEquals(dto, back)
     }
 
     // ----- SPI error wrapping (#22): Jackson exception types must not leak across the Serde SPI -----

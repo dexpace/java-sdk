@@ -1,3 +1,7 @@
+public final class org/dexpace/sdk/serde/jackson/ExtensionsKt {
+	public static final fun jsonBody (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+}
+
 public final class org/dexpace/sdk/serde/jackson/JacksonObjectMappers {
 	public static final field INSTANCE Lorg/dexpace/sdk/serde/jackson/JacksonObjectMappers;
 	public final fun defaultObjectMapper ()Lcom/fasterxml/jackson/databind/ObjectMapper;
@@ -11,6 +15,7 @@ public final class org/dexpace/sdk/serde/jackson/JacksonSerde : org/dexpace/sdk/
 	public final fun deserializeAs (Ljava/lang/String;Lcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public final fun deserializeAs ([BLcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public static final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
+	public static final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;Z)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 	public fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public final fun getMapper ()Lcom/fasterxml/jackson/databind/ObjectMapper;
 	public fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
@@ -19,6 +24,8 @@ public final class org/dexpace/sdk/serde/jackson/JacksonSerde : org/dexpace/sdk/
 
 public final class org/dexpace/sdk/serde/jackson/JacksonSerde$Companion {
 	public final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
+	public final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;Z)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
+	public static synthetic fun from$default (Lorg/dexpace/sdk/serde/jackson/JacksonSerde$Companion;Lcom/fasterxml/jackson/databind/ObjectMapper;ZILjava/lang/Object;)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 	public final fun withDefaults ()Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 }
 

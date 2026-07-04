@@ -92,14 +92,41 @@ public class JacksonSerde private constructor(
         /**
          * Build a [JacksonSerde] backed by a caller-supplied [mapper].
          *
+         * This method operates on a **defensive copy** of [mapper] — the caller's original instance
+         * is never mutated.
+         *
+         * ## Tristate PATCH semantics
+         *
+         * [org.dexpace.sdk.core.serde.Tristate] PATCH fields **require** [TristateModule] to be
+         * registered on the underlying mapper. Without it, [org.dexpace.sdk.core.serde.Tristate.Absent]
+         * and [org.dexpace.sdk.core.serde.Tristate.Null] are indistinguishable on the wire — both
+         * serialize to a non-absent representation, silently corrupting `PATCH` payloads. By default,
+         * [from] registers [TristateModule] on the copy automatically.
+         *
+         * Pass `registerTristate = false` only when the caller's mapper already carries a
+         * manually-registered [TristateModule] (or a compatible substitute) and a second
+         * registration is undesirable.
+         *
          * The caller-owned-stream contract on [Serializer.serialize] / [Deserializer.deserialize]
          * holds regardless of the mapper's `AUTO_CLOSE_TARGET`/`AUTO_CLOSE_SOURCE` settings: the
          * stream overloads drive a per-call generator/parser with auto-close disabled, so the
-         * caller's [OutputStream]/[InputStream] is left open and the supplied [mapper] is never
-         * mutated.
+         * caller's [OutputStream]/[InputStream] is left open.
+         *
+         * @param mapper The mapper to copy and use as the serialization engine.
+         * @param registerTristate When `true` (the default), [TristateModule] is registered on
+         *   the copy. Pass `false` when the caller has already registered the module or a
+         *   compatible substitute.
          */
         @JvmStatic
-        public fun from(mapper: ObjectMapper): JacksonSerde = JacksonSerde(mapper)
+        @JvmOverloads
+        public fun from(
+            mapper: ObjectMapper,
+            registerTristate: Boolean = true,
+        ): JacksonSerde {
+            val copy = mapper.copy()
+            if (registerTristate) copy.registerModule(TristateModule())
+            return JacksonSerde(copy)
+        }
     }
 }
 
