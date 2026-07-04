@@ -22,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -345,6 +346,63 @@ class ResponseTest {
         resp.close()
         assertNull(resp.body)
     }
+
+    // ---- isSuccessful (T2) -------------------------------------------------------------
+
+    @Test
+    fun `isSuccessful is true for 2xx status`() {
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.OK)
+                .build()
+        assertTrue(resp.isSuccessful)
+    }
+
+    @Test
+    fun `isSuccessful is true for 201 CREATED`() {
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.CREATED)
+                .build()
+        assertTrue(resp.isSuccessful)
+    }
+
+    @Test
+    fun `isSuccessful is false for 4xx status`() {
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.NOT_FOUND)
+                .build()
+        assertFalse(resp.isSuccessful)
+    }
+
+    @Test
+    fun `isSuccessful is false for 5xx status`() {
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.INTERNAL_SERVER_ERROR)
+                .build()
+        assertFalse(resp.isSuccessful)
+    }
+
+    @Test
+    fun `isSuccessful is false for 3xx redirect`() {
+        val resp =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.MOVED_PERMANENTLY)
+                .build()
+        assertFalse(resp.isSuccessful)
+    }
 }
 
 class ResponseBodyTest {
@@ -422,5 +480,46 @@ class ResponseBodyTest {
         // Reading after close throws via the wrapped source — this just establishes the
         // "close before read" path is supported.
         assertTrue(true)
+    }
+
+    // ---- string() and bytes() (T2) ----------------------------------------------------
+
+    @Test
+    fun `string() reads entire body as UTF-8 by default`() {
+        val payload = "Hello, World!"
+        val source = Io.provider.source(payload.toByteArray(Charsets.UTF_8))
+        val body = ResponseBody.create(source)
+        assertEquals(payload, body.string())
+    }
+
+    @Test
+    fun `string() accepts an explicit charset`() {
+        val payload = "café"
+        val bytes = payload.toByteArray(Charsets.ISO_8859_1)
+        val source = Io.provider.source(bytes)
+        val body = ResponseBody.create(source)
+        assertEquals(payload, body.string(Charsets.ISO_8859_1))
+    }
+
+    @Test
+    fun `bytes() reads all raw bytes from body`() {
+        val payload = byteArrayOf(1, 2, 3, 4, 5)
+        val source = Io.provider.source(payload)
+        val body = ResponseBody.create(source)
+        assertContentEquals(payload, body.bytes())
+    }
+
+    @Test
+    fun `string() on empty body returns empty string`() {
+        val source = Io.provider.source(ByteArray(0))
+        val body = ResponseBody.create(source)
+        assertEquals("", body.string())
+    }
+
+    @Test
+    fun `bytes() on empty body returns empty array`() {
+        val source = Io.provider.source(ByteArray(0))
+        val body = ResponseBody.create(source)
+        assertContentEquals(ByteArray(0), body.bytes())
     }
 }

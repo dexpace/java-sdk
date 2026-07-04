@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.io.BufferedSource
 import java.io.Closeable
 import java.io.IOException
+import java.nio.charset.Charset
 
 /**
  * Represents the body of an HTTP response.
@@ -60,6 +61,36 @@ public abstract class ResponseBody : Closeable {
      * @return The buffered source.
      */
     public abstract fun source(): BufferedSource
+
+    /**
+     * Reads the entire body and returns it decoded as a [String]. The body is closed in a
+     * `finally` block whether or not the read succeeds.
+     *
+     * @param charset The character set to use for decoding. Defaults to [Charsets.UTF_8].
+     * @throws IOException If an I/O error occurs while reading.
+     */
+    @JvmOverloads
+    @Throws(IOException::class)
+    public fun string(charset: Charset = Charsets.UTF_8): String =
+        try {
+            source().readString(charset)
+        } finally {
+            close()
+        }
+
+    /**
+     * Reads the entire body and returns it as a [ByteArray]. The body is closed in a
+     * `finally` block whether or not the read succeeds.
+     *
+     * @throws IOException If an I/O error occurs while reading.
+     */
+    @Throws(IOException::class)
+    public fun bytes(): ByteArray =
+        try {
+            source().readByteArray()
+        } finally {
+            close()
+        }
 
     /**
      * Closes the response body and releases any transport resources.

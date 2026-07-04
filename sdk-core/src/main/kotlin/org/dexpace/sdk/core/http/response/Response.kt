@@ -47,6 +47,9 @@ public data class Response private constructor(
     val headers: Headers,
     val body: ResponseBody?,
 ) : Closeable {
+    /** True when [status] is in the 2xx success range. */
+    public val isSuccessful: Boolean get() = status.isSuccess
+
     /**
      * Returns a new [ResponseBuilder] initialized with this response's data.
      *
