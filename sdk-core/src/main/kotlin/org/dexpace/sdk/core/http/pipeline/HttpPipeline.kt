@@ -52,5 +52,16 @@ public class HttpPipeline internal constructor(
          */
         @JvmStatic
         public fun of(client: HttpClient): HttpPipeline = HttpPipelineBuilder(client).build()
+
+        /**
+         * Builds a pipeline over [transport] wired with the SDK's standard resilience pillars —
+         * redirect following, retry with backoff, and instrumentation — via
+         * [HttpPipelineBuilder.appendStandardResilience]. The turnkey preset for "give me a
+         * sensible pipeline over my transport"; start from [HttpPipelineBuilder] when you need to
+         * tune options or add error mapping / auth.
+         */
+        @JvmStatic
+        public fun standard(transport: HttpClient): HttpPipeline =
+            HttpPipelineBuilder(transport).appendStandardResilience().build()
     }
 }

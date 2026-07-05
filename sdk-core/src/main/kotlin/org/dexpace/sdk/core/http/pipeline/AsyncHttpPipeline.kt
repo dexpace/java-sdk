@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ScheduledExecutorService
 
 /**
  * Asynchronous counterpart of [HttpPipeline]. Holds an ordered, stage-sorted [Array] of
@@ -69,5 +70,18 @@ public class AsyncHttpPipeline internal constructor(
          */
         @JvmStatic
         public fun of(client: AsyncHttpClient): AsyncHttpPipeline = AsyncHttpPipelineBuilder(client).build()
+
+        /**
+         * Builds an async pipeline over [transport] wired with the async standard resilience
+         * defaults — retry with backoff and instrumentation — via
+         * [AsyncHttpPipelineBuilder.appendStandardResilience]. As documented there, there is no
+         * async redirect default, and [scheduler] backs the retry step's non-blocking delays
+         * (the caller owns and shuts it down; the SDK never closes it).
+         */
+        @JvmStatic
+        public fun standard(
+            transport: AsyncHttpClient,
+            scheduler: ScheduledExecutorService,
+        ): AsyncHttpPipeline = AsyncHttpPipelineBuilder(transport).appendStandardResilience(scheduler).build()
     }
 }

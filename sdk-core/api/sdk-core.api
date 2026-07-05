@@ -740,10 +740,12 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline {
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public static final fun standard (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline$Companion {
 	public final fun of (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
+	public final fun standard (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder {
@@ -751,6 +753,7 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder {
 	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)V
 	public final fun append (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpStep;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun appendAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
+	public final fun appendStandardResilience (Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun build ()Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 	public static final fun from (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun insertAfter (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpStep;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
@@ -783,10 +786,12 @@ public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline {
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 	public final fun send (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public static final fun standard (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline$Companion {
 	public final fun of (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
+	public final fun standard (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBridges {
@@ -799,6 +804,7 @@ public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder {
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;)V
 	public final fun append (Lorg/dexpace/sdk/core/http/pipeline/HttpStep;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun appendAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
+	public final fun appendStandardResilience ()Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun build ()Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 	public static final fun from (Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun insertAfter (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/HttpStep;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;

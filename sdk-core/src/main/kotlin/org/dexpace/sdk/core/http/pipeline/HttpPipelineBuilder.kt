@@ -8,6 +8,9 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.HttpClient
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultInstrumentationStep
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultRedirectStep
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
 import org.dexpace.sdk.core.http.pipeline.steps.ThrowOnHttpErrorStep
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 
@@ -116,6 +119,18 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
      * and retry exhaustion). See [ThrowOnHttpErrorStep].
      */
     public fun throwOnHttpError(): HttpPipelineBuilder = append(ThrowOnHttpErrorStep())
+
+    /**
+     * Appends the SDK's standard resilience pillars with their no-arg defaults:
+     * [DefaultRedirectStep] ([Stage.REDIRECT]), [DefaultRetryStep] ([Stage.RETRY]), and
+     * [DefaultInstrumentationStep] ([Stage.LOGGING]). Each lands in its own pillar slot, so the
+     * relative run order is fixed by [Stage] regardless of the call site. Combine with
+     * [throwOnHttpError] for turnkey error mapping on top of the resilience stack.
+     */
+    public fun appendStandardResilience(): HttpPipelineBuilder =
+        append(DefaultRedirectStep())
+            .append(DefaultRetryStep())
+            .append(DefaultInstrumentationStep())
 
     /**
      * Builds an immutable [HttpPipeline] in stage order. [Stage.SEND] is reserved for the

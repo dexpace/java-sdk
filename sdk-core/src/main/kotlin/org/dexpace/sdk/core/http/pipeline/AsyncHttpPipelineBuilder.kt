@@ -9,7 +9,10 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.pipeline.steps.AsyncThrowOnHttpErrorStep
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultAsyncInstrumentationStep
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultAsyncRetryStep
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import java.util.concurrent.ScheduledExecutorService
 
 /**
  * Async counterpart of [HttpPipelineBuilder]. Mirrors the same API verbatim but typed over
@@ -105,6 +108,22 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
      * slot so it only maps the terminal response.
      */
     public fun throwOnHttpError(): AsyncHttpPipelineBuilder = append(AsyncThrowOnHttpErrorStep())
+
+    /**
+     * Appends the async standard resilience defaults: [DefaultAsyncRetryStep] ([Stage.RETRY]) and
+     * [DefaultAsyncInstrumentationStep] ([Stage.LOGGING]).
+     *
+     * There is **no async redirect default** — the SDK ships no [Stage.REDIRECT] `AsyncHttpStep`,
+     * so (unlike the synchronous [HttpPipelineBuilder.appendStandardResilience]) redirect following
+     * is omitted here. Add a custom async redirect step yourself if you need it.
+     *
+     * [DefaultAsyncRetryStep] requires a [ScheduledExecutorService] on which to schedule its
+     * (non-blocking) backoff delays, so — unlike the synchronous no-arg preset — this method takes
+     * [scheduler]. The scheduler is the caller's to own and shut down; the SDK never closes it.
+     */
+    public fun appendStandardResilience(scheduler: ScheduledExecutorService): AsyncHttpPipelineBuilder =
+        append(DefaultAsyncRetryStep(scheduler))
+            .append(DefaultAsyncInstrumentationStep())
 
     /** Builds an immutable [AsyncHttpPipeline]. */
     public fun build(): AsyncHttpPipeline {
