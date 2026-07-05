@@ -25,13 +25,20 @@ import java.util.concurrent.ScheduledExecutorService
  * concurrent sends never share mutable state inside the pipeline itself. Steps must remain
  * thread-safe across concurrent invocations per the pipeline contract.
  *
+ * ## Transport SPI conformance
+ * `AsyncHttpPipeline` itself implements [AsyncHttpClient]: [executeAsync] delegates to
+ * [sendAsync]. A fully configured pipeline can therefore stand in anywhere an async transport is
+ * expected — most usefully as the client backing an
+ * [org.dexpace.sdk.core.pagination.AsyncPaginator]. The inherited [close] is a no-op: the
+ * pipeline wraps a caller-supplied transport it does not own, so it never closes it.
+ *
  * Construct via [AsyncHttpPipelineBuilder]; the constructor is internal.
  */
 public class AsyncHttpPipeline internal constructor(
     /** The transport that receives the request when no further step remains. */
     public val httpClient: AsyncHttpClient,
     internal val stepArray: Array<AsyncHttpStep>,
-) {
+) : AsyncHttpClient {
     /** Read-only list view of the ordered steps. Backed by [stepArray]; for inspection only. */
     public val steps: List<AsyncHttpStep> = stepArray.asList()
 
@@ -59,6 +66,12 @@ public class AsyncHttpPipeline internal constructor(
         val state = AsyncPipelineCallState(this, request)
         return AsyncPipelineNext(state).processAsync()
     }
+
+    /**
+     * [AsyncHttpClient] SPI conformance: delegates to [sendAsync] so this pipeline can be used as
+     * an async transport. [sendAsync] remains the primary entry point.
+     */
+    override fun executeAsync(request: Request): CompletableFuture<Response> = sendAsync(request)
 
     public companion object {
         /**

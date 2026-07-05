@@ -22,13 +22,20 @@ import java.io.IOException
  * sends never share mutable state inside the pipeline itself. Steps must remain
  * thread-safe across concurrent invocations per the pipeline contract.
  *
+ * ## Transport SPI conformance
+ * `HttpPipeline` itself implements [HttpClient]: [execute] delegates to [send]. A fully
+ * configured pipeline can therefore stand in anywhere a transport is expected — most usefully as
+ * the client backing a [org.dexpace.sdk.core.pagination.Paginator], so every page request runs
+ * through the same redirect / retry / auth / logging steps. The inherited [close] is a no-op:
+ * the pipeline wraps a caller-supplied transport it does not own, so it never closes it.
+ *
  * Construct via [HttpPipelineBuilder]; the constructor is internal.
  */
 public class HttpPipeline internal constructor(
     /** Transport invoked once the step chain is exhausted; the terminal slot of [Stage.SEND]. */
     public val httpClient: HttpClient,
     internal val stepArray: Array<HttpStep>,
-) {
+) : HttpClient {
     /** Read-only list view of the ordered steps. Backed by [stepArray]; for inspection only. */
     public val steps: List<HttpStep> = stepArray.asList()
 
@@ -42,6 +49,13 @@ public class HttpPipeline internal constructor(
         val state = PipelineCallState(this, request)
         return PipelineNext(state).process()
     }
+
+    /**
+     * [HttpClient] SPI conformance: delegates to [send] so this pipeline can be used as a
+     * transport. [send] remains the primary entry point.
+     */
+    @Throws(IOException::class)
+    override fun execute(request: Request): Response = send(request)
 
     public companion object {
         /**

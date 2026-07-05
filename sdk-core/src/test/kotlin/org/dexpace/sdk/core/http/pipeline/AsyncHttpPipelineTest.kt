@@ -14,6 +14,9 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.pagination.AsyncPaginator
+import org.dexpace.sdk.core.pagination.PageInfo
+import org.dexpace.sdk.core.pagination.PaginationStrategy
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.URL
@@ -378,6 +381,57 @@ class AsyncHttpPipelineTest {
                 .replace<TestPillarStep>(replacement)
                 .build()
         assertSame(replacement, pipeline.steps.single())
+    }
+
+    @Test
+    fun `executeAsync conforms to the AsyncHttpClient SPI and routes through the steps`() {
+        val recorded = AtomicReference<Request>()
+        val transportClient =
+            AsyncHttpClient { request ->
+                recorded.set(request)
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+        val headerStep =
+            TestStep(Stage.PRE_SEND) { req, next ->
+                next.processAsync(req.newBuilder().setHeader("X-Pipeline", "on").build())
+            }
+        // Typed as the transport SPI to prove AsyncHttpPipeline conforms to AsyncHttpClient.
+        val transport: AsyncHttpClient = AsyncHttpPipelineBuilder(transportClient).append(headerStep).build()
+
+        val response = transport.executeAsync(getRequest()).join()
+
+        assertEquals(200, response.status.code)
+        assertEquals("on", recorded.get().headers.get("X-Pipeline"))
+    }
+
+    @Test
+    fun `AsyncPaginator over the pipeline as AsyncHttpClient walks two pages through the steps`() {
+        val fetches = AtomicInteger(0)
+        val transportClient =
+            AsyncHttpClient { request ->
+                fetches.incrementAndGet()
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+        val stepRuns = AtomicInteger(0)
+        val countingStep =
+            TestStep(Stage.PRE_SEND) { _, next ->
+                stepRuns.incrementAndGet()
+                next.processAsync()
+            }
+        val transport: AsyncHttpClient = AsyncHttpPipelineBuilder(transportClient).append(countingStep).build()
+
+        val pageCount = AtomicInteger(0)
+        val strategy =
+            PaginationStrategy<String> { _, initial ->
+                val n = pageCount.incrementAndGet()
+                PageInfo(listOf("item-$n"), if (n < 2) initial else null)
+            }
+
+        val items = AsyncPaginator(transport, getRequest(), strategy).collectAllAsync().join()
+
+        assertEquals(listOf("item-1", "item-2"), items)
+        assertEquals(2, fetches.get(), "two page fetches routed through the pipeline")
+        assertEquals(2, stepRuns.get(), "the pipeline step ran on each page")
     }
 
     @Test

@@ -15,6 +15,9 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.pagination.PageInfo
+import org.dexpace.sdk.core.pagination.PaginationStrategy
+import org.dexpace.sdk.core.pagination.Paginator
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,6 +70,60 @@ class HttpPipelineTest {
         assertEquals(1, client.requests.size)
         assertEquals(Status.OK, response.status)
         assertTrue(pipeline.steps.isEmpty())
+    }
+
+    @Test
+    fun `execute conforms to the HttpClient SPI and routes through the pipeline steps`() {
+        val client = RecordingHttpClient()
+        val headerStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.PRE_SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response = next.process(request.newBuilder().setHeader("X-Pipeline", "on").build())
+            }
+        // Typed as the transport SPI to prove HttpPipeline conforms to HttpClient.
+        val transport: HttpClient = HttpPipelineBuilder(client).append(headerStep).build()
+
+        val response = transport.execute(request())
+
+        assertEquals(Status.OK, response.status)
+        assertEquals(1, client.requests.size)
+        assertEquals("on", client.requests[0].headers.get("X-Pipeline"))
+    }
+
+    @Test
+    fun `Paginator over the pipeline as HttpClient walks two pages through the steps`() {
+        val client = RecordingHttpClient()
+        val stepRuns = AtomicInteger(0)
+        val countingStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.PRE_SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response {
+                    stepRuns.incrementAndGet()
+                    return next.process()
+                }
+            }
+        val transport: HttpClient = HttpPipelineBuilder(client).append(countingStep).build()
+
+        val pageCount = AtomicInteger(0)
+        val strategy =
+            PaginationStrategy<String> { _, initial ->
+                val n = pageCount.incrementAndGet()
+                PageInfo(listOf("item-$n"), if (n < 2) initial else null)
+            }
+
+        val items = Paginator(transport, request(), strategy).iterateAll().toList()
+
+        assertEquals(listOf("item-1", "item-2"), items)
+        assertEquals(2, client.requests.size, "two page fetches routed through the pipeline")
+        assertEquals(2, stepRuns.get(), "the pipeline step ran on each page")
     }
 
     @Test
