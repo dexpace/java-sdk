@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
+import org.dexpace.sdk.core.http.pipeline.steps.AsyncThrowOnHttpErrorStep
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 
 /**
@@ -95,6 +96,15 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     @PublishedApi
     internal fun remove(anchorType: Class<out AsyncHttpStep>): AsyncHttpPipelineBuilder =
         apply { steps.removeMatching(anchorType) }
+
+    /**
+     * Appends an [AsyncThrowOnHttpErrorStep] so a 4xx / 5xx completion is surfaced as the matching
+     * typed [org.dexpace.sdk.core.http.response.exception.HttpException] (via an exceptional future
+     * completion) instead of a plain [org.dexpace.sdk.core.http.response.Response]. Mirrors
+     * [HttpPipelineBuilder.throwOnHttpError]; the step occupies the outermost [Stage.PRE_REDIRECT]
+     * slot so it only maps the terminal response.
+     */
+    public fun throwOnHttpError(): AsyncHttpPipelineBuilder = append(AsyncThrowOnHttpErrorStep())
 
     /** Builds an immutable [AsyncHttpPipeline]. */
     public fun build(): AsyncHttpPipeline {

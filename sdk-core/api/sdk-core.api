@@ -759,6 +759,7 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder {
 	public final fun prependAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun remove (Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun replace (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpStep;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
+	public final fun throwOnHttpError ()Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder$Companion {
@@ -806,6 +807,7 @@ public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder {
 	public final fun prependAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun remove (Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun replace (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/HttpStep;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
+	public final fun throwOnHttpError ()Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder$Companion {
@@ -833,6 +835,7 @@ public final class org/dexpace/sdk/core/http/pipeline/Stage : java/lang/Enum {
 	public static final field POST_SERDE Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_AUTH Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_LOGGING Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public static final field PRE_REDIRECT Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_SEND Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_SERDE Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field REDIRECT Lorg/dexpace/sdk/core/http/pipeline/Stage;
@@ -868,6 +871,12 @@ public class org/dexpace/sdk/core/http/pipeline/steps/AsyncBearerTokenAuthStep :
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/AsyncRetryStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
 	public fun <init> ()V
 	public final fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/AsyncThrowOnHttpErrorStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
+	public fun <init> ()V
+	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/AuthStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
@@ -1173,6 +1182,12 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/SetDateStep : org/de
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/util/Clock;)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/util/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public fun process (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/PipelineNext;)Lorg/dexpace/sdk/core/http/response/Response;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/ThrowOnHttpErrorStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
+	public fun <init> ()V
 	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public fun process (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/PipelineNext;)Lorg/dexpace/sdk/core/http/response/Response;
 }

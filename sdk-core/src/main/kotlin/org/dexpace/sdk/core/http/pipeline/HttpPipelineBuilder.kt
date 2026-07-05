@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.HttpClient
+import org.dexpace.sdk.core.http.pipeline.steps.ThrowOnHttpErrorStep
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 
 /**
@@ -106,6 +107,15 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
     @PublishedApi
     internal fun remove(anchorType: Class<out HttpStep>): HttpPipelineBuilder =
         apply { steps.removeMatching(anchorType) }
+
+    /**
+     * Appends a [ThrowOnHttpErrorStep] so a 4xx / 5xx response is surfaced as the matching typed
+     * [org.dexpace.sdk.core.http.response.exception.HttpException] instead of a plain
+     * [org.dexpace.sdk.core.http.response.Response]. The step occupies the outermost
+     * [Stage.PRE_REDIRECT] slot, so it only maps the terminal response (after redirect following
+     * and retry exhaustion). See [ThrowOnHttpErrorStep].
+     */
+    public fun throwOnHttpError(): HttpPipelineBuilder = append(ThrowOnHttpErrorStep())
 
     /**
      * Builds an immutable [HttpPipeline] in stage order. [Stage.SEND] is reserved for the
