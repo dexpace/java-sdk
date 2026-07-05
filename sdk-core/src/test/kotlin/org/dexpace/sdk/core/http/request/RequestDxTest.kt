@@ -212,4 +212,34 @@ class RequestDxTest {
         assertEquals(Method.POST, req.method)
         assertEquals(body, req.body)
     }
+
+    @Test
+    fun `Request put companion factory builds a PUT request with body`() {
+        val body = RequestBody.create("x", null)
+        val req = Request.put("https://example.test", body)
+        assertEquals(Method.PUT, req.method)
+        assertEquals(body, req.body)
+    }
+
+    @Test
+    fun `Request patch companion factory builds a PATCH request with body`() {
+        val body = RequestBody.create("x", null)
+        val req = Request.patch("https://example.test", body)
+        assertEquals(Method.PATCH, req.method)
+        assertEquals(body, req.body)
+    }
+
+    @Test
+    fun `Request delete companion factory builds a DELETE request with no body`() {
+        val req = Request.delete("https://example.test")
+        assertEquals(Method.DELETE, req.method)
+        assertNull(req.body)
+    }
+
+    @Test
+    fun `Request head companion factory builds a HEAD request with no body`() {
+        val req = Request.head("https://example.test")
+        assertEquals(Method.HEAD, req.method)
+        assertNull(req.body)
+    }
 }

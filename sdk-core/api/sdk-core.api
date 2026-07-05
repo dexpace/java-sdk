@@ -1321,6 +1321,7 @@ public final class org/dexpace/sdk/core/http/request/Request {
 	public final fun component2 ()Ljava/net/URL;
 	public final fun component3 ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun component4 ()Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static final fun delete (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public fun equals (Ljava/lang/Object;)Z
 	public static final fun get (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getBody ()Lorg/dexpace/sdk/core/http/request/RequestBody;
@@ -1328,15 +1329,22 @@ public final class org/dexpace/sdk/core/http/request/Request {
 	public final fun getMethod ()Lorg/dexpace/sdk/core/http/request/Method;
 	public final fun getUrl ()Ljava/net/URL;
 	public fun hashCode ()I
+	public static final fun head (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public static final fun patch (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 	public static final fun post (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
+	public static final fun put (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/request/Request$Companion {
 	public final fun builder ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun delete (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun get (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun head (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun patch (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun post (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun put (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 }
 
 public final class org/dexpace/sdk/core/http/request/Request$RequestBuilder : org/dexpace/sdk/core/generics/Builder {
@@ -1569,6 +1577,7 @@ public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
 public final class org/dexpace/sdk/core/http/response/ResponseExtensionsKt {
 	public static final fun bodyAs (Lorg/dexpace/sdk/core/http/response/exception/HttpException;Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/lang/Class;)Ljava/lang/Object;
 	public static final fun deserialize (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Ljava/lang/Object;
+	public static final fun deserialize (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 	public static final fun throwOnError (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
@@ -2556,8 +2565,8 @@ public final class org/dexpace/sdk/core/pipeline/RecoveryChain {
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/HttpClient;
-	public final fun getRequestPipeline ()Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;
-	public final fun getResponsePipeline ()Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;
+	public final fun getRequestChain ()Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;
+	public final fun getResponseChain ()Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;
 	public final fun recover (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 

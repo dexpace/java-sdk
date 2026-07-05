@@ -13,6 +13,7 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
+import org.dexpace.sdk.core.serde.TypeRef
 
 private val logger = ClientLogger("org.dexpace.sdk.core.http.response.ResponseExtensions")
 
@@ -97,6 +98,33 @@ public fun <T> Response.deserialize(
     val b = body ?: error("Response body is null — cannot deserialize into $type")
     return try {
         serde.deserializer.deserialize(b.source().inputStream(), type)
+    } finally {
+        close()
+    }
+}
+
+/**
+ * Decodes the response body as the parametric type captured by [ref] using [serde]'s deserializer,
+ * then closes the response in a `finally` block.
+ *
+ * This is the entry point for generic targets (`List<User>`, `Map<String, User>`) whose element
+ * types a bare [Class] token would erase, and the parametric overload Java callers reach for (build
+ * a `TypeRef` as an anonymous subclass, e.g. `new TypeRef<List<User>>() {}`). It requires a [serde]
+ * whose [Serde.deserializer] resolves generics (e.g. `JacksonSerde`); a format-agnostic deserializer
+ * throws [org.dexpace.sdk.core.serde.SerdeException] for a genuinely parametric [ref].
+ *
+ * @param serde The [Serde] bundle whose [Serde.deserializer] is used for decoding.
+ * @param ref The captured generic target type.
+ * @return The decoded value.
+ * @throws IllegalStateException if the response body is `null`.
+ */
+public fun <T> Response.deserialize(
+    serde: Serde,
+    ref: TypeRef<T>,
+): T {
+    val b = body ?: error("Response body is null — cannot deserialize into ${ref.type}")
+    return try {
+        serde.deserializer.deserialize(b.source().inputStream(), ref)
     } finally {
         close()
     }

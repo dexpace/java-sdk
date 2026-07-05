@@ -485,5 +485,53 @@ public data class Request private constructor(
             url: String,
             body: RequestBody,
         ): Request = builder().url(url).post(body).build()
+
+        /**
+         * Builds a PUT request for [url] with [body]. Equivalent to
+         * `builder().url(url).put(body).build()`.
+         *
+         * @param url The target URL string; throws [IllegalArgumentException] if invalid.
+         * @param body The request body.
+         * @return A [Request] with method [Method.PUT] and the given [body].
+         */
+        @JvmStatic
+        public fun put(
+            url: String,
+            body: RequestBody,
+        ): Request = builder().url(url).put(body).build()
+
+        /**
+         * Builds a PATCH request for [url] with [body]. Equivalent to
+         * `builder().url(url).patch(body).build()`.
+         *
+         * @param url The target URL string; throws [IllegalArgumentException] if invalid.
+         * @param body The request body.
+         * @return A [Request] with method [Method.PATCH] and the given [body].
+         */
+        @JvmStatic
+        public fun patch(
+            url: String,
+            body: RequestBody,
+        ): Request = builder().url(url).patch(body).build()
+
+        /**
+         * Builds a DELETE request for [url]. Equivalent to
+         * `builder().url(url).delete().build()`.
+         *
+         * @param url The target URL string; throws [IllegalArgumentException] if invalid.
+         * @return A [Request] with method [Method.DELETE] and no body.
+         */
+        @JvmStatic
+        public fun delete(url: String): Request = builder().url(url).delete().build()
+
+        /**
+         * Builds a HEAD request for [url]. Equivalent to
+         * `builder().url(url).head().build()`.
+         *
+         * @param url The target URL string; throws [IllegalArgumentException] if invalid.
+         * @return A [Request] with method [Method.HEAD] and no body.
+         */
+        @JvmStatic
+        public fun head(url: String): Request = builder().url(url).head().build()
     }
 }
