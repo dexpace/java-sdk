@@ -115,7 +115,10 @@ public open class DefaultAsyncRetryStep
             next: AsyncPipelineNext,
         ): CompletableFuture<Response> {
             val result = CompletableFuture<Response>()
-            val driver = RetryDriver(next, support.isRetrySafe(request), result)
+            // Per-call RequestOptions.maxRetries overrides the configured budget for THIS call
+            // only; null falls back to the step's clamped HttpRetryOptions.maxRetries.
+            val maxRetries = next.options.maxRetries ?: support.options.maxRetries
+            val driver = RetryDriver(next, support.isRetrySafe(request), maxRetries, result)
             driver.drive()
             return result
         }
@@ -129,6 +132,7 @@ public open class DefaultAsyncRetryStep
         private inner class RetryDriver(
             private val next: AsyncPipelineNext,
             private val retrySafe: Boolean,
+            private val maxRetries: Int,
             private val result: CompletableFuture<Response>,
         ) {
             private var tryCount = 0
@@ -223,7 +227,7 @@ public open class DefaultAsyncRetryStep
                     try {
                         val retry =
                             retrySafe &&
-                                tryCount < support.options.maxRetries &&
+                                tryCount < maxRetries &&
                                 shouldRetryResponse(response)
                         if (!retry) {
                             // Not retrying: hand the still-open response to the caller, who then
@@ -284,7 +288,7 @@ public open class DefaultAsyncRetryStep
                     try {
                         val retry =
                             retrySafe &&
-                                tryCount < support.options.maxRetries &&
+                                tryCount < maxRetries &&
                                 shouldRetryException(exception)
                         if (!retry) {
                             failTerminally(exception)

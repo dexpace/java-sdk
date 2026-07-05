@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseHandler
 import org.dexpace.sdk.core.util.Futures
@@ -53,10 +54,22 @@ public class AsyncHttpPipeline internal constructor(
      * or step failure. Synchronous exceptions thrown by the first step are normalised into
      * a failed future so callers see a uniform async error model.
      */
-    public fun sendAsync(request: Request): CompletableFuture<Response> {
+    public fun sendAsync(request: Request): CompletableFuture<Response> = sendAsync(request, RequestOptions.EMPTY)
+
+    /**
+     * Runs [request] through the pipeline with per-call [options] applied. The options are carried
+     * for the whole call: async steps read them via [AsyncPipelineNext.options] (the async stage
+     * retry step honours a per-call [RequestOptions.maxRetries]), and the terminal dispatch threads
+     * them into `AsyncHttpClient.executeAsync(request, options)` so the transport applies a per-call
+     * timeout. Empty pipelines short-circuit directly to the transport's per-call overload.
+     */
+    public fun sendAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> {
         if (stepArray.isEmpty()) {
             return try {
-                httpClient.executeAsync(request)
+                httpClient.executeAsync(request, options)
             } catch (e: Exception) {
                 // Defensive: the AsyncHttpClient contract says transport failures complete
                 // the future exceptionally. Normalise any sync throw to keep the contract
@@ -64,7 +77,7 @@ public class AsyncHttpPipeline internal constructor(
                 Futures.failed(e)
             }
         }
-        val state = AsyncPipelineCallState(this, request)
+        val state = AsyncPipelineCallState(this, request, options)
         return AsyncPipelineNext(state).processAsync()
     }
 
@@ -84,6 +97,16 @@ public class AsyncHttpPipeline internal constructor(
      * an async transport. [sendAsync] remains the primary entry point.
      */
     override fun executeAsync(request: Request): CompletableFuture<Response> = sendAsync(request)
+
+    /**
+     * [AsyncHttpClient] per-call SPI conformance: delegates to [sendAsync] so a caller's [options]
+     * reach the pipeline (and the transport) even when the pipeline is used through the async
+     * transport SPI.
+     */
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> = sendAsync(request, options)
 
     public companion object {
         /**

@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import java.io.IOException
 
@@ -40,13 +41,26 @@ public class HttpPipeline internal constructor(
     public val steps: List<HttpStep> = stepArray.asList()
 
     /**
-     * Runs [request] through the pipeline. Empty pipelines short-circuit directly to
-     * [HttpClient.execute] with no allocation.
+     * Runs [request] through the pipeline with no per-call overrides. Equivalent to
+     * `send(request, RequestOptions.EMPTY)`.
      */
     @Throws(IOException::class)
-    public fun send(request: Request): Response {
-        if (stepArray.isEmpty()) return httpClient.execute(request)
-        val state = PipelineCallState(this, request)
+    public fun send(request: Request): Response = send(request, RequestOptions.EMPTY)
+
+    /**
+     * Runs [request] through the pipeline with per-call [options] applied. The options are carried
+     * for the whole call: steps read them via [PipelineNext.options] (the stage retry step honours
+     * a per-call [RequestOptions.maxRetries]), and the terminal dispatch threads them into
+     * `HttpClient.execute(request, options)` so the transport applies a per-call timeout. Empty
+     * pipelines short-circuit directly to the transport's per-call overload with no allocation.
+     */
+    @Throws(IOException::class)
+    public fun send(
+        request: Request,
+        options: RequestOptions,
+    ): Response {
+        if (stepArray.isEmpty()) return httpClient.execute(request, options)
+        val state = PipelineCallState(this, request, options)
         return PipelineNext(state).process()
     }
 
@@ -56,6 +70,16 @@ public class HttpPipeline internal constructor(
      */
     @Throws(IOException::class)
     override fun execute(request: Request): Response = send(request)
+
+    /**
+     * [HttpClient] per-call SPI conformance: delegates to [send] so a caller's [options] reach the
+     * pipeline (and the transport) even when the pipeline is used through the transport SPI.
+     */
+    @Throws(IOException::class)
+    override fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response = send(request, options)
 
     public companion object {
         /**

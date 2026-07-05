@@ -8,20 +8,29 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 
 /**
  * Per-call mutable cursor over an [AsyncHttpPipeline]'s steps array. Async counterpart of
- * [PipelineCallState]: holds the index of the next step to invoke and the in-flight [Request].
+ * [PipelineCallState]: holds the index of the next step to invoke, the in-flight [Request], and
+ * the caller's [RequestOptions].
  *
  * Cloned via [copy] (exposed to user code through [AsyncPipelineNext.copy]) so async retry /
- * redirect steps can re-drive the downstream chain. Cloning copies the current index — the
- * new state resumes from the same position, advancing independently.
+ * redirect steps can re-drive the downstream chain. Cloning copies the current index and the
+ * [options] — the new state resumes from the same position, advancing independently.
  *
  * Internal: cloning is reachable only through [AsyncPipelineNext.copy].
  */
 internal class AsyncPipelineCallState internal constructor(
     val pipeline: AsyncHttpPipeline,
     initialRequest: Request,
+    /**
+     * The caller's per-call overrides, carried for the whole call. Read by steps via
+     * [AsyncPipelineNext.options] and threaded into the terminal
+     * `AsyncHttpClient.executeAsync(request, options)`. Immutable and shared unchanged across
+     * [copy] (retry / redirect re-drives).
+     */
+    val options: RequestOptions = RequestOptions.EMPTY,
     private var index: Int = 0,
 ) {
     /**
@@ -39,5 +48,5 @@ internal class AsyncPipelineCallState internal constructor(
     }
 
     /** Returns an independent state cloned at the current cursor position. */
-    fun copy(): AsyncPipelineCallState = AsyncPipelineCallState(pipeline, request, index)
+    fun copy(): AsyncPipelineCallState = AsyncPipelineCallState(pipeline, request, options, index)
 }

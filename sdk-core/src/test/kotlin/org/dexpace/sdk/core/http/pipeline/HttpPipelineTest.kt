@@ -13,15 +13,19 @@ import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
 import org.dexpace.sdk.core.http.pipeline.steps.RetryStep
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.pagination.PageInfo
 import org.dexpace.sdk.core.pagination.PaginationStrategy
 import org.dexpace.sdk.core.pagination.Paginator
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -34,6 +38,28 @@ private class RecordingHttpClient : HttpClient {
 
     override fun execute(request: Request): Response {
         requests.add(request)
+        return Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.OK)
+            .build()
+    }
+}
+
+/**
+ * Transport that records the [RequestOptions] threaded into the per-call `execute` overload — the
+ * seam a pipeline uses to hand a caller's options to the transport.
+ */
+private class OptionsRecordingHttpClient : HttpClient {
+    val seenOptions: MutableList<RequestOptions> = ArrayList()
+
+    override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+    override fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response {
+        seenOptions.add(options)
         return Response.builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
@@ -70,6 +96,64 @@ class HttpPipelineTest {
         assertEquals(1, client.requests.size)
         assertEquals(Status.OK, response.status)
         assertTrue(pipeline.steps.isEmpty())
+    }
+
+    @Test
+    fun `empty pipeline threads RequestOptions to the transport per-call overload`() {
+        val client = OptionsRecordingHttpClient()
+        val pipeline = HttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().timeout(Duration.ofSeconds(2)).maxRetries(1).build()
+
+        pipeline.send(request(), options)
+
+        assertEquals(1, client.seenOptions.size)
+        assertSame(options, client.seenOptions[0], "empty pipeline must pass options straight through")
+    }
+
+    @Test
+    fun `send without options threads EMPTY to the transport`() {
+        val client = OptionsRecordingHttpClient()
+        val pipeline = HttpPipelineBuilder(client).build()
+
+        pipeline.send(request())
+
+        assertEquals(RequestOptions.EMPTY, client.seenOptions.single())
+    }
+
+    @Test
+    fun `steps see the caller's options and the terminal dispatch threads them through`() {
+        val client = OptionsRecordingHttpClient()
+        val seenByStep = AtomicReference<RequestOptions?>(null)
+        val readingStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.PRE_SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response {
+                    seenByStep.set(next.options)
+                    return next.process()
+                }
+            }
+        val pipeline = HttpPipelineBuilder(client).append(readingStep).build()
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        pipeline.send(request(), options)
+
+        assertSame(options, seenByStep.get(), "the step must read the caller's options via next.options")
+        assertSame(options, client.seenOptions.single(), "options must reach the terminal dispatch")
+    }
+
+    @Test
+    fun `execute request through the HttpClient SPI threads EMPTY options`() {
+        val client = OptionsRecordingHttpClient()
+        val transport: HttpClient = HttpPipelineBuilder(client).build()
+
+        transport.execute(request())
+
+        assertNull(client.seenOptions.single().maxRetries)
+        assertEquals(RequestOptions.EMPTY, client.seenOptions.single())
     }
 
     @Test

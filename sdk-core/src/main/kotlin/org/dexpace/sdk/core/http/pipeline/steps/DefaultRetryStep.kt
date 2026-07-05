@@ -182,6 +182,11 @@ public open class DefaultRetryStep
             // Lazily allocated on first failure so the success path never pays for the list.
             var suppressed: MutableList<Throwable>? = null
 
+            // Per-call RequestOptions.maxRetries overrides the configured budget for THIS call
+            // only; null falls back to the step's clamped HttpRetryOptions.maxRetries. Read once
+            // per call — the options are constant across retry re-drives.
+            val maxRetries = next.options.maxRetries ?: support.options.maxRetries
+
             // A request whose body is single-use and whose method is non-idempotent cannot be
             // safely re-sent: the second writeTo would trip the body's consume-once guard. When
             // that holds, the loop runs exactly one attempt and never retries — mirroring the
@@ -199,7 +204,7 @@ public open class DefaultRetryStep
                     val response = attemptResult.getOrThrow()
                     val shouldRetry =
                         retrySafe &&
-                            tryCount < support.options.maxRetries &&
+                            tryCount < maxRetries &&
                             decideRetryResponse(response, tryCount, suppressed, retrySequenceStartNanos)
                     if (shouldRetry) {
                         tryCount++
@@ -227,7 +232,7 @@ public open class DefaultRetryStep
                     suppressed?.forEach(ioe::addSuppressed)
                     throw ioe
                 }
-                if (retrySafe && tryCount < support.options.maxRetries) {
+                if (retrySafe && tryCount < maxRetries) {
                     val accumulator = suppressed ?: ArrayList<Throwable>().also { suppressed = it }
                     if (decideRetryException(exception, tryCount, accumulator, retrySequenceStartNanos)) {
                         tryCount++

@@ -18,6 +18,7 @@ import org.dexpace.sdk.core.http.pipeline.PipelineNext
 import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
@@ -88,6 +89,68 @@ class RetryStepTest {
         val response = pipeline.send(getRequest())
         assertEquals(503, response.status.code)
         assertEquals(1, fake.callCount)
+    }
+
+    // ----------------- per-call RequestOptions.maxRetries override -----------------
+
+    @Test
+    fun `per-call maxRetries=0 suppresses a retry the configured budget would allow`() {
+        // Configured budget is 3, but the caller passes maxRetries=0 for THIS call, so the 503 is
+        // returned after exactly one attempt — no retry, fail fast.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) } // must never be reached
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val options = RequestOptions.builder().maxRetries(0).build()
+        val response = pipeline.send(getRequest(), options)
+        assertEquals(503, response.status.code)
+        assertEquals(1, fake.callCount, "per-call maxRetries=0 must fail fast")
+    }
+
+    @Test
+    fun `per-call maxRetries overrides the configured budget for this call`() {
+        // Configured budget is 5; the caller caps this call at 1 retry → 2 attempts total.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) } // must never be reached (budget is 1 retry)
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), zeroDelayClock()))
+                .build()
+
+        val options = RequestOptions.builder().maxRetries(1).build()
+        val response = pipeline.send(getRequest(), options)
+        assertEquals(503, response.status.code)
+        assertEquals(2, fake.callCount, "per-call cap of 1 retry → initial + 1 = 2 attempts")
+    }
+
+    @Test
+    fun `null per-call maxRetries falls back to the configured budget`() {
+        // EMPTY options (maxRetries == null) leave the configured budget of 3 in force.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest(), RequestOptions.EMPTY)
+        assertEquals(200, response.status.code)
+        assertEquals(4, fake.callCount, "null override keeps the configured budget of 3 retries")
     }
 
     @Test

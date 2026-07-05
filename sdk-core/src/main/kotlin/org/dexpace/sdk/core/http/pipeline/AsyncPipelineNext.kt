@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
@@ -24,8 +25,17 @@ import java.util.concurrent.CompletableFuture
  */
 public class AsyncPipelineNext internal constructor(private val state: AsyncPipelineCallState) {
     /**
+     * The caller's per-call [RequestOptions] for this send. Constant across the whole call
+     * (and across [copy] re-drives), so a step can read a per-call timeout, retry budget, or tag
+     * without threading it through the request. The async stage retry step reads
+     * [RequestOptions.maxRetries] here to honour a per-call override.
+     */
+    public val options: RequestOptions get() = state.options
+
+    /**
      * Advances to the next step and invokes it. If no further step exists, dispatches the
-     * request to the pipeline's [org.dexpace.sdk.core.client.AsyncHttpClient]. Synchronous
+     * request to the pipeline's [org.dexpace.sdk.core.client.AsyncHttpClient], threading the
+     * caller's [options] into the transport's per-call `executeAsync` overload. Synchronous
      * exceptions thrown by the next step's `processAsync` (typically argument-validation
      * errors) are wrapped into the returned future via
      * [CompletableFuture.failedFuture] so callers receive a uniform async error model.
@@ -34,7 +44,7 @@ public class AsyncPipelineNext internal constructor(private val state: AsyncPipe
         val nextStep = state.advance()
         return try {
             if (nextStep == null) {
-                state.pipeline.httpClient.executeAsync(state.request)
+                state.pipeline.httpClient.executeAsync(state.request, state.options)
             } else {
                 nextStep.processAsync(state.request, this)
             }

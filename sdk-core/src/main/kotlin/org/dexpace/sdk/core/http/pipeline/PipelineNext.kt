@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import java.io.IOException
 
@@ -20,14 +21,23 @@ import java.io.IOException
  */
 public class PipelineNext internal constructor(private val state: PipelineCallState) {
     /**
+     * The caller's per-call [RequestOptions] for this send. Constant across the whole call
+     * (and across [copy] re-drives), so a step can read a per-call timeout, retry budget, or tag
+     * without threading it through the request. The stage retry step reads
+     * [RequestOptions.maxRetries] here to honour a per-call override.
+     */
+    public val options: RequestOptions get() = state.options
+
+    /**
      * Advances to the next step and invokes it. If no further step exists, dispatches the
-     * request to the pipeline's [org.dexpace.sdk.core.client.HttpClient].
+     * request to the pipeline's [org.dexpace.sdk.core.client.HttpClient], threading the caller's
+     * [options] into the transport's per-call `execute` overload.
      */
     @Throws(IOException::class)
     public fun process(): Response {
         val nextStep = state.advance()
         return if (nextStep == null) {
-            state.pipeline.httpClient.execute(state.request)
+            state.pipeline.httpClient.execute(state.request, state.options)
         } else {
             nextStep.process(state.request, this)
         }

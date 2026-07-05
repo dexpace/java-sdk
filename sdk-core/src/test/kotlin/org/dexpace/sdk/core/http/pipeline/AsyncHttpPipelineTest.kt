@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.pagination.AsyncPaginator
@@ -50,6 +51,35 @@ class AsyncHttpPipelineTest {
         val pipeline = AsyncHttpPipelineBuilder(constantClient(200)).build()
         val response = pipeline.sendAsync(getRequest()).join()
         assertEquals(200, response.status.code)
+    }
+
+    @Test
+    fun `sendAsync threads RequestOptions to the transport and steps read them`() {
+        val client = OptionsRecordingAsyncClient()
+        val seenByStep = AtomicReference<RequestOptions?>(null)
+        val step =
+            TestStep(Stage.PRE_SEND) { _, next ->
+                seenByStep.set(next.options)
+                next.processAsync()
+            }
+        val pipeline = AsyncHttpPipelineBuilder(client).append(step).build()
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        pipeline.sendAsync(getRequest(), options).join()
+
+        assertSame(options, seenByStep.get(), "the step must read options via next.options")
+        assertSame(options, client.seenOptions.single(), "options must reach the terminal dispatch")
+    }
+
+    @Test
+    fun `empty async pipeline threads options straight to the transport`() {
+        val client = OptionsRecordingAsyncClient()
+        val pipeline = AsyncHttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().maxRetries(2).build()
+
+        pipeline.sendAsync(getRequest(), options).join()
+
+        assertSame(options, client.seenOptions.single())
     }
 
     @Test
@@ -499,6 +529,22 @@ class AsyncHttpPipelineTest {
 
     private fun constantClient(code: Int): AsyncHttpClient =
         AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, code)) }
+
+    /** Async transport recording the [RequestOptions] threaded into the per-call overload. */
+    private inner class OptionsRecordingAsyncClient : AsyncHttpClient {
+        val seenOptions: MutableList<RequestOptions> = ArrayList()
+
+        override fun executeAsync(request: Request): CompletableFuture<Response> =
+            executeAsync(request, RequestOptions.EMPTY)
+
+        override fun executeAsync(
+            request: Request,
+            options: RequestOptions,
+        ): CompletableFuture<Response> {
+            seenOptions.add(options)
+            return CompletableFuture.completedFuture(mockResponse(request, 200))
+        }
+    }
 
     private fun getRequest(): Request =
         Request.builder()
