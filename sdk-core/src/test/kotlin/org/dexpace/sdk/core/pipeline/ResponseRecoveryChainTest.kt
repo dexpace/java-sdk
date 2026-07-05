@@ -128,8 +128,8 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                requestPipeline = RequestRecoveryChain(),
-                responsePipeline = ResponseRecoveryChain(),
+                requestChain = RequestRecoveryChain(),
+                responseChain = ResponseRecoveryChain(),
             )
 
         val out = pipeline.recover(req, ctx())
@@ -156,7 +156,7 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponseRecoveryChain(recoverySteps = listOf(rescue)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(rescue)),
             )
 
         val out = pipeline.recover(req, ctx())
@@ -175,7 +175,7 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponseRecoveryChain(recoverySteps = listOf(passthrough)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(passthrough)),
             )
 
         val thrown = assertThrows(IOException::class.java) { pipeline.recover(req, ctx()) }
@@ -200,7 +200,7 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponseRecoveryChain(recoverySteps = listOf(replace)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(replace)),
             )
 
         val thrown = assertThrows(IllegalStateException::class.java) { pipeline.recover(req, ctx()) }
@@ -234,7 +234,7 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                responsePipeline =
+                responseChain =
                     ResponseRecoveryChain(
                         responseSteps = listOf(failingResponseStep),
                         recoverySteps = listOf(recoverFromResponseStep),
@@ -321,8 +321,8 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                requestPipeline = RequestRecoveryChain(listOf(failingRequestStep)),
-                responsePipeline = ResponseRecoveryChain(recoverySteps = listOf(recoverFromRequestStep)),
+                requestChain = RequestRecoveryChain(listOf(failingRequestStep)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(recoverFromRequestStep)),
             )
 
         val thrown = assertThrows(IllegalArgumentException::class.java) { pipeline.recover(req, ctx()) }
@@ -356,7 +356,7 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponseRecoveryChain(recoverySteps = listOf(observeTransportFailure)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(observeTransportFailure)),
             )
 
         val thrown = assertThrows(IOException::class.java) { pipeline.recover(req, ctx()) }
@@ -421,7 +421,7 @@ class ResponseRecoveryChainTest {
         val pipeline =
             RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponseRecoveryChain(recoverySteps = listOf(tag1, rescue, tag3)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(tag1, rescue, tag3)),
             )
 
         val out = pipeline.recover(req, ctx())

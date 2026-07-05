@@ -41,8 +41,8 @@ import org.dexpace.sdk.core.http.response.Response
  * defect where a `BeforeRequest` exception bypassed `AfterError`.
  *
  * ## Thread-safety
- * The chain is immutable after construction (the underlying [requestPipeline],
- * [responsePipeline], and [httpClient] references are final). Concurrent calls to [recover]
+ * The chain is immutable after construction (the underlying [requestChain],
+ * [responseChain], and [httpClient] references are final). Concurrent calls to [recover]
  * are safe provided each component is thread-safe.
  *
  * ## Exception semantics
@@ -51,22 +51,22 @@ import org.dexpace.sdk.core.http.response.Response
  * surface a typed exception should construct it themselves and return
  * [ResponseOutcome.Failure].
  *
- * @property requestPipeline Pre-transport request chain.
+ * @property requestChain Pre-transport request chain.
  * @property httpClient Transport that produces the raw [Response].
- * @property responsePipeline Recovery-aware response chain.
+ * @property responseChain Recovery-aware response chain.
  */
 public class RecoveryChain
     @JvmOverloads
     constructor(
         public val httpClient: HttpClient,
-        public val requestPipeline: RequestRecoveryChain = RequestRecoveryChain(),
-        public val responsePipeline: ResponseRecoveryChain = ResponseRecoveryChain(),
+        public val requestChain: RequestRecoveryChain = RequestRecoveryChain(),
+        public val responseChain: ResponseRecoveryChain = ResponseRecoveryChain(),
     ) {
         /**
          * Dispatches [request] through the full pipeline:
-         *  1. Runs [requestPipeline] (catching throwables).
+         *  1. Runs [requestChain] (catching throwables).
          *  2. On success, invokes [HttpClient.execute] (catching throwables).
-         *  3. Folds the resulting [ResponseOutcome] through [responsePipeline].
+         *  3. Folds the resulting [ResponseOutcome] through [responseChain].
          *  4. Unwraps the final outcome: [ResponseOutcome.Success] returns the [Response];
          *     [ResponseOutcome.Failure] rethrows.
          *
@@ -81,7 +81,7 @@ public class RecoveryChain
             context: DispatchContext,
         ): Response {
             val outcome = produceOutcome(request, context)
-            val finalOutcome = responsePipeline.apply(outcome, context)
+            val finalOutcome = responseChain.apply(outcome, context)
             return when (finalOutcome) {
                 is ResponseOutcome.Success -> finalOutcome.response
                 is ResponseOutcome.Failure -> throw finalOutcome.error
@@ -89,7 +89,7 @@ public class RecoveryChain
         }
 
         /**
-         * Runs the [requestPipeline] and transport to produce a [ResponseOutcome]. Any throwable
+         * Runs the [requestChain] and transport to produce a [ResponseOutcome]. Any throwable
          * raised by a request step or the transport is converted to a [ResponseOutcome.Failure];
          * the recovery chain receives them uniformly.
          */
@@ -99,7 +99,7 @@ public class RecoveryChain
         ): ResponseOutcome {
             val transformedRequest =
                 try {
-                    requestPipeline.recover(request, context)
+                    requestChain.recover(request, context)
                 } catch (t: Throwable) {
                     return failureOf(t)
                 }

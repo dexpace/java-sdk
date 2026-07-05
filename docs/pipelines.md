@@ -309,8 +309,8 @@ terminal failure).
 ```kotlin
 public class RecoveryChain(
     public val httpClient: HttpClient,
-    public val requestPipeline: RequestRecoveryChain = RequestRecoveryChain(),
-    public val responsePipeline: ResponseRecoveryChain = ResponseRecoveryChain(),
+    public val requestChain: RequestRecoveryChain = RequestRecoveryChain(),
+    public val responseChain: ResponseRecoveryChain = ResponseRecoveryChain(),
 )
 ```
 
@@ -628,8 +628,8 @@ val mapToTypedException = ResponseRecoveryStep { outcome ->
 
 val pipeline = RecoveryChain(
     httpClient = transport,
-    requestPipeline = RequestRecoveryChain(listOf(authStep, userAgentStep)),
-    responsePipeline = ResponseRecoveryChain(
+    requestChain = RequestRecoveryChain(listOf(authStep, userAgentStep)),
+    responseChain = ResponseRecoveryChain(
         responseSteps = listOf(decodingStep),
         recoverySteps = listOf(retryStep, mapToTypedException),
     ),
