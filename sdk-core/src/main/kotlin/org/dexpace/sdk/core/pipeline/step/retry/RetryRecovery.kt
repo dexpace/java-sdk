@@ -80,7 +80,7 @@ import java.util.concurrent.TimeUnit
  *
  * ## Lifecycle &amp; thread-safety
  *
- * A `RetryStep` instance is **stateless across calls** and therefore safe to share, reuse,
+ * A `RetryRecovery` instance is **stateless across calls** and therefore safe to share, reuse,
  * and invoke concurrently — honouring the [ResponseRecoveryStep] contract ("steps are shared
  * across concurrent requests"). The per-call retry state (attempt count, start instant) is
  * not held on the instance; it is allocated fresh inside each top-level [invoke]/[attempt]
@@ -92,17 +92,17 @@ import java.util.concurrent.TimeUnit
  *
  * The [httpClient] and the originating [request] are captured at construction; a single
  * instance therefore retries exactly that one request template. Construct a distinct
- * `RetryStep` per logical request you intend to retry.
+ * `RetryRecovery` per logical request you intend to retry.
  *
- * Wire it into a pipeline by adding it to the `recoverySteps` of a
- * [org.dexpace.sdk.core.pipeline.ResponsePipeline], or invoke [attempt] directly to obtain
+ * Wire it into a chain by adding it to the `recoverySteps` of a
+ * [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain], or invoke [attempt] directly to obtain
  * the final response without the rest of the pipeline machinery.
  *
  * @property httpClient Transport used to send retry attempts. Captured at construction.
  * @property settings Retry configuration; see [RetrySettings] for defaults.
  * @property request Originating request — used as the template for each retry attempt.
  */
-public class RetryStep
+public class RetryRecovery
     @JvmOverloads
     constructor(
         public val httpClient: HttpClient,
@@ -112,7 +112,7 @@ public class RetryStep
     ) : ResponseRecoveryStep {
         /**
          * Per-call retry bookkeeping. Allocated fresh at the top of each [invoke]/[attempt] so
-         * a shared/reused [RetryStep] never inherits a stale attempt budget and concurrent
+         * a shared/reused [RetryRecovery] never inherits a stale attempt budget and concurrent
          * invocations cannot clobber each other's state.
          *
          * @property attempt 1-indexed number for the **next** retry; starts at 1 (the delay

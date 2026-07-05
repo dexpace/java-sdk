@@ -64,7 +64,7 @@ import org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
  * @property responseSteps Steps applied on the success path; skipped on failures.
  * @property recoverySteps Recovery steps applied to every outcome.
  */
-public class ResponsePipeline
+public class ResponseRecoveryChain
     @JvmOverloads
     constructor(
         responseSteps: List<ResponsePipelineStep> = emptyList(),

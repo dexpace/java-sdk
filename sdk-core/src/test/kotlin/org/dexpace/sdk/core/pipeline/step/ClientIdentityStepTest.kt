@@ -24,7 +24,7 @@ class ClientIdentityStepTest {
         val step = ClientIdentityStep()
         val request = baseRequest()
 
-        val result = step.apply(request)
+        val result = step.execute(request, DispatchContext.default())
 
         val ua = result.headers.get("User-Agent")
         assertNotNull(ua, "Expected User-Agent to be set")
@@ -42,7 +42,7 @@ class ClientIdentityStepTest {
                 .setHeader("User-Agent", "MyApp/1.0")
                 .build()
 
-        val result = step.apply(request)
+        val result = step.execute(request, DispatchContext.default())
 
         assertEquals(
             "MyApp/1.0 dexpace-sdk/${SdkInfo.sdkVersion} jvm/${SdkInfo.javaVersion}",
@@ -62,7 +62,7 @@ class ClientIdentityStepTest {
                 .setHeader("User-Agent", "MyApp/1.0")
                 .build()
 
-        val result = step.apply(request)
+        val result = step.execute(request, DispatchContext.default())
 
         assertEquals(
             "dexpace-sdk/${SdkInfo.sdkVersion} jvm/${SdkInfo.javaVersion}",
@@ -77,7 +77,7 @@ class ClientIdentityStepTest {
                 .tokens(listOf("foo/1", "bar/2"))
                 .build()
 
-        val result = step.apply(baseRequest())
+        val result = step.execute(baseRequest(), DispatchContext.default())
 
         assertEquals("foo/1 bar/2", result.headers.get("User-Agent"))
     }
@@ -89,7 +89,7 @@ class ClientIdentityStepTest {
                 .headerName("X-Dexpace-Client")
                 .build()
 
-        val result = step.apply(baseRequest())
+        val result = step.execute(baseRequest(), DispatchContext.default())
 
         assertEquals(
             "dexpace-sdk/${SdkInfo.sdkVersion} jvm/${SdkInfo.javaVersion}",
@@ -107,7 +107,7 @@ class ClientIdentityStepTest {
                 .setHeader("User-Agent", "MyApp/1.0")
                 .build()
 
-        val result = step.apply(request)
+        val result = step.execute(request, DispatchContext.default())
 
         // Same instance (request returned unchanged) and the existing User-Agent untouched.
         assertSame(request, result)
@@ -121,7 +121,7 @@ class ClientIdentityStepTest {
                 .addToken("okhttp", "5.0.0")
                 .build()
 
-        val result = step.apply(baseRequest())
+        val result = step.execute(baseRequest(), DispatchContext.default())
 
         assertEquals("okhttp/5.0.0", result.headers.get("User-Agent"))
     }
@@ -134,7 +134,7 @@ class ClientIdentityStepTest {
                 .addToken("okhttp", "5.0.0")
                 .build()
 
-        val result = step.apply(baseRequest())
+        val result = step.execute(baseRequest(), DispatchContext.default())
 
         // The default `dexpace-sdk/...` and `jvm/...` tokens must NOT appear once the
         // caller has supplied any explicit token via `addToken`.
@@ -167,8 +167,8 @@ class ClientIdentityStepTest {
                 .newBuilder()
                 .setHeader("X-Dexpace-Client", "Existing/9")
                 .build()
-        val originalValue = original.apply(seeded).headers.get("X-Dexpace-Client")
-        val copyValue = copy.apply(seeded).headers.get("X-Dexpace-Client")
+        val originalValue = original.execute(seeded, DispatchContext.default()).headers.get("X-Dexpace-Client")
+        val copyValue = copy.execute(seeded, DispatchContext.default()).headers.get("X-Dexpace-Client")
         assertEquals(originalValue, copyValue)
         // Replace mode preserved: existing value overwritten with the copied token line.
         assertEquals("foo/1 bar/2", copyValue)
@@ -191,8 +191,16 @@ class ClientIdentityStepTest {
                 .setHeader("X-Client", "Caller/2")
                 .build()
 
-        assertEquals("Caller/2 foo/1", original.apply(request).headers.get("X-Client"), "Original keeps Append mode")
-        assertEquals("foo/1", derived.apply(request).headers.get("X-Client"), "Derived uses Replace mode")
+        assertEquals(
+            "Caller/2 foo/1",
+            original.execute(request, DispatchContext.default()).headers.get("X-Client"),
+            "Original keeps Append mode",
+        )
+        assertEquals(
+            "foo/1",
+            derived.execute(request, DispatchContext.default()).headers.get("X-Client"),
+            "Derived uses Replace mode",
+        )
     }
 
     @Test
@@ -202,7 +210,7 @@ class ClientIdentityStepTest {
         // addToken on a newBuilder() copy must append (no default seed to discard).
         val derived = original.newBuilder().addToken("bar", "2").build()
 
-        assertEquals("foo/1 bar/2", derived.apply(baseRequest()).headers.get("User-Agent"))
+        assertEquals("foo/1 bar/2", derived.execute(baseRequest(), DispatchContext.default()).headers.get("User-Agent"))
     }
 
     @Test
@@ -212,12 +220,12 @@ class ClientIdentityStepTest {
         val copy = original.newBuilder().build()
 
         assertEquals(
-            original.apply(baseRequest()).headers.get("User-Agent"),
-            copy.apply(baseRequest()).headers.get("User-Agent"),
+            original.execute(baseRequest(), DispatchContext.default()).headers.get("User-Agent"),
+            copy.execute(baseRequest(), DispatchContext.default()).headers.get("User-Agent"),
         )
         assertEquals(
             "dexpace-sdk/${SdkInfo.sdkVersion} jvm/${SdkInfo.javaVersion}",
-            copy.apply(baseRequest()).headers.get("User-Agent"),
+            copy.execute(baseRequest(), DispatchContext.default()).headers.get("User-Agent"),
         )
     }
 
@@ -232,7 +240,7 @@ class ClientIdentityStepTest {
                 .setHeader("user-agent", "MyApp/1.0")
                 .build()
 
-        val result = step.apply(request)
+        val result = step.execute(request, DispatchContext.default())
 
         assertEquals("MyApp/1.0 foo/1", result.headers.get("User-Agent"))
     }

@@ -147,7 +147,7 @@ public fun AsyncHttpClient.asBlocking(): HttpClient =
         } catch (ie: InterruptedException) {
             // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
             // the in-flight exchange, and surface an InterruptedIOException so callers' I/O
-            // error handling terminates cleanly. See RetryStep.awaitDelay for the same pattern.
+            // error handling terminates cleanly. See RetryRecovery.awaitDelay for the same pattern.
             Thread.currentThread().interrupt()
             future.cancel(true)
             val ioe = InterruptedIOException("Interrupted while waiting for response")

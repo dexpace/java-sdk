@@ -86,8 +86,8 @@ Layered, from the bottom up:
    - `http.pipeline` — stage-based runtime: `HttpPipelineBuilder` + `HttpStep` ordered by `Stage` with
      pillar stages (exactly one REDIRECT / RETRY / AUTH / LOGGING / SERDE step per pipeline), plus the
      async mirror (`AsyncHttpPipeline`, `AsyncHttpStep`) and sync→async bridges.
-   - `pipeline` — recovery-aware primitives: `RequestPipeline`, `ResponsePipeline`, `ExecutionPipeline`,
-     `ResponseOutcome`, with steps like `RetryStep` (backoff + `Retry-After`), `IdempotencyKeyStep`,
+   - `pipeline` — recovery-aware primitives: `RequestRecoveryChain`, `ResponseRecoveryChain`, `RecoveryChain`,
+     `ResponseOutcome`, with steps like `RetryRecovery` (backoff + `Retry-After`), `IdempotencyKeyStep`,
      `ClientIdentityStep`.
    See `docs/pipelines.md` before touching either.
 6. **Transports** — `sdk-transport-okhttp` (Java 8) and `sdk-transport-jdkhttp` (Java 11). Both implement

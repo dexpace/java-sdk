@@ -22,7 +22,7 @@ import org.dexpace.sdk.core.io.Io
  * This is the error path for the recovery-aware pipeline: a transport hands back a `Response`
  * for every completed exchange — including 4xx and 5xx — so a 4xx/5xx is a [Response], not a
  * thrown exception, until something maps it. Placed in a
- * [org.dexpace.sdk.core.pipeline.ResponsePipeline.responseSteps] list, this step performs that
+ * [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain.responseSteps] list, this step performs that
  * mapping via [HttpExceptionFactory.fromResponse], so the typed [HttpException] family is
  * produced consistently from one seam rather than re-derived ad hoc at each call site.
  *
@@ -30,10 +30,10 @@ import org.dexpace.sdk.core.io.Io
  *
  *  - **2xx (and 1xx/3xx) response** — returned unchanged; the success chain continues.
  *  - **4xx / 5xx response** — [HttpExceptionFactory.fromResponse] is invoked and the resulting
- *    [HttpException] is thrown. [org.dexpace.sdk.core.pipeline.ResponsePipeline] catches it,
+ *    [HttpException] is thrown. [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain] catches it,
  *    closes the in-hand response, and wraps it into a
  *    [org.dexpace.sdk.core.pipeline.ResponseOutcome.Failure] — which then flows through the
- *    recovery chain (e.g. [org.dexpace.sdk.core.pipeline.step.retry.RetryStep]) exactly like a
+ *    recovery chain (e.g. [org.dexpace.sdk.core.pipeline.step.retry.RetryRecovery]) exactly like a
  *    transport failure. Because the thrown [HttpException] implements
  *    [org.dexpace.sdk.core.http.response.exception.Retryable], retry classification keys off it
  *    uniformly.
@@ -65,7 +65,7 @@ import org.dexpace.sdk.core.io.Io
  *
  * Stateless; safe to share across concurrent requests and reuse as a singleton.
  */
-public object ThrowOnHttpErrorStep : ResponsePipelineStep {
+public object ThrowOnHttpErrorRecovery : ResponsePipelineStep {
     /**
      * Returns [input] unchanged for a non-error status; throws the
      * [HttpExceptionFactory.fromResponse] mapping for a 4xx / 5xx status.

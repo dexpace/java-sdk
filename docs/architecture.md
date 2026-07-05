@@ -251,14 +251,19 @@ conditional on identity, so closing an earlier link never removes a live success
 
 Two cooperating pipeline layers, both fully implemented — no placeholders.
 
+> **Orientation.** The stage-based `http.pipeline` (`HttpPipeline`) is the user-facing **dispatch**
+> pipeline; the recovery-aware `pipeline` (`RecoveryChain`) is the **recovery** layer that threads a
+> sealed `ResponseOutcome`.
+
 #### Stage-based runtime (`org.dexpace.sdk.core.http.pipeline`)
 
 `HttpPipelineBuilder` assembles ordered `HttpStep`s into an `HttpPipeline`. Each step belongs
 to a `Stage`; lower-ordered stages run first. Five stages are **pillars** that admit exactly
 one step each — `REDIRECT`, `RETRY`, `AUTH`, `LOGGING`, `SERDE` — while the interleaved
 non-pillar stages (e.g. `PRE_AUTH`, `POST_LOGGING`) hold an ordered deque of user steps. The
-terminal `SEND` stage is `HttpClient.execute` itself. Replacing a pillar emits a
-`pipeline.pillar.replaced` SLF4J warning.
+terminal `SEND` stage is `HttpClient.execute` itself. Installing a *distinct* second step in a
+pillar throws `IllegalStateException` (re-installing the same instance is idempotent); use
+`replace<T>()` to swap the occupant.
 
 | Type                  | Role                                                                            |
 |-----------------------|---------------------------------------------------------------------------------|
@@ -284,9 +289,9 @@ response step.
 
 | Type                | Role                                                                       |
 |---------------------|----------------------------------------------------------------------------|
-| `RequestPipeline`   | Folds a `Request` through a sequence of `RequestPipelineStep`s              |
-| `ResponsePipeline`  | Runs `ResponsePipelineStep`s on success and `ResponseRecoveryStep`s on every outcome |
-| `ExecutionPipeline` | Wires request pipeline → `HttpClient` → response pipeline                   |
+| `RequestRecoveryChain`   | Folds a `Request` through a sequence of `RequestPipelineStep`s              |
+| `ResponseRecoveryChain`  | Runs `ResponsePipelineStep`s on success and `ResponseRecoveryStep`s on every outcome |
+| `RecoveryChain` | Wires request pipeline → `HttpClient` → response pipeline                   |
 | `ResponseOutcome`   | Sealed `Success(Response)` / `Failure(Throwable)` sum type                  |
 
 ##### Step System (`pipeline.step`)
@@ -304,7 +309,7 @@ Retry primitives live in `pipeline.step.retry`:
 
 | Type               | Role                                                                  |
 |--------------------|-----------------------------------------------------------------------|
-| `RetryStep`        | Recovery step that re-invokes the transport with backoff + `Retry-After` honoring |
+| `RetryRecovery`        | Recovery step that re-invokes the transport with backoff + `Retry-After` honoring |
 | `RetrySettings`    | Immutable retry policy (timeout, backoff, max attempts, retryable statuses/methods) |
 | `BackoffCalculator`| Computes the per-attempt delay                                        |
 | `RetryAfterParser` | Parses `Retry-After` / `X-RateLimit-Reset` pacing hints              |
@@ -442,7 +447,7 @@ Log correlation is wired through SLF4J MDC: `Span.makeCurrentWithLoggingContext(
                     └──────────┬────────────┘
                                │
                     ┌──────────▼────────────┐
-                    │    RequestPipeline     │
+                    │    RequestRecoveryChain     │
                     │  step1 → step2 → ...  │  Add headers, auth, validation
                     └──────────┬────────────┘
                                │
@@ -466,7 +471,7 @@ Log correlation is wired through SLF4J MDC: `Span.makeCurrentWithLoggingContext(
                                │
                                ▼
                     ┌──────────────────────┐
-                    │   ResponsePipeline    │  Post-processing steps
+                    │   ResponseRecoveryChain    │  Post-processing steps
                     └──────────┬───────────┘
                                │
                     ┌──────────▼───────────┐
@@ -737,9 +742,9 @@ they should construct a fresh one.
 | `http.pipeline`      | HttpPipeline, HttpPipelineBuilder, HttpStep, Stage, AsyncHttpPipeline (+ `.steps`)              |
 | `http.sse`           | ServerSentEvent, ServerSentEventReader, ServerSentEventListener                                 |
 | `auth`               | Credential, KeyCredential, BearerToken, ChallengeHandler, Basic/Digest/CompositeChallengeHandler, AuthChallengeParser |
-| `pipeline`           | RequestPipeline, ResponsePipeline, ExecutionPipeline, ResponseOutcome                           |
+| `pipeline`           | RequestRecoveryChain, ResponseRecoveryChain, RecoveryChain, ResponseOutcome                           |
 | `pipeline.step`      | PipelineStep, RequestPipelineStep, ResponsePipelineStep, ResponseRecoveryStep, ClientIdentityStep, IdempotencyKeyStep |
-| `pipeline.step.retry`| RetryStep, RetrySettings, BackoffCalculator, RetryAfterParser                                   |
+| `pipeline.step.retry`| RetryRecovery, RetrySettings, BackoffCalculator, RetryAfterParser                                   |
 | `pagination`         | Page (Closeable; raw per-page Response), PageInfo, CloseablePages, Paginator, AsyncPaginator, PaginationStrategy, Cursor/PageNumber/LinkHeader strategies, PagedIterable, PageWalker (internal) |
 | `client`             | HttpClient, AsyncHttpClient                                                                      |
 | `serde`              | Serde, Serializer, Deserializer, Tristate                                                        |

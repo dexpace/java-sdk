@@ -11,7 +11,7 @@ package org.dexpace.sdk.core.http.response.exception
  * Marks an exception that knows whether the condition it represents is worth retrying.
  *
  * The retry machinery keys off this interface rather than concrete exception types: a
- * [org.dexpace.sdk.core.pipeline.step.retry.RetryStep] asks `error is Retryable` and reads
+ * [org.dexpace.sdk.core.pipeline.step.retry.RetryRecovery] asks `error is Retryable` and reads
  * [isRetryable] instead of matching every subclass it might encounter. New retryable
  * exception types participate automatically by implementing this interface — no change to the
  * classifier is required.

@@ -23,7 +23,7 @@ import org.dexpace.sdk.core.http.response.exception.TooManyRequestsException
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
-import org.dexpace.sdk.core.pipeline.ResponsePipeline
+import org.dexpace.sdk.core.pipeline.ResponseRecoveryChain
 import org.dexpace.sdk.io.OkioIoProvider
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -35,11 +35,11 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Verifies that [ThrowOnHttpErrorStep] is the live error path: an error response is routed
+ * Verifies that [ThrowOnHttpErrorRecovery] is the live error path: an error response is routed
  * through [org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory.fromResponse] and
  * surfaces as the matching typed [HttpException], while a success response passes through.
  */
-class ThrowOnHttpErrorStepTest {
+class ThrowOnHttpErrorRecoveryTest {
     @BeforeTest
     fun installProvider() {
         Io.installProvider(OkioIoProvider)
@@ -50,7 +50,7 @@ class ThrowOnHttpErrorStepTest {
     @Test
     fun `2xx response passes through unchanged`() {
         val ok = response(Status.OK)
-        val out = ThrowOnHttpErrorStep.execute(ok, ctx())
+        val out = ThrowOnHttpErrorRecovery.execute(ok, ctx())
         assertSame(ok, out, "a success response must pass through untouched")
     }
 
@@ -58,14 +58,14 @@ class ThrowOnHttpErrorStepTest {
     fun `3xx response passes through unchanged`() {
         // The factory rejects non-4xx/5xx; the step must not even call it for a 3xx.
         val redirect = response(Status.MOVED_PERMANENTLY)
-        assertSame(redirect, ThrowOnHttpErrorStep.execute(redirect, ctx()))
+        assertSame(redirect, ThrowOnHttpErrorRecovery.execute(redirect, ctx()))
     }
 
     @Test
     fun `404 maps to NotFoundException via the factory`() {
         val ex =
             assertFailsWith<HttpException> {
-                ThrowOnHttpErrorStep.execute(response(Status.NOT_FOUND), ctx())
+                ThrowOnHttpErrorRecovery.execute(response(Status.NOT_FOUND), ctx())
             }
         assertIs<NotFoundException>(ex, "404 must produce the factory's NotFoundException")
         assertEquals(Status.NOT_FOUND, ex.status)
@@ -75,7 +75,7 @@ class ThrowOnHttpErrorStepTest {
     fun `503 maps to a retryable ServiceUnavailableException`() {
         val ex =
             assertFailsWith<HttpException> {
-                ThrowOnHttpErrorStep.execute(response(Status.SERVICE_UNAVAILABLE), ctx())
+                ThrowOnHttpErrorRecovery.execute(response(Status.SERVICE_UNAVAILABLE), ctx())
             }
         assertIs<ServiceUnavailableException>(ex)
         assertTrue(ex.isRetryable, "503 must surface as retryable")
@@ -86,18 +86,18 @@ class ThrowOnHttpErrorStepTest {
         val headers = Headers.Builder().add("Retry-After", "7").build()
         val ex =
             assertFailsWith<HttpException> {
-                ThrowOnHttpErrorStep.execute(response(Status.TOO_MANY_REQUESTS, headers), ctx())
+                ThrowOnHttpErrorRecovery.execute(response(Status.TOO_MANY_REQUESTS, headers), ctx())
             }
         assertIs<TooManyRequestsException>(ex)
         assertEquals("7", ex.headers.get("Retry-After"))
         assertEquals(Status.TOO_MANY_REQUESTS, ex.status)
     }
 
-    // ---- wired through the recovery-aware ResponsePipeline ------------------------------
+    // ---- wired through the recovery-aware ResponseRecoveryChain ------------------------------
 
     @Test
     fun `pipeline turns a 500 success-outcome into a Failure carrying the factory exception`() {
-        val pipeline = ResponsePipeline(responseSteps = listOf(ThrowOnHttpErrorStep))
+        val pipeline = ResponseRecoveryChain(responseSteps = listOf(ThrowOnHttpErrorRecovery))
         val outcome = ResponseOutcome.Success(response(Status.INTERNAL_SERVER_ERROR))
 
         val result = pipeline.apply(outcome, ctx())
@@ -109,7 +109,7 @@ class ThrowOnHttpErrorStepTest {
 
     @Test
     fun `pipeline leaves a 2xx success-outcome as a Success`() {
-        val pipeline = ResponsePipeline(responseSteps = listOf(ThrowOnHttpErrorStep))
+        val pipeline = ResponseRecoveryChain(responseSteps = listOf(ThrowOnHttpErrorRecovery))
         val ok = response(Status.OK)
 
         val result = pipeline.apply(ResponseOutcome.Success(ok), ctx())
@@ -121,8 +121,8 @@ class ThrowOnHttpErrorStepTest {
     @Test
     fun `the mapped failure is Retryable so the retry classifier can key off it`() {
         // The error path emits an HttpException that is Retryable, which is exactly what
-        // RetryStep.isClassifiedRetryable matches on.
-        val pipeline = ResponsePipeline(responseSteps = listOf(ThrowOnHttpErrorStep))
+        // RetryRecovery.isClassifiedRetryable matches on.
+        val pipeline = ResponseRecoveryChain(responseSteps = listOf(ThrowOnHttpErrorRecovery))
         val result = pipeline.apply(ResponseOutcome.Success(response(Status.BAD_GATEWAY)), ctx())
 
         val failure = assertIs<ResponseOutcome.Failure>(result)
@@ -137,7 +137,7 @@ class ThrowOnHttpErrorStepTest {
         // even though the original transport body is closed by close-before-propagate.
         val payload = """{"error":"boom"}"""
         val original = closeTrackingBody(payload)
-        val pipeline = ResponsePipeline(responseSteps = listOf(ThrowOnHttpErrorStep))
+        val pipeline = ResponseRecoveryChain(responseSteps = listOf(ThrowOnHttpErrorRecovery))
 
         val result =
             pipeline.apply(

@@ -106,7 +106,7 @@ public class SseStream private constructor(
      * a suppressed throwable when an error is in flight; when there is no [primary] to carry it
      * (a clean terminal path) the failure is logged at `WARN` and swallowed, since the events were
      * already delivered. Mirrors the close-on-failure helper in
-     * [org.dexpace.sdk.core.pipeline.ResponsePipeline].
+     * [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain].
      */
     internal fun releaseQuietly(primary: Throwable?) {
         if (!closed.compareAndSet(false, true)) return

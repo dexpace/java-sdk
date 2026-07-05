@@ -33,7 +33,7 @@ import java.time.Instant
 
 /**
  * Guards that the two retry stacks — the stage-based [DefaultRetryStep]/[HttpRetryOptions] and
- * the recovery-aware [RetryStep]/[RetrySettings] — share ONE set of documented defaults and ONE
+ * the recovery-aware [RetryRecovery]/[RetrySettings] — share ONE set of documented defaults and ONE
  * backoff computation ([BackoffCalculator]). If a future change re-introduces divergent defaults
  * (max attempts, base/initial delay, max delay, multiplier, jitter) or a second backoff formula,
  * these assertions fail.
@@ -199,8 +199,8 @@ class RetryDefaultsReconciliationTest {
                 }
             }
         // No explicit scheduler: with zero delays the step never schedules a deferred wait, and
-        // leaving it null routes through RetryStep's process-wide lazy daemon scheduler rather
-        // than leaking a caller-owned executor (which RetryStep never shuts down) per run.
+        // leaving it null routes through RetryRecovery's process-wide lazy daemon scheduler rather
+        // than leaking a caller-owned executor (which RetryRecovery never shuts down) per run.
         val settings =
             RetrySettings.builder()
                 .initialDelay(Duration.ZERO)
@@ -209,7 +209,7 @@ class RetryDefaultsReconciliationTest {
                 .jitter(0.0)
                 .totalTimeout(Duration.ZERO)
                 .build()
-        val step = RetryStep(client, settings, getRequest())
+        val step = RetryRecovery(client, settings, getRequest())
         val response = step.attempt()
         assertEquals(200, response.status.code, "recovery-aware step must retry a 408")
     }

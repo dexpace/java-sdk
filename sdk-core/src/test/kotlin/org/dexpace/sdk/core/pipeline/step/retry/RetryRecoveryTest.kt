@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Behavioural tests for [RetryStep]. Uses a hand-rolled fake [HttpClient] that records each
+ * Behavioural tests for [RetryRecovery]. Uses a hand-rolled fake [HttpClient] that records each
  * call and yields a queue of canned outcomes — letting us assert call counts, retry-or-not
  * semantics, and propagated exceptions.
  *
@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicReference
  * scheduled delay precisely; otherwise they use a zero-delay scheduler so retries fire
  * promptly without blocking the test thread on real time.
  */
-class RetryStepTest {
+class RetryRecoveryTest {
     // region -- test fakes --
 
     private sealed class Canned {
@@ -93,7 +93,7 @@ class RetryStepTest {
             unit: TimeUnit,
         ): ScheduledFuture<*> {
             scheduledDelaysNanos.add(unit.toNanos(delay))
-            // Run the runnable inline — this completes the CompletableFuture inside RetryStep
+            // Run the runnable inline — this completes the CompletableFuture inside RetryRecovery
             // immediately, so the retry fires without real wall-clock waiting.
             command.run()
             // Return an already-completed future stub.
@@ -224,10 +224,10 @@ class RetryStepTest {
                 ),
             )
         val request = requestGet()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val initialOutcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
         // Caller (the pipeline) passed the very first failure to invoke().
-        // RetryStep then retries (maxAttempts-1) additional times.
+        // RetryRecovery then retries (maxAttempts-1) additional times.
         val out = step.invoke(initialOutcome)
         assertTrue(out is ResponseOutcome.Failure, "Retries should propagate the last failure")
         // maxAttempts = 3 → 2 retries (calls.size == 2 because the initial call was made by
@@ -239,7 +239,7 @@ class RetryStepTest {
     fun `503 with non-replayable POST body is not retried`() {
         val client = FakeClient()
         val request = requestPostNonReplayable()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
         val out = step.invoke(outcome)
         // Non-replayable POST: no retry attempted; transport never invoked.
@@ -255,7 +255,7 @@ class RetryStepTest {
         // would otherwise trip the body's consume-once guard).
         val client = FakeClient()
         val request = requestPutNonReplayable()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
         val out = step.invoke(outcome)
         assertSame(outcome, out, "Outcome must be unchanged when an idempotent method carries a non-replayable body")
@@ -271,7 +271,7 @@ class RetryStepTest {
         // `body-less POST is NOT retried` case in the http.pipeline DefaultRetryStep suite.
         val client = FakeClient()
         val request = requestPostBodyless()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
         val out = step.invoke(outcome)
         assertSame(outcome, out, "Outcome must be unchanged — a body-less POST is non-idempotent")
@@ -287,7 +287,7 @@ class RetryStepTest {
         val ok = response(SC_OK)
         val client = FakeClient(listOf(Canned.Ok(ok)))
         val request = requestPutBodyless()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val outcome = ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE))
         val out = step.invoke(outcome)
         assertTrue(out is ResponseOutcome.Success, "body-less PUT must retry — PUT is idempotent")
@@ -299,7 +299,7 @@ class RetryStepTest {
     fun `404 is not retried`() {
         val client = FakeClient()
         val request = requestGet()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val outcome = ResponseOutcome.Failure(httpException(SC_NOT_FOUND))
         val out = step.invoke(outcome)
         assertSame(outcome, out, "404 must pass through unchanged")
@@ -317,7 +317,7 @@ class RetryStepTest {
                 ),
             )
         val request = requestGet()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), request)
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), request)
         val outcome = ResponseOutcome.Failure(NetworkException("connection refused"))
         val out = step.invoke(outcome)
         assertTrue(out is ResponseOutcome.Success)
@@ -329,7 +329,7 @@ class RetryStepTest {
     fun `success outcome is pass-through`() {
         val client = FakeClient()
         val ok = response(SC_OK)
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val outcome = ResponseOutcome.Success(ok)
         val out = step.invoke(outcome)
         assertSame(outcome, out)
@@ -337,7 +337,7 @@ class RetryStepTest {
     }
 
     @Test
-    fun `reused RetryStep retries correctly on a second top-level call`() {
+    fun `reused RetryRecovery retries correctly on a second top-level call`() {
         // C-3: the step holds no per-call state on the instance, so invoking it a second time
         // after the first call exhausted its attempt budget must start from a fresh budget and
         // retry again — not silently abort because a stale attempt count was carried over.
@@ -351,7 +351,7 @@ class RetryStepTest {
                     Canned.Ok(response(SC_OK)),
                 ),
             )
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
 
         val first = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
         assertTrue(first is ResponseOutcome.Success, "First call should recover via retry")
@@ -363,7 +363,7 @@ class RetryStepTest {
     }
 
     @Test
-    fun `reused RetryStep exhausts the full attempt budget on each call`() {
+    fun `reused RetryRecovery exhausts the full attempt budget on each call`() {
         // Each top-level invoke() gets maxAttempts-1 retries; reuse must not shrink the budget.
         val client =
             FakeClient(
@@ -376,7 +376,7 @@ class RetryStepTest {
                     Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
                 ),
             )
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
 
         val first = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
         assertTrue(first is ResponseOutcome.Failure)
@@ -399,7 +399,7 @@ class RetryStepTest {
         val headers = Headers.builder().set("Retry-After", "2").build()
         val scheduler = InstantScheduler()
         val step =
-            RetryStep(
+            RetryRecovery(
                 client,
                 zeroDelaySettings(scheduler),
                 requestGet(),
@@ -420,7 +420,7 @@ class RetryStepTest {
         val ok = response(SC_OK)
         val client = FakeClient(listOf(Canned.Ok(ok)))
         val headers = Headers.builder().set("X-RateLimit-Reset", Long.MAX_VALUE.toString()).build()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
 
         val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE, headers)))
 
@@ -462,7 +462,7 @@ class RetryStepTest {
                 .maxAttempts(DEFAULT_MAX_ATTEMPTS_TIMEOUT)
                 .scheduler(InstantScheduler())
                 .build()
-        val step = RetryStep(client, settings, requestGet(), clock = testClock)
+        val step = RetryRecovery(client, settings, requestGet(), clock = testClock)
         val failure = httpException(SC_SERVICE_UNAVAILABLE)
         val outcome = ResponseOutcome.Failure(failure)
         val out = step.invoke(outcome)
@@ -479,7 +479,7 @@ class RetryStepTest {
     fun `interrupt during wait yields InterruptedIOException and restores flag`() {
         val client = FakeClient()
 
-        // Custom scheduler that blocks forever — the RetryStep's get() call will be the one
+        // Custom scheduler that blocks forever — the RetryRecovery's get() call will be the one
         // the test interrupts.
         val blockingScheduler =
             object : ScheduledExecutorService by Executors.newSingleThreadScheduledExecutor() {
@@ -488,7 +488,7 @@ class RetryStepTest {
                     delay: Long,
                     unit: TimeUnit,
                 ): ScheduledFuture<*> {
-                    // Never run the runnable — the future inside RetryStep stays pending.
+                    // Never run the runnable — the future inside RetryRecovery stays pending.
                     return BlockingScheduledFuture
                 }
             }
@@ -502,7 +502,7 @@ class RetryStepTest {
                 .totalTimeout(Duration.ZERO)
                 .scheduler(blockingScheduler)
                 .build()
-        val step = RetryStep(client, settings, requestGet())
+        val step = RetryRecovery(client, settings, requestGet())
 
         // Run the retry on a separate thread so we can interrupt it.
         val started = CountDownLatch(1)
@@ -531,7 +531,7 @@ class RetryStepTest {
         val result = resultRef.get()
         assertTrue(
             result is ResponseOutcome.Failure,
-            "RetryStep must surface a Failure when the wait is interrupted",
+            "RetryRecovery must surface a Failure when the wait is interrupted",
         )
         val error = (result as ResponseOutcome.Failure).error
         assertTrue(
@@ -568,7 +568,7 @@ class RetryStepTest {
     fun `attempt success returns the response`() {
         val ok = response(SC_OK)
         val client = FakeClient(listOf(Canned.Ok(ok)))
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val out = step.attempt()
         assertSame(ok, out)
         assertEquals(1, client.calls.size)
@@ -584,7 +584,7 @@ class RetryStepTest {
                     Canned.Ok(ok),
                 ),
             )
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val out = step.attempt()
         assertSame(ok, out)
         assertEquals(2, client.calls.size)
@@ -600,7 +600,7 @@ class RetryStepTest {
                     Canned.Err(httpException(SC_SERVICE_UNAVAILABLE)),
                 ),
             )
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val ex = assertThrows(HttpException::class.java) { step.attempt() }
         assertEquals(SC_SERVICE_UNAVAILABLE, ex.status.code)
         assertEquals(DEFAULT_MAX_ATTEMPTS, client.calls.size)
@@ -613,11 +613,11 @@ class RetryStepTest {
     @Test
     fun `non-HttpException non-NetworkException error is pass-through`() {
         val client = FakeClient()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val unknown = IOException("unknown")
         val outcome = ResponseOutcome.Failure(unknown)
         val out = step.invoke(outcome)
-        // Plain IOException is not classified retryable by RetryStep (only NetworkException
+        // Plain IOException is not classified retryable by RetryRecovery (only NetworkException
         // and HttpException with retryable=true). Should pass through.
         assertSame(outcome, out)
         assertFalse(out is ResponseOutcome.Success)
@@ -635,7 +635,7 @@ class RetryStepTest {
                 body = null,
             ) {}
         val client = FakeClient()
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val outcome = ResponseOutcome.Failure(nonRetryable)
         val out = step.invoke(outcome)
         assertSame(outcome, out)
@@ -656,7 +656,7 @@ class RetryStepTest {
                     Canned.Ok(response(SC_OK)),
                 ),
             )
-        val step = RetryStep(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
         val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
         assertTrue(out is ResponseOutcome.Success)
         // Two retried sends were made; neither carries the attempt header.
@@ -683,7 +683,7 @@ class RetryStepTest {
                 .newBuilder()
                 .attemptHeaderName(DEFAULT_ATTEMPT_HEADER)
                 .build()
-        val step = RetryStep(client, settings, requestGet())
+        val step = RetryRecovery(client, settings, requestGet())
 
         val response = step.attempt()
         assertEquals(SC_OK, response.status.code)
@@ -708,7 +708,7 @@ class RetryStepTest {
                 .newBuilder()
                 .attemptHeaderName(custom)
                 .build()
-        val step = RetryStep(client, settings, requestGet())
+        val step = RetryRecovery(client, settings, requestGet())
 
         val out = step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
         assertTrue(out is ResponseOutcome.Success)
@@ -734,7 +734,7 @@ class RetryStepTest {
                 .newBuilder()
                 .attemptHeaderName(DEFAULT_ATTEMPT_HEADER)
                 .build()
-        val step = RetryStep(client, settings, request)
+        val step = RetryRecovery(client, settings, request)
 
         step.invoke(ResponseOutcome.Failure(httpException(SC_SERVICE_UNAVAILABLE)))
         // The retried request copy carries the header; the immutable template never gains it.

@@ -75,13 +75,20 @@ public class ClientIdentityStep
         }
 
         /**
-         * Pipeline entry point — delegates to [apply], which carries the full step logic and
-         * is also the Java-friendly direct-call form.
+         * The single public way to apply this step's transform: emits the composite
+         * client-identity token line onto [input] and returns the resulting request. [context]
+         * is unused — the transform depends only on the request's existing headers.
+         *
+         * Resolution rules:
+         *  - empty tokens             -> no change (request returned unchanged)
+         *  - header absent            -> header set to the joined token line
+         *  - header present + Append  -> header set to `existing + " " + joined`
+         *  - header present + Replace -> header set to joined
          */
         override fun execute(
             input: Request,
             context: DispatchContext,
-        ): Request = apply(input)
+        ): Request = applyTokens(input)
 
         /**
          * Returns a [ClientIdentityStepBuilder] pre-filled with this instance's token list,
@@ -98,17 +105,8 @@ public class ClientIdentityStep
          */
         public fun newBuilder(): ClientIdentityStepBuilder = ClientIdentityStepBuilder(this)
 
-        /**
-         * Applies the step to [request] and returns the resulting request. If the
-         * configured token list is empty the request is returned unchanged.
-         *
-         * Resolution rules:
-         *  - empty tokens          -> no change
-         *  - header absent         -> header set to the joined token line
-         *  - header present + Append  -> header set to `existing + " " + joined`
-         *  - header present + Replace -> header set to joined
-         */
-        public fun apply(request: Request): Request {
+        /** Private transform carrying the full step logic; the sole caller is [execute]. */
+        private fun applyTokens(request: Request): Request {
             if (tokens.isEmpty()) return request
 
             val tokenLine = tokens.joinToString(" ")
