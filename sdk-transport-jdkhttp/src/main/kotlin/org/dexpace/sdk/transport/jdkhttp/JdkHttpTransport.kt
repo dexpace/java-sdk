@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.ClientLogger
@@ -101,15 +102,27 @@ public class JdkHttpTransport private constructor(
     private val closed: AtomicBoolean = AtomicBoolean(false)
 
     /**
-     * Synchronously executes [request] on the caller's thread. Honours `Thread.interrupt`
-     * via [InterruptedIOException]: the JDK client surfaces a thread-interrupt mid-call
-     * as a wrapped [InterruptedException]; the adapter unwraps that, re-asserts the
-     * thread interrupt status, and rethrows as [InterruptedIOException] so callers see a
-     * consistent interrupt surface.
+     * Synchronously executes [request] on the caller's thread. Delegates to the per-call overload
+     * with [RequestOptions.EMPTY], so the configured [responseTimeout] applies unchanged.
      */
     @Throws(IOException::class)
-    override fun execute(request: Request): Response {
-        val jdkRequest = requestAdapter.adapt(request, responseTimeout)
+    override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+    /**
+     * Synchronously executes [request] with per-call [options] on the caller's thread. When
+     * [RequestOptions.timeout] is non-null it replaces the configured [responseTimeout] on this
+     * request's [java.net.http.HttpRequest.Builder.timeout] for this call only; a null timeout
+     * keeps the configured default. Honours `Thread.interrupt` via [InterruptedIOException]: the
+     * JDK client surfaces a thread-interrupt mid-call as a wrapped [InterruptedException]; the
+     * adapter unwraps that, re-asserts the thread interrupt status, and rethrows as
+     * [InterruptedIOException] so callers see a consistent interrupt surface.
+     */
+    @Throws(IOException::class)
+    override fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response {
+        val jdkRequest = requestAdapter.adapt(request, effectiveTimeout(options))
         // The dispatch is guarded on its own so only a `client.send` failure maps onto the
         // transport-error contract — a later `responseAdapter.adapt` failure keeps its own type.
         val jdkResponse: HttpResponse<InputStream> =
@@ -150,15 +163,29 @@ public class JdkHttpTransport private constructor(
      * [bridgeAsyncResponse]). The intermediate `thenApply`-style future the JDK hands back does
      * not propagate cancellation to the `sendAsync` exchange on its own, so the bridge wires that
      * through explicitly. Consumers should still call `Response.close()` on success-path
-     * completions to release the body's connection back to the pool.
+     * completions to release the body's connection back to the pool. Delegates to the per-call
+     * overload with [RequestOptions.EMPTY], so the configured [responseTimeout] applies unchanged.
      */
-    override fun executeAsync(request: Request): CompletableFuture<Response> {
+    override fun executeAsync(request: Request): CompletableFuture<Response> =
+        executeAsync(request, RequestOptions.EMPTY)
+
+    /**
+     * Asynchronously executes [request] with per-call [options]. When [RequestOptions.timeout] is
+     * non-null it replaces the configured [responseTimeout] on this request's per-request timeout
+     * for this call only; a null timeout keeps the configured default. Otherwise identical to
+     * [executeAsync]: the returned future completes with the [Response] or the transport failure,
+     * and cancelling it cancels the underlying JDK exchange.
+     */
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> {
         // Held outside the try so the catch can release the JDK exchange if dispatch succeeded but a
         // later step threw (see the catch). Null until `sendAsync` returns: a throw at or before
         // dispatch leaves nothing to clean up.
         var inFlight: CompletableFuture<HttpResponse<InputStream>>? = null
         return try {
-            val jdkRequest = requestAdapter.adapt(request, responseTimeout)
+            val jdkRequest = requestAdapter.adapt(request, effectiveTimeout(options))
             // `sendAsync` is inside the guard too. Its contract does not promise that every failure
             // is delivered through the returned future: the JDK's own Javadoc permits a synchronous
             // `IllegalArgumentException` for a request it rejects, and a custom or future
@@ -194,6 +221,15 @@ public class JdkHttpTransport private constructor(
             CompletableFuture.failedFuture<Response>(e)
         }
     }
+
+    /**
+     * The per-request timeout to apply for this call: [RequestOptions.timeout] when the caller
+     * supplied one, otherwise the transport's configured [responseTimeout] (which may itself be
+     * null, i.e. no per-request timeout). The JDK client has no global response-timeout knob, so
+     * the resolved value is handed to [RequestAdapter.adapt] and set via
+     * [java.net.http.HttpRequest.Builder.timeout].
+     */
+    private fun effectiveTimeout(options: RequestOptions): Duration? = options.timeout ?: responseTimeout
 
     /**
      * Releases SDK-owned JDK HTTP resources. When this transport was built via [builder]:

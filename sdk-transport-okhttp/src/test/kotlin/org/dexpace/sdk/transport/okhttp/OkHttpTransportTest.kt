@@ -21,6 +21,7 @@ import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import org.dexpace.sdk.core.http.response.exception.NetworkException
@@ -519,6 +520,79 @@ class OkHttpTransportTest {
         // `InterruptedIOException`. OkHttp's SocketTimeoutException path on JDK 25 leaves
         // the thread's interrupt flag set; clear it before sleeping so MockWebServer's
         // pending dispatch has time to drain without an InterruptedException.
+        Thread.interrupted()
+        Thread.sleep(900)
+    }
+
+    // -------- per-call RequestOptions.timeout --------
+
+    @Test
+    fun perCallTimeoutFiresOnSlowResponse() {
+        // A short per-call timeout must bound a slow exchange even though the default-built
+        // transport imposes no callTimeout of its own. The headers delay comfortably exceeds the
+        // 200ms per-call budget so the timeout fires.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        val ex =
+            assertFails {
+                transport.execute(simpleGet("/slow-percall"), options).close()
+            }
+        assertTrue(ex is IOException, "expected IOException, got ${ex::class}")
+        // OkHttp's call-timeout path may leave the interrupt flag set; clear it and let
+        // MockWebServer's pending dispatch drain before @StartStop shuts it down.
+        Thread.interrupted()
+        Thread.sleep(900)
+    }
+
+    @Test
+    fun perCallTimeoutHonouredWhenGenerousAndAbsent() {
+        // Contrast for perCallTimeoutFiresOnSlowResponse: the SAME per-call mechanism with a
+        // generous budget does NOT prematurely fail a moderately slow response, proving the
+        // configured duration is honoured rather than a fixed tiny default. A second request with
+        // EMPTY options (no per-call override) also succeeds — the no-override path is unchanged.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("on-time")
+                .headersDelay(150, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val generous = RequestOptions.builder().timeout(Duration.ofSeconds(10)).build()
+        transport.execute(simpleGet("/generous-percall"), generous).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("on-time", response.body?.source()?.readUtf8())
+        }
+
+        server.enqueue(MockResponse.Builder().code(200).body("empty-opts").build())
+        transport.execute(simpleGet("/empty-opts"), RequestOptions.EMPTY).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("empty-opts", response.body?.source()?.readUtf8())
+        }
+    }
+
+    @Test
+    fun perCallTimeoutFiresOnSlowResponseAsync() {
+        // Async mirror of perCallTimeoutFiresOnSlowResponse: the per-call timeout is applied to the
+        // enqueued OkHttp call, so the returned future completes exceptionally.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        val future = transport.executeAsync(simpleGet("/slow-percall-async"), options)
+        val ex = assertFails { future.join() }
+        // join() wraps the failure in CompletionException; the cause is the transport IOException.
+        assertTrue(ex is CompletionException, "expected CompletionException, got ${ex::class}")
+        assertTrue(ex.cause is IOException, "expected IOException cause, got ${ex.cause?.let { it::class }}")
         Thread.interrupted()
         Thread.sleep(900)
     }

@@ -6,7 +6,9 @@ public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport : org/dexpac
 	public static final fun create (Lokhttp3/OkHttpClient;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
 	public static final fun create (Lokhttp3/OkHttpClient;Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder : org/dexpace/sdk/core/generics/Builder {

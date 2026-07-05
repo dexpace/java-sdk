@@ -16,6 +16,7 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.ClientLogger
@@ -82,14 +83,28 @@ public class OkHttpTransport private constructor(
     private val closed: AtomicBoolean = AtomicBoolean(false)
 
     /**
-     * Synchronously executes [request] on the caller's thread. Honours `Thread.interrupt`
-     * via `InterruptedIOException`: the interrupt flag is re-asserted before the
-     * exception is rethrown so callers see a consistent interrupt state.
+     * Synchronously executes [request] on the caller's thread. Delegates to the per-call overload
+     * with [RequestOptions.EMPTY], so the configured client timeouts apply unchanged.
      */
     @Throws(IOException::class)
-    override fun execute(request: Request): Response {
+    override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+    /**
+     * Synchronously executes [request] with per-call [options] on the caller's thread. When
+     * [RequestOptions.timeout] is non-null it is applied as OkHttp's per-call timeout (connect +
+     * write + read + handshake) for this call only, overriding the client's configured
+     * `callTimeout`; a null timeout leaves the client default in force. Honours `Thread.interrupt`
+     * via `InterruptedIOException`: the interrupt flag is re-asserted before the exception is
+     * rethrown so callers see a consistent interrupt state.
+     */
+    @Throws(IOException::class)
+    override fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response {
         val okRequest = requestAdapter.adapt(request)
         val call = client.newCall(okRequest)
+        applyCallTimeout(call, options)
         val okResponse =
             try {
                 call.execute()
@@ -117,9 +132,24 @@ public class OkHttpTransport private constructor(
      * the [Response] on success or completes exceptionally with the transport failure on
      * error — including a request-adaptation failure, which runs on the calling thread but is
      * delivered through the future rather than thrown synchronously. Cancelling the future
-     * cancels the underlying OkHttp [Call].
+     * cancels the underlying OkHttp [Call]. Delegates to the per-call overload with
+     * [RequestOptions.EMPTY], so the configured client timeouts apply unchanged.
      */
-    override fun executeAsync(request: Request): CompletableFuture<Response> {
+    override fun executeAsync(request: Request): CompletableFuture<Response> =
+        executeAsync(request, RequestOptions.EMPTY)
+
+    /**
+     * Asynchronously executes [request] with per-call [options]. When [RequestOptions.timeout] is
+     * non-null it is applied as OkHttp's per-call timeout for this call only, overriding the
+     * client's configured `callTimeout`; a null timeout leaves the client default in force.
+     * Otherwise identical to [executeAsync]: the returned [CompletableFuture] completes with the
+     * [Response] on success or exceptionally with the transport failure, and cancelling it cancels
+     * the underlying OkHttp [Call].
+     */
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> {
         val okRequest =
             try {
                 requestAdapter.adapt(request)
@@ -139,6 +169,7 @@ public class OkHttpTransport private constructor(
         // dispatch failure (including a `RejectedExecutionException` from a shut-down dispatcher)
         // is delivered through `Callback.onFailure` below, so it already reaches the future.
         val call = client.newCall(okRequest)
+        applyCallTimeout(call, options)
         val future = CompletableFuture<Response>()
         call.enqueue(
             object : Callback {
@@ -189,6 +220,20 @@ public class OkHttpTransport private constructor(
      */
     private fun failedFuture(t: Throwable): CompletableFuture<Response> =
         CompletableFuture<Response>().apply { completeExceptionally(t) }
+
+    /**
+     * Applies [RequestOptions.timeout], when present, as the per-[call] timeout for this exchange.
+     * `Call.timeout()` is OkHttp's per-call handle (an okio `Timeout`); setting it before dispatch
+     * overrides the client's configured `callTimeout` for this call only and leaves the client
+     * untouched, so a slow endpoint can widen (or a sensitive one tighten) its budget without a
+     * second client. A null timeout is a no-op, keeping the client default in force.
+     */
+    private fun applyCallTimeout(
+        call: Call,
+        options: RequestOptions,
+    ) {
+        options.timeout?.let { call.timeout().timeout(it.toMillis(), TimeUnit.MILLISECONDS) }
+    }
 
     /**
      * Best-effort close on a discard path. Used when an adapted [Response] loses the race to a

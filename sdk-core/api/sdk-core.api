@@ -255,10 +255,12 @@ public final class org/dexpace/sdk/core/auth/NamedKeyCredential : org/dexpace/sd
 public abstract interface class org/dexpace/sdk/core/client/AsyncHttpClient : java/lang/AutoCloseable {
 	public fun close ()V
 	public abstract fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/client/AsyncHttpClient$DefaultImpls {
 	public static fun close (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)V
+	public static fun executeAsync (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/client/AsyncHttpClients {
@@ -269,10 +271,12 @@ public final class org/dexpace/sdk/core/client/AsyncHttpClients {
 public abstract interface class org/dexpace/sdk/core/client/HttpClient : java/lang/AutoCloseable {
 	public fun close ()V
 	public abstract fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
 public final class org/dexpace/sdk/core/client/HttpClient$DefaultImpls {
 	public static fun close (Lorg/dexpace/sdk/core/client/HttpClient;)V
+	public static fun execute (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
 public final class org/dexpace/sdk/core/config/Configuration {
@@ -729,6 +733,7 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline : org/de
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline$Companion;
 	public fun close ()V
 	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/AsyncHttpClient;
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
@@ -782,6 +787,7 @@ public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline : org/dexpace
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline$Companion;
 	public fun close ()V
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/HttpClient;
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;

@@ -10,6 +10,7 @@
 package org.dexpace.sdk.core.client
 
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
 import org.dexpace.sdk.core.util.interruptibleFuture
@@ -71,6 +72,19 @@ public fun interface AsyncHttpClient : AutoCloseable {
      * response must complete exceptionally instead.
      */
     public fun executeAsync(request: Request): CompletableFuture<Response>
+
+    /**
+     * Sends [request] with per-call [options] applied. The default implementation ignores
+     * [options] and delegates to [executeAsync], so this stays a single-abstract-method
+     * `fun interface` and existing implementations (SAM literals, transports written before
+     * per-request overrides) keep working unchanged. Transports that honour per-call overrides
+     * override this method to read [options]; see the reference transports for the
+     * per-call-timeout wiring. Pipelines thread the caller's options into this overload.
+     */
+    public fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> = executeAsync(request)
 
     /**
      * Releases any resources held by this transport. The default implementation is a no-op so

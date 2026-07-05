@@ -7,7 +7,9 @@ public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport : org/dexp
 	public static final fun create (Ljava/net/http/HttpClient;Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
 	public static final fun create (Ljava/net/http/HttpClient;Ljava/time/Duration;Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder : org/dexpace/sdk/core/generics/Builder {
