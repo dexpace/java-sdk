@@ -25,6 +25,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AsyncHttpClientTest {
@@ -112,6 +113,72 @@ class AsyncHttpClientTest {
         assertTrue(failure is InterruptedIOException, "expected InterruptedIOException, got $failure")
         assertTrue(flagSet.get(), "interrupt flag must be restored on the calling thread")
         assertTrue(never.isCancelled, "the in-flight future must be cancelled on interruption")
+    }
+
+    @Test
+    fun `asAsync future cancel(true) interrupts the in-flight blocking send`() {
+        // The blocking transport parks on a latch that never fires; cancelling the async future
+        // with mayInterruptIfRunning=true must interrupt the worker so the send aborts, matching
+        // the pipeline-level `toAsync` cancellation semantics.
+        val started = CountDownLatch(1)
+        val interrupted = AtomicBoolean(false)
+        val released = CountDownLatch(1)
+        val neverFires = CountDownLatch(1)
+
+        val blockingClient =
+            HttpClient { request ->
+                started.countDown()
+                try {
+                    neverFires.await()
+                    mockResponse(request, 200)
+                } catch (e: InterruptedException) {
+                    interrupted.set(true)
+                    Thread.currentThread().interrupt()
+                    released.countDown()
+                    throw IOException("interrupted", e)
+                }
+            }
+
+        val future = blockingClient.asAsync(executor).executeAsync(getRequest())
+
+        assertTrue(started.await(2, TimeUnit.SECONDS), "send should have started")
+        future.cancel(true)
+
+        assertTrue(released.await(2, TimeUnit.SECONDS), "worker must observe the interrupt")
+        assertTrue(interrupted.get(), "the in-flight sync send was interrupted")
+        assertTrue(future.isCancelled, "the returned future reports cancelled")
+    }
+
+    @Test
+    fun `asAsync future cancel(false) does not interrupt the worker`() {
+        // cancel(false) cancels the future without interrupting; a blocking send that ignores
+        // interrupts therefore runs to completion in the background.
+        val started = CountDownLatch(1)
+        val cancelObserved = CountDownLatch(1)
+        val proceed = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val sawInterrupt = AtomicBoolean(false)
+
+        val client =
+            HttpClient { request ->
+                started.countDown()
+                cancelObserved.await(2, TimeUnit.SECONDS)
+                proceed.await(2, TimeUnit.SECONDS)
+                sawInterrupt.set(Thread.currentThread().isInterrupted)
+                finished.countDown()
+                mockResponse(request, 200)
+            }
+
+        val future = client.asAsync(executor).executeAsync(getRequest())
+
+        assertTrue(started.await(2, TimeUnit.SECONDS), "send should have started")
+        future.cancel(false)
+        cancelObserved.countDown()
+        proceed.countDown()
+
+        assertTrue(finished.await(2, TimeUnit.SECONDS), "worker should run to completion")
+        assertTrue(future.isCancelled, "the future reports cancelled")
+        assertFalse(sawInterrupt.get(), "cancel(false) must not interrupt the worker")
     }
 
     @Test

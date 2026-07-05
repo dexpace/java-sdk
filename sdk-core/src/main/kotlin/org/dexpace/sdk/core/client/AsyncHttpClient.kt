@@ -12,6 +12,7 @@ package org.dexpace.sdk.core.client
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
+import org.dexpace.sdk.core.util.interruptibleFuture
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.CompletableFuture
@@ -94,13 +95,21 @@ public fun interface AsyncHttpClient : AutoCloseable {
  * number of platform threads that the JVM shares with parallel streams and CompletableFuture
  * default executors, so a blocking HTTP call starves every other commonPool consumer.
  *
- * The returned future completes with the response from `execute`. Cancellation of the future
- * does NOT interrupt the in-flight blocking call (Java's `CompletableFuture` has no such
- * hook); for true cancellation, use an [AsyncHttpClient] backed by an async transport.
+ * The returned future completes with the response from `execute`.
+ *
+ * ## Cancellation
+ * Cancelling the returned future with `cancel(true)` interrupts the worker thread running the
+ * in-flight `execute(...)`, matching [HttpPipeline.toAsync][org.dexpace.sdk.core.http.pipeline.toAsync]'s
+ * cancellation semantics. The interrupt is delivered only while the send is actually executing — a
+ * not-yet-started task (still queued on [executor]) is simply abandoned, and an already-completed
+ * send is unaffected. `cancel(false)` completes the future as cancelled without interrupting the
+ * worker, so a blocking `execute` that ignores interrupts runs to completion in the background.
+ * For the interrupt to abort I/O, the wrapped [HttpClient] must honour `Thread.interrupt()` (the
+ * shipped transports do).
  */
 public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
     AsyncHttpClient { request ->
-        CompletableFuture.supplyAsync({ execute(request) }, executor)
+        interruptibleFuture(executor) { execute(request) }
     }
 
 /**
