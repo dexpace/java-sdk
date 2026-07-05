@@ -18,6 +18,7 @@ public final class org/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder : 
 	public final fun followRedirects (Z)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
 	public final fun httpVersion (Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$HttpVersion;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
 	public final fun proxy (Lorg/dexpace/sdk/core/util/ProxyOptions;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
+	public final fun proxyFromEnvironment ()Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
 	public final fun responseTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/jdkhttp/JdkHttpTransport$Builder;
 }
 

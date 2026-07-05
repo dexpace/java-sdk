@@ -17,6 +17,7 @@ public final class org/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder : or
 	public final fun droppedHeaderLogging (Lorg/dexpace/sdk/core/instrumentation/DroppedHeaderLogging;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun followRedirects (Z)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun proxy (Lorg/dexpace/sdk/core/util/ProxyOptions;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
+	public final fun proxyFromEnvironment ()Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun readTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 	public final fun writeTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/transport/okhttp/OkHttpTransport$Builder;
 }

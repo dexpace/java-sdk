@@ -11,6 +11,7 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.junit5.StartStop
 import okio.Buffer
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
@@ -656,6 +657,86 @@ class JdkHttpTransportTest {
         proxiedTransport.execute(simpleGet("/proxy-challenge")).use { response ->
             assertEquals(200, response.status.code)
             assertEquals("ok", response.body?.source()?.readUtf8())
+        }
+    }
+
+    // -------- proxy: opt-in proxyFromEnvironment() --------
+
+    @Test
+    fun `proxyFromEnvironmentAppliesConfiguredProxy`() {
+        // With HTTPS_PROXY pointed at MockWebServer, proxyFromEnvironment() must apply it: a
+        // request to an unresolvable `.example` host still reaches MockWebServer, which is only
+        // possible via the forward proxy (a direct connect would fail DNS).
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("via-proxy").build())
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .proxyFromEnvironment()
+                .build()
+                .use { proxied ->
+                    val request =
+                        Request.builder()
+                            .method(Method.GET)
+                            .url(URL("http://downstream.example/resource"))
+                            .build()
+                    proxied.execute(request).use { response ->
+                        assertEquals(
+                            200,
+                            response.status.code,
+                            "request routed through the env-configured proxy must succeed",
+                        )
+                        assertEquals("via-proxy", response.body?.source()?.readUtf8())
+                    }
+                }
+            val recorded = server.takeRequest()
+            assertTrue(
+                recorded.target.contains("downstream.example"),
+                "request must have been forwarded via the env-configured proxy, target was: ${recorded.target}",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
+    @Test
+    fun `proxyFromEnvironmentIsOptIn`() {
+        // The very same global config carries a proxy, but a builder that does NOT call
+        // proxyFromEnvironment() must ignore it: a direct request lands on MockWebServer with an
+        // origin-form target, proving no forward proxy was inserted.
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("direct").build())
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .build()
+                .use { plain ->
+                    plain.execute(simpleGet("/direct")).use { response ->
+                        assertEquals(200, response.status.code)
+                    }
+                }
+            val recorded = server.takeRequest()
+            assertEquals(
+                "/direct",
+                recorded.target,
+                "an opt-out transport must issue an origin-form request (no proxy applied)",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
         }
     }
 

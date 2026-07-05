@@ -14,6 +14,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okio.Buffer
 import org.dexpace.sdk.core.auth.BasicChallengeHandler
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.FileRequestBody
@@ -781,6 +782,80 @@ class OkHttpTransportTest {
             recorded.target,
             "request must have been forwarded via the proxy in absolute form",
         )
+    }
+
+    // -------- proxy: opt-in proxyFromEnvironment() --------
+
+    @Test
+    fun proxyFromEnvironmentAppliesConfiguredProxy() {
+        // With HTTPS_PROXY pointed at MockWebServer, proxyFromEnvironment() must apply it: a
+        // request to an unresolvable `.example` host still reaches MockWebServer (proving the
+        // forward proxy is in play) and arrives in absolute-form request-target.
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("via-proxy").build())
+            OkHttpTransport.builder().proxyFromEnvironment().build().use { proxied ->
+                val request =
+                    Request.builder()
+                        .method(Method.GET)
+                        .url(URL("http://downstream.example/resource"))
+                        .build()
+                proxied.execute(request).use { response ->
+                    assertEquals(
+                        200,
+                        response.status.code,
+                        "request routed through the env-configured proxy must succeed",
+                    )
+                    assertEquals("via-proxy", response.body?.source()?.readUtf8())
+                }
+            }
+            val recorded = server.takeRequest()
+            assertEquals(
+                "http://downstream.example/resource",
+                recorded.target,
+                "request must have been forwarded via the env-configured proxy in absolute form",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
+    @Test
+    fun proxyFromEnvironmentIsOptIn() {
+        // The very same global config carries a proxy, but a builder that does NOT call
+        // proxyFromEnvironment() must ignore it: a direct request lands on MockWebServer with an
+        // origin-form target, proving no forward proxy was inserted.
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("direct").build())
+            OkHttpTransport.builder().build().use { plain ->
+                plain.execute(simpleGet("/direct")).use { response ->
+                    assertEquals(200, response.status.code)
+                }
+            }
+            val recorded = server.takeRequest()
+            assertEquals(
+                "/direct",
+                recorded.target,
+                "an opt-out transport must issue an origin-form request (no proxy applied)",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
     }
 
     // -------- redirect behaviour --------

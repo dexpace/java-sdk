@@ -14,6 +14,7 @@ import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.exception.NetworkException
@@ -339,6 +340,23 @@ public class OkHttpTransport private constructor(
         public fun proxy(p: ProxyOptions?): Builder =
             apply {
                 this.proxy = p
+            }
+
+        /**
+         * Reads proxy settings from the process-wide [Configuration.getGlobalConfiguration] via
+         * [ProxyOptions.fromConfiguration] — the standard `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`
+         * environment variables and their `https.proxy*` / `http.nonProxyHosts` system-property
+         * equivalents — and applies the resolved proxy to the client being built.
+         *
+         * Strictly opt-in: the environment is never consulted unless this is called, and the call
+         * is a no-op when nothing there configures a proxy (or when `NO_PROXY=*` bypasses it). This
+         * writes the same slot as [proxy], so whichever of the two runs last wins.
+         */
+        public fun proxyFromEnvironment(): Builder =
+            apply {
+                ProxyOptions.fromConfiguration(Configuration.getGlobalConfiguration())?.let {
+                    this.proxy = it
+                }
             }
 
         /**
