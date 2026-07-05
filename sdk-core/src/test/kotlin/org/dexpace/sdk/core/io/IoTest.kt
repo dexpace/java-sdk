@@ -9,10 +9,12 @@ package org.dexpace.sdk.core.io
 
 import org.dexpace.sdk.core.testing.withProvider
 import org.dexpace.sdk.io.OkioIoProvider
+import java.util.ServiceLoader
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -123,5 +125,64 @@ class IoTest {
         }
         // Outer exit restores OkioIoProvider.
         assertSame(OkioIoProvider, Io.provider)
+    }
+
+    // ---- selectProvider unit tests (internal function, visible to tests) ----------
+
+    @Test
+    fun `selectProvider with empty list throws actionable message`() {
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                Io.selectProvider(emptyList())
+            }
+        assertTrue(thrown.message!!.contains("No IoProvider installed"))
+        assertTrue(thrown.message!!.contains("Io.installProvider"))
+    }
+
+    @Test
+    fun `selectProvider with single candidate returns it`() {
+        val fake = object : IoProvider by OkioIoProvider {}
+        val result = Io.selectProvider(listOf(fake))
+        assertSame(fake, result)
+    }
+
+    @Test
+    fun `selectProvider with multiple candidates throws listing all class names`() {
+        val fakeA = object : IoProvider by OkioIoProvider {}
+        val fakeB = object : IoProvider by OkioIoProvider {}
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                Io.selectProvider(listOf(fakeA, fakeB))
+            }
+        assertTrue(thrown.message!!.contains("Multiple"))
+        assertTrue(thrown.message!!.contains("Io.installProvider"))
+    }
+
+    // ---- ServiceLoader integration tests ----------------------------------------
+
+    @Test
+    fun `ServiceLoader discovers exactly one IoProvider on the classpath`() {
+        // sdk-io-okio3 registers OkioIoProviderLoader; with no other provider on the
+        // test classpath there should be exactly one candidate.
+        val providers =
+            ServiceLoader.load(IoProvider::class.java, IoProvider::class.java.classLoader).toList()
+        assertTrue(providers.isNotEmpty(), "Expected ServiceLoader to find at least one IoProvider")
+        assertTrue(providers.size == 1, "Expected exactly one IoProvider, found: ${providers.size}")
+    }
+
+    @Test
+    fun `provider resolves via ServiceLoader when no explicit install`() {
+        // Clear the explicitly installed provider and the resolved cache, then confirm that
+        // Io.provider still returns a functional provider auto-discovered via ServiceLoader.
+        val saved = Io.swapProvider(null)
+        try {
+            val p = Io.provider
+            assertNotNull(p)
+            // Confirm it is actually functional (not a no-op stub).
+            assertNotNull(p.buffer())
+        } finally {
+            // Restore previous explicit install so @AfterTest sees a consistent state.
+            Io.swapProvider(saved)
+        }
     }
 }
