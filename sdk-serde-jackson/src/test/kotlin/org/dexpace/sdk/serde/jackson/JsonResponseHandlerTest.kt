@@ -16,10 +16,12 @@ import org.dexpace.sdk.core.http.response.ParsedResponse
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.http.response.deserialize
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.SerdeException
+import org.dexpace.sdk.core.serde.TypeRef
 import org.dexpace.sdk.io.OkioIoProvider
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
@@ -141,6 +143,23 @@ class JsonResponseHandlerTest {
     }
 
     @Test
+    fun `jsonHandlerOrThrow buffers the error body so it survives the response being closed`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        val resp = jsonResponse("""{"error":"boom"}""", status = Status.INTERNAL_SERVER_ERROR)
+        // Mirrors handleWith: the handler runs inside response.use { }, so the live response (and its
+        // body) is closed as the block unwinds via the thrown exception.
+        val ex =
+            assertFailsWith<HttpException> {
+                resp.use { handler.handle(it) }
+            }
+        // The error body was buffered into the exception, so it is still readable after the outer
+        // use{} closed the live response — no use-after-close.
+        val body = ex.body ?: error("expected a buffered error body on the thrown HttpException")
+        assertEquals("""{"error":"boom"}""", body.source().readString(Charsets.UTF_8))
+    }
+
+    @Test
     fun `jsonHandlerOrThrow with a TypeReference decodes parametric types on 2xx and throws on 5xx`() {
         val serde = JacksonSerde.withDefaults()
         val ok =
@@ -152,6 +171,14 @@ class JsonResponseHandlerTest {
             jsonHandlerOrThrow(serde, object : TypeReference<List<Dto>>() {})
                 .handle(jsonResponse("""{"error":"nope"}""", status = Status.SERVICE_UNAVAILABLE))
         }
+    }
+
+    @Test
+    fun `Response deserialize with a TypeRef decodes a parametric List via a JacksonSerde`() {
+        val serde = JacksonSerde.withDefaults()
+        val resp = jsonResponse("""[{"name":"a","score":1},{"name":"b","score":2}]""")
+        val list: List<Dto> = resp.deserialize(serde, object : TypeRef<List<Dto>>() {})
+        assertEquals(listOf(Dto("a", 1), Dto("b", 2)), list)
     }
 
     @Test

@@ -10,7 +10,9 @@ package org.dexpace.sdk.serde.jackson
 import com.fasterxml.jackson.core.type.TypeReference
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseHandler
+import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
+import org.dexpace.sdk.core.http.response.throwOnError
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerdeException
 
@@ -67,13 +69,14 @@ public fun <T> jsonHandler(
  * Status-aware variant of [jsonHandler]: on a 2xx response it decodes the body into [type]; on any
  * non-2xx response it throws instead of attempting to deserialize an error payload as [type].
  *
- * A 4xx / 5xx response is mapped through [HttpExceptionFactory] to the matching
- * [org.dexpace.sdk.core.http.response.exception.HttpException] subclass, which carries the
- * still-unconsumed error [org.dexpace.sdk.core.http.response.ResponseBody] — the caught exception
- * owns closing it (e.g. via `bodySnapshot()` or typed error-body deserialization). Any other
- * non-success status (1xx / 3xx reaching a terminal handler) closes the response and fails with a
- * [SerdeException]. On the success path the body is consumed and the response closed exactly as the
- * plain [jsonHandler].
+ * A 4xx / 5xx response is mapped through [Response.throwOnError] to the matching
+ * [org.dexpace.sdk.core.http.response.exception.HttpException] subclass, whose error
+ * [org.dexpace.sdk.core.http.response.ResponseBody] is a **buffered** in-memory copy (bounded to
+ * 1 MiB) — so it stays readable from the caught exception (e.g. via `bodySnapshot()` or typed
+ * error-body deserialization) even after this handler runs inside a `response.use { … }` block that
+ * closes the live response. Any other non-success status (1xx / 3xx reaching a terminal handler)
+ * closes the response and fails with a [SerdeException]. On the success path the body is consumed
+ * and the response closed exactly as the plain [jsonHandler].
  *
  * @param serde The serde whose deserializer decodes the body.
  * @param type The non-parametric success target type.
@@ -107,18 +110,19 @@ public fun <T> jsonHandlerOrThrow(
     }
 
 /**
- * Throws when [response] is not a 2xx: a 4xx / 5xx is mapped to its [HttpExceptionFactory] exception
- * (which retains the live error body for the caller to inspect and close); any other non-success
- * status closes the response and raises a [SerdeException]. Returns normally on a 2xx so the caller
- * proceeds to decode.
+ * Throws when [response] is not a 2xx: a 4xx / 5xx is mapped to its [HttpException] via
+ * [Response.throwOnError], which buffers a bounded (≤ 1 MiB) copy of the error body into the thrown
+ * exception so it survives the live response being closed (e.g. by a surrounding `response.use { … }`);
+ * any other non-success status closes the response and raises a [SerdeException]. Returns normally on
+ * a 2xx so the caller proceeds to decode.
  */
 private fun throwIfNotSuccess(response: Response) {
     val status = response.status
     if (status.isSuccess) return
     if (HttpExceptionFactory.isErrorStatus(status.code)) {
-        // Hand the still-unconsumed error body to the mapped HttpException; the caught exception owns
-        // reading and closing it. Do NOT close here or bodySnapshot()/typed error decode would fail.
-        throw HttpExceptionFactory.fromResponse(response)
+        // Buffers the error body (≤ 1 MiB) into the mapped HttpException and throws, so the caught
+        // exception's body is readable even after the live response is closed. Always throws here.
+        response.throwOnError()
     }
     response.close()
     throw SerdeException(
