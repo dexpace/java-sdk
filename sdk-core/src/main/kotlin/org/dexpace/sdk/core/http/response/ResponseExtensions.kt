@@ -9,17 +9,25 @@ package org.dexpace.sdk.core.http.response
 
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
+import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
+
+private val logger = ClientLogger("org.dexpace.sdk.core.http.response.ResponseExtensions")
+
+/** Maximum bytes buffered from the error body in [throwOnError]. Bodies exceeding this limit are truncated. */
+private const val MAX_BUFFERED_ERROR_BODY_BYTES: Long = 1L * 1024 * 1024
 
 /**
  * Returns this response if [Response.isSuccessful]; otherwise buffers the body into an
  * in-memory [ResponseBody], wraps it in a new [Response], and throws the matching
  * [HttpException] produced by [HttpExceptionFactory.fromResponse].
  *
- * Buffering guarantees that the exception's [HttpException.body] is still readable after the
- * original transport connection is released or the response is consumed in a `use {}` block.
+ * The error body is buffered in memory (up to 1 MiB; bytes beyond that limit are dropped)
+ * so it is readable from the thrown exception after the original transport connection is
+ * released. The buffered copy is a single, in-memory byte sequence — it is not infinitely
+ * replayable; once read it is consumed.
  *
  * @throws HttpException for any 4xx or 5xx response.
  */
@@ -28,7 +36,15 @@ public fun Response.throwOnError(): Response {
     val buffer = Io.provider.buffer()
     val originalBody = body
     if (originalBody != null) {
-        originalBody.use { b -> buffer.writeAll(b.source()) }
+        originalBody.use { b ->
+            val src = b.source()
+            var remaining = MAX_BUFFERED_ERROR_BODY_BYTES
+            while (remaining > 0L) {
+                val n = src.read(buffer, remaining)
+                if (n < 0L) break
+                remaining -= n
+            }
+        }
     }
     val bufferedBody = originalBody?.let { ResponseBody.create(buffer, it.mediaType(), buffer.size) }
     val bufferedResponse = newBuilder().body(bufferedBody).build()
@@ -39,8 +55,9 @@ public fun Response.throwOnError(): Response {
  * Attempts to decode the exception's error [body] using [deserializer] as a [type]-typed
  * value. Returns `null` when [HttpException.body] is `null` or when the deserializer throws.
  *
- * Exceptions thrown by the deserializer are swallowed rather than propagated; this function
- * never throws.
+ * The body is closed in a `finally` block whether decoding succeeds or fails. Exceptions
+ * thrown by the deserializer are logged at DEBUG and swallowed rather than propagated; this
+ * function never throws.
  *
  * @param deserializer The deserializer to apply.
  * @param type The target class token required for runtime type dispatch.
@@ -54,7 +71,13 @@ public fun <T> HttpException.bodyAs(
     return try {
         deserializer.deserialize(b.source().inputStream(), type)
     } catch (e: Exception) {
+        logger.atVerbose()
+            .event("bodyAs.deserialize.failure")
+            .cause(e)
+            .log("HttpException.bodyAs: deserializer threw; returning null")
         null
+    } finally {
+        b.close()
     }
 }
 

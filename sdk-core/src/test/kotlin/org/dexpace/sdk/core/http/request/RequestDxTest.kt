@@ -163,6 +163,19 @@ class RequestDxTest {
     }
 
     @Test
+    fun `verb delete() clears a previously-set body`() {
+        val body = RequestBody.create("payload", null)
+        val req =
+            Request.builder()
+                .url("https://example.test")
+                .post(body)
+                .delete()
+                .build()
+        assertEquals(Method.DELETE, req.method)
+        assertNull(req.body)
+    }
+
+    @Test
     fun `verb head() sets method to HEAD and clears body`() {
         val req =
             Request.builder()

@@ -8,10 +8,12 @@
 package org.dexpace.sdk.core.http.response
 
 import org.dexpace.sdk.core.http.common.Headers
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.exception.HttpException
+import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
@@ -25,6 +27,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class ResponseExtensionsTest {
     @BeforeTest
@@ -127,6 +130,26 @@ class ResponseExtensionsTest {
         assertEquals(Status.INTERNAL_SERVER_ERROR, ex.status)
     }
 
+    // ---- throwOnError truncation -------------------------------------------------
+
+    @Test
+    fun `throwOnError truncates body larger than 1 MiB`() {
+        val oneMib = 1 * 1024 * 1024
+        val oversizedBody = ByteArray(oneMib + 512) { 'x'.code.toByte() }
+        val source = Io.provider.source(oversizedBody)
+        val r =
+            Response.builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .status(Status.BAD_REQUEST)
+                .body(ResponseBody.create(source))
+                .build()
+        val ex = assertFailsWith<HttpException> { r.throwOnError() }
+        val exBody = assertNotNull(ex.body)
+        val bytes = exBody.bytes()
+        assertEquals(oneMib, bytes.size)
+    }
+
     // ---- HttpException.bodyAs (T3) ---------------------------------------------------
 
     data class ErrorPayload(val code: String)
@@ -158,6 +181,34 @@ class ResponseExtensionsTest {
         val r = response(Status.INTERNAL_SERVER_ERROR, """{"x":1}""")
         val ex = assertFailsWith<HttpException> { r.throwOnError() }
         assertNull(ex.bodyAs(throwingDeserializer(), ErrorPayload::class.java))
+    }
+
+    @Test
+    fun `bodyAs closes the body on success`() {
+        var closed = false
+        val fakeBody = trackingBody { closed = true }
+        val ex =
+            object : HttpException(
+                status = Status.BAD_REQUEST,
+                headers = Headers.Builder().build(),
+                body = fakeBody,
+            ) {}
+        ex.bodyAs(constantDeserializer("ok"), String::class.java)
+        assertTrue(closed, "ResponseBody.close() must be called after successful decode")
+    }
+
+    @Test
+    fun `bodyAs closes the body when Deserializer throws`() {
+        var closed = false
+        val fakeBody = trackingBody { closed = true }
+        val ex =
+            object : HttpException(
+                status = Status.INTERNAL_SERVER_ERROR,
+                headers = Headers.Builder().build(),
+                body = fakeBody,
+            ) {}
+        ex.bodyAs(throwingDeserializer(), String::class.java)
+        assertTrue(closed, "ResponseBody.close() must be called even when the deserializer throws")
     }
 
     // ---- Response.deserialize (T9) ---------------------------------------------------
@@ -192,6 +243,23 @@ class ResponseExtensionsTest {
     }
 
     // ---- helpers -----------------------------------------------------------------------
+
+    /** Returns a [ResponseBody] backed by an empty in-memory source; [onClose] is invoked when closed. */
+    private fun trackingBody(onClose: () -> Unit): ResponseBody {
+        val source = Io.provider.source(ByteArray(0))
+        return object : ResponseBody() {
+            override fun mediaType(): MediaType? = null
+
+            override fun contentLength(): Long = 0L
+
+            override fun source(): BufferedSource = source
+
+            override fun close() {
+                onClose()
+                source.close()
+            }
+        }
+    }
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> constantDeserializer(value: T): Deserializer =

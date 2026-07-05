@@ -384,13 +384,17 @@ public data class Request private constructor(
             }
 
         /**
-         * Sets the method to [Method.DELETE].
+         * Sets the method to [Method.DELETE] and clears any previously-set body. Equivalent to
+         * `method(Method.DELETE).body(null)`.
+         *
+         * DELETE-with-body remains available explicitly via `.method(Method.DELETE).body(body)`.
          *
          * @return This builder.
          */
         public fun delete(): RequestBuilder =
             apply {
                 this.method = Method.DELETE
+                this.body = null
             }
 
         /**
