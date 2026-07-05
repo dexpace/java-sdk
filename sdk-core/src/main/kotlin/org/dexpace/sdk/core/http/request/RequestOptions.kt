@@ -88,9 +88,19 @@ public class RequestOptions private constructor(
         /**
          * Sets the per-call timeout override, or clears it when [timeout] is `null` (fall back to
          * the transport default).
+         *
+         * A non-`null` [timeout] must be strictly positive. Zero and negative durations are rejected
+         * here rather than reaching a transport, where they carry inconsistent meanings — okio's call
+         * timeout treats `0` as "no timeout" (silently unbounding the call), while the JDK request
+         * builder throws on a non-positive duration.
+         *
+         * @throws IllegalArgumentException if [timeout] is zero or negative.
          */
         public fun timeout(timeout: Duration?): Builder =
             apply {
+                require(timeout == null || (!timeout.isZero && !timeout.isNegative)) {
+                    "timeout must be positive (or null to use the transport default), was $timeout"
+                }
                 this.timeout = timeout
             }
 
@@ -113,7 +123,8 @@ public class RequestOptions private constructor(
             }
 
         /** Builds an immutable [RequestOptions]; [tags] is snapshotted into a read-only copy. */
-        override fun build(): RequestOptions = RequestOptions(timeout, LinkedHashMap(tags), maxRetries)
+        override fun build(): RequestOptions =
+            RequestOptions(timeout, if (tags.isEmpty()) emptyMap() else LinkedHashMap(tags), maxRetries)
     }
 
     public companion object {

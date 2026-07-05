@@ -7,7 +7,6 @@
 
 package org.dexpace.sdk.core.serde
 
-import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.MediaType
 
 /**
@@ -28,10 +27,11 @@ public interface Serde {
     /**
      * The media type produced by this serde's serializer. Used as the default `Content-Type` when
      * creating a [org.dexpace.sdk.core.http.request.RequestBody] via
-     * [org.dexpace.sdk.core.http.request.RequestBody.Companion.create]. Implementations may
-     * override to reflect a different wire format (e.g. `application/xml`).
+     * [org.dexpace.sdk.core.http.request.RequestBody.Companion.create].
      *
-     * Default: `application/json`.
+     * Each implementation declares its own wire type (e.g. `application/json` for a JSON serde,
+     * `application/xml` for an XML serde). This is intentionally not defaulted: a format-agnostic
+     * default would let a non-JSON serde silently stamp the wrong `Content-Type` on every body.
      */
-    public fun contentType(): MediaType = CommonMediaTypes.APPLICATION_JSON
+    public fun contentType(): MediaType
 }

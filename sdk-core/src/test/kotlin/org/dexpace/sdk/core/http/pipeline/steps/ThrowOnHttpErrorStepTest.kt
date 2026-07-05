@@ -12,8 +12,10 @@ import org.dexpace.sdk.core.http.pipeline.HttpPipelineBuilder
 import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.exception.ClientErrorException
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.NotFoundException
+import org.dexpace.sdk.core.http.response.exception.ServerErrorException
 import org.dexpace.sdk.core.http.response.exception.ServiceUnavailableException
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.FakeHttpClient
@@ -75,6 +77,39 @@ class ThrowOnHttpErrorStepTest {
                 pipeline.send(getRequest("https://api.example.com/gone"))
             }
         assertEquals(404, ex.status.code)
+    }
+
+    @Test
+    fun `non-canonical 4xx and 5xx codes still map to typed exceptions`() {
+        // The step now branches on Status.isError directly (a plain 400..599 range check), so a
+        // vendor-specific code with no canonical Status constant is still treated as an error and
+        // routed through the 4xx / 5xx fallbacks.
+        val client4xx = FakeHttpClient().enqueue { status(460) }
+        val ex4xx =
+            assertFailsWith<ClientErrorException> {
+                HttpPipelineBuilder(client4xx).throwOnHttpError().build().send(getRequest("https://api.example.com/a"))
+            }
+        assertEquals(460, ex4xx.status.code)
+
+        val client5xx = FakeHttpClient().enqueue { status(599) }
+        val ex5xx =
+            assertFailsWith<ServerErrorException> {
+                HttpPipelineBuilder(client5xx).throwOnHttpError().build().send(getRequest("https://api.example.com/b"))
+            }
+        assertEquals(599, ex5xx.status.code)
+    }
+
+    @Test
+    fun `a 3xx reaching the step without a redirect step is returned untouched`() {
+        // No redirect step is installed, so a bare 3xx reaches ThrowOnHttpErrorStep as the terminal
+        // response. It is NOT an error (Status.isError is false), so it passes through verbatim.
+        val fake = FakeHttpClient().enqueue { status(304) }
+
+        val pipeline = HttpPipelineBuilder(fake).throwOnHttpError().build()
+
+        val response = pipeline.send(getRequest("https://api.example.com/nm"))
+        assertEquals(304, response.status.code)
+        response.close()
     }
 
     @Test

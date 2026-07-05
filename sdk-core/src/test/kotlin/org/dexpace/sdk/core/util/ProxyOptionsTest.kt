@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.util
 import org.dexpace.sdk.core.auth.AuthenticateChallenge
 import org.dexpace.sdk.core.auth.AuthorizationHeader
 import org.dexpace.sdk.core.auth.ChallengeHandler
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.config.ConfigurationBuilder
 import org.dexpace.sdk.core.http.request.Method
 import java.net.InetSocketAddress
@@ -970,6 +971,71 @@ class ProxyOptionsTest {
         // Verify the result is a non-null compiled regex.
         assertTrue(pattern.matcher("api.example.com").matches())
         assertFalse(pattern.matcher("api.other.com").matches())
+    }
+
+    // ----- fromEnvironment: convenience over the global configuration -----
+
+    @Test
+    fun `fromEnvironment resolves the proxy from the global configuration`() {
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { name ->
+                        when (name) {
+                            "https.proxyHost" -> "global.proxy"
+                            "https.proxyPort" -> "8443"
+                            else -> null
+                        }
+                    }
+                    .build(),
+            )
+            val po = ProxyOptions.fromEnvironment()
+            assertNotNull(po)
+            assertEquals("global.proxy", po.address.hostString)
+            assertEquals(8443, po.address.port)
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
+    @Test
+    fun `fromEnvironment returns null when the global configuration has no proxy`() {
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .build(),
+            )
+            assertNull(ProxyOptions.fromEnvironment())
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
+    @Test
+    fun `fromEnvironment NO_PROXY=star bypasses everything and returns null`() {
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { name ->
+                        when (name) {
+                            "HTTPS_PROXY" -> "http://proxy:8080"
+                            "NO_PROXY" -> "*"
+                            else -> null
+                        }
+                    }
+                    .propsSource { null }
+                    .build(),
+            )
+            assertNull(ProxyOptions.fromEnvironment())
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
     }
 
     // ----- Stub ChallengeHandler for tests -----

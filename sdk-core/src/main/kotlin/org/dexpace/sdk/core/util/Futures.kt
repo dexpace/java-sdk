@@ -146,7 +146,16 @@ internal fun <T> interruptibleFuture(
             // Re-check after publishing the thread: a cancel between the isDone check and the
             // bind would otherwise miss us; if it already happened, skip the task entirely.
             if (result.isDone) return@execute
-            result.complete(task())
+            val value = task()
+            // If we lost the completion race — the future was already cancelled (via the narrow
+            // window of cancel(true), or deterministically via cancel(false)'s run-to-completion
+            // path) — `complete` returns false and nothing downstream will ever hand `value` back
+            // to the caller. A `Closeable` value (e.g. a Response holding an open body / pooled
+            // connection) would then leak, so close it here on the discard path. Mirrors the
+            // native transports' `if (!future.complete(adapted)) closeQuietly(adapted)`.
+            if (!result.complete(value) && value is AutoCloseable) {
+                closeQuietly(value)
+            }
         } catch (t: Throwable) {
             result.completeExceptionally(t)
         } finally {
@@ -157,4 +166,17 @@ internal fun <T> interruptibleFuture(
         }
     }
     return result
+}
+
+/**
+ * Best-effort close on a discard path. Used when a computed value loses the completion race to a
+ * cancelled future: the value is already being dropped, so a failure to close it has nothing
+ * actionable to surface. Mirrors the native transports' identically-named helper.
+ */
+private fun closeQuietly(closeable: AutoCloseable) {
+    try {
+        closeable.close()
+    } catch (ignored: Throwable) {
+        // Intentionally ignored: the value is already being discarded.
+    }
 }

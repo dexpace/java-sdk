@@ -424,6 +424,12 @@ public data class Request private constructor(
         /**
          * Builds the [Request].
          *
+         * When no method was set the method defaults to [Method.GET] — but only if no body is
+         * present. A body with no method is a forgotten verb (e.g. a dropped `.post(body)` in a
+         * refactor), so it is reported as a missing `method` rather than silently defaulting to
+         * GET and then failing the body check below with the misleading "GET must not carry a
+         * request body".
+         *
          * A body set on a method that forbids one ([Method.permitsRequestBody] is `false` —
          * `GET`, `HEAD`, `TRACE`, `CONNECT`) is rejected here rather than passed to a transport:
          * the two reference transports disagree on the case (OkHttp throws, the JDK builder drops
@@ -432,12 +438,13 @@ public data class Request private constructor(
          * one of these methods, clear the body first with `body(null)`.
          *
          * @return The built request.
-         * @throws IllegalStateException If a required field is missing.
+         * @throws IllegalStateException If a required field is missing — the `url`, or the `method`
+         *         when a body is present.
          * @throws IllegalArgumentException If a body is set on a method that forbids one
          *         ([Method.GET], [Method.HEAD], [Method.TRACE], or [Method.CONNECT]).
          */
         override fun build(): Request {
-            val resolvedMethod = method ?: Method.GET
+            val resolvedMethod = method ?: if (body == null) Method.GET else checkRequired("method", method)
             val resolvedUrl = checkRequired("url", url)
             require(body == null || resolvedMethod.permitsRequestBody) {
                 "$resolvedMethod must not carry a request body; remove the body or use a " +

@@ -12,6 +12,7 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import org.slf4j.MDC
@@ -69,6 +70,29 @@ class VirtualThreadsTest {
                 vt.executeAsync(getRequest()).get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             }.exceptionOrNull()
         assertTrue(thrown != null, "expected closed virtual-thread executor to reject new tasks")
+    }
+
+    @Test
+    fun `executeAsync forwards per-call options to the delegate`() {
+        val seen = AtomicReference<RequestOptions>()
+        val delegate =
+            object : AsyncHttpClient {
+                override fun executeAsync(request: Request): CompletableFuture<Response> =
+                    executeAsync(request, RequestOptions.EMPTY)
+
+                override fun executeAsync(
+                    request: Request,
+                    options: RequestOptions,
+                ): CompletableFuture<Response> {
+                    seen.set(options)
+                    return CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
+            }
+        VirtualThreadAsyncHttpClient(delegate, Executors.newVirtualThreadPerTaskExecutor()).use { vt ->
+            val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+            vt.executeAsync(getRequest(), options).get(FAILSAFE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            assertEquals(options, seen.get(), "per-call options must reach the wrapped delegate, not be dropped")
+        }
     }
 
     @Test

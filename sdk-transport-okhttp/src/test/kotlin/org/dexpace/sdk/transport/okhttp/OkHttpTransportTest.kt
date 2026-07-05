@@ -511,16 +511,17 @@ class OkHttpTransportTest {
             OkHttpTransport.builder()
                 .readTimeout(Duration.ofMillis(200))
                 .build()
-        val ex =
-            assertFails {
-                shortReadTransport.execute(simpleGet("/slow")).close()
-            }
-        assertTrue(ex is IOException, "expected IOException, got ${ex::class}")
-        // The transport's `execute` preserves the interrupt status when surfacing an
-        // `InterruptedIOException`. OkHttp's SocketTimeoutException path on JDK 25 leaves
-        // the thread's interrupt flag set; clear it before sleeping so MockWebServer's
-        // pending dispatch has time to drain without an InterruptedException.
-        Thread.interrupted()
+        // A read timeout arrives as a SocketTimeoutException (an InterruptedIOException subtype),
+        // but it is a timeout, not a cancellation: the transport surfaces it as a retryable
+        // NetworkException and does not set the caller thread's interrupt flag.
+        assertFailsWith<NetworkException> {
+            shortReadTransport.execute(simpleGet("/slow")).close()
+        }
+        assertFalse(
+            Thread.currentThread().isInterrupted,
+            "a timeout must not leave the caller thread's interrupt flag set",
+        )
+        // Let MockWebServer's pending dispatch drain before @StartStop shuts it down.
         Thread.sleep(900)
     }
 
@@ -539,14 +540,50 @@ class OkHttpTransportTest {
                 .build(),
         )
         val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        // A timeout is a retryable transport failure, not a cancellation: it surfaces as a
+        // NetworkException (an IOException subtype) so DefaultRetryStep re-attempts it.
         val ex =
-            assertFails {
+            assertFailsWith<NetworkException> {
                 transport.execute(simpleGet("/slow-percall"), options).close()
             }
-        assertTrue(ex is IOException, "expected IOException, got ${ex::class}")
-        // OkHttp's call-timeout path may leave the interrupt flag set; clear it and let
-        // MockWebServer's pending dispatch drain before @StartStop shuts it down.
-        Thread.interrupted()
+        assertTrue(ex.isRetryable, "a timeout must be retryable")
+        // The timeout must NOT set the caller thread's interrupt flag; only a genuine interrupt
+        // does. (This is why the previous `Thread.interrupted()` workaround is no longer needed.)
+        assertFalse(
+            Thread.currentThread().isInterrupted,
+            "a timeout must not leave the caller thread's interrupt flag set",
+        )
+        // Let MockWebServer's pending dispatch drain before @StartStop shuts it down.
+        Thread.sleep(900)
+    }
+
+    @Test
+    fun subMillisPerCallTimeoutIsClampedNotDisabled() {
+        // A positive sub-millisecond per-call timeout truncates to 0ms via Duration.toMillis(), and
+        // okio's Timeout treats 0 as "no timeout". Without clamping this would silently DISABLE the
+        // per-call timeout and let the slow exchange run to completion. The transport clamps the
+        // applied deadline to at least 1ms, so the timeout stays finite and fires on the slow
+        // response rather than being disabled.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        // 500_000 ns = 0.5 ms → toMillis() == 0, the truncation the clamp exists to defend against.
+        val subMillis = RequestOptions.builder().timeout(Duration.ofNanos(500_000)).build()
+        // The clamped-but-finite timeout must still fire, surfacing as a retryable NetworkException.
+        val ex =
+            assertFailsWith<NetworkException> {
+                transport.execute(simpleGet("/sub-ms-timeout"), subMillis).close()
+            }
+        assertTrue(ex.isRetryable, "a timeout must be retryable")
+        assertFalse(
+            Thread.currentThread().isInterrupted,
+            "a timeout must not leave the caller thread's interrupt flag set",
+        )
+        // Let MockWebServer's pending dispatch drain before @StartStop shuts it down.
         Thread.sleep(900)
     }
 
@@ -590,10 +627,12 @@ class OkHttpTransportTest {
         val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
         val future = transport.executeAsync(simpleGet("/slow-percall-async"), options)
         val ex = assertFails { future.join() }
-        // join() wraps the failure in CompletionException; the cause is the transport IOException.
+        // join() wraps the failure in CompletionException. The async path must surface an OkHttp
+        // call-timeout as a retryable NetworkException, mirroring the sync path and the JDK transport.
         assertTrue(ex is CompletionException, "expected CompletionException, got ${ex::class}")
-        assertTrue(ex.cause is IOException, "expected IOException cause, got ${ex.cause?.let { it::class }}")
-        Thread.interrupted()
+        val cause = ex.cause
+        assertTrue(cause is NetworkException, "expected NetworkException cause, got ${cause?.let { it::class }}")
+        assertTrue(cause.isRetryable, "an async timeout must be retryable")
         Thread.sleep(900)
     }
 
@@ -635,12 +674,17 @@ class OkHttpTransportTest {
 
     @Test
     fun interruptIsNotWrappedAsNetworkException() {
-        // The interrupt path must remain unchanged: an InterruptedIOException surfaces as-is (with
-        // the interrupt flag re-asserted), never repackaged as a NetworkException.
+        // A genuine thread interrupt must remain terminal: it surfaces as an InterruptedIOException
+        // (with the interrupt flag re-asserted), never repackaged as a retryable NetworkException.
+        // OkHttp collapses interrupts and timeouts into InterruptedIOException, so the transport
+        // discriminates on the caller thread's interrupt flag; the interceptor sets that flag to
+        // model a real interrupt (a timeout would leave it clear and be wrapped as a
+        // NetworkException instead).
         val interceptedTransport =
             OkHttpTransport.create(
                 OkHttpClient.Builder()
                     .addInterceptor {
+                        Thread.currentThread().interrupt()
                         throw java.io.InterruptedIOException("simulated interrupt")
                     }
                     .build(),
@@ -668,15 +712,17 @@ class OkHttpTransportTest {
         // `InterruptedIOException`, the calling thread's interrupt status is preserved.
         // OkHttp 5.x's default transport uses plain `java.net.Socket` rather than
         // `SocketChannel`, so `Thread.interrupt()` does NOT in general abort a pending
-        // socket read — we therefore inject an `InterruptedIOException` via a custom
-        // OkHttp interceptor (the same hook that real callers would use to wire
-        // cancellation into their own stack) and verify that our wrapper re-asserts
+        // socket read — we therefore model a genuine interrupt via a custom OkHttp
+        // interceptor that sets the thread's interrupt flag before throwing an
+        // `InterruptedIOException` (the flag is how the transport tells a real interrupt
+        // apart from a timeout), and verify that our wrapper re-asserts
         // `Thread.currentThread().interrupt()` before rethrowing.
         val interceptedTransport =
             OkHttpTransport.create(
                 OkHttpClient.Builder()
                     .addInterceptor(
                         Interceptor {
+                            Thread.currentThread().interrupt()
                             throw java.io.InterruptedIOException("simulated interrupt")
                         },
                     )

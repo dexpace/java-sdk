@@ -115,11 +115,9 @@ public open class DefaultAsyncRetryStep
             next: AsyncPipelineNext,
         ): CompletableFuture<Response> {
             val result = CompletableFuture<Response>()
-            // Per-call RequestOptions.maxRetries overrides the configured budget for THIS call
-            // only; null (or a negative override) falls back to the step's clamped
-            // HttpRetryOptions.maxRetries — mirroring RetryPolicySupport's clamp of the configured
-            // path so a negative per-call value means "use default", not "0 retries".
-            val maxRetries = next.options.maxRetries?.takeIf { it >= 0 } ?: support.options.maxRetries
+            // Per-call RequestOptions.maxRetries override for THIS call. See
+            // RetryPolicySupport.effectiveMaxRetries for the null/negative fallback rule.
+            val maxRetries = support.effectiveMaxRetries(next.options)
             val driver = RetryDriver(next, support.isRetrySafe(request), maxRetries, result)
             driver.drive()
             return result

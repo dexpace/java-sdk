@@ -174,6 +174,37 @@ class JsonResponseHandlerTest {
     }
 
     @Test
+    fun `jsonHandlerOrThrow throws the mapped HttpException on a non-canonical 5xx code`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        // 599 has no canonical Status constant; status.isError (400..599) must still route it
+        // through throwOnError to a mapped HttpException rather than decoding the error body.
+        val ex =
+            assertFailsWith<HttpException> {
+                handler.handle(jsonResponse("""{"error":"boom"}""", status = Status.fromCode(599)))
+            }
+        assertEquals(599, ex.status.code)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow closes the response and raises SerdeException on a non-error non-2xx status`() {
+        val serde = JacksonSerde.withDefaults()
+        val body = CountingBody("""{"whatever":true}""")
+        val resp =
+            Response.builder()
+                .request(Request.builder().url("https://api.example.test/p").method(Method.GET).build())
+                .protocol(Protocol.HTTP_1_1)
+                // 304: neither success nor error, so it is neither decoded nor mapped to an
+                // HttpException — the handler closes the response and fails with a SerdeException.
+                .status(Status.NOT_MODIFIED)
+                .body(body)
+                .build()
+        val ex = assertFailsWith<SerdeException> { jsonHandlerOrThrow(serde, Dto::class.java).handle(resp) }
+        assertEquals(true, ex.message?.contains("304") == true, "message should name the offending status")
+        assertEquals(1, body.closeCount.get(), "the non-success response must be closed")
+    }
+
+    @Test
     fun `Response deserialize with a TypeRef decodes a parametric List via a JacksonSerde`() {
         val serde = JacksonSerde.withDefaults()
         val resp = jsonResponse("""[{"name":"a","score":1},{"name":"b","score":2}]""")

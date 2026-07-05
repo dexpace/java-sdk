@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.client
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import java.io.IOException
@@ -26,6 +27,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AsyncHttpClientTest {
@@ -179,6 +181,53 @@ class AsyncHttpClientTest {
         assertTrue(finished.await(2, TimeUnit.SECONDS), "worker should run to completion")
         assertTrue(future.isCancelled, "the future reports cancelled")
         assertFalse(sawInterrupt.get(), "cancel(false) must not interrupt the worker")
+    }
+
+    @Test
+    fun `asAsync threads per-call RequestOptions into the wrapped sync client`() {
+        // The SPI's 2-arg overload has an options-ignoring default; the bridge must override it so
+        // a per-call override survives instead of collapsing to RequestOptions.EMPTY.
+        val seen = AtomicReference<RequestOptions?>(null)
+        val syncClient =
+            object : HttpClient {
+                override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+                override fun execute(
+                    request: Request,
+                    options: RequestOptions,
+                ): Response {
+                    seen.set(options)
+                    return mockResponse(request, 200)
+                }
+            }
+        val options = RequestOptions.builder().maxRetries(3).tag("k", "v").build()
+
+        syncClient.asAsync(executor).executeAsync(getRequest(), options).get(2, TimeUnit.SECONDS)
+
+        assertSame(options, seen.get(), "per-call options must reach the wrapped sync client")
+    }
+
+    @Test
+    fun `asBlocking threads per-call RequestOptions into the wrapped async client`() {
+        val seen = AtomicReference<RequestOptions?>(null)
+        val asyncClient =
+            object : AsyncHttpClient {
+                override fun executeAsync(request: Request): CompletableFuture<Response> =
+                    executeAsync(request, RequestOptions.EMPTY)
+
+                override fun executeAsync(
+                    request: Request,
+                    options: RequestOptions,
+                ): CompletableFuture<Response> {
+                    seen.set(options)
+                    return CompletableFuture.completedFuture(mockResponse(request, 200))
+                }
+            }
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        asyncClient.asBlocking().execute(getRequest(), options)
+
+        assertSame(options, seen.get(), "per-call options must reach the wrapped async client")
     }
 
     @Test

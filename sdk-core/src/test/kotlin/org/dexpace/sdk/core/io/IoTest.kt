@@ -7,12 +7,20 @@
 
 package org.dexpace.sdk.core.io
 
+import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.FakeSlf4jLogger
 import org.dexpace.sdk.core.testing.withProvider
 import org.dexpace.sdk.io.OkioIoProvider
+import org.slf4j.event.Level
+import java.io.File
+import java.net.URL
+import java.util.Collections
+import java.util.Enumeration
 import java.util.ServiceLoader
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
@@ -184,5 +192,157 @@ class IoTest {
             // Restore previous explicit install so @AfterTest sees a consistent state.
             Io.swapProvider(saved)
         }
+    }
+
+    // ---- classloader search order (TCCL fallback) -------------------------------
+
+    @Test
+    fun `loaderSearchOrder puts the thread-context loader first`() {
+        val tccl = object : ClassLoader() {}
+        val defining = object : ClassLoader() {}
+        assertEquals(listOf<ClassLoader?>(tccl, defining), Io.loaderSearchOrder(tccl, defining))
+    }
+
+    @Test
+    fun `loaderSearchOrder falls back to the defining loader when no thread-context loader`() {
+        val defining = object : ClassLoader() {}
+        assertEquals(listOf<ClassLoader?>(defining), Io.loaderSearchOrder(null, defining))
+    }
+
+    @Test
+    fun `loaderSearchOrder does not scan twice when both loaders are the same`() {
+        val loader = object : ClassLoader() {}
+        assertEquals(listOf<ClassLoader?>(loader), Io.loaderSearchOrder(loader, loader))
+    }
+
+    @Test
+    fun `loadCandidates discovers a provider visible only via the thread-context loader`() {
+        // Simulate a hierarchical-classloader deployment: the okio provider is visible via the
+        // defining loader, while a second provider is registered only in a child loader that the
+        // thread-context classloader exposes. The hardened lookup must find BOTH, and must count
+        // the okio provider (visible through both loaders) exactly once.
+        val servicesFile = File.createTempFile("io-provider-service", ".txt")
+        servicesFile.writeText(TccOnlyProvider::class.java.name)
+        servicesFile.deleteOnExit()
+
+        val parent = Thread.currentThread().contextClassLoader ?: ClassLoader.getSystemClassLoader()
+        val childLoader = ServiceInjectingClassLoader(parent, servicesFile.toURI().toURL())
+        val savedTccl = Thread.currentThread().contextClassLoader
+        Thread.currentThread().contextClassLoader = childLoader
+        try {
+            val candidates = Io.loadCandidates()
+            val classNames = candidates.map { it::class.java.name }
+            assertTrue(
+                candidates.any { it is TccOnlyProvider },
+                "expected the TCCL-only provider to be discovered; got $classNames",
+            )
+            assertEquals(
+                1,
+                candidates.count { it::class.java.name == "org.dexpace.sdk.io.OkioIoProviderLoader" },
+                "the okio provider is visible via both loaders and must be de-duplicated; got $classNames",
+            )
+        } finally {
+            Thread.currentThread().contextClassLoader = savedTccl
+            servicesFile.delete()
+        }
+    }
+
+    // ---- install-after-resolve WARN ---------------------------------------------
+
+    @Test
+    fun `installProvider warns when replacing a resolved-and-handed-out provider`() {
+        val fake = FakeSlf4jLogger("io.test")
+        val savedLogger = Io.logger
+        val savedInstalled = Io.swapProvider(null)
+        Io.logger = ClientLogger.forTesting(fake)
+        try {
+            // Force ServiceLoader resolution AND hand-out (library code touching Io.provider early).
+            val handedOut = Io.provider
+            assertNotNull(handedOut)
+            // A late explicit install of a DIFFERENT provider still wins, but warns.
+            val explicit = object : IoProvider by OkioIoProvider {}
+            Io.installProvider(explicit)
+            assertSame(explicit, Io.provider, "explicit install must win over the auto-resolved provider")
+
+            val warn =
+                fake.records.singleOrNull { rec ->
+                    rec.level == Level.WARN &&
+                        rec.keyValues.any { it.key == "event" && it.value == "io.provider.install_after_resolve" }
+                }
+            assertNotNull(warn, "expected exactly one install-after-resolve WARN")
+            assertTrue(
+                warn.keyValues.any { it.key == "installed" },
+                "warning should name the newly-installed provider",
+            )
+        } finally {
+            Io.logger = savedLogger
+            Io.swapProvider(savedInstalled)
+        }
+    }
+
+    @Test
+    fun `installProvider does not warn when installing the same auto-resolved provider`() {
+        val fake = FakeSlf4jLogger("io.test")
+        val savedLogger = Io.logger
+        val savedInstalled = Io.swapProvider(null)
+        Io.logger = ClientLogger.forTesting(fake)
+        try {
+            val handedOut = Io.provider
+            Io.installProvider(handedOut) // same instance -> explicit install, no warning
+            assertSame(handedOut, Io.provider)
+            assertTrue(
+                fake.records.none { it.level == Level.WARN },
+                "installing the same resolved provider must not warn",
+            )
+        } finally {
+            Io.logger = savedLogger
+            Io.swapProvider(savedInstalled)
+        }
+    }
+
+    @Test
+    fun `installProvider does not warn on a first install with no prior resolution`() {
+        val fake = FakeSlf4jLogger("io.test")
+        val savedLogger = Io.logger
+        // swapProvider(null) clears installed + resolved + the handed-out flag; no getter is called,
+        // so nothing was ever resolved.
+        val savedInstalled = Io.swapProvider(null)
+        Io.logger = ClientLogger.forTesting(fake)
+        try {
+            val explicit = object : IoProvider by OkioIoProvider {}
+            Io.installProvider(explicit)
+            assertSame(explicit, Io.provider)
+            assertTrue(
+                fake.records.none { it.level == Level.WARN },
+                "a first install with nothing previously resolved must not warn",
+            )
+        } finally {
+            Io.logger = savedLogger
+            Io.swapProvider(savedInstalled)
+        }
+    }
+}
+
+/**
+ * Test provider registered only through [ServiceInjectingClassLoader]. Public with a no-arg
+ * constructor so [ServiceLoader] can instantiate it; delegates all behaviour to [OkioIoProvider].
+ */
+class TccOnlyProvider : IoProvider by OkioIoProvider
+
+/**
+ * Classloader that injects one extra `META-INF/services/<IoProvider>` entry on top of whatever the
+ * parent already exposes, letting a test simulate a provider registered only in a child loader.
+ * Class loading itself delegates to the parent so the injected provider class remains resolvable.
+ */
+private class ServiceInjectingClassLoader(
+    parent: ClassLoader,
+    private val extraServiceUrl: URL,
+) : ClassLoader(parent) {
+    override fun getResources(name: String): Enumeration<URL> {
+        val resources = Collections.list(super.getResources(name))
+        if (name == "META-INF/services/${IoProvider::class.java.name}") {
+            resources.add(extraServiceUrl)
+        }
+        return Collections.enumeration(resources)
     }
 }

@@ -156,6 +156,26 @@ class HttpExceptionFactoryTest {
         }
     }
 
+    // ---- 3b. isErrorStatus range check (raw-Int callers) --------------------------------
+
+    @Test
+    fun `isErrorStatus is a plain 400 to 599 range check including non-canonical codes`() {
+        // Below the error range.
+        assertEquals(false, HttpExceptionFactory.isErrorStatus(100))
+        assertEquals(false, HttpExceptionFactory.isErrorStatus(200))
+        assertEquals(false, HttpExceptionFactory.isErrorStatus(304))
+        assertEquals(false, HttpExceptionFactory.isErrorStatus(399))
+        // Error range — canonical and non-canonical codes alike (no Status allocation, no lookup).
+        assertEquals(true, HttpExceptionFactory.isErrorStatus(400))
+        assertEquals(true, HttpExceptionFactory.isErrorStatus(404))
+        assertEquals(true, HttpExceptionFactory.isErrorStatus(460), "non-canonical 4xx must be an error")
+        assertEquals(true, HttpExceptionFactory.isErrorStatus(500))
+        assertEquals(true, HttpExceptionFactory.isErrorStatus(599), "non-canonical 5xx must be an error")
+        // Above the error range.
+        assertEquals(false, HttpExceptionFactory.isErrorStatus(600))
+        assertEquals(false, HttpExceptionFactory.isErrorStatus(0))
+    }
+
     // ---- 4. Retryable flag per subclass -------------------------------------------------
 
     @Test

@@ -15,6 +15,7 @@ import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.exception.NotFoundException
+import org.dexpace.sdk.core.http.response.exception.ServerErrorException
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.testing.MockResponse
 import org.dexpace.sdk.core.util.Futures
@@ -48,6 +49,20 @@ class AsyncThrowOnHttpErrorStepTest {
         val notFound = cause as NotFoundException
         assertEquals(404, notFound.status.code)
         assertEquals("{\"error\":\"missing\"}", notFound.body!!.source().readUtf8())
+    }
+
+    @Test
+    fun `non-canonical 5xx completes exceptionally with a mapped ServerErrorException`() {
+        // The step branches on Status.isError directly (a plain 400..599 range check), so a
+        // vendor-specific 5xx code with no canonical Status constant is still mapped.
+        val client = cannedClient(status = 599, body = "boom")
+
+        val pipeline = AsyncHttpPipelineBuilder(client).throwOnHttpError().build()
+
+        val thrown = runCatching { pipeline.sendAsync(getRequest()).join() }.exceptionOrNull()
+        val cause = Futures.unwrap(assertNotNull(thrown, "future must complete exceptionally"))
+        val serverError = cause as ServerErrorException
+        assertEquals(599, serverError.status.code)
     }
 
     @Test

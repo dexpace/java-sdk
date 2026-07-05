@@ -182,12 +182,10 @@ public open class DefaultRetryStep
             // Lazily allocated on first failure so the success path never pays for the list.
             var suppressed: MutableList<Throwable>? = null
 
-            // Per-call RequestOptions.maxRetries overrides the configured budget for THIS call
-            // only; null (or a negative override) falls back to the step's clamped
-            // HttpRetryOptions.maxRetries — mirroring RetryPolicySupport's clamp of the configured
-            // path so a negative per-call value means "use default", not "0 retries". Read once per
-            // call — the options are constant across retry re-drives.
-            val maxRetries = next.options.maxRetries?.takeIf { it >= 0 } ?: support.options.maxRetries
+            // Per-call RequestOptions.maxRetries override for THIS call, resolved once (the options
+            // are constant across retry re-drives). See RetryPolicySupport.effectiveMaxRetries for
+            // the null/negative fallback rule.
+            val maxRetries = support.effectiveMaxRetries(next.options)
 
             // A request whose body is single-use and whose method is non-idempotent cannot be
             // safely re-sent: the second writeTo would trip the body's consume-once guard. When

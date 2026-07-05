@@ -14,7 +14,6 @@ import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
-import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
@@ -29,6 +28,7 @@ import java.io.InterruptedIOException
 import java.net.Proxy
 import java.net.ProxySelector
 import java.net.SocketAddress
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
@@ -93,9 +93,14 @@ public class OkHttpTransport private constructor(
      * Synchronously executes [request] with per-call [options] on the caller's thread. When
      * [RequestOptions.timeout] is non-null it is applied as OkHttp's per-call timeout (connect +
      * write + read + handshake) for this call only, overriding the client's configured
-     * `callTimeout`; a null timeout leaves the client default in force. Honours `Thread.interrupt`
-     * via `InterruptedIOException`: the interrupt flag is re-asserted before the exception is
-     * rethrown so callers see a consistent interrupt state.
+     * `callTimeout`; a null timeout leaves the client default in force.
+     *
+     * OkHttp surfaces both a genuine thread interrupt and a plain timeout as an
+     * `InterruptedIOException` (a `SocketTimeoutException` is one; the call-timeout path throws
+     * `InterruptedIOException("timeout")`). The two are told apart by the caller thread's interrupt
+     * flag: a genuine interrupt (flag set) re-asserts the flag and rethrows the
+     * `InterruptedIOException` as a terminal cancellation, whereas a timeout (flag clear) surfaces
+     * as a retryable [NetworkException] and does NOT set the interrupt flag.
      */
     @Throws(IOException::class)
     override fun execute(
@@ -108,23 +113,38 @@ public class OkHttpTransport private constructor(
         val okResponse =
             try {
                 call.execute()
-            } catch (e: InterruptedIOException) {
-                Thread.currentThread().interrupt()
-                throw e
             } catch (e: IOException) {
-                // A non-interrupt transport failure — connect refused, DNS lookup failure, peer
-                // reset, TLS handshake failure, a non-interrupt timeout — produced no response on
-                // the wire. Surface it as the SDK's NetworkException. Because NetworkException is
-                // itself an IOException, existing `catch (IOException)` sites keep matching, while
-                // the retry classifier now sees the retryable transport-failure contract. (The
-                // InterruptedIOException branch above runs first, so an interrupt-derived failure —
-                // including OkHttp's SocketTimeoutException — is never wrapped here.)
-                throw asNetworkException(e)
+                throw classifyExecuteFailure(e)
             }
         // ResponseAdapter.adapt acquires the body source and constructs the SDK Response; if any
         // step throws (e.g. `Io.provider` not installed, an unparseable Content-Type) it closes
         // `okResponse` — and its live socket — before propagating, so no extra guard is needed here.
         return responseAdapter.adapt(request, okResponse)
+    }
+
+    /**
+     * Maps a synchronous [execute] transport failure to the exception the caller should observe.
+     *
+     * OkHttp collapses a genuine thread interrupt and a plain timeout into the same exception type:
+     * [SocketTimeoutException] extends [InterruptedIOException], and the call-timeout path throws
+     * `InterruptedIOException("timeout")`. Message matching is fragile, so the two are told apart by
+     * the caller thread's interrupt flag — a real interrupt leaves it set, whereas a timeout (a
+     * per-call/read/connect deadline, or the call-timeout watchdog cancelling the call) does not, and
+     * a [SocketTimeoutException] is unambiguously a timeout.
+     *
+     * A genuine interrupt re-asserts the flag and is surfaced as the terminal [InterruptedIOException]
+     * (the retry classifier treats it as cancellation). Everything else — a timeout, or a non-interrupt
+     * transport failure (connection refused, DNS failure, peer reset, TLS handshake failure) — produced
+     * no response and is surfaced as the retryable [NetworkException] (itself an [IOException], so
+     * existing `catch (IOException)` sites keep matching) without leaving a spurious interrupt flag,
+     * matching how the JDK transport wraps its `HttpTimeoutException`.
+     */
+    private fun classifyExecuteFailure(e: IOException): IOException {
+        if (e is InterruptedIOException && e !is SocketTimeoutException && Thread.currentThread().isInterrupted) {
+            Thread.currentThread().interrupt()
+            return e
+        }
+        return NetworkException(e.message, e)
     }
 
     /**
@@ -198,9 +218,10 @@ public class OkHttpTransport private constructor(
                     call: Call,
                     e: IOException,
                 ) {
-                    // Mirror the sync path's transport-error contract: a non-interrupt IOException
-                    // is delivered as a NetworkException, an interrupt-derived one passes through
-                    // untouched.
+                    // Every failure OkHttp reports here produced no response, so surface it as a
+                    // retryable NetworkException (see asNetworkException) — including a call-timeout,
+                    // matching the sync path and the JDK transport. Cancellation is handled
+                    // separately via call.cancel() after the future is already cancelled.
                     future.completeExceptionally(asNetworkException(e))
                 }
             },
@@ -232,7 +253,15 @@ public class OkHttpTransport private constructor(
         call: Call,
         options: RequestOptions,
     ) {
-        options.timeout?.let { call.timeout().timeout(it.toMillis(), TimeUnit.MILLISECONDS) }
+        options.timeout?.let {
+            // okio's Timeout treats 0 as "no timeout", so a positive sub-millisecond Duration would
+            // truncate to 0ms via toMillis() and silently DISABLE the per-call timeout (also
+            // overriding any client-configured callTimeout with infinity). Clamp to at least 1ms so
+            // a sub-ms budget still yields a finite deadline. Zero/negative Durations are rejected
+            // upstream at RequestOptions construction, so only the sub-ms-positive case needs
+            // clamping here.
+            call.timeout().timeout(maxOf(1L, it.toMillis()), TimeUnit.MILLISECONDS)
+        }
     }
 
     /**
@@ -388,10 +417,9 @@ public class OkHttpTransport private constructor(
             }
 
         /**
-         * Reads proxy settings from the process-wide [Configuration.getGlobalConfiguration] via
-         * [ProxyOptions.fromConfiguration] — the standard `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`
-         * environment variables and their `https.proxy*` / `http.nonProxyHosts` system-property
-         * equivalents — and applies the resolved proxy to the client being built.
+         * Reads proxy settings from the process-wide environment via [ProxyOptions.fromEnvironment]
+         * and applies the resolved proxy to the client being built. See that method for the exact
+         * environment-variable / system-property resolution.
          *
          * Strictly opt-in: the environment is never consulted unless this is called, and the call
          * is a no-op when nothing there configures a proxy (or when `NO_PROXY=*` bypasses it). This
@@ -399,9 +427,7 @@ public class OkHttpTransport private constructor(
          */
         public fun proxyFromEnvironment(): Builder =
             apply {
-                ProxyOptions.fromConfiguration(Configuration.getGlobalConfiguration())?.let {
-                    this.proxy = it
-                }
+                ProxyOptions.fromEnvironment()?.let { this.proxy = it }
             }
 
         /**
@@ -549,11 +575,18 @@ public class OkHttpTransport private constructor(
 }
 
 /**
- * Maps an OkHttp transport-level [IOException] onto the SDK's [NetworkException] contract. An
- * interrupt-derived failure ([InterruptedIOException], including OkHttp's `SocketTimeoutException`)
- * is returned untouched so callers keep observing it as an interrupt; every other transport
- * [IOException] is wrapped in a [NetworkException] — itself an [IOException], so existing
- * `catch (IOException)` sites are unaffected and the retry classifier sees a retryable failure.
+ * Maps an OkHttp transport-level [IOException] onto the SDK's [NetworkException] contract for the
+ * async path. The failure arrives on OkHttp's dispatcher thread rather than the caller's, and every
+ * failure OkHttp reports through `Callback.onFailure` — a connection/DNS/TLS error, a
+ * [SocketTimeoutException] read/connect deadline, or the call-timeout watchdog's bare
+ * `InterruptedIOException("timeout")` — is a transport failure that produced no response. All are
+ * wrapped as a retryable [NetworkException] (itself an [IOException], so `catch (IOException)` sites
+ * keep matching), so async timeouts retry exactly like the sync path and the JDK transport.
+ *
+ * There is no genuine-interrupt case to preserve here as there is on the sync path: the SDK never
+ * interrupts OkHttp's dispatcher threads (`close()` uses `shutdown`, not `shutdownNow`), and future
+ * cancellation is delivered via `call.cancel()` — surfacing as a plain `IOException("Canceled")`
+ * after the future is already cancelled — so `onFailure`'s exception is discarded in that race
+ * rather than observed by a caller.
  */
-private fun asNetworkException(e: IOException): IOException =
-    if (e is InterruptedIOException) e else NetworkException(e.message, e)
+private fun asNetworkException(e: IOException): IOException = NetworkException(e.message, e)

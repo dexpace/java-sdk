@@ -28,6 +28,9 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class StandardResilienceTest {
@@ -97,6 +100,86 @@ class StandardResilienceTest {
         assertTrue(pipeline.steps.any { it is DefaultAsyncRetryStep }, "async retry pillar present")
         assertTrue(pipeline.steps.any { it is DefaultAsyncInstrumentationStep }, "async instrumentation pillar present")
     }
+
+    @Test
+    fun `appendStandardResilience over an occupied retry pillar throws naming RETRY without mutating`() {
+        val preexistingRetry = DefaultRetryStep()
+        val builder = HttpPipelineBuilder(FakeHttpClient()).append(preexistingRetry)
+
+        val ex = assertFailsWith<IllegalStateException> { builder.appendStandardResilience() }
+        assertTrue("RETRY" in ex.message.orEmpty(), "message names the RETRY pillar: ${ex.message}")
+
+        // Atomic all-or-nothing: the redirect/instrumentation pillars were never installed, and the
+        // pre-existing retry step is left exactly as it was.
+        val steps = builder.build().steps
+        assertEquals(1, steps.size, "builder is unchanged after the rejected call")
+        assertSame(preexistingRetry, steps.single(), "the original retry step survives untouched")
+        assertFalse(steps.any { it is DefaultRedirectStep }, "no redirect pillar was partially installed")
+    }
+
+    @Test
+    fun `appendStandardResilience called twice throws on the second call`() {
+        val builder = HttpPipelineBuilder(FakeHttpClient()).appendStandardResilience()
+
+        val ex = assertFailsWith<IllegalStateException> { builder.appendStandardResilience() }
+        // Every standard pillar is occupied on the second call; the message enumerates them.
+        assertTrue("REDIRECT" in ex.message.orEmpty(), ex.message)
+        assertTrue("RETRY" in ex.message.orEmpty(), ex.message)
+        assertTrue("LOGGING" in ex.message.orEmpty(), ex.message)
+
+        // Still exactly the first standard stack — the failed second call added nothing.
+        assertEquals(3, builder.build().steps.size)
+    }
+
+    @Test
+    fun `appendStandardResilience on a fresh builder installs all three pillars`() {
+        val steps = HttpPipelineBuilder(FakeHttpClient()).appendStandardResilience().build().steps
+
+        assertEquals(3, steps.size)
+        assertTrue(steps.any { it is DefaultRedirectStep })
+        assertTrue(steps.any { it is DefaultRetryStep })
+        assertTrue(steps.any { it is DefaultInstrumentationStep })
+    }
+
+    @Test
+    fun `async appendStandardResilience over an occupied retry pillar throws naming RETRY without mutating`() {
+        val client = okAsyncClient()
+        val preexistingRetry = DefaultAsyncRetryStep(scheduler)
+        val builder = AsyncHttpPipelineBuilder(client).append(preexistingRetry)
+
+        val ex = assertFailsWith<IllegalStateException> { builder.appendStandardResilience(scheduler) }
+        assertTrue("RETRY" in ex.message.orEmpty(), "message names the RETRY pillar: ${ex.message}")
+
+        val steps = builder.build().steps
+        assertEquals(1, steps.size, "builder is unchanged after the rejected call")
+        assertSame(preexistingRetry, steps.single(), "the original retry step survives untouched")
+        assertFalse(
+            steps.any { it is DefaultAsyncInstrumentationStep },
+            "no instrumentation pillar was partially installed",
+        )
+    }
+
+    @Test
+    fun `async appendStandardResilience called twice throws on the second call`() {
+        val builder = AsyncHttpPipelineBuilder(okAsyncClient()).appendStandardResilience(scheduler)
+
+        val ex = assertFailsWith<IllegalStateException> { builder.appendStandardResilience(scheduler) }
+        assertTrue("RETRY" in ex.message.orEmpty(), ex.message)
+        assertTrue("LOGGING" in ex.message.orEmpty(), ex.message)
+
+        assertEquals(2, builder.build().steps.size)
+    }
+
+    private fun okAsyncClient(): AsyncHttpClient =
+        AsyncHttpClient { request ->
+            CompletableFuture.completedFuture(
+                Response.builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .status(Status.OK)
+                    .build(),
+            )
+        }
 
     private fun getRequest(): Request = Request.builder().method(Method.GET).url("https://api.example.com/").build()
 }

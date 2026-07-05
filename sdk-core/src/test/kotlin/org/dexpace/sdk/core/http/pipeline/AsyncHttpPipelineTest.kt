@@ -200,6 +200,31 @@ class AsyncHttpPipelineTest {
     }
 
     @Test
+    fun `toAsync threads per-call RequestOptions into the wrapped sync pipeline`() {
+        // sendAsync(request, options) through the async facade must reach the sync pipeline's
+        // terminal dispatch as `execute(request, options)`, not collapse to RequestOptions.EMPTY.
+        val seen = AtomicReference<RequestOptions?>(null)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+                override fun execute(
+                    request: Request,
+                    options: RequestOptions,
+                ): Response {
+                    seen.set(options)
+                    return mockResponse(request, 200)
+                }
+            }
+        val sync = HttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        sync.toAsync(executor).sendAsync(getRequest(), options).get(2, TimeUnit.SECONDS)
+
+        assertSame(options, seen.get(), "per-call options must survive the sync→async bridge")
+    }
+
+    @Test
     fun `toAsync future cancel(true) interrupts the in-flight sync send`() {
         // A blocking transport awaits an (interruptible) latch. Cancelling the async future with
         // mayInterruptIfRunning=true must interrupt the worker thread so the blocking send aborts
@@ -282,6 +307,19 @@ class AsyncHttpPipelineTest {
         val sync = async.toBlocking()
         val thrown = assertFails { sync.send(getRequest()) }
         assertEquals("oops", thrown.message)
+    }
+
+    @Test
+    fun `toBlocking threads per-call RequestOptions into the wrapped async pipeline`() {
+        // send(request, options) through the blocking facade must reach the async pipeline's
+        // terminal dispatch as `executeAsync(request, options)`, not collapse to RequestOptions.EMPTY.
+        val client = OptionsRecordingAsyncClient()
+        val async = AsyncHttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().maxRetries(2).tag("k", "v").build()
+
+        async.toBlocking().send(getRequest(), options)
+
+        assertSame(options, client.seenOptions.single(), "per-call options must survive the async→sync bridge")
     }
 
     @Test

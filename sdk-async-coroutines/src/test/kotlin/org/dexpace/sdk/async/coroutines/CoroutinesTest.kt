@@ -24,6 +24,7 @@ import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipelineBuilder
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
 import org.slf4j.MDC
@@ -67,6 +68,27 @@ class CoroutinesTest {
                 ).build()
             val response = pipeline.send(getRequest())
             assertEquals(204, response.status.code)
+        }
+
+    @Test
+    fun `asAsyncCoroutines forwards per-call options to the sync client`() =
+        runBlocking {
+            val seen = AtomicReference<RequestOptions>()
+            val syncClient =
+                object : HttpClient {
+                    override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+                    override fun execute(
+                        request: Request,
+                        options: RequestOptions,
+                    ): Response {
+                        seen.set(options)
+                        return mockResponse(request, 200)
+                    }
+                }
+            val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+            syncClient.asAsyncCoroutines(this).executeAsync(getRequest(), options).await()
+            assertEquals(options, seen.get(), "per-call options must reach the wrapped sync client, not be dropped")
         }
 
     @Test

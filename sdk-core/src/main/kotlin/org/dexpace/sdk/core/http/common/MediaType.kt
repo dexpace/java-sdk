@@ -160,27 +160,31 @@ public data class MediaType private constructor(
 
     public companion object {
         // --- Common media-type shortcuts -----------------------------------------------
-        // Delegate to CommonMediaTypes (single source of truth). Exposed as @JvmField so
-        // Java callers see a plain static field (MediaType.APPLICATION_JSON) rather than a
-        // generated getter.
+        // Built directly via of() so these constants are self-contained. They must NOT read
+        // CommonMediaTypes, which builds its own constants through MediaType.of(...): a reference
+        // in either direction forms a class-initialization cycle, and whichever class initializes
+        // second would observe the other's static fields still at their default null (JLS 12.4.2),
+        // permanently leaving these non-null constants null. Keeping MediaType's <clinit> free of
+        // any CommonMediaTypes read breaks that cycle. Exposed as @JvmField so Java callers see a
+        // plain static field (MediaType.APPLICATION_JSON) rather than a generated getter.
 
-        /** `application/json` — delegates to [CommonMediaTypes.APPLICATION_JSON]. */
-        @JvmField public val APPLICATION_JSON: MediaType = CommonMediaTypes.APPLICATION_JSON
+        /** `application/json`. */
+        @JvmField public val APPLICATION_JSON: MediaType = of("application", "json")
 
-        /** `text/plain` — delegates to [CommonMediaTypes.TEXT_PLAIN]. */
-        @JvmField public val TEXT_PLAIN: MediaType = CommonMediaTypes.TEXT_PLAIN
+        /** `text/plain`. */
+        @JvmField public val TEXT_PLAIN: MediaType = of("text", "plain")
 
-        /** `application/octet-stream` — delegates to [CommonMediaTypes.APPLICATION_OCTET_STREAM]. */
-        @JvmField public val APPLICATION_OCTET_STREAM: MediaType = CommonMediaTypes.APPLICATION_OCTET_STREAM
+        /** `application/octet-stream`. */
+        @JvmField public val APPLICATION_OCTET_STREAM: MediaType = of("application", "octet-stream")
 
-        /** `application/x-www-form-urlencoded` — delegates to [CommonMediaTypes.APPLICATION_FORM_URLENCODED]. */
-        @JvmField public val APPLICATION_FORM_URLENCODED: MediaType = CommonMediaTypes.APPLICATION_FORM_URLENCODED
+        /** `application/x-www-form-urlencoded`. */
+        @JvmField public val APPLICATION_FORM_URLENCODED: MediaType = of("application", "x-www-form-urlencoded")
 
-        /** `text/html` — delegates to [CommonMediaTypes.TEXT_HTML]. */
-        @JvmField public val TEXT_HTML: MediaType = CommonMediaTypes.TEXT_HTML
+        /** `text/html`. */
+        @JvmField public val TEXT_HTML: MediaType = of("text", "html")
 
-        /** `application/xml` — delegates to [CommonMediaTypes.APPLICATION_XML]. */
-        @JvmField public val APPLICATION_XML: MediaType = CommonMediaTypes.APPLICATION_XML
+        /** `application/xml`. */
+        @JvmField public val APPLICATION_XML: MediaType = of("application", "xml")
 
         // -------------------------------------------------------------------------------
 

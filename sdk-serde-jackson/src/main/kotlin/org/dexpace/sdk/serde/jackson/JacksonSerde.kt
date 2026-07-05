@@ -12,6 +12,7 @@ import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.serde.DeserializationException
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
@@ -52,6 +53,9 @@ public class JacksonSerde private constructor(
 ) : Serde {
     override val serializer: Serializer = JacksonSerializer(mapper)
     override val deserializer: Deserializer = JacksonDeserializer(mapper)
+
+    /** JSON is this serde's wire format, so bodies built from it default to `application/json`. */
+    override fun contentType(): MediaType = MediaType.APPLICATION_JSON
 
     /**
      * Deserialize [input] into a value of the type captured by [type]. This overload is the
@@ -94,7 +98,11 @@ public class JacksonSerde private constructor(
          * Build a [JacksonSerde] backed by a caller-supplied [mapper].
          *
          * This method operates on a **defensive copy** of [mapper] — the caller's original instance
-         * is never mutated.
+         * is never mutated. Because the copy is taken via [ObjectMapper.copy], the supplied mapper
+         * must be a standard `ObjectMapper` / `JsonMapper` (or a subclass that overrides `copy()`):
+         * Jackson's own `copy()` throws `IllegalStateException` for a subclass that does not override
+         * it. Modules registered on [mapper] *after* this call are not reflected in the copy — register
+         * them before calling [from], or register them on the returned serde's [mapper].
          *
          * ## Tristate PATCH semantics
          *

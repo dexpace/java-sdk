@@ -10,9 +10,11 @@ package org.dexpace.sdk.core.http.request
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class RequestOptionsTest {
@@ -37,6 +39,34 @@ class RequestOptionsTest {
         assertEquals(Duration.ofSeconds(5), options.timeout)
         assertEquals(0, options.maxRetries)
         assertEquals(mapOf<String, Any>("route" to "checkout", "attempt" to 3), options.tags)
+    }
+
+    @Test
+    fun `timeout rejects a zero duration`() {
+        assertFailsWith<IllegalArgumentException> {
+            RequestOptions.builder().timeout(Duration.ZERO)
+        }
+    }
+
+    @Test
+    fun `timeout rejects a negative duration`() {
+        assertFailsWith<IllegalArgumentException> {
+            RequestOptions.builder().timeout(Duration.ofMillis(-1))
+        }
+    }
+
+    @Test
+    fun `timeout accepts null to clear the override`() {
+        val options = RequestOptions.builder().timeout(Duration.ofSeconds(1)).timeout(null).build()
+        assertNull(options.timeout)
+    }
+
+    @Test
+    fun `build with no tags shares the empty map`() {
+        val a = RequestOptions.builder().maxRetries(2).build()
+        val b = RequestOptions.builder().timeout(Duration.ofSeconds(1)).build()
+        assertTrue(a.tags.isEmpty())
+        assertSame(a.tags, b.tags)
     }
 
     @Test

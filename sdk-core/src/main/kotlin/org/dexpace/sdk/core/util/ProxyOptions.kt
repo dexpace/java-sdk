@@ -178,6 +178,30 @@ public class ProxyOptions
             }
 
             /**
+             * Resolves proxy settings from the process-wide [Configuration.getGlobalConfiguration],
+             * returning the configured [ProxyOptions] or `null` when the environment configures no
+             * proxy (or bypasses it entirely via `NO_PROXY=*`). A convenience over
+             * [fromConfiguration] that supplies the global configuration, so callers — chiefly the
+             * shipped transports' `proxyFromEnvironment()` builder hooks — don't repeat the lookup.
+             *
+             * Resolution follows [fromConfiguration]: system properties win over environment
+             * variables (JDK convention). Recognised sources:
+             * - System property `https.proxyHost` / `https.proxyPort` / `https.proxyUser` /
+             *   `https.proxyPassword` (preferred), falling back to `http.proxyHost` /
+             *   `http.proxyPort`.
+             * - System property `http.nonProxyHosts` (pipe-separated, backslash-escapable).
+             * - Environment variable `HTTPS_PROXY` / `HTTP_PROXY` — full URL form
+             *   `http://user:pass@proxy:8080`.
+             * - Environment variable `NO_PROXY` — comma-separated; a bare `*` bypasses the proxy for
+             *   every host, in which case this returns `null`.
+             *
+             * Strictly opt-in from a transport's perspective: nothing consults the environment until
+             * this (or [fromConfiguration]) is called.
+             */
+            @JvmStatic
+            public fun fromEnvironment(): ProxyOptions? = fromConfiguration(Configuration.getGlobalConfiguration())
+
+            /**
              * Parses a full proxy URL (`http://user:pass@proxy:8080`) into a [ProxyOptions].
              * Returns null on any parse/validation failure (proxies are optional — never throw).
              */

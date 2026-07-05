@@ -11,7 +11,6 @@ import com.fasterxml.jackson.core.type.TypeReference
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseHandler
 import org.dexpace.sdk.core.http.response.exception.HttpException
-import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.http.response.throwOnError
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerdeException
@@ -119,7 +118,7 @@ public fun <T> jsonHandlerOrThrow(
 private fun throwIfNotSuccess(response: Response) {
     val status = response.status
     if (status.isSuccess) return
-    if (HttpExceptionFactory.isErrorStatus(status.code)) {
+    if (status.isError) {
         // Buffers the error body (≤ 1 MiB) into the mapped HttpException and throws, so the caught
         // exception's body is readable even after the live response is closed. Always throws here.
         response.throwOnError()

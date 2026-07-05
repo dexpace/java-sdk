@@ -112,14 +112,48 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
     /**
      * Appends the SDK's standard resilience pillars with their no-arg defaults:
      * [DefaultRedirectStep] ([Stage.REDIRECT]), [DefaultRetryStep] ([Stage.RETRY]), and
-     * [DefaultInstrumentationStep] ([Stage.LOGGING]). Each lands in its own pillar slot, so the
-     * relative run order is fixed by [Stage] regardless of the call site. Combine with
-     * [throwOnHttpError] for turnkey error mapping on top of the resilience stack.
+     * [DefaultInstrumentationStep] ([Stage.LOGGING]). Each lands in its own pillar slot; their
+     * relative run order is fixed by [Stage] — [Stage.REDIRECT], then [Stage.RETRY], then
+     * [Stage.LOGGING] — no matter where in the builder chain this call sits.
+     *
+     * This is a preset for the **empty** REDIRECT / RETRY / LOGGING slots, not a composable overlay
+     * on top of pillars you have already installed. The supported order is: call this first — on a
+     * fresh builder, or before configuring any of those three pillars by hand — then customize an
+     * individual pillar with [replace]. Combine with [throwOnHttpError] for turnkey error mapping on
+     * top of the resilience stack.
+     *
+     * @throws IllegalStateException if any of the [Stage.REDIRECT], [Stage.RETRY], or
+     *   [Stage.LOGGING] pillars is already occupied on this builder — including calling this method
+     *   twice, or invoking it on a builder seeded via [from] from a pipeline that already carries
+     *   them. The check runs before any step is installed, so a rejected call leaves the builder
+     *   completely unchanged (all-or-nothing). Swap a single pillar with [replace] instead.
      */
-    public fun appendStandardResilience(): HttpPipelineBuilder =
-        append(DefaultRedirectStep())
-            .append(DefaultRetryStep())
-            .append(DefaultInstrumentationStep())
+    public fun appendStandardResilience(): HttpPipelineBuilder {
+        val additions: List<HttpStep> =
+            listOf(
+                DefaultRedirectStep(),
+                DefaultRetryStep(),
+                DefaultInstrumentationStep(),
+            )
+        requireStandardPillarsAvailable(additions)
+        return appendAll(additions)
+    }
+
+    /**
+     * Precondition for [appendStandardResilience]: none of the pillar stages [additions] will fill
+     * may already be occupied. Validating up front turns what would otherwise be a
+     * partial-mutation-then-throw (the first pillar installed before a later [append] rejects the
+     * conflict) into an atomic all-or-nothing check.
+     */
+    private fun requireStandardPillarsAvailable(additions: List<HttpStep>) {
+        val occupied = additions.map { it.stage }.filter { it.isPillar && steps.pillarAt(it) != null }
+        check(occupied.isEmpty()) {
+            "appendStandardResilience() installs the SDK's resilience pillars into empty slots only, " +
+                "but ${occupied.joinToString(", ")} ${if (occupied.size == 1) "is" else "are"} already " +
+                "configured on this builder. Call appendStandardResilience() first (on a fresh builder), " +
+                "then customize an individual pillar via replace<T>()."
+        }
+    }
 
     /**
      * Builds an immutable [HttpPipeline] in stage order. [Stage.SEND] is reserved for the

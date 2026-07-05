@@ -73,8 +73,10 @@ modules), and concrete I/O plugs in via `IoProvider`.
 Layered, from the bottom up:
 
 1. **`io/` contracts** — `Source`/`Sink`, `BufferedSource`/`BufferedSink`, `Buffer`, `TeeSink`. All
-   interfaces; no concrete I/O in `sdk-core`. `Io.installProvider(provider)` wires the single `IoProvider`
-   seam once at startup; a missing provider throws `IllegalStateException` with the install instruction.
+   interfaces; no concrete I/O in `sdk-core`. `Io.provider` resolves the single `IoProvider` seam: an
+   explicit `Io.installProvider(provider)` always wins, otherwise it auto-discovers one on the classpath
+   via `ServiceLoader` (so the Okio adapter registers itself). Zero or multiple providers with no explicit
+   install throw `IllegalStateException` with an actionable message.
 2. **HTTP models** — immutable `Request`/`Response`/`Headers`/`MediaType` etc., private constructor +
    `Builder` + `newBuilder()`. `RequestBody.isReplayable()`/`toReplayable()`; `FileRequestBody` lets
    transports dispatch `FileChannel.transferTo`.
@@ -134,8 +136,10 @@ Layered, from the bottom up:
 - **Public API changes fail `apiCheck`.** Any visible signature change needs `./gradlew apiDump` and the
   regenerated `api/*.api` files committed alongside the change. Never run `apiDump` to silence an
   *unintentional* break.
-- **`Io.installProvider(...)` must run before any code touches `Io.provider`.** Tests install
-  `OkioIoProvider` in `@BeforeTest`; production installs in the application startup path.
+- **`Io.provider` resolves a provider via `ServiceLoader` when none was explicitly installed**, so a
+  single adapter on the classpath (e.g. `sdk-io-okio3`) needs no bootstrap call. An explicit
+  `Io.installProvider(...)` still overrides auto-discovery and always wins; tests install `OkioIoProvider`
+  in `@BeforeTest` to stay deterministic. Zero or multiple providers with no explicit install fail loudly.
 - **Coverage floor is aggregate 80% line coverage.** The `minBound(80)` rule lives on the root-aggregate
   `:koverVerify`, which the root `check` task depends on, so a plain `./gradlew build` enforces it. New
   under-tested code can trip the gate even when its own module builds clean — check `koverHtmlReport` to see

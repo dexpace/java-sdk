@@ -13,6 +13,7 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.client.asAsync
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
@@ -75,6 +76,11 @@ public class VirtualThreadAsyncHttpClient internal constructor(
     private val closed = AtomicBoolean(false)
 
     override fun executeAsync(request: Request): CompletableFuture<Response> = delegate.executeAsync(request)
+
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> = delegate.executeAsync(request, options)
 
     /**
      * Shuts down the virtual-thread executor and waits for in-flight tasks to complete.

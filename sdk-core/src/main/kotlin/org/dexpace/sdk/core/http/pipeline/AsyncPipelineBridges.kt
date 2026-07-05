@@ -11,8 +11,12 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.asBlocking
+import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
+import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.interruptibleFuture
 import java.io.InterruptedIOException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
 
 /**
@@ -44,7 +48,20 @@ import java.util.concurrent.Executor
  */
 public fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
     val sync = this
-    return AsyncHttpPipeline.of { request -> interruptibleFuture(executor) { sync.send(request) } }
+    val asyncClient =
+        object : AsyncHttpClient {
+            override fun executeAsync(request: Request): CompletableFuture<Response> =
+                executeAsync(request, RequestOptions.EMPTY)
+
+            // Thread the caller's per-call options into the wrapped sync `send` so overrides
+            // (timeout, per-call retry budget, tags) survive the sync→async bridge instead of
+            // being dropped by the SPI's options-ignoring default.
+            override fun executeAsync(
+                request: Request,
+                options: RequestOptions,
+            ): CompletableFuture<Response> = interruptibleFuture(executor) { sync.send(request, options) }
+        }
+    return AsyncHttpPipeline.of(asyncClient)
 }
 
 /**
@@ -57,4 +74,7 @@ public fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
  * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException].
  */
 public fun AsyncHttpPipeline.toBlocking(): HttpPipeline =
-    HttpPipeline.of(AsyncHttpClient { sendAsync(it) }.asBlocking())
+    // AsyncHttpPipeline already implements AsyncHttpClient, and its `executeAsync(request, options)`
+    // override threads options into `sendAsync(request, options)`. Bridging it directly (rather than
+    // through a 1-arg SAM literal) preserves per-call options across the async→sync bridge.
+    HttpPipeline.of(asBlocking())

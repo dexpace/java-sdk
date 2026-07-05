@@ -16,6 +16,27 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MediaTypeTest {
+    // ---- companion constants ----------------------------------------------------
+
+    @Test
+    fun `common constants are populated and match their canonical parsed form`() {
+        // Guards the class-initialization contract: these @JvmField constants build themselves via
+        // of(...) and must never be null (a cross-init cycle with CommonMediaTypes once left them so).
+        assertEquals(MediaType.of("application", "json"), MediaType.APPLICATION_JSON)
+        assertEquals(MediaType.of("text", "plain"), MediaType.TEXT_PLAIN)
+        assertEquals(MediaType.of("application", "octet-stream"), MediaType.APPLICATION_OCTET_STREAM)
+        assertEquals(MediaType.of("application", "x-www-form-urlencoded"), MediaType.APPLICATION_FORM_URLENCODED)
+        assertEquals(MediaType.of("text", "html"), MediaType.TEXT_HTML)
+        assertEquals(MediaType.of("application", "xml"), MediaType.APPLICATION_XML)
+    }
+
+    @Test
+    fun `common constants equal their CommonMediaTypes counterparts`() {
+        assertEquals(CommonMediaTypes.APPLICATION_JSON, MediaType.APPLICATION_JSON)
+        assertEquals(CommonMediaTypes.TEXT_PLAIN, MediaType.TEXT_PLAIN)
+        assertEquals(CommonMediaTypes.APPLICATION_XML, MediaType.APPLICATION_XML)
+    }
+
     // ---- parse ------------------------------------------------------------------
 
     @Test

@@ -19,6 +19,7 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
@@ -85,7 +86,15 @@ public fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient 
         .field("adapter.type", "coroutines")
         .field("scope.coroutineContext", scope.coroutineContext.toString())
         .log()
-    return AsyncHttpClient { request ->
-        scope.future(MDCContext()) { runInterruptible(Dispatchers.IO) { execute(request) } }
+    val client = this
+    return object : AsyncHttpClient {
+        override fun executeAsync(request: Request): CompletableFuture<Response> =
+            executeAsync(request, RequestOptions.EMPTY)
+
+        override fun executeAsync(
+            request: Request,
+            options: RequestOptions,
+        ): CompletableFuture<Response> =
+            scope.future(MDCContext()) { runInterruptible(Dispatchers.IO) { client.execute(request, options) } }
     }
 }

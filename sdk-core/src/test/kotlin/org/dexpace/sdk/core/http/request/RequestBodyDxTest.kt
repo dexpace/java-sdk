@@ -70,6 +70,8 @@ class RequestBodyDxTest {
                         type: Class<T>,
                     ): T = throw UnsupportedOperationException()
                 }
+
+            override fun contentType() = CommonMediaTypes.APPLICATION_JSON
         }
 
     private fun drain(body: RequestBody): ByteArray {
@@ -103,7 +105,12 @@ class RequestBodyDxTest {
     }
 
     @Test
-    fun `Serde default contentType returns APPLICATION_JSON`() {
-        assertEquals(CommonMediaTypes.APPLICATION_JSON, fakeSerde.contentType())
+    fun `create uses the serde's own contentType as the default mediaType`() {
+        val xmlSerde =
+            object : Serde by fakeSerde {
+                override fun contentType() = CommonMediaTypes.APPLICATION_XML
+            }
+        val body = RequestBody.create(Any(), xmlSerde)
+        assertEquals(CommonMediaTypes.APPLICATION_XML, body.mediaType())
     }
 }

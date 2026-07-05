@@ -11,13 +11,16 @@ import java.io.IOException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -102,6 +105,54 @@ class FuturesTest {
     @Test
     fun `delay rejects a negative duration`() {
         assertFails { Futures.delay(scheduler, Duration.ofMillis(-1)) }
+    }
+
+    @Test
+    fun `interruptibleFuture closes a Closeable value that loses the completion race`() {
+        // Deterministic lost-completion path: cancel(false) marks the future cancelled without
+        // interrupting the worker, so the task runs to completion and `result.complete(value)`
+        // returns false. The computed Closeable (a stand-in for a Response holding an open body /
+        // pooled connection) would leak unless the discard path closes it.
+        val started = CountDownLatch(1)
+        val proceed = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val closeable = AutoCloseable { closed.countDown() }
+
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val future =
+                interruptibleFuture(worker) {
+                    started.countDown()
+                    // Park until the test has cancelled the future, so completion loses the race.
+                    proceed.await()
+                    closeable
+                }
+            assertTrue(started.await(2, TimeUnit.SECONDS), "task should have started")
+            future.cancel(false)
+            proceed.countDown()
+
+            assertTrue(closed.await(2, TimeUnit.SECONDS), "the discarded Closeable value must be closed")
+            assertTrue(future.isCancelled)
+        } finally {
+            worker.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `interruptibleFuture delivers a Closeable value without closing it on the normal path`() {
+        // The success path must NOT close the value — the caller owns it. Guards against an
+        // over-eager close that would break every non-cancelled call returning a Closeable.
+        val closed = AtomicBoolean(false)
+        val closeable = AutoCloseable { closed.set(true) }
+
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val delivered = interruptibleFuture(worker) { closeable }.get(2, TimeUnit.SECONDS)
+            assertSame(closeable, delivered, "the value must be delivered unchanged")
+            assertFalse(closed.get(), "a delivered value must not be closed")
+        } finally {
+            worker.shutdownNow()
+        }
     }
 
     @Test

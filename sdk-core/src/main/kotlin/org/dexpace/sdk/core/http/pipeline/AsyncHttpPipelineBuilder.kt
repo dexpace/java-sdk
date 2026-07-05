@@ -109,10 +109,42 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
      * [DefaultAsyncRetryStep] requires a [ScheduledExecutorService] on which to schedule its
      * (non-blocking) backoff delays, so — unlike the synchronous no-arg preset — this method takes
      * [scheduler]. The scheduler is the caller's to own and shut down; the SDK never closes it.
+     *
+     * Like its synchronous mirror, this is a preset for the **empty** [Stage.RETRY] / [Stage.LOGGING]
+     * slots, not a composable overlay on top of pillars you have already installed. The supported
+     * order is: call this first, then customize an individual pillar with [replace].
+     *
+     * @throws IllegalStateException if the [Stage.RETRY] or [Stage.LOGGING] pillar is already
+     *   occupied on this builder — including calling this method twice, or invoking it on a builder
+     *   seeded via [from] from a pipeline that already carries them. The check runs before any step
+     *   is installed, so a rejected call leaves the builder completely unchanged (all-or-nothing).
+     *   Swap a single pillar with [replace] instead.
      */
-    public fun appendStandardResilience(scheduler: ScheduledExecutorService): AsyncHttpPipelineBuilder =
-        append(DefaultAsyncRetryStep(scheduler))
-            .append(DefaultAsyncInstrumentationStep())
+    public fun appendStandardResilience(scheduler: ScheduledExecutorService): AsyncHttpPipelineBuilder {
+        val additions: List<AsyncHttpStep> =
+            listOf(
+                DefaultAsyncRetryStep(scheduler),
+                DefaultAsyncInstrumentationStep(),
+            )
+        requireStandardPillarsAvailable(additions)
+        return appendAll(additions)
+    }
+
+    /**
+     * Precondition for [appendStandardResilience]: none of the pillar stages [additions] will fill
+     * may already be occupied. Validating up front turns what would otherwise be a
+     * partial-mutation-then-throw (the retry pillar installed before the later [append] rejects the
+     * conflict) into an atomic all-or-nothing check.
+     */
+    private fun requireStandardPillarsAvailable(additions: List<AsyncHttpStep>) {
+        val occupied = additions.map { it.stage }.filter { it.isPillar && steps.pillarAt(it) != null }
+        check(occupied.isEmpty()) {
+            "appendStandardResilience() installs the SDK's resilience pillars into empty slots only, " +
+                "but ${occupied.joinToString(", ")} ${if (occupied.size == 1) "is" else "are"} already " +
+                "configured on this builder. Call appendStandardResilience() first (on a fresh builder), " +
+                "then customize an individual pillar via replace<T>()."
+        }
+    }
 
     /** Builds an immutable [AsyncHttpPipeline]. */
     public fun build(): AsyncHttpPipeline {

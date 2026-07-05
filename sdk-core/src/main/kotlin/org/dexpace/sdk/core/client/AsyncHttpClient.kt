@@ -121,10 +121,21 @@ public fun interface AsyncHttpClient : AutoCloseable {
  * For the interrupt to abort I/O, the wrapped [HttpClient] must honour `Thread.interrupt()` (the
  * shipped transports do).
  */
-public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
-    AsyncHttpClient { request ->
-        interruptibleFuture(executor) { execute(request) }
+public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient {
+    val sync = this
+    return object : AsyncHttpClient {
+        override fun executeAsync(request: Request): CompletableFuture<Response> =
+            executeAsync(request, RequestOptions.EMPTY)
+
+        // Thread the caller's per-call options into the wrapped blocking send so overrides
+        // (timeout, retry budget, tags) survive the sync→async bridge instead of being dropped
+        // by the SPI's options-ignoring default.
+        override fun executeAsync(
+            request: Request,
+            options: RequestOptions,
+        ): CompletableFuture<Response> = interruptibleFuture(executor) { sync.execute(request, options) }
     }
+}
 
 /**
  * Wraps an [AsyncHttpClient] as a blocking [HttpClient] by blocking on `executeAsync(...).get()`
@@ -139,25 +150,36 @@ public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
 @Throws(IOException::class)
-public fun AsyncHttpClient.asBlocking(): HttpClient =
-    HttpClient { request ->
-        val future = executeAsync(request)
-        try {
-            future.get()
-        } catch (ie: InterruptedException) {
-            // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
-            // the in-flight exchange, and surface an InterruptedIOException so callers' I/O
-            // error handling terminates cleanly. See RetryRecovery.awaitDelay for the same pattern.
-            Thread.currentThread().interrupt()
-            future.cancel(true)
-            val ioe = InterruptedIOException("Interrupted while waiting for response")
-            ioe.initCause(ie)
-            throw ioe
-        } catch (ee: ExecutionException) {
-            // `get()` wraps every exceptional completion in ExecutionException; unwrap so
-            // callers' `catch (IOException)` blocks see the original failure rather than the
-            // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
-            // is a RuntimeException, not an ExecutionException, so it propagates as-is.
-            throw Futures.unwrap(ee)
+public fun AsyncHttpClient.asBlocking(): HttpClient {
+    val async = this
+    return object : HttpClient {
+        override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+        // Thread the caller's per-call options into the wrapped async send so overrides survive
+        // the async→sync bridge instead of being dropped by the SPI's options-ignoring default.
+        override fun execute(
+            request: Request,
+            options: RequestOptions,
+        ): Response {
+            val future = async.executeAsync(request, options)
+            return try {
+                future.get()
+            } catch (ie: InterruptedException) {
+                // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
+                // the in-flight exchange, and surface an InterruptedIOException so callers' I/O
+                // error handling terminates cleanly. See RetryRecovery.awaitDelay for the same pattern.
+                Thread.currentThread().interrupt()
+                future.cancel(true)
+                val ioe = InterruptedIOException("Interrupted while waiting for response")
+                ioe.initCause(ie)
+                throw ioe
+            } catch (ee: ExecutionException) {
+                // `get()` wraps every exceptional completion in ExecutionException; unwrap so
+                // callers' `catch (IOException)` blocks see the original failure rather than the
+                // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
+                // is a RuntimeException, not an ExecutionException, so it propagates as-is.
+                throw Futures.unwrap(ee)
+            }
         }
     }
+}

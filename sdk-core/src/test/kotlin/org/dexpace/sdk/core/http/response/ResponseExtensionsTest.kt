@@ -74,6 +74,28 @@ class ResponseExtensionsTest {
     }
 
     @Test
+    fun `throwOnError returns same instance for 304 Not Modified`() {
+        val r = response(Status.fromCode(304))
+        val returned = r.throwOnError()
+        assertSame(r, returned)
+    }
+
+    @Test
+    fun `throwOnError returns 3xx unchanged without consuming the body`() {
+        val r = response(Status.fromCode(302), "redirect target body")
+        val returned = r.throwOnError()
+        assertSame(r, returned)
+        // The body must be intact — throwOnError must not drain a non-error response.
+        assertEquals("redirect target body", assertNotNull(returned.body).string())
+    }
+
+    @Test
+    fun `throwOnError returns same instance for 1xx informational`() {
+        val r = response(Status.fromCode(100))
+        assertSame(r, r.throwOnError())
+    }
+
+    @Test
     fun `throwOnError throws HttpException for 400`() {
         val r = response(Status.BAD_REQUEST, """{"error":"bad"}""")
         assertFailsWith<HttpException> {
@@ -305,5 +327,7 @@ class ResponseExtensionsTest {
         object : Serde {
             override val serializer: Serializer get() = throw UnsupportedOperationException()
             override val deserializer: Deserializer = deserializer
+
+            override fun contentType() = MediaType.APPLICATION_JSON
         }
 }

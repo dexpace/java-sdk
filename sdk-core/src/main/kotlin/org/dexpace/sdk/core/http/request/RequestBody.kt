@@ -198,9 +198,9 @@ public abstract class RequestBody {
          * that agree on encoding but declare different `Content-Type` values).
          *
          * @param value The object to serialize.
-         * @param serde The serde whose [Serde.serializer] encodes [value] to a string.
+         * @param serde The serde whose [Serde.serializer] encodes [value] to wire bytes.
          * @param mediaType The body's media type; defaults to [Serde.contentType].
-         * @return A replayable body whose bytes are the UTF-8 encoding of the serialized [value].
+         * @return A replayable body whose bytes are the [serde]-encoded form of [value].
          */
         @JvmStatic
         @JvmOverloads
@@ -208,7 +208,7 @@ public abstract class RequestBody {
             value: Any,
             serde: Serde,
             mediaType: MediaType = serde.contentType(),
-        ): RequestBody = create(serde.serializer.serialize(value), mediaType)
+        ): RequestBody = create(serde.serializer.serializeToByteArray(value), mediaType)
 
         /**
          * Creates a replayable `application/x-www-form-urlencoded` body from [formData].

@@ -12,7 +12,6 @@ import org.dexpace.sdk.core.http.pipeline.AsyncPipelineNext
 import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
-import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.http.response.throwOnError
 import java.util.concurrent.CompletableFuture
 
@@ -33,6 +32,18 @@ import java.util.concurrent.CompletableFuture
  * evaluates the terminal response after async redirect/retry have run. See [ThrowOnHttpErrorStep]
  * for the full stage-placement and buffering rationale.
  *
+ * ## Error-body buffering runs on the completing thread
+ *
+ * The [CompletableFuture.thenApply] mapping runs **synchronously on whatever thread completed the
+ * upstream future** — typically the transport's I/O / completion thread. On a 4xx / 5xx it calls
+ * [Response.throwOnError], which **blocks** while it drains up to 1 MiB of the error body from the
+ * network source into the in-memory copy. The success path never reads a byte, so this cost is
+ * paid only for error responses. Callers that supply a bounded completion executor to a
+ * bring-your-own async transport (e.g. `java.net.http.HttpClient`) should size that executor with
+ * this drain in mind: a burst of large error responses can hold completion threads for the
+ * duration of the buffering, delaying unrelated exchanges that share the pool. There is no
+ * executor hop here — doing so would need machinery the async pipeline does not yet expose.
+ *
  * ## Thread-safety
  *
  * Stateless after construction — safe to share across concurrent requests.
@@ -45,7 +56,7 @@ public class AsyncThrowOnHttpErrorStep : AsyncHttpStep {
         next: AsyncPipelineNext,
     ): CompletableFuture<Response> =
         next.processAsync().thenApply { response ->
-            if (!HttpExceptionFactory.isErrorStatus(response.status.code)) {
+            if (!response.status.isError) {
                 response
             } else {
                 // throwOnError buffers the bounded error body and throws the mapped exception;

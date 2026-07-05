@@ -215,6 +215,20 @@ class RequestTest {
         assertEquals("url is required", ex.message)
     }
 
+    @Test
+    fun `build without method but with a body reports the missing method`() {
+        // A body with no method is a forgotten verb (e.g. a dropped .post(body)); it must be named
+        // as a missing method, not defaulted to GET and then rejected as "GET must not carry a body".
+        val ex =
+            assertFailsWith<IllegalStateException> {
+                Request.builder()
+                    .url("https://example.test")
+                    .body(RequestBody.create("x", null))
+                    .build()
+            }
+        assertEquals("method is required", ex.message)
+    }
+
     // ---------------------------------------------------------------------
     // Body / method compatibility — a body on a body-forbidden method is
     // rejected at build time so transports never have to disagree on it.

@@ -21,9 +21,14 @@ private val logger = ClientLogger("org.dexpace.sdk.core.http.response.ResponseEx
 private const val MAX_BUFFERED_ERROR_BODY_BYTES: Long = 1L * 1024 * 1024
 
 /**
- * Returns this response if [Response.isSuccessful]; otherwise buffers the body into an
- * in-memory [ResponseBody], wraps it in a new [Response], and throws the matching
- * [HttpException] produced by [HttpExceptionFactory.fromResponse].
+ * Returns this response unchanged when its status is not an error ([Status.isError] is `false` —
+ * any 1xx, 2xx, or 3xx); otherwise buffers the body into an in-memory [ResponseBody], wraps it in
+ * a new [Response], and throws the matching [HttpException] produced by
+ * [HttpExceptionFactory.fromResponse].
+ *
+ * Only 4xx/5xx responses are mapped, so a non-error, non-2xx response (e.g. a `304 Not Modified`
+ * from a conditional request, or a `3xx` that no redirect step followed) is returned with its body
+ * intact rather than having it consumed and an exception raised.
  *
  * The error body is buffered in memory (up to 1 MiB; bytes beyond that limit are dropped)
  * so it is readable from the thrown exception after the original transport connection is
@@ -33,7 +38,7 @@ private const val MAX_BUFFERED_ERROR_BODY_BYTES: Long = 1L * 1024 * 1024
  * @throws HttpException for any 4xx or 5xx response.
  */
 public fun Response.throwOnError(): Response {
-    if (isSuccessful) return this
+    if (!status.isError) return this
     val buffer = Io.provider.buffer()
     val originalBody = body
     if (originalBody != null) {

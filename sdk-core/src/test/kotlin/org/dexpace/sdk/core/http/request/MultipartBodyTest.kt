@@ -99,6 +99,8 @@ class MultipartBodyTest {
                     type: Class<T>,
                 ): T = throw UnsupportedOperationException()
             }
+
+        override fun contentType() = CommonMediaTypes.TEXT_PLAIN
     }
 
     private fun drain(body: RequestBody): ByteArray {

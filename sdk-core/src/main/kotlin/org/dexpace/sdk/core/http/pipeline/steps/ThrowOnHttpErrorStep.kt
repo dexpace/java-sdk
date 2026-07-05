@@ -12,7 +12,6 @@ import org.dexpace.sdk.core.http.pipeline.PipelineNext
 import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
-import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.http.response.throwOnError
 import java.io.IOException
 
@@ -41,8 +40,8 @@ import java.io.IOException
  * The heavy lifting is delegated to [Response.throwOnError], which drains up to 1 MiB of the error
  * body into an in-memory copy, releases the transport connection, and throws the mapped exception
  * carrying that bounded body — so the exception stays readable after the step returns while a
- * rogue multi-megabyte error payload cannot exhaust memory. The step only guards the call with
- * [HttpExceptionFactory.isErrorStatus] so a non-error status (which would trip
+ * rogue multi-megabyte error payload cannot exhaust memory. The step only guards the call with the
+ * response's own `status.isError` range check (4xx / 5xx) so a non-error status (which would trip
  * `throwOnError`'s / the factory's success-range check) is passed through untouched.
  *
  * ## Thread-safety
@@ -59,8 +58,8 @@ public class ThrowOnHttpErrorStep : HttpStep {
     ): Response {
         val response = next.process()
         // Success (and any non-error status) is returned verbatim: the body must not be read,
-        // consumed, or closed on this path.
-        if (!HttpExceptionFactory.isErrorStatus(response.status.code)) return response
+        // consumed, or closed on this path. Read the Status directly — no Int round-trip.
+        if (!response.status.isError) return response
         // Error status: throwOnError buffers the bounded error body and throws the mapped
         // exception — it never returns here since the status is non-successful.
         return response.throwOnError()

@@ -9,7 +9,6 @@ package org.dexpace.sdk.transport.jdkhttp
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
-import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
@@ -404,10 +403,9 @@ public class JdkHttpTransport private constructor(
             }
 
         /**
-         * Reads proxy settings from the process-wide [Configuration.getGlobalConfiguration] via
-         * [ProxyOptions.fromConfiguration] — the standard `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`
-         * environment variables and their `https.proxy*` / `http.nonProxyHosts` system-property
-         * equivalents — and applies the resolved proxy to the client being built.
+         * Reads proxy settings from the process-wide environment via [ProxyOptions.fromEnvironment]
+         * and applies the resolved proxy to the client being built. See that method for the exact
+         * environment-variable / system-property resolution.
          *
          * Strictly opt-in: the environment is never consulted unless this is called, and the call
          * is a no-op when nothing there configures a proxy (or when `NO_PROXY=*` bypasses it). This
@@ -415,9 +413,7 @@ public class JdkHttpTransport private constructor(
          */
         public fun proxyFromEnvironment(): Builder =
             apply {
-                ProxyOptions.fromConfiguration(Configuration.getGlobalConfiguration())?.let {
-                    this.proxy = it
-                }
+                ProxyOptions.fromEnvironment()?.let { this.proxy = it }
             }
 
         /**
