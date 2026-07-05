@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.http.pipeline
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.ResponseHandler
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ScheduledExecutorService
@@ -66,6 +67,17 @@ public class AsyncHttpPipeline internal constructor(
         val state = AsyncPipelineCallState(this, request)
         return AsyncPipelineNext(state).processAsync()
     }
+
+    /**
+     * Runs [request] through the pipeline and maps the response with [handler], returning the
+     * typed result. A terminal convenience equivalent to `sendAsync(request).handleWith(handler)`:
+     * on success the handler's value completes the future and the response is closed; on failure
+     * the future is failed with the unwrapped cause. See [handleWith] for the exact semantics.
+     */
+    public fun <T> sendAsync(
+        request: Request,
+        handler: ResponseHandler<T>,
+    ): CompletableFuture<T> = sendAsync(request).handleWith(handler)
 
     /**
      * [AsyncHttpClient] SPI conformance: delegates to [sendAsync] so this pipeline can be used as

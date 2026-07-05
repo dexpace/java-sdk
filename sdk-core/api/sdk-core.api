@@ -742,6 +742,7 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline : org/de
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Ljava/util/concurrent/CompletableFuture;
 	public static final fun standard (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 }
 
@@ -780,6 +781,10 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncPipelineNext {
 	public final fun copy ()Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;
 	public final fun processAsync ()Ljava/util/concurrent/CompletableFuture;
 	public final fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/AsyncResponseHandlers {
+	public static final fun handleWith (Ljava/util/concurrent/CompletableFuture;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline : org/dexpace/sdk/core/client/HttpClient {
