@@ -14,7 +14,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
-import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.serde.DeserializationException
 import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.SerializationException
@@ -267,19 +266,6 @@ class JacksonSerdeTest {
         val json = serde.serializer.serialize(dto)
         assertTrue(json.contains("\"description\""))
         assertTrue(json.contains("\"v\""))
-    }
-
-    // ----- T8-jackson: jsonBody convenience -----
-
-    @Test
-    fun `jsonBody produces application-json body with expected content length and media type`() {
-        val serde = JacksonSerde.withDefaults()
-        val dto = Inner("hello", 42)
-        val body = jsonBody(serde, dto)
-        val expectedBytes = serde.serializer.serializeToByteArray(dto)
-        assertEquals(MediaType.parse("application/json"), body.mediaType())
-        assertEquals(expectedBytes.size.toLong(), body.contentLength())
-        assertTrue(body.isReplayable())
     }
 
     // Java-style builder-pattern class. Jackson's @JsonDeserialize(builder = ...) + @JsonPOJOBuilder

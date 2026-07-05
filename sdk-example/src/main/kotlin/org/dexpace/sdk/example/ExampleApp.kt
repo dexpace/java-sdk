@@ -25,12 +25,12 @@ import org.dexpace.sdk.core.http.pipeline.steps.HttpInstrumentationOptions
 import org.dexpace.sdk.core.http.pipeline.steps.HttpLogLevel
 import org.dexpace.sdk.core.http.pipeline.steps.KeyCredentialAuthStep
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.http.response.parsedWith
 import org.dexpace.sdk.core.http.response.throwOnError
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.serde.jackson.JacksonSerde
-import org.dexpace.sdk.serde.jackson.jsonBody
 import org.dexpace.sdk.serde.jackson.jsonHandler
 import org.dexpace.sdk.transport.okhttp.OkHttpTransport
 import java.net.URL
@@ -181,7 +181,7 @@ public fun createUser(
         .send(
             Request.builder()
                 .url(endpoint)
-                .post(jsonBody(serde, request))
+                .post(RequestBody.create(request, serde))
                 .addHeader(HttpHeaderName.ACCEPT, CommonMediaTypes.APPLICATION_JSON)
                 .build(),
         )

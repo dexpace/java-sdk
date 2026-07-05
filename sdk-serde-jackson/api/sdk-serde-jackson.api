@@ -1,7 +1,3 @@
-public final class org/dexpace/sdk/serde/jackson/ExtensionsKt {
-	public static final fun jsonBody (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
-}
-
 public final class org/dexpace/sdk/serde/jackson/JacksonObjectMappers {
 	public static final field INSTANCE Lorg/dexpace/sdk/serde/jackson/JacksonObjectMappers;
 	public final fun defaultObjectMapper ()Lcom/fasterxml/jackson/databind/ObjectMapper;

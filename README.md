@@ -64,7 +64,7 @@ val pipeline = HttpPipeline.standard(transport)
 ```kotlin
 val serde = JacksonSerde.withDefaults()
 
-val body = jsonBody(serde, CreateUserRequest(name = "Ada", email = "ada@example.org"))
+val body = RequestBody.create(CreateUserRequest(name = "Ada", email = "ada@example.org"), serde)
 pipeline.send(Request.post("https://api.example.com/v1/users", body)).use { response ->
     response.throwOnError()
     val user = response.parsedWith(jsonHandler(serde, User::class.java)).value()
@@ -368,10 +368,7 @@ strategy expects a transport — every page request then runs through the same r
 ### Send a JSON body
 
 ```kotlin
-// Option A — ergonomic factory from sdk-serde-jackson (sets Content-Type automatically)
-val body = jsonBody(serde, myPayload)
-
-// Option B — explicit factory from sdk-core (Content-Type must be set manually)
+// RequestBody.create defaults the Content-Type to the serde's media type (application/json).
 val body = RequestBody.create(myPayload, serde)
 
 val request = Request.builder()
