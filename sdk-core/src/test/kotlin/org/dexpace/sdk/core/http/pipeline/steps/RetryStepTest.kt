@@ -154,6 +154,29 @@ class RetryStepTest {
     }
 
     @Test
+    fun `negative per-call maxRetries falls back to the configured budget, not zero retries`() {
+        // A negative per-call override is clamped to "use default" — mirroring the configured-path
+        // clamp in RetryPolicySupport — so the configured budget of 3 stays in force rather than
+        // collapsing to 0 retries.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val options = RequestOptions.builder().maxRetries(-1).build()
+        val response = pipeline.send(getRequest(), options)
+        assertEquals(200, response.status.code)
+        assertEquals(4, fake.callCount, "negative override must fall back to the configured budget of 3")
+    }
+
+    @Test
     fun `first attempt succeeds returns immediately`() {
         val fake = FakeHttpClient().enqueue { status(200) }
         val pipeline =
