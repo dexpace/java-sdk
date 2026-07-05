@@ -60,6 +60,59 @@ public interface Deserializer {
         inputStream: InputStream,
         type: Class<T>,
     ): T
+
+    /**
+     * Decode a complete document of the parametric type captured by [ref] from the in-memory [input]
+     * string. This is the entry point for generic targets (`List<MyDto>`, `Map<String, MyDto>`) whose
+     * element types a raw [Class] token would erase.
+     *
+     * The default implementation only supports a [ref] whose [TypeRef.type] is a plain [Class] (no
+     * type arguments), delegating to the [Class] overload; for a genuinely parametric [ref] it throws
+     * [SerdeException], because a format-agnostic [Deserializer] cannot resolve type arguments without
+     * codec support. Implementations backed by a codec that resolves generics (e.g. Jackson) override
+     * this to decode parametric targets.
+     *
+     * @throws SerdeException if this deserializer cannot resolve the generic [ref], or (from an
+     *   overriding implementation) [DeserializationException] if [input] is malformed or mismatched.
+     */
+    public fun <T> deserialize(
+        input: String,
+        ref: TypeRef<T>,
+    ): T = deserializeViaRawClass(ref) { rawType -> deserialize(input, rawType) }
+
+    /**
+     * Decode a complete document of the parametric type captured by [ref] by streaming from
+     * [inputStream]. The implementation owns reading to EOF but **does not** close the stream — the
+     * caller retains ownership. See the string overload for the generic-resolution contract.
+     *
+     * @throws SerdeException if this deserializer cannot resolve the generic [ref], or (from an
+     *   overriding implementation) [DeserializationException] if the payload is malformed or
+     *   mismatched.
+     */
+    public fun <T> deserialize(
+        inputStream: InputStream,
+        ref: TypeRef<T>,
+    ): T = deserializeViaRawClass(ref) { rawType -> deserialize(inputStream, rawType) }
+}
+
+/**
+ * Shared default-path helper for the [Deserializer] `TypeRef` overloads: if [ref] wraps a plain
+ * [Class] (no type arguments) invoke [decodeAsClass] with that raw class; otherwise fail, since a
+ * format-agnostic [Deserializer] has no way to resolve generic type arguments.
+ */
+@Suppress("UNCHECKED_CAST")
+private inline fun <T> deserializeViaRawClass(
+    ref: TypeRef<T>,
+    decodeAsClass: (Class<T>) -> T,
+): T {
+    val captured = ref.type
+    if (captured is Class<*>) {
+        return decodeAsClass(captured as Class<T>)
+    }
+    throw SerdeException(
+        "This Deserializer does not resolve generic types (${captured.typeName}); use a serde that " +
+            "overrides the TypeRef overloads to decode parametric targets (e.g. JacksonSerde).",
+    )
 }
 
 /** Decode a complete document from the in-memory [input] string into the reified type [T]. */

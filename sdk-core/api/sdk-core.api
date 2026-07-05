@@ -2760,8 +2760,15 @@ public class org/dexpace/sdk/core/serde/DeserializationException : org/dexpace/s
 
 public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 	public abstract fun deserialize (Ljava/io/InputStream;Ljava/lang/Class;)Ljava/lang/Object;
+	public fun deserialize (Ljava/io/InputStream;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 	public abstract fun deserialize (Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;
+	public fun deserialize (Ljava/lang/String;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 	public abstract fun deserialize ([BLjava/lang/Class;)Ljava/lang/Object;
+}
+
+public final class org/dexpace/sdk/core/serde/Deserializer$DefaultImpls {
+	public static fun deserialize (Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/io/InputStream;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
+	public static fun deserialize (Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/lang/String;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 }
 
 public abstract interface class org/dexpace/sdk/core/serde/Serde {
@@ -2839,6 +2846,12 @@ public final class org/dexpace/sdk/core/serde/Tristate$Present : org/dexpace/sdk
 	public final fun getValue ()Ljava/lang/Object;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class org/dexpace/sdk/core/serde/TypeRef {
+	protected fun <init> ()V
+	public final fun getRawClass ()Ljava/lang/Class;
+	public final fun getType ()Ljava/lang/reflect/Type;
 }
 
 public abstract interface class org/dexpace/sdk/core/util/Clock {

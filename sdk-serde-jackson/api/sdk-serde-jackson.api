@@ -32,6 +32,8 @@ public final class org/dexpace/sdk/serde/jackson/JacksonSerde$Companion {
 public final class org/dexpace/sdk/serde/jackson/JsonResponseHandlerKt {
 	public static final fun jsonHandler (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 	public static final fun jsonHandler (Lorg/dexpace/sdk/serde/jackson/JacksonSerde;Lcom/fasterxml/jackson/core/type/TypeReference;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public static final fun jsonHandlerOrThrow (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public static final fun jsonHandlerOrThrow (Lorg/dexpace/sdk/serde/jackson/JacksonSerde;Lcom/fasterxml/jackson/core/type/TypeReference;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 }
 
 public final class org/dexpace/sdk/serde/jackson/TristateModule : com/fasterxml/jackson/databind/module/SimpleModule {

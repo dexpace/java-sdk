@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerializationException
 import org.dexpace.sdk.core.serde.Serializer
+import org.dexpace.sdk.core.serde.TypeRef
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -225,6 +226,33 @@ internal class JacksonDeserializer internal constructor(
         val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
         return parser.use { p ->
             deserializing { mapper.readValue(p, type) }
+        }
+    }
+
+    /**
+     * Resolves the parametric target via `mapper.constructType(ref.type)`, so a `List<MyDto>` decodes
+     * with its element type intact — no Jackson type needed at the call site.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [ref].
+     */
+    override fun <T> deserialize(
+        input: String,
+        ref: TypeRef<T>,
+    ): T = deserializing { mapper.readValue(input, mapper.constructType(ref.type)) }
+
+    /**
+     * Streaming counterpart to the string [TypeRef] overload. Reads to EOF but does **not** close the
+     * stream — the caller retains ownership.
+     *
+     * @throws DeserializationException if the payload is malformed or does not match [ref].
+     */
+    override fun <T> deserialize(
+        inputStream: InputStream,
+        ref: TypeRef<T>,
+    ): T {
+        val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
+        return parser.use { p ->
+            deserializing { mapper.readValue(p, mapper.constructType(ref.type)) }
         }
     }
 }

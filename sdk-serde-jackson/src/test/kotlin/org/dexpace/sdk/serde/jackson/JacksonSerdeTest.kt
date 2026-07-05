@@ -19,6 +19,7 @@ import org.dexpace.sdk.core.serde.DeserializationException
 import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.SerializationException
 import org.dexpace.sdk.core.serde.Tristate
+import org.dexpace.sdk.core.serde.TypeRef
 import org.dexpace.sdk.core.serde.deserialize
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -146,6 +147,32 @@ class JacksonSerdeTest {
         // Field access on the typed result must not throw ClassCastException (heap pollution guard).
         assertEquals("t", dto.tag)
         assertEquals(99, dto.score)
+    }
+
+    @Test
+    fun `deserializer decodes a parametric TypeRef from a JSON array without a Jackson type at the call site`() {
+        val serde = JacksonSerde.withDefaults()
+        val json = """[{"tag":"a","score":1},{"tag":"b","score":2}]"""
+        // The decode call names only org.dexpace.sdk.core.serde.TypeRef — no com.fasterxml.jackson
+        // type is required to resolve List<Inner>. This is the dep-free parametric-decode contract.
+        val list: List<Inner> = serde.deserializer.deserialize(json, object : TypeRef<List<Inner>>() {})
+        assertEquals(listOf(Inner("a", 1), Inner("b", 2)), list)
+    }
+
+    @Test
+    fun `deserializer decodes a parametric TypeRef from an InputStream`() {
+        val serde = JacksonSerde.withDefaults()
+        val json = """[{"tag":"x","score":9}]"""
+        val list: List<Inner> =
+            serde.deserializer.deserialize(ByteArrayInputStream(json.toByteArray()), object : TypeRef<List<Inner>>() {})
+        assertEquals(listOf(Inner("x", 9)), list)
+    }
+
+    @Test
+    fun `deserializer decodes a non-generic TypeRef via the raw-Class path`() {
+        val serde = JacksonSerde.withDefaults()
+        val dto: Inner = serde.deserializer.deserialize("""{"tag":"solo","score":3}""", object : TypeRef<Inner>() {})
+        assertEquals(Inner("solo", 3), dto)
     }
 
     @Test

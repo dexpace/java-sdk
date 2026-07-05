@@ -16,6 +16,7 @@ import org.dexpace.sdk.core.http.response.ParsedResponse
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.SerdeException
@@ -34,13 +35,16 @@ class JsonResponseHandlerTest {
         Io.installProvider(OkioIoProvider)
     }
 
-    private fun jsonResponse(payload: String): Response {
+    private fun jsonResponse(
+        payload: String,
+        status: Status = Status.OK,
+    ): Response {
         val source = Io.provider.source(payload.toByteArray())
         val body = ResponseBody.create(source, MediaType.parse("application/json"), payload.length.toLong())
         return Response.builder()
             .request(Request.builder().url("https://api.example.test/p").method(Method.GET).build())
             .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
+            .status(status)
             .body(body)
             .build()
     }
@@ -114,6 +118,40 @@ class JsonResponseHandlerTest {
         val handler = jsonHandler(serde, object : TypeReference<List<Dto>>() {})
         val list = handler.handle(jsonResponse("""[{"name":"a","score":1},{"name":"b","score":2}]"""))
         assertEquals(listOf(Dto("a", 1), Dto("b", 2)), list)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow decodes the typed value on a 2xx response`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        val dto = handler.handle(jsonResponse("""{"name":"ok","score":1}"""))
+        assertEquals(Dto("ok", 1), dto)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow throws the mapped HttpException on a 500 instead of decoding`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        val ex =
+            assertFailsWith<HttpException> {
+                handler.handle(jsonResponse("""{"error":"boom"}""", status = Status.INTERNAL_SERVER_ERROR))
+            }
+        // The exception carries the originating status; it was NOT a decode attempt of the error body.
+        assertEquals(500, ex.status.code)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow with a TypeReference decodes parametric types on 2xx and throws on 5xx`() {
+        val serde = JacksonSerde.withDefaults()
+        val ok =
+            jsonHandlerOrThrow(serde, object : TypeReference<List<Dto>>() {})
+                .handle(jsonResponse("""[{"name":"a","score":1}]"""))
+        assertEquals(listOf(Dto("a", 1)), ok)
+
+        assertFailsWith<HttpException> {
+            jsonHandlerOrThrow(serde, object : TypeReference<List<Dto>>() {})
+                .handle(jsonResponse("""{"error":"nope"}""", status = Status.SERVICE_UNAVAILABLE))
+        }
     }
 
     @Test

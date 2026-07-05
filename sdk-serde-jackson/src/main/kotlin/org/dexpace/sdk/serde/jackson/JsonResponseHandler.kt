@@ -10,6 +10,7 @@ package org.dexpace.sdk.serde.jackson
 import com.fasterxml.jackson.core.type.TypeReference
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseHandler
+import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerdeException
 
@@ -61,6 +62,69 @@ public fun <T> jsonHandler(
     ResponseHandler { response ->
         decode(response, type.type.typeName) { stream -> serde.deserializeAs(stream, type) }
     }
+
+/**
+ * Status-aware variant of [jsonHandler]: on a 2xx response it decodes the body into [type]; on any
+ * non-2xx response it throws instead of attempting to deserialize an error payload as [type].
+ *
+ * A 4xx / 5xx response is mapped through [HttpExceptionFactory] to the matching
+ * [org.dexpace.sdk.core.http.response.exception.HttpException] subclass, which carries the
+ * still-unconsumed error [org.dexpace.sdk.core.http.response.ResponseBody] — the caught exception
+ * owns closing it (e.g. via `bodySnapshot()` or typed error-body deserialization). Any other
+ * non-success status (1xx / 3xx reaching a terminal handler) closes the response and fails with a
+ * [SerdeException]. On the success path the body is consumed and the response closed exactly as the
+ * plain [jsonHandler].
+ *
+ * @param serde The serde whose deserializer decodes the body.
+ * @param type The non-parametric success target type.
+ * @return A [ResponseHandler] that yields a value of [type] on 2xx, and throws on non-2xx.
+ */
+public fun <T> jsonHandlerOrThrow(
+    serde: Serde,
+    type: Class<T>,
+): ResponseHandler<T> =
+    ResponseHandler { response ->
+        throwIfNotSuccess(response)
+        decode(response, type.typeName) { stream -> serde.deserializer.deserialize(stream, type) }
+    }
+
+/**
+ * Status-aware variant of the parametric [jsonHandler]: decodes the body into the type captured by
+ * [type] on 2xx, and throws on any non-2xx response. See the [Class] overload of [jsonHandlerOrThrow]
+ * for the non-success mapping contract.
+ *
+ * @param serde The Jackson serde whose mapper decodes the body.
+ * @param type The parametric success target type.
+ * @return A [ResponseHandler] that yields a value of the captured type on 2xx, and throws on non-2xx.
+ */
+public fun <T> jsonHandlerOrThrow(
+    serde: JacksonSerde,
+    type: TypeReference<T>,
+): ResponseHandler<T> =
+    ResponseHandler { response ->
+        throwIfNotSuccess(response)
+        decode(response, type.type.typeName) { stream -> serde.deserializeAs(stream, type) }
+    }
+
+/**
+ * Throws when [response] is not a 2xx: a 4xx / 5xx is mapped to its [HttpExceptionFactory] exception
+ * (which retains the live error body for the caller to inspect and close); any other non-success
+ * status closes the response and raises a [SerdeException]. Returns normally on a 2xx so the caller
+ * proceeds to decode.
+ */
+private fun throwIfNotSuccess(response: Response) {
+    val status = response.status
+    if (status.isSuccess) return
+    if (HttpExceptionFactory.isErrorStatus(status.code)) {
+        // Hand the still-unconsumed error body to the mapped HttpException; the caught exception owns
+        // reading and closing it. Do NOT close here or bodySnapshot()/typed error decode would fail.
+        throw HttpExceptionFactory.fromResponse(response)
+    }
+    response.close()
+    throw SerdeException(
+        "Unexpected non-success HTTP status ${status.code}; expected a 2xx response to deserialize.",
+    )
+}
 
 /**
  * Shared body-streaming + error-translation core for the [jsonHandler] overloads. Reads the
