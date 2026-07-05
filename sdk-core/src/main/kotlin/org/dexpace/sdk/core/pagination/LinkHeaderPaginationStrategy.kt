@@ -13,6 +13,21 @@ import java.net.MalformedURLException
 import java.net.URL
 
 /**
+ * Items extractor for [LinkHeaderPaginationStrategy]: reads the list of items from a page
+ * [Response] (the next-page URL comes from the `Link` header, not this extractor).
+ *
+ * A dedicated functional interface (rather than a raw `(Response) -> List<T>` function type) gives
+ * Java callers a clean SAM to implement instead of `kotlin.jvm.functions.Function1`. Kotlin callers
+ * pass a lambda unchanged via SAM conversion.
+ *
+ * @param T Element type read from the response body.
+ */
+public fun interface LinkExtractor<T> {
+    /** Reads the list of items from [response]. Must drain the response body synchronously. */
+    public fun extract(response: Response): List<T>
+}
+
+/**
  * RFC 5988 `Link` header [PaginationStrategy]. The server emits a `Link` header on each
  * page response with a `rel="next"` segment carrying the next page's full URL; the
  * strategy follows that URL while preserving the initial request's method, headers, and
@@ -46,14 +61,14 @@ import java.net.URL
 public class LinkHeaderPaginationStrategy<T>
     @JvmOverloads
     constructor(
-        private val itemsExtractor: (Response) -> List<T>,
+        private val itemsExtractor: LinkExtractor<T>,
         private val linkHeader: String = "Link",
     ) : PaginationStrategy<T> {
         override fun parse(
             response: Response,
             initialRequest: Request,
         ): PageInfo<T> {
-            val items: List<T> = itemsExtractor(response)
+            val items: List<T> = itemsExtractor.extract(response)
             // Some servers emit multiple `Link` headers (one per link-value) instead of a single
             // comma-separated header. Joining the values with ',' normalizes both wire shapes into
             // one string so a single parser handles either. An empty header list joins to "", which

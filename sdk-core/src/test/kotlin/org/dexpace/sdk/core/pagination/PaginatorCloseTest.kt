@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
 import java.io.IOException
 import java.io.UncheckedIOException
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,15 +31,16 @@ class PaginatorCloseTest {
             .method(Method.GET)
             .build()
 
-    private val extractor: (Response) -> CursorResult<String> = { resp ->
-        val body = resp.body!!.source().use { it.readUtf8() }
-        val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
-        val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
-        val itemsRaw = itemsLine.removePrefix("items=")
-        val cursorRaw = cursorLine.removePrefix("cursor=")
-        val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
-        CursorResult(items, cursorRaw.ifEmpty { null })
-    }
+    private val extractor =
+        CursorExtractor<String> { resp ->
+            val body = resp.body!!.source().use { it.readUtf8() }
+            val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
+            val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
+            val itemsRaw = itemsLine.removePrefix("items=")
+            val cursorRaw = cursorLine.removePrefix("cursor=")
+            val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
+            CursorResult(items, cursorRaw.ifEmpty { null })
+        }
 
     /** Two-page cursor stub whose page responses record their close count into [closes]. */
     private fun twoPageClient(closes: AtomicInteger): StubHttpClient =

@@ -2397,10 +2397,14 @@ public final class org/dexpace/sdk/core/pagination/CloseablePages : java/lang/Au
 	public final fun stream ()Ljava/util/stream/Stream;
 }
 
+public abstract interface class org/dexpace/sdk/core/pagination/CursorExtractor {
+	public abstract fun extract (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/pagination/CursorResult;
+}
+
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/CursorExtractor;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/CursorExtractor;Ljava/lang/String;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/CursorExtractor;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
@@ -2421,10 +2425,14 @@ public abstract interface class org/dexpace/sdk/core/pagination/FirstPageFetcher
 	public abstract fun fetch (Lorg/dexpace/sdk/core/pagination/PagingOptions;)Lorg/dexpace/sdk/core/pagination/Page;
 }
 
+public abstract interface class org/dexpace/sdk/core/pagination/LinkExtractor {
+	public abstract fun extract (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/util/List;
+}
+
 public final class org/dexpace/sdk/core/pagination/LinkHeaderPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/LinkExtractor;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/LinkExtractor;Ljava/lang/String;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/LinkExtractor;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
@@ -2459,11 +2467,15 @@ public final class org/dexpace/sdk/core/pagination/PageInfo {
 	public final fun getNextRequest ()Lorg/dexpace/sdk/core/http/request/Request;
 }
 
+public abstract interface class org/dexpace/sdk/core/pagination/PageNumberExtractor {
+	public abstract fun extract (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/util/List;
+}
+
 public final class org/dexpace/sdk/core/pagination/PageNumberPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;I)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/PageNumberExtractor;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/PageNumberExtractor;Ljava/lang/String;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/PageNumberExtractor;Ljava/lang/String;I)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/PageNumberExtractor;Ljava/lang/String;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
