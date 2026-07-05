@@ -352,32 +352,26 @@ public final class org/dexpace/sdk/core/http/common/CommonMediaTypes {
 }
 
 public final class org/dexpace/sdk/core/http/common/ETag {
+	public static final field ANY Lorg/dexpace/sdk/core/http/common/ETag;
 	public static final field Companion Lorg/dexpace/sdk/core/http/common/ETag$Companion;
-	public static final synthetic fun box-impl (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
-	public static final fun getANY-Ibeg9ak ()Ljava/lang/String;
-	public static final fun getOpaque-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final fun getOpaque ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
-	public static final fun isAny-impl (Ljava/lang/String;)Z
-	public static final fun isStrong-impl (Ljava/lang/String;)Z
-	public static final fun isWeak-impl (Ljava/lang/String;)Z
-	public static final fun parse-h2-RfS0 (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun strong-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun toHeaderValue-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final fun isAny ()Z
+	public final fun isStrong ()Z
+	public final fun isWeak ()Z
+	public static final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public static final fun strong (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public final fun toHeaderValue ()Ljava/lang/String;
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
-	public static final fun weak-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun weak (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
 }
 
 public final class org/dexpace/sdk/core/http/common/ETag$Companion {
-	public final fun getANY-Ibeg9ak ()Ljava/lang/String;
-	public final fun parse-h2-RfS0 (Ljava/lang/String;)Ljava/lang/String;
-	public final fun strong-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
-	public final fun weak-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
+	public final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public final fun strong (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public final fun weak (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
 }
 
 public final class org/dexpace/sdk/core/http/common/Headers {
@@ -513,27 +507,22 @@ public final class org/dexpace/sdk/core/http/common/HttpHeaderName$Companion {
 
 public final class org/dexpace/sdk/core/http/common/HttpRange {
 	public static final field Companion Lorg/dexpace/sdk/core/http/common/HttpRange$Companion;
-	public static final synthetic fun box-impl (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/HttpRange;
-	public static final fun bytes-Oepi37k (JJ)Ljava/lang/String;
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun bytes (JJ)Lorg/dexpace/sdk/core/http/common/HttpRange;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
-	public static final fun from-1jReFK8 (J)Ljava/lang/String;
+	public static final fun from (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
-	public static final fun parse-1jReFK8 (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun suffix-1jReFK8 (J)Ljava/lang/String;
-	public static final fun toHeaderValue-impl (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public static final fun suffix (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun toHeaderValue ()Ljava/lang/String;
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/common/HttpRange$Companion {
-	public final fun bytes-Oepi37k (JJ)Ljava/lang/String;
-	public final fun from-1jReFK8 (J)Ljava/lang/String;
-	public final fun parse-1jReFK8 (Ljava/lang/String;)Ljava/lang/String;
-	public final fun suffix-1jReFK8 (J)Ljava/lang/String;
+	public final fun bytes (JJ)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun from (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun suffix (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
 }
 
 public final class org/dexpace/sdk/core/http/common/MediaType {
@@ -641,9 +630,11 @@ public final class org/dexpace/sdk/core/http/common/RequestConditions$Builder {
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/http/common/RequestConditions;)V
 	public final fun build ()Lorg/dexpace/sdk/core/http/common/RequestConditions;
-	public final fun ifMatch-a6HYibk (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifMatch (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifMatch (Lorg/dexpace/sdk/core/http/common/ETag;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
 	public final fun ifModifiedSince (Ljava/time/Instant;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
-	public final fun ifNoneMatch-a6HYibk (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifNoneMatch (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifNoneMatch (Lorg/dexpace/sdk/core/http/common/ETag;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
 	public final fun ifUnmodifiedSince (Ljava/time/Instant;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
 }
 

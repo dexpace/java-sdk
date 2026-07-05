@@ -17,13 +17,21 @@ package org.dexpace.sdk.core.http.common
  *
  * Round-trips with [toHeaderValue] / [parse]: parsing preserves the original textual
  * form, so unusual but valid whitespace and casing survive a parse/format cycle.
+ *
+ * A plain immutable final class (not a `value class`): the factories are header helpers
+ * where the boxing an inline class would avoid is irrelevant, and keeping it a plain class
+ * gives every factory a clean, unmangled JVM name so the range surface is reachable from Java.
  */
-@JvmInline
-public value class HttpRange private constructor(private val raw: String) {
+public class HttpRange private constructor(private val raw: String) {
     /** Header value (e.g. `"bytes=0-1023"`). */
     public fun toHeaderValue(): String = raw
 
     override fun toString(): String = raw
+
+    /** Value equality over the raw header form. */
+    override fun equals(other: Any?): Boolean = this === other || (other is HttpRange && other.raw == raw)
+
+    override fun hashCode(): Int = raw.hashCode()
 
     public companion object {
         /**

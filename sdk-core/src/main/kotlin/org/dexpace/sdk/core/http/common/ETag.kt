@@ -17,13 +17,22 @@ package org.dexpace.sdk.core.http.common
  *
  * The opaque value is exposed unquoted via [opaque]; the raw header form is exposed via
  * [toHeaderValue]. Round-trips with [parse] preserve the textual form exactly.
+ *
+ * A plain immutable final class (not a `value class`): the factories and accessors are
+ * header helpers where the boxing an inline class would avoid is irrelevant, and keeping
+ * it a plain class gives every factory and accessor a clean, unmangled JVM name so the
+ * whole conditional-request surface is reachable from Java.
  */
-@JvmInline
-public value class ETag private constructor(private val raw: String) {
+public class ETag private constructor(private val raw: String) {
     /** Returns the raw header form, e.g. `"\"foo\""`, `W/"foo"`, or `*`. */
     public fun toHeaderValue(): String = raw
 
     override fun toString(): String = raw
+
+    /** Value equality over the raw header form. */
+    override fun equals(other: Any?): Boolean = this === other || (other is ETag && other.raw == raw)
+
+    override fun hashCode(): Int = raw.hashCode()
 
     /** `true` when this is a weak validator (`W/"opaque"`). */
     public val isWeak: Boolean get() = raw.startsWith("W/")
@@ -42,12 +51,10 @@ public value class ETag private constructor(private val raw: String) {
         /**
          * Matches any entity: `If-Match: *` / `If-None-Match: *`.
          *
-         * Exposed via `@JvmStatic` getter (rather than `@JvmField`) because the JVM
-         * forbids storing inline-class instances as static fields — they'd auto-box at
-         * the storage site and defeat the value-class optimisation. Java callers see
-         * `ETag.getANY()`; Kotlin callers see `ETag.ANY`.
+         * Exposed as a `@JvmField` static field, so Java callers see `ETag.ANY` (a field)
+         * and Kotlin callers see `ETag.ANY`.
          */
-        @JvmStatic
+        @JvmField
         public val ANY: ETag = ETag("*")
 
         /**

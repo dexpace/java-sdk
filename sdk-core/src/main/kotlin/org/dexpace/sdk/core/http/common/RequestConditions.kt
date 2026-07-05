@@ -79,8 +79,26 @@ public class RequestConditions private constructor(
         /** Adds an `If-Match` validator. Multiple calls accumulate (comma-separated on the wire). */
         public fun ifMatch(tag: ETag): Builder = apply { ifMatch.add(tag) }
 
+        /**
+         * Adds an `If-Match` validator from its raw RFC 7232 header form (`"opaque"`,
+         * `W/"opaque"`, or `*`) — a String escape hatch equivalent to
+         * `ifMatch(ETag.parse(value)!!)`. Multiple calls accumulate.
+         *
+         * @throws IllegalArgumentException if [value] is blank or not a recognised ETag form.
+         */
+        public fun ifMatch(value: String): Builder = apply { ifMatch.add(parseTag(value)) }
+
         /** Adds an `If-None-Match` validator. Multiple calls accumulate (comma-separated on the wire). */
         public fun ifNoneMatch(tag: ETag): Builder = apply { ifNoneMatch.add(tag) }
+
+        /**
+         * Adds an `If-None-Match` validator from its raw RFC 7232 header form (`"opaque"`,
+         * `W/"opaque"`, or `*`) — a String escape hatch equivalent to
+         * `ifNoneMatch(ETag.parse(value)!!)`. Multiple calls accumulate.
+         *
+         * @throws IllegalArgumentException if [value] is blank or not a recognised ETag form.
+         */
+        public fun ifNoneMatch(value: String): Builder = apply { ifNoneMatch.add(parseTag(value)) }
 
         /** Sets the `If-Modified-Since` instant; subsequent calls replace prior values. */
         public fun ifModifiedSince(instant: Instant): Builder = apply { this.ifModifiedSince = instant }
@@ -95,6 +113,13 @@ public class RequestConditions private constructor(
                 ifModifiedSince = ifModifiedSince,
                 ifUnmodifiedSince = ifUnmodifiedSince,
             )
+
+        /**
+         * Parses a raw ETag header form, rejecting blank input. [ETag.parse] returns `null`
+         * for blank/missing values, which is not a usable validator here, so a blank value
+         * is an [IllegalArgumentException] rather than a silent no-op.
+         */
+        private fun parseTag(value: String): ETag = requireNotNull(ETag.parse(value)) { "ETag value must not be blank" }
     }
 
     public companion object {
