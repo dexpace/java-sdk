@@ -22,10 +22,12 @@ Current version `0.0.1-alpha.1`. The public API is stabilising and breaking chan
 ## Contents
 
 [Quick start](#quick-start) ·
+[Installation](#installation) ·
 [Design principles](#design-principles) ·
 [Modules](#modules) ·
 [Documentation](#documentation) ·
 [Usage](#usage) ·
+[How do I…](#how-do-i) ·
 [Pipeline stages](#pipeline-stages) ·
 [Package map](#package-map-sdk-core) ·
 [Shrinking with R8 / ProGuard](#shrinking-with-r8--proguard) ·
@@ -35,33 +37,97 @@ Current version `0.0.1-alpha.1`. The public API is stabilising and breaking chan
 
 ## Quick start
 
+**Minimal path — one factory, one send.**
+
+When `sdk-io-okio3` is on the classpath it registers itself automatically via `ServiceLoader`;
+no explicit `Io.installProvider(...)` call is needed unless you have multiple providers or need
+to override the default.
+
 ```kotlin
-Io.installProvider(OkioIoProvider)   // once, at application startup
+val transport = OkHttpTransport.builder().build()
+val pipeline = HttpPipeline.of(transport)
 
-val transport = OkHttpTransport.builder()
-    .connectTimeout(Duration.ofSeconds(5))
-    .readTimeout(Duration.ofSeconds(30))
-    .build()
+pipeline.send(Request.get("https://api.example.com/v1/resource")).use { response ->
+    response.throwOnError()          // throws HttpException on 4xx / 5xx
+    println(response.body?.string())
+}
+```
 
-val pipeline = HttpPipelineBuilder(transport)
-    .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3)))
-    .append(KeyCredentialAuthStep(KeyCredential("my-api-key")))
-    .build()
+**With standard resilience** (redirect following, retry with backoff, instrumentation):
 
-val request = Request.builder()
-    .method(Method.GET)
-    .url("https://api.example.com/v1/resource")
-    .build()
+```kotlin
+val pipeline = HttpPipeline.standard(transport)
+```
 
-pipeline.send(request).use { response ->
-    if (response.status.isSuccess) {
-        val bytes = response.body?.source()?.readByteArray()
-        // process
-    }
+**Typed round-trip** with `sdk-serde-jackson`:
+
+```kotlin
+val serde = JacksonSerde.withDefaults()
+
+val body = jsonBody(serde, CreateUserRequest(name = "Ada", email = "ada@example.org"))
+pipeline.send(Request.post("https://api.example.com/v1/users", body)).use { response ->
+    response.throwOnError()
+    val user = response.parsedWith(jsonHandler(serde, User::class.java)).value()
+    println(user)
 }
 ```
 
 For a complete, runnable version of this wiring — an `IoProvider`, a transport, a serde, and a full pipeline driven against an embedded server — see the `sdk-example` module and run `./gradlew :sdk-example:run`. The rest of this document covers the moving parts: transports, the async pipeline, runtime adapters, and body logging.
+
+## Installation
+
+Published to Maven Central under group `org.dexpace`, version `0.0.1-alpha.1`.
+
+**Gradle (Kotlin DSL):**
+
+```kotlin
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Core contracts — always required
+    implementation("org.dexpace:sdk-core:0.0.1-alpha.1")
+
+    // I/O adapter (auto-registers via ServiceLoader; exactly one is needed)
+    implementation("org.dexpace:sdk-io-okio3:0.0.1-alpha.1")
+
+    // Transport — pick one (or bring your own HttpClient)
+    implementation("org.dexpace:sdk-transport-okhttp:0.0.1-alpha.1")
+    // implementation("org.dexpace:sdk-transport-jdkhttp:0.0.1-alpha.1")   // JDK 11+
+
+    // Serialization (optional — skip if you manage raw bytes yourself)
+    implementation("org.dexpace:sdk-serde-jackson:0.0.1-alpha.1")
+}
+```
+
+**Maven:**
+
+```xml
+<dependency>
+  <groupId>org.dexpace</groupId>
+  <artifactId>sdk-core</artifactId>
+  <version>0.0.1-alpha.1</version>
+</dependency>
+<dependency>
+  <groupId>org.dexpace</groupId>
+  <artifactId>sdk-io-okio3</artifactId>
+  <version>0.0.1-alpha.1</version>
+</dependency>
+<dependency>
+  <groupId>org.dexpace</groupId>
+  <artifactId>sdk-transport-okhttp</artifactId>
+  <version>0.0.1-alpha.1</version>
+</dependency>
+<dependency>
+  <groupId>org.dexpace</groupId>
+  <artifactId>sdk-serde-jackson</artifactId>
+  <version>0.0.1-alpha.1</version>
+</dependency>
+```
+
+Async runtime adapters (`sdk-async-coroutines`, `sdk-async-reactor`, `sdk-async-netty`,
+`sdk-async-virtualthreads`) are optional; add only the ones your project uses.
 
 ## Design principles
 
@@ -73,17 +139,17 @@ For a complete, runnable version of this wiring — an `IoProvider`, a transport
 
 ## Modules
 
-| Module | Purpose | JVM target |
-|---|---|---|
-| `sdk-core` | Contracts, pipeline runtime, sync + async pipelines, built-in steps. Zero runtime deps beyond SLF4J API and Kotlin stdlib. | Java 8 |
-| `sdk-io-okio3` | Okio 3.x implementation of `IoProvider`. | Java 8 |
-| `sdk-async-coroutines` | Kotlin coroutines adapter: `suspend` extensions, `CoroutineScope.completableFutureOf`, MDC propagation. | Java 8 |
-| `sdk-async-reactor` | Reactor `Mono` / `Flux` adapter, including SSE → `Flux` with backpressure. | Java 8 |
-| `sdk-async-netty` | Netty `io.netty.util.concurrent.Future` adapter with bidirectional cancellation. | Java 8 |
-| `sdk-async-virtualthreads` | JDK 21+ virtual-thread executor adapter (`AutoCloseable`). | Java 21 |
-| `sdk-transport-okhttp` | OkHttp 5.x implementation of `HttpClient` + `AsyncHttpClient`. | Java 8 |
-| `sdk-transport-jdkhttp` | `java.net.http.HttpClient` (JEP 321) implementation of `HttpClient` + `AsyncHttpClient`. | Java 11 |
-| `sdk-serde-jackson` | Jackson 2.18 implementation of `Serde` with SDK-correct defaults (`FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`) + `Tristate<T>` ser/de. | Java 8 |
+| Module | Maven coordinate | Purpose | JVM target |
+|---|---|---|---|
+| `sdk-core` | `org.dexpace:sdk-core` | Contracts, pipeline runtime, sync + async pipelines, built-in steps. Zero runtime deps beyond SLF4J API and Kotlin stdlib. | Java 8 |
+| `sdk-io-okio3` | `org.dexpace:sdk-io-okio3` | Okio 3.x implementation of `IoProvider`. Auto-registers via `ServiceLoader`. | Java 8 |
+| `sdk-async-coroutines` | `org.dexpace:sdk-async-coroutines` | Kotlin coroutines adapter: `suspend` extensions, `CoroutineScope.completableFutureOf`, MDC propagation. | Java 8 |
+| `sdk-async-reactor` | `org.dexpace:sdk-async-reactor` | Reactor `Mono` / `Flux` adapter, including SSE → `Flux` with backpressure. | Java 8 |
+| `sdk-async-netty` | `org.dexpace:sdk-async-netty` | Netty `io.netty.util.concurrent.Future` adapter with bidirectional cancellation. | Java 8 |
+| `sdk-async-virtualthreads` | `org.dexpace:sdk-async-virtualthreads` | JDK 21+ virtual-thread executor adapter (`AutoCloseable`). | Java 21 |
+| `sdk-transport-okhttp` | `org.dexpace:sdk-transport-okhttp` | OkHttp 5.x implementation of `HttpClient` + `AsyncHttpClient`. | Java 8 |
+| `sdk-transport-jdkhttp` | `org.dexpace:sdk-transport-jdkhttp` | `java.net.http.HttpClient` (JEP 321) implementation of `HttpClient` + `AsyncHttpClient`. | Java 11 |
+| `sdk-serde-jackson` | `org.dexpace:sdk-serde-jackson` | Jackson 2.18 implementation of `Serde` with SDK-correct defaults (`FAIL_ON_UNKNOWN_PROPERTIES=false`, `WRITE_DATES_AS_TIMESTAMPS=false`) + `Tristate<T>` ser/de. | Java 8 |
 
 Each adapter module depends on `sdk-core` and exactly one third-party library. JDK 8 or newer is the baseline, with the two exceptions in the table: `sdk-transport-jdkhttp` needs JDK 11 and `sdk-async-virtualthreads` needs JDK 21. Local builds use Gradle 9.3.1 and Kotlin 2.3.21.
 
@@ -152,15 +218,13 @@ val pipeline = HttpPipelineBuilder(transport)
     .build()
 
 val request = Request.builder()
-    .method(Method.POST)
     .url("https://api.example.com/v1/resource")
-    .addHeader("Content-Type", "application/json")
-    .body(RequestBody.create("""{"key": "value"}""", MediaType.parse("application/json")))
+    .post(RequestBody.create("""{"key": "value"}""", CommonMediaTypes.APPLICATION_JSON))
     .build()
 
 pipeline.send(request).use { response ->
-    if (response.status.isSuccess) {
-        val bytes = response.body?.source()?.readByteArray()
+    if (response.isSuccessful) {
+        val bytes = response.body?.bytes()
         // process
     }
 }
@@ -242,6 +306,79 @@ logger.debug("request body: {}", loggedRequest.snapshot().take(8 * 1024))
 val loggedResponse = LoggableResponseBody(response.body!!)
 val preview = loggedResponse.snapshot(maxBytes = 8 * 1024)
 val full = loggedResponse.source().readByteArray()   // still available
+```
+
+## How do I…
+
+Copy-paste snippets for the most common tasks. All snippets assume a built `pipeline` and,
+where serde is needed, a `JacksonSerde.withDefaults()` instance.
+
+### Stamp a static bearer token on every request
+
+```kotlin
+val pipeline = HttpPipelineBuilder(transport)
+    .append(KeyCredentialAuthStep(KeyCredential(apiKey = "my-token", prefix = "Bearer")))
+    .build()
+```
+
+### Throw typed exceptions on 4xx / 5xx
+
+Add `throwOnHttpError()` to the pipeline builder — it maps non-2xx responses to typed
+`HttpException` subclasses (`BadRequestException`, `TooManyRequestsException`, etc.):
+
+```kotlin
+val pipeline = HttpPipelineBuilder(transport)
+    .appendStandardResilience()   // redirect + retry + instrumentation
+    .throwOnHttpError()           // map 4xx/5xx to HttpException after retry exhaustion
+    .build()
+```
+
+Or call `response.throwOnError()` at the call site instead (see the quick start).
+
+### Override the timeout for a single request
+
+```kotlin
+val opts = RequestOptions.builder()
+    .timeout(Duration.ofSeconds(60))
+    .maxRetries(0)   // disable retry for this call
+    .build()
+
+pipeline.send(Request.get("https://api.example.com/slow"), opts).use { response ->
+    // ...
+}
+```
+
+### Page through a cursor-based resource
+
+```kotlin
+val paginator = Paginator(
+    firstPageFetcher = { pipeline.send(Request.get("https://api.example.com/items")) },
+    nextPageFetcher = { cursor ->
+        pipeline.send(Request.get("https://api.example.com/items?page_token=$cursor"))
+    },
+    strategy = CursorPaginationStrategy(items = { parseItems(it) }, cursorExtractor = { nextToken(it) }),
+)
+
+paginator.iterateAll().forEach { item -> println(item) }
+```
+
+The `HttpPipeline` implements `HttpClient`, so pass the pipeline directly wherever a paging
+strategy expects a transport — every page request then runs through the same resilience stack.
+
+### Send a JSON body
+
+```kotlin
+// Option A — ergonomic factory from sdk-serde-jackson (sets Content-Type automatically)
+val body = jsonBody(serde, myPayload)
+
+// Option B — explicit factory from sdk-core (Content-Type must be set manually)
+val body = RequestBody.create(myPayload, serde)
+
+val request = Request.builder()
+    .url("https://api.example.com/v1/resource")
+    .post(body)
+    .addHeader(HttpHeaderName.ACCEPT, CommonMediaTypes.APPLICATION_JSON)
+    .build()
 ```
 
 ## Pipeline stages

@@ -24,13 +24,14 @@ import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
 import org.dexpace.sdk.core.http.pipeline.steps.HttpInstrumentationOptions
 import org.dexpace.sdk.core.http.pipeline.steps.HttpLogLevel
 import org.dexpace.sdk.core.http.pipeline.steps.KeyCredentialAuthStep
-import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.http.response.parsedWith
+import org.dexpace.sdk.core.http.response.throwOnError
 import org.dexpace.sdk.core.io.Io
-import org.dexpace.sdk.core.serde.deserialize
 import org.dexpace.sdk.io.OkioIoProvider
 import org.dexpace.sdk.serde.jackson.JacksonSerde
+import org.dexpace.sdk.serde.jackson.jsonBody
+import org.dexpace.sdk.serde.jackson.jsonHandler
 import org.dexpace.sdk.transport.okhttp.OkHttpTransport
 import java.net.URL
 
@@ -175,23 +176,19 @@ public fun createUser(
     serde: JacksonSerde,
     endpoint: URL,
     request: CreateUserRequest,
-): User {
-    val json = serde.serializer.serialize(request)
-    val httpRequest =
-        Request.builder()
-            .method(Method.POST)
-            .url(endpoint)
-            .addHeader(HttpHeaderName.ACCEPT.toString(), CommonMediaTypes.APPLICATION_JSON.toString())
-            .body(RequestBody.create(json, CommonMediaTypes.APPLICATION_JSON))
-            .build()
-
-    pipeline.send(httpRequest).use { response ->
-        val status = response.status
-        val payload = response.body?.source()?.readUtf8().orEmpty()
-        check(status.isSuccess) { "Unexpected status $status — body: $payload" }
-        return serde.deserializer.deserialize<User>(payload)
-    }
-}
+): User =
+    pipeline
+        .send(
+            Request.builder()
+                .url(endpoint)
+                .post(jsonBody(serde, request))
+                .addHeader(HttpHeaderName.ACCEPT, CommonMediaTypes.APPLICATION_JSON)
+                .build(),
+        )
+        .use { response ->
+            response.throwOnError()
+            response.parsedWith(jsonHandler(serde, User::class.java)).value()
+        }
 
 /**
  * Runs the full sample against an embedded HTTPS [MockWebServer] and prints the typed round-trip.
