@@ -28,6 +28,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -347,15 +348,36 @@ class AsyncHttpPipelineTest {
     }
 
     @Test
-    fun `installing two pillars at the same stage emits a replacement warning and keeps the latest`() {
-        val firstAuth = TestPillarStep(Stage.AUTH)
-        val secondAuth = TestPillarStep(Stage.AUTH)
+    fun `appending a distinct second pillar step throws IllegalStateException`() {
+        val builder =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(TestPillarStep(Stage.AUTH))
+
+        val ex = assertFailsWith<IllegalStateException> { builder.append(TestPillarStep(Stage.AUTH)) }
+        assertTrue(ex.message!!.contains("AUTH"), "message names the pillar stage: ${ex.message}")
+        assertTrue(ex.message!!.contains("replace"), "message points at replace<T>(): ${ex.message}")
+    }
+
+    @Test
+    fun `same pillar instance re-appended is idempotent`() {
+        val auth = TestPillarStep(Stage.AUTH)
         val pipeline =
             AsyncHttpPipelineBuilder(constantClient(200))
-                .append(firstAuth)
-                .append(secondAuth)
+                .append(auth)
+                .append(auth)
                 .build()
-        assertSame(secondAuth, pipeline.steps.single())
+        assertSame(auth, pipeline.steps.single())
+    }
+
+    @Test
+    fun `replace swaps a pillar step in place`() {
+        val replacement = TestPillarStep(Stage.AUTH)
+        val pipeline =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(TestPillarStep(Stage.AUTH))
+                .replace<TestPillarStep>(replacement)
+                .build()
+        assertSame(replacement, pipeline.steps.single())
     }
 
     @Test

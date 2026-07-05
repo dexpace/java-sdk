@@ -11,28 +11,17 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.pipeline.steps.AsyncThrowOnHttpErrorStep
 import org.dexpace.sdk.core.http.pipeline.steps.DefaultAsyncInstrumentationStep
 import org.dexpace.sdk.core.http.pipeline.steps.DefaultAsyncRetryStep
-import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.ScheduledExecutorService
 
 /**
  * Async counterpart of [HttpPipelineBuilder]. Mirrors the same API verbatim but typed over
  * [AsyncHttpStep] / [AsyncHttpClient]. The step-storage and surgical-edit policy lives in the
- * shared [StagedSteps] helper.
+ * shared [StagedSteps] helper — including exclusive pillar occupancy: appending or prepending a
+ * distinct second step to an already-occupied pillar throws [IllegalStateException]; use [replace]
+ * to swap it.
  */
 public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
-    private val steps: StagedSteps<AsyncHttpStep> =
-        StagedSteps(
-            stageOf = AsyncHttpStep::stage,
-            onPillarReplaced = { stage, prev, next ->
-                LOG.atWarning()
-                    .event("pipeline.pillar.replaced")
-                    .field("pipeline.kind", "async")
-                    .field("stage", stage.name)
-                    .field("previous", prev::class.simpleName ?: "<anonymous>")
-                    .field("replacement", next::class.simpleName ?: "<anonymous>")
-                    .log()
-            },
-        )
+    private val steps: StagedSteps<AsyncHttpStep> = StagedSteps(stageOf = AsyncHttpStep::stage)
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
     public fun append(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.append(step) }
@@ -132,8 +121,6 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     }
 
     public companion object {
-        private val LOG = ClientLogger(AsyncHttpPipelineBuilder::class)
-
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
         public fun from(pipeline: AsyncHttpPipeline): AsyncHttpPipelineBuilder =

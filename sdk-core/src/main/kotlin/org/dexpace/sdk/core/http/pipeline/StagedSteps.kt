@@ -21,6 +21,13 @@ package org.dexpace.sdk.core.http.pipeline
  * type-erased view onto each step's stage; we don't require a base interface because the two
  * step types are siblings with no shared supertype beyond `Any`.
  *
+ * ## Pillar occupancy is exclusive
+ * A pillar stage admits exactly one step. Trying to install a *distinct* second step on an
+ * already-occupied pillar (via [append], [prepend], or [reload]) fails fast with
+ * [IllegalStateException] rather than silently overwriting the first — a distinct second pillar
+ * is a configuration mistake, and the caller should swap the existing step through the builder's
+ * `replace<T>()` path instead. Re-installing the *same* instance is idempotent.
+ *
  * This type is plain `internal` (not `@PublishedApi`): the builders' surgical-edit helpers go
  * through the non-inline [insertRelativeToFirst] / [replaceFirst] / [removeMatching] entry
  * points, so `StagedSteps` and its mutable `perStage` / `pillars` storage never escape into the
@@ -29,13 +36,6 @@ package org.dexpace.sdk.core.http.pipeline
 internal class StagedSteps<S : Any>(
     /** Reads the stage off a step instance. */
     private val stageOf: (S) -> Stage,
-    /**
-     * Called when an `append`/`prepend` of a pillar step would replace an existing one with
-     * a different instance. The builder uses this to log a warning through its own logger
-     * (SLF4J directly today; could become `ClientLogger` later) without baking logging into
-     * this generic helper.
-     */
-    private val onPillarReplaced: (Stage, S, S) -> Unit = { _, _, _ -> },
 ) {
     /** Non-pillar stages: ordered deque per stage. */
     private val perStage: MutableMap<Stage, ArrayDeque<S>> = mutableMapOf()
@@ -169,7 +169,15 @@ internal class StagedSteps<S : Any>(
     ) {
         check(stage != Stage.SEND) { "SEND is the terminal client — not a step slot" }
         val existing = pillars[stage]
-        if (existing != null && existing !== step) onPillarReplaced(stage, existing, step)
+        if (existing != null && existing !== step) {
+            val existingType = existing::class.simpleName ?: "<anonymous>"
+            val newType = step::class.simpleName ?: "<anonymous>"
+            throw IllegalStateException(
+                "Pillar stage $stage already holds a $existingType and admits exactly one step; " +
+                    "refusing to add a second $newType. To swap the existing step, call " +
+                    "replace<$existingType>(newStep) instead of append/prepend.",
+            )
+        }
         pillars[stage] = step
     }
 }

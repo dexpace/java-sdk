@@ -27,60 +27,40 @@ class StagedStepsTest {
      */
     private class FakeStep(val stage: Stage, val tag: String)
 
-    private fun stagedSteps(
-        onPillarReplaced: (Stage, FakeStep, FakeStep) -> Unit = { _, _, _ -> },
-    ): StagedSteps<FakeStep> = StagedSteps(stageOf = { it.stage }, onPillarReplaced = onPillarReplaced)
+    private fun stagedSteps(): StagedSteps<FakeStep> = StagedSteps(stageOf = { it.stage })
 
-    // -------- reload: dup-pillar warning --------
+    // -------- reload: pillar occupancy is enforced --------
 
     @Test
-    fun `reload with two pillar steps for the same stage fires onPillarReplaced`() {
-        val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged =
-            stagedSteps { stage, old, new ->
-                replacements.add(Triple(stage, old, new))
-            }
+    fun `reload with two distinct pillar steps for the same stage throws`() {
+        val staged = stagedSteps()
 
         val firstRetry = FakeStep(Stage.RETRY, "retry-A")
         val secondRetry = FakeStep(Stage.RETRY, "retry-B")
 
-        staged.reload(listOf(firstRetry, secondRetry))
-
-        assertEquals(1, replacements.size, "onPillarReplaced should fire exactly once")
-        val (stage, old, new) = replacements[0]
-        assertEquals(Stage.RETRY, stage)
-        assertEquals("retry-A", old.tag)
-        assertEquals("retry-B", new.tag)
-
-        // The second (newer) pillar wins.
-        assertEquals("retry-B", staged.pillarAt(Stage.RETRY)?.tag)
+        val ex =
+            assertFailsWith<IllegalStateException> {
+                staged.reload(listOf(firstRetry, secondRetry))
+            }
+        assertTrue(ex.message!!.contains("RETRY"), "message names the pillar stage: ${ex.message}")
     }
 
     @Test
-    fun `reload with single pillar step does not fire onPillarReplaced`() {
-        val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged =
-            stagedSteps { stage, old, new ->
-                replacements.add(Triple(stage, old, new))
-            }
+    fun `reload with single pillar step does not throw`() {
+        val staged = stagedSteps()
 
         staged.reload(listOf(FakeStep(Stage.RETRY, "retry-A")))
 
-        assertTrue(replacements.isEmpty(), "onPillarReplaced must not fire on first install")
+        assertEquals("retry-A", staged.pillarAt(Stage.RETRY)?.tag)
     }
 
     @Test
-    fun `reload same pillar instance twice does not fire onPillarReplaced`() {
-        val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged =
-            stagedSteps { stage, old, new ->
-                replacements.add(Triple(stage, old, new))
-            }
+    fun `reload same pillar instance twice does not throw`() {
+        val staged = stagedSteps()
 
         val retry = FakeStep(Stage.RETRY, "retry")
         staged.reload(listOf(retry, retry))
 
-        assertTrue(replacements.isEmpty(), "same-instance re-install must not fire onPillarReplaced")
         assertEquals("retry", staged.pillarAt(Stage.RETRY)?.tag)
     }
 
@@ -110,21 +90,26 @@ class StagedStepsTest {
     // -------- append / prepend pillar routing --------
 
     @Test
-    fun `append two distinct pillar steps fires onPillarReplaced`() {
-        val replacements = mutableListOf<Triple<Stage, FakeStep, FakeStep>>()
-        val staged =
-            stagedSteps { stage, old, new ->
-                replacements.add(Triple(stage, old, new))
-            }
+    fun `append two distinct pillar steps throws IllegalStateException`() {
+        val staged = stagedSteps()
 
         val a = FakeStep(Stage.AUTH, "auth-A")
         val b = FakeStep(Stage.AUTH, "auth-B")
         staged.append(a)
-        staged.append(b)
 
-        assertEquals(1, replacements.size)
-        assertEquals("auth-A", replacements[0].second.tag)
-        assertEquals("auth-B", replacements[0].third.tag)
+        val ex = assertFailsWith<IllegalStateException> { staged.append(b) }
+        assertTrue(ex.message!!.contains("AUTH"), "message names the pillar stage: ${ex.message}")
+    }
+
+    @Test
+    fun `append same pillar instance twice does not throw`() {
+        val staged = stagedSteps()
+
+        val auth = FakeStep(Stage.AUTH, "auth")
+        staged.append(auth)
+        staged.append(auth)
+
+        assertEquals("auth", staged.pillarAt(Stage.AUTH)?.tag)
     }
 
     // -------- nonPillarAt / pillarAt return defensive copies --------

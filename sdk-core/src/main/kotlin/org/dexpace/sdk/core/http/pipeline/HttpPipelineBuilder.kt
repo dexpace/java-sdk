@@ -12,12 +12,10 @@ import org.dexpace.sdk.core.http.pipeline.steps.DefaultInstrumentationStep
 import org.dexpace.sdk.core.http.pipeline.steps.DefaultRedirectStep
 import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
 import org.dexpace.sdk.core.http.pipeline.steps.ThrowOnHttpErrorStep
-import org.dexpace.sdk.core.instrumentation.ClientLogger
 
 /**
  * Mutable builder for [HttpPipeline]. Steps are organised by their declared [Stage]:
- * pillar stages hold a single instance (with replace-emits-warning semantics); non-pillar
- * stages hold an ordered deque.
+ * pillar stages hold a single instance; non-pillar stages hold an ordered deque.
  *
  * Primary API ([append] / [prepend]) routes a step by its declared stage. Surgical API
  * ([insertAfter] / [insertBefore] / [replace] / [remove]) operates relative to existing
@@ -26,21 +24,12 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
  * Thread-safety: not thread-safe. Construct on one thread, then call [build] — the resulting
  * [HttpPipeline] is immutable.
  *
- * Logging: pillar replacement emits a `pipeline.pillar.replaced` warning via SLF4J.
+ * Pillar occupancy: a pillar stage admits exactly one step. Appending or prepending a *distinct*
+ * second step to an already-occupied pillar throws [IllegalStateException]; use [replace] to swap
+ * the existing step. Re-installing the same instance is idempotent.
  */
 public class HttpPipelineBuilder(private val httpClient: HttpClient) {
-    private val steps: StagedSteps<HttpStep> =
-        StagedSteps(
-            stageOf = HttpStep::stage,
-            onPillarReplaced = { stage, prev, next ->
-                LOG.atWarning()
-                    .event("pipeline.pillar.replaced")
-                    .field("stage", stage.name)
-                    .field("previous", prev::class.simpleName ?: "<anonymous>")
-                    .field("replacement", next::class.simpleName ?: "<anonymous>")
-                    .log()
-            },
-        )
+    private val steps: StagedSteps<HttpStep> = StagedSteps(stageOf = HttpStep::stage)
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
     public fun append(step: HttpStep): HttpPipelineBuilder = apply { steps.append(step) }
@@ -142,8 +131,6 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
     }
 
     public companion object {
-        private val LOG = ClientLogger(HttpPipelineBuilder::class)
-
         /** Returns a new builder seeded with [pipeline]'s steps and client. */
         @JvmStatic
         public fun from(pipeline: HttpPipeline): HttpPipelineBuilder =

@@ -9,6 +9,8 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Protocol
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
+import org.dexpace.sdk.core.http.pipeline.steps.RetryStep
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
@@ -130,23 +132,30 @@ class HttpPipelineTest {
     }
 
     @Test
-    fun `pillar replace at same stage emits warning and keeps newest`() {
+    fun `appending a distinct second pillar step throws IllegalStateException`() {
         val client = RecordingHttpClient()
-        val order = mutableListOf<String>()
-        val firstRetry = TaggingStep(Stage.RETRY, "retry-A", order)
-        val secondRetry = TaggingStep(Stage.RETRY, "retry-B", order)
+        val builder =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep())
+
+        val ex = assertFailsWith<IllegalStateException> { builder.append(DefaultRetryStep()) }
+        assertTrue(ex.message!!.contains("RETRY"), "message names the pillar stage: ${ex.message}")
+        assertTrue(ex.message!!.contains("replace"), "message points at replace<T>(): ${ex.message}")
+    }
+
+    @Test
+    fun `replace swaps a pillar step in place`() {
+        val client = RecordingHttpClient()
+        val replacement = DefaultRetryStep()
 
         val pipeline =
             HttpPipelineBuilder(client)
-                .append(firstRetry)
-                .append(secondRetry)
+                .append(DefaultRetryStep())
+                .replace<RetryStep>(replacement)
                 .build()
 
-        pipeline.send(request())
-
-        // Only the second retry-step is present; the first is replaced.
         assertEquals(1, pipeline.steps.size)
-        assertEquals(listOf("retry-B"), order)
+        assertSame(replacement, pipeline.steps[0])
     }
 
     @Test
@@ -626,26 +635,17 @@ class HttpPipelineTest {
     }
 
     @Test
-    fun `pillar prepend at a pillar stage replaces with a warning event`() {
+    fun `prepending a distinct second pillar step throws IllegalStateException`() {
         // Branch coverage on HttpPipelineBuilder.prepend: pillar stages route through
-        // installPillar regardless of head/tail intent. Two distinct retry steps must
-        // collapse to the second one with a warning log.
+        // installPillar regardless of head/tail intent, so a distinct second retry step
+        // must fail fast rather than silently collapse.
         val client = RecordingHttpClient()
-        val order = mutableListOf<String>()
-        val first = TaggingStep(Stage.RETRY, "retry-1", order)
-        val second = TaggingStep(Stage.RETRY, "retry-2", order)
-
-        val pipeline =
+        val builder =
             HttpPipelineBuilder(client)
-                .prepend(first)
-                .prepend(second)
-                .build()
+                .prepend(DefaultRetryStep())
 
-        pipeline.send(request())
-
-        // Second prepend replaces the first via installPillar.
-        assertEquals(1, pipeline.steps.size)
-        assertEquals(listOf("retry-2"), order)
+        val ex = assertFailsWith<IllegalStateException> { builder.prepend(DefaultRetryStep()) }
+        assertTrue(ex.message!!.contains("RETRY"), "message names the pillar stage: ${ex.message}")
     }
 
     @Test
