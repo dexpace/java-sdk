@@ -11,12 +11,14 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.transport.jdkhttp.internal.RequestAdapter
 import org.dexpace.sdk.transport.jdkhttp.internal.ResponseAdapter
 import org.dexpace.sdk.transport.jdkhttp.internal.bridgeAsyncResponse
+import org.dexpace.sdk.transport.jdkhttp.internal.mapTransportFailure
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
@@ -107,23 +109,33 @@ public class JdkHttpTransport private constructor(
     @Throws(IOException::class)
     override fun execute(request: Request): Response {
         val jdkRequest = requestAdapter.adapt(request, responseTimeout)
-        return try {
-            val jdkResponse: HttpResponse<InputStream> =
+        // The dispatch is guarded on its own so only a `client.send` failure maps onto the
+        // transport-error contract — a later `responseAdapter.adapt` failure keeps its own type.
+        val jdkResponse: HttpResponse<InputStream> =
+            try {
                 client.send(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
-            responseAdapter.adapt(request, jdkResponse)
-        } catch (e: InterruptedException) {
-            // `HttpClient.send` declares `InterruptedException` — the JDK throws it when the
-            // calling thread is interrupted mid-call. Re-assert the interrupt flag so the
-            // caller's surrounding code can observe interrupt status, then surface as the
-            // SDK's documented `InterruptedIOException`.
-            Thread.currentThread().interrupt()
-            val wrapped = InterruptedIOException("interrupted while waiting for response")
-            wrapped.initCause(e)
-            throw wrapped
-        } catch (e: InterruptedIOException) {
-            Thread.currentThread().interrupt()
-            throw e
-        }
+            } catch (e: InterruptedException) {
+                // `HttpClient.send` declares `InterruptedException` — the JDK throws it when the
+                // calling thread is interrupted mid-call. Re-assert the interrupt flag so the
+                // caller's surrounding code can observe interrupt status, then surface as the
+                // SDK's documented `InterruptedIOException`.
+                Thread.currentThread().interrupt()
+                val wrapped = InterruptedIOException("interrupted while waiting for response")
+                wrapped.initCause(e)
+                throw wrapped
+            } catch (e: InterruptedIOException) {
+                Thread.currentThread().interrupt()
+                throw e
+            } catch (e: IOException) {
+                // A non-interrupt transport failure — connect refused, DNS lookup failure, peer
+                // reset, TLS handshake failure, a non-interrupt (Http)timeout — produced no
+                // response. Surface it as the SDK's NetworkException; because that is itself an
+                // IOException, existing `catch (IOException)` sites keep matching while the retry
+                // classifier now sees the retryable transport-failure contract. The two interrupt
+                // branches above run first, so an interrupt-derived failure is never wrapped here.
+                throw NetworkException(e.message, e)
+            }
+        return responseAdapter.adapt(request, jdkResponse)
     }
 
     /**
@@ -155,7 +167,12 @@ public class JdkHttpTransport private constructor(
             // failures into an already-failed future — e.g. on a closed client — which the bridge
             // propagates and so never reaches this catch; the guard is for the throwing case.)
             inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
-            bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
+            // `mapTransportFailure` maps a non-interrupt transport IOException delivered through the
+            // exchange future onto the SDK's NetworkException contract (interrupt-derived failures
+            // pass through untouched), mirroring the sync `execute` path.
+            bridgeAsyncResponse(inFlight, ::mapTransportFailure) { jdkResponse ->
+                responseAdapter.adapt(request, jdkResponse)
+            }
         } catch (e: Exception) {
             // The async contract is that errors arrive through the returned future. The dispatch
             // path above runs on the caller's thread and can throw — request adaptation rejecting a

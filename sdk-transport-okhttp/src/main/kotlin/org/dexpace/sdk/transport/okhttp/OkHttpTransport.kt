@@ -16,6 +16,7 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.util.ProxyOptions
@@ -94,6 +95,15 @@ public class OkHttpTransport private constructor(
             } catch (e: InterruptedIOException) {
                 Thread.currentThread().interrupt()
                 throw e
+            } catch (e: IOException) {
+                // A non-interrupt transport failure — connect refused, DNS lookup failure, peer
+                // reset, TLS handshake failure, a non-interrupt timeout — produced no response on
+                // the wire. Surface it as the SDK's NetworkException. Because NetworkException is
+                // itself an IOException, existing `catch (IOException)` sites keep matching, while
+                // the retry classifier now sees the retryable transport-failure contract. (The
+                // InterruptedIOException branch above runs first, so an interrupt-derived failure —
+                // including OkHttp's SocketTimeoutException — is never wrapped here.)
+                throw asNetworkException(e)
             }
         // ResponseAdapter.adapt acquires the body source and constructs the SDK Response; if any
         // step throws (e.g. `Io.provider` not installed, an unparseable Content-Type) it closes
@@ -156,7 +166,10 @@ public class OkHttpTransport private constructor(
                     call: Call,
                     e: IOException,
                 ) {
-                    future.completeExceptionally(e)
+                    // Mirror the sync path's transport-error contract: a non-interrupt IOException
+                    // is delivered as a NetworkException, an interrupt-derived one passes through
+                    // untouched.
+                    future.completeExceptionally(asNetworkException(e))
                 }
             },
         )
@@ -471,3 +484,13 @@ public class OkHttpTransport private constructor(
         }
     }
 }
+
+/**
+ * Maps an OkHttp transport-level [IOException] onto the SDK's [NetworkException] contract. An
+ * interrupt-derived failure ([InterruptedIOException], including OkHttp's `SocketTimeoutException`)
+ * is returned untouched so callers keep observing it as an interrupt; every other transport
+ * [IOException] is wrapped in a [NetworkException] — itself an [IOException], so existing
+ * `catch (IOException)` sites are unaffected and the retry classifier sees a retryable failure.
+ */
+private fun asNetworkException(e: IOException): IOException =
+    if (e is InterruptedIOException) e else NetworkException(e.message, e)

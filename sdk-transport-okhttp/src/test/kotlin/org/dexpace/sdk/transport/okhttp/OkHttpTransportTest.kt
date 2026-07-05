@@ -22,6 +22,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.ProxyOptions
@@ -519,6 +520,69 @@ class OkHttpTransportTest {
         // pending dispatch has time to drain without an InterruptedException.
         Thread.interrupted()
         Thread.sleep(900)
+    }
+
+    // -------- transport error contract: NetworkException --------
+
+    @Test
+    fun connectionFailureSurfacesAsNetworkExceptionSync() {
+        // A refused TCP connect (a freed-then-closed local port) is a transport-level IOException
+        // with no response on the wire. The transport must surface it as the SDK's
+        // NetworkException — an IOException subtype, so existing `catch (IOException)` sites keep
+        // matching — and it must be retryable.
+        val deadPort = freePort()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val ex =
+            assertFailsWith<NetworkException> {
+                transport.execute(request).close()
+            }
+        assertTrue(ex.isRetryable, "a transport-level failure must be retryable")
+    }
+
+    @Test
+    fun connectionFailureSurfacesAsNetworkExceptionAsync() {
+        val deadPort = freePort()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val future = transport.executeAsync(request)
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        val cause = ex.cause
+        assertTrue(cause is NetworkException, "expected NetworkException, got ${cause?.let { it::class }}")
+        assertTrue(cause.isRetryable, "a transport-level failure must be retryable")
+    }
+
+    @Test
+    fun interruptIsNotWrappedAsNetworkException() {
+        // The interrupt path must remain unchanged: an InterruptedIOException surfaces as-is (with
+        // the interrupt flag re-asserted), never repackaged as a NetworkException.
+        val interceptedTransport =
+            OkHttpTransport.create(
+                OkHttpClient.Builder()
+                    .addInterceptor {
+                        throw java.io.InterruptedIOException("simulated interrupt")
+                    }
+                    .build(),
+            )
+        val captured =
+            assertFails {
+                interceptedTransport.execute(simpleGet("/never-served"))
+            }
+        assertTrue(
+            captured is java.io.InterruptedIOException,
+            "interrupt must surface as InterruptedIOException, got ${captured::class}",
+        )
+        // An InterruptedIOException is disjoint from NetworkException (sibling IOException
+        // subtypes), so surfacing the former proves the interrupt was NOT wrapped as the latter.
+        // The transport re-asserts the interrupt flag on this thread; clear it so it does not
+        // leak into later tests sharing the JUnit worker thread.
+        Thread.interrupted()
     }
 
     // -------- cancellation --------
