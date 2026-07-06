@@ -27,7 +27,7 @@ class LazinessTest {
             .build()
 
     private val itemsExtractor =
-        PageNumberExtractor<String> { resp ->
+        ItemsExtractor<String> { resp ->
             val body = resp.body!!.source().use { it.readUtf8() }
             if (body.isEmpty()) emptyList() else body.split(",")
         }

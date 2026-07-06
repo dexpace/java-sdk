@@ -322,6 +322,20 @@ class MultipartBodyTest {
     }
 
     @Test
+    fun `serialized part without an explicit media type defaults its Content-Type to the serde's`() {
+        // Mirrors RequestBody.create(value, serde): when the caller omits a media type, the part's
+        // Content-Type falls back to Serde.contentType() (here text/plain) rather than being absent.
+        val body =
+            MultipartBody.builder()
+                .boundary("D")
+                .addPart("payload", "raw-value", StringSerde)
+                .build()
+        val wire = String(drain(body), Charsets.UTF_8)
+        assertContains(wire, "Content-Type: text/plain")
+        assertContains(wire, "raw-value")
+    }
+
+    @Test
     fun `parts is a defensive copy`() {
         val builder = MultipartBody.builder().boundary("B").addPart("a", "1", StringSerde)
         val body = builder.build()

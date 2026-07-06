@@ -11,21 +11,6 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 
 /**
- * Items extractor for [PageNumberPaginationStrategy]: reads the list of items from a page
- * [Response] (the next page number is derived from the request URL, not this extractor).
- *
- * A dedicated functional interface (rather than a raw `(Response) -> List<T>` function type) gives
- * Java callers a clean SAM to implement instead of `kotlin.jvm.functions.Function1`. Kotlin callers
- * pass a lambda unchanged via SAM conversion.
- *
- * @param T Element type read from the response body.
- */
-public fun interface PageNumberExtractor<T> {
-    /** Reads the list of items from [response]. Must drain the response body synchronously. */
-    public fun extract(response: Response): List<T>
-}
-
-/**
  * Page-number [PaginationStrategy]. The client sends a 1-based (or [startPage]-based)
  * page number as a query parameter; the server returns the corresponding slice of items.
  *
@@ -53,7 +38,7 @@ public fun interface PageNumberExtractor<T> {
 public class PageNumberPaginationStrategy<T>
     @JvmOverloads
     constructor(
-        private val itemsExtractor: PageNumberExtractor<T>,
+        private val itemsExtractor: ItemsExtractor<T>,
         private val pageParam: String = "page",
         private val startPage: Int = 1,
     ) : PaginationStrategy<T> {

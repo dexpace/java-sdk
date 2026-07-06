@@ -36,7 +36,7 @@ import kotlin.test.assertTrue
 
 class AsyncPaginatorTest {
     private val itemsExtractor =
-        LinkExtractor<String> { resp ->
+        ItemsExtractor<String> { resp ->
             val body = resp.body!!.source().use { it.readUtf8() }
             if (body.isEmpty()) emptyList() else body.split(",")
         }

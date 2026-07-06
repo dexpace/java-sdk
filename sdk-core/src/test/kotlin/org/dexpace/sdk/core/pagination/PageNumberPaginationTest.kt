@@ -27,7 +27,7 @@ class PageNumberPaginationTest {
             .build()
 
     private val itemsExtractor =
-        PageNumberExtractor<String> { resp ->
+        ItemsExtractor<String> { resp ->
             val body = resp.body!!.source().use { it.readUtf8() }
             if (body.isEmpty()) {
                 emptyList()
@@ -48,9 +48,9 @@ class PageNumberPaginationTest {
         client.on("https://api.example.com/things?page=3") { req ->
             textResponse(req, "")
         }
-        // Java caller path: an explicit PageNumberExtractor implementation, not a Kotlin function type.
+        // Java caller path: an explicit ItemsExtractor implementation, not a Kotlin function type.
         val javaStyle =
-            object : PageNumberExtractor<String> {
+            object : ItemsExtractor<String> {
                 override fun extract(response: Response): List<String> {
                     val body = response.body!!.source().use { it.readUtf8() }
                     return if (body.isEmpty()) emptyList() else body.split(",")

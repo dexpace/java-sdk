@@ -27,7 +27,7 @@ class LinkHeaderPaginationTest {
             .build()
 
     private val itemsExtractor =
-        LinkExtractor<String> { resp ->
+        ItemsExtractor<String> { resp ->
             val body = resp.body!!.source().use { it.readUtf8() }
             if (body.isEmpty()) emptyList() else body.split(",")
         }
@@ -45,9 +45,9 @@ class LinkHeaderPaginationTest {
         client.on("https://api.example.com/repo/issues?page=2") { req ->
             textResponse(req, "i3,i4")
         }
-        // Java caller path: an explicit LinkExtractor implementation, not a Kotlin function type.
+        // Java caller path: an explicit ItemsExtractor implementation, not a Kotlin function type.
         val javaStyle =
-            object : LinkExtractor<String> {
+            object : ItemsExtractor<String> {
                 override fun extract(response: Response): List<String> {
                     val body = response.body!!.source().use { it.readUtf8() }
                     return if (body.isEmpty()) emptyList() else body.split(",")

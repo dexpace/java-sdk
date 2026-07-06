@@ -115,6 +115,40 @@ class ClientIdentityStepTest {
     }
 
     @Test
+    fun `append mode preserves every pre-existing value of a multi-valued header`() {
+        // A header can carry more than one value. Append mode must keep them all — reading only the
+        // first value (get()) and then replacing the whole header would silently drop the rest.
+        val step =
+            ClientIdentityStep.builder()
+                .headerName("X-Client")
+                .tokens(listOf("foo/1"))
+                .build()
+        val request =
+            baseRequest()
+                .newBuilder()
+                .addHeader("X-Client", "A/1")
+                .addHeader("X-Client", "B/2")
+                .build()
+
+        val result = step.execute(request, DispatchContext.default())
+
+        // Token line appended to the first value; the second value survives untouched.
+        assertEquals(listOf("A/1 foo/1", "B/2"), result.headers.values("X-Client"))
+    }
+
+    @Test
+    fun `an all-blank token list is a no-op and emits no header`() {
+        // Tokens that join to a blank line must not produce a blank/whitespace-only header.
+        val step = ClientIdentityStep(tokens = listOf("  ", "\t"))
+        val request = baseRequest()
+
+        val result = step.execute(request, DispatchContext.default())
+
+        assertSame(request, result, "an all-blank token line must leave the request unchanged")
+        assertNull(result.headers.get("User-Agent"), "no blank User-Agent header may be emitted")
+    }
+
+    @Test
     fun `builder addToken with name and version composes the slash-separated form`() {
         val step =
             ClientIdentityStep.builder()
