@@ -49,18 +49,18 @@ public class HttpRedirectOptions
          * redirect following entirely.
          */
         public val maxHops: Int = 3,
-        allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD),
+        allowedMethods: Set<Method> = EnumSet.of(Method.GET, Method.HEAD),
         public val locationHeader: HttpHeaderName = HttpHeaderName.LOCATION,
         public val follow303: Boolean = false,
         public val allowSchemeDowngrade: Boolean = false,
         public val shouldRedirect: HttpRedirectPredicate? = null,
     ) {
         /**
-         * Methods that follow a redirect. Stored as a defensive copy, exposed as a read-only [Set],
-         * so a later mutation of the caller-supplied [EnumSet] cannot change the configured policy
-         * after construction.
+         * Methods that follow a redirect. Stored as a single defensive copy (a fresh [EnumSet]),
+         * exposed as a read-only [Set], so a later mutation of the caller-supplied set cannot
+         * change the configured policy after construction.
          */
-        public val allowedMethods: Set<Method> = EnumSet.copyOf(allowedMethods)
+        public val allowedMethods: Set<Method> = allowedMethods.toCollection(EnumSet.noneOf(Method::class.java))
 
         /**
          * Returns a new [Builder] pre-filled with every field from this instance. Mutating the
@@ -69,7 +69,7 @@ public class HttpRedirectOptions
         public fun newBuilder(): Builder =
             Builder().apply {
                 maxHops(this@HttpRedirectOptions.maxHops)
-                allowedMethods(EnumSet.copyOf(this@HttpRedirectOptions.allowedMethods))
+                allowedMethods(this@HttpRedirectOptions.allowedMethods)
                 locationHeader(this@HttpRedirectOptions.locationHeader)
                 follow303(this@HttpRedirectOptions.follow303)
                 allowSchemeDowngrade(this@HttpRedirectOptions.allowSchemeDowngrade)
@@ -82,7 +82,7 @@ public class HttpRedirectOptions
          */
         public class Builder : org.dexpace.sdk.core.generics.Builder<HttpRedirectOptions> {
             private var maxHops: Int = 3
-            private var allowedMethods: EnumSet<Method> = EnumSet.of(Method.GET, Method.HEAD)
+            private var allowedMethods: Set<Method> = EnumSet.of(Method.GET, Method.HEAD)
             private var locationHeader: HttpHeaderName = HttpHeaderName.LOCATION
             private var follow303: Boolean = false
             private var allowSchemeDowngrade: Boolean = false
@@ -91,8 +91,8 @@ public class HttpRedirectOptions
             /** Sets the maximum number of redirect hops followed after the initial request. */
             public fun maxHops(value: Int): Builder = apply { maxHops = value }
 
-            /** Sets the methods that follow a redirect. A defensive copy is taken at [build] time. */
-            public fun allowedMethods(value: EnumSet<Method>): Builder = apply { allowedMethods = value }
+            /** Sets the methods that follow a redirect. A defensive copy is taken at construction. */
+            public fun allowedMethods(value: Set<Method>): Builder = apply { allowedMethods = value }
 
             /** Sets the response header from which the redirect location is read. */
             public fun locationHeader(value: HttpHeaderName): Builder = apply { locationHeader = value }

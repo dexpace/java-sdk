@@ -31,11 +31,19 @@ import kotlin.concurrent.withLock
  * 2. **ServiceLoader auto-discovery** — when no explicit install exists, [IoProvider]
  *    implementations are discovered via [ServiceLoader], consulting the thread-context
  *    classloader before the interface's own defining loader so that a provider registered
- *    in a child loader (servlet containers, OSGi, plugin hosts) is still found. When exactly
- *    one implementation is discoverable it is resolved and cached automatically — the scan
- *    runs at most once.
+ *    in a child loader (servlet containers, OSGi, plugin hosts) is still found. Once exactly
+ *    one implementation has been resolved it is cached process-wide and the scan does not run
+ *    again; an unresolved state (zero or multiple discoverable providers, which throws) is
+ *    re-evaluated on the next access, so the scan can run more than once until it either
+ *    succeeds or an explicit [installProvider] supersedes it.
  * 3. **Error** — zero discoverable providers throw with an actionable message;
  *    more than one throw listing all candidates so the ambiguity is obvious.
+ *
+ * The first successfully auto-resolved provider is cached for the whole process, keyed off
+ * whichever thread resolved it first. In a hierarchical-classloader deployment that hosts a
+ * *distinct* provider per child loader, that first-resolution-wins caching means every caller
+ * shares the first provider resolved; such deployments should call [installProvider] explicitly
+ * at startup rather than rely on auto-discovery.
  *
  * ## Install after auto-resolution
  *
@@ -49,8 +57,8 @@ import kotlin.concurrent.withLock
  *
  * Reads of [provider] go through `@Volatile` fields so callers see the install effect without
  * locking. Writes ([installProvider], [swapProvider]) take a [ReentrantLock] so concurrent
- * installs cannot race past the conflict check. The ServiceLoader scan runs at most once
- * through a double-checked locking pattern.
+ * installs cannot race past the conflict check. A successful ServiceLoader resolution is cached
+ * through a double-checked locking pattern so the scan does not repeat once a provider is found.
  */
 public object Io {
     private val lock = ReentrantLock()
@@ -81,11 +89,12 @@ public object Io {
      * Throws [IllegalStateException] when no provider is installed and either zero or more
      * than one [IoProvider] implementations are discoverable on the classpath.
      */
+    @get:JvmStatic
     public val provider: IoProvider
         get() {
             installed?.let { return it }
             resolved?.let {
-                resolvedReturned = true
+                if (!resolvedReturned) resolvedReturned = true
                 return it
             }
             return lock.withLock {
@@ -190,6 +199,7 @@ public object Io {
      * [warnIfReplacingResolvedProvider]. Any previously cached ServiceLoader-resolved provider is
      * then cleared so the explicit install takes full effect on the next [provider] access.
      */
+    @JvmStatic
     public fun installProvider(provider: IoProvider) {
         lock.withLock {
             val existing = installed
@@ -222,7 +232,9 @@ public object Io {
     private fun warnIfReplacingResolvedProvider(incoming: IoProvider) {
         if (installed != null) return
         val previouslyResolved = resolved ?: return
-        if (!resolvedReturned || previouslyResolved === incoming) return
+        // Compare through underlying so a ServiceLoader-registered shim and the singleton it
+        // delegates to (installed explicitly) are recognised as the same implementation.
+        if (!resolvedReturned || previouslyResolved.underlying === incoming.underlying) return
         logger.atWarning()
             .event("io.provider.install_after_resolve")
             .field("resolved", previouslyResolved::class.qualifiedName ?: previouslyResolved::class.toString())

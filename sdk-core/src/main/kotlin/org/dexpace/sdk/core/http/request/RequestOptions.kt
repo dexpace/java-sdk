@@ -33,8 +33,16 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
  * Instances are immutable and safe to share across threads. [tags] is a read-only defensive copy
  * taken at [Builder.build] time.
  *
- * @property timeout Per-call timeout override, or `null` to keep the transport default. Applied by
- *   the transport as the per-call timeout (OkHttp: the call timeout; JDK: the per-request timeout).
+ * @property timeout Per-call timeout override, or `null` to keep the transport default.
+ *   **Scope differs by transport.** On the OkHttp transport it maps to OkHttp's call timeout, which
+ *   spans the whole exchange including response-body reads. On the JDK (`java.net.http`) transport
+ *   it maps to `HttpRequest.Builder.timeout`, which bounds only the wait until the response headers
+ *   arrive — reads of the returned body stream are *not* bounded by it, so a stalled body can still
+ *   hang; use a read/idle timeout on the underlying client if you need to bound body reads there.
+ *   The timeout is also applied **per transport attempt**, not as an overall deadline: under a
+ *   retrying pipeline a single `send` may spend up to roughly `timeout × (1 + maxRetries)` plus
+ *   backoff before failing. Pair a per-call `timeout` with `maxRetries(0)` when you need a hard
+ *   single-attempt bound.
  * @property tags Opaque per-call tags, keyed by string. Read-only; never `null`, may be empty.
  * @property maxRetries Per-call retry-count override, or `null` to keep the retry step's configured
  *   budget. `0` disables retries for this call.

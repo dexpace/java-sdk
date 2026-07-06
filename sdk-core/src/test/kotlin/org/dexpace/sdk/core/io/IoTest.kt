@@ -259,8 +259,13 @@ class IoTest {
             // Force ServiceLoader resolution AND hand-out (library code touching Io.provider early).
             val handedOut = Io.provider
             assertNotNull(handedOut)
-            // A late explicit install of a DIFFERENT provider still wins, but warns.
-            val explicit = object : IoProvider by OkioIoProvider {}
+            // A late explicit install of a genuinely DIFFERENT provider still wins, but warns.
+            // `underlying` is overridden to itself so it is not treated as the same implementation
+            // as the auto-resolved provider (whose `underlying` is the Okio singleton).
+            val explicit =
+                object : IoProvider by OkioIoProvider {
+                    override val underlying: IoProvider get() = this
+                }
             Io.installProvider(explicit)
             assertSame(explicit, Io.provider, "explicit install must win over the auto-resolved provider")
 
