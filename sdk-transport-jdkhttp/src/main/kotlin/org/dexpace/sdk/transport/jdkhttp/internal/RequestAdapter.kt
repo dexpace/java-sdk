@@ -84,8 +84,46 @@ internal class RequestAdapter(
         val builder = HttpRequest.newBuilder().uri(request.url.toURI())
         attachMethod(builder, request)
         attachHeaders(builder, request)
+        attachDerivedContentType(builder, request)
         responseTimeout?.let { builder.timeout(it) }
         return builder.build()
+    }
+
+    /**
+     * Emits a `Content-Type` derived from the request body's media type when — and only when — the
+     * caller set no explicit `Content-Type` header.
+     *
+     * `java.net.http.HttpClient` does not derive a `Content-Type` from the body publisher, unlike
+     * OkHttp's `BridgeInterceptor`. So the documented `RequestBody.create(value, serde)` pattern —
+     * which auto-stamps the body with `application/json` — would put a `Content-Type` on the wire
+     * through the OkHttp transport but none through this one. Deriving it here from
+     * [org.dexpace.sdk.core.http.request.RequestBody.mediaType] closes that gap so both transports
+     * agree on the wire form.
+     *
+     * An explicit caller `Content-Type` (already copied by [attachHeaders]; `Content-Type` is not a
+     * [RestrictedHeaders] entry) is authoritative and never overridden — the `headers.contains`
+     * check is case-insensitive, so any casing of the caller's header suppresses the derived one.
+     */
+    private fun attachDerivedContentType(
+        builder: HttpRequest.Builder,
+        request: SdkRequest,
+    ) {
+        if (request.headers.contains("Content-Type")) {
+            return
+        }
+        val mediaType = request.body?.mediaType() ?: return
+        try {
+            builder.header("Content-Type", mediaType.toString())
+        } catch (e: IllegalArgumentException) {
+            // Defensive: a body media type the JDK refuses as a header value. Drop it rather than
+            // let the IllegalArgumentException escape adapt (reachable from execute, declared
+            // @Throws(IOException)); the request proceeds without a derived Content-Type.
+            logger.atVerbose()
+                .event("transport.jdkhttp.header.rejected")
+                .field("name", "Content-Type")
+                .cause(e)
+                .log("JDK rejected body-derived Content-Type; sending without it")
+        }
     }
 
     /**
@@ -103,6 +141,18 @@ internal class RequestAdapter(
      *  - `POST` / `PUT` / `PATCH` / `DELETE` / `OPTIONS` — body publisher passed through. `DELETE`
      *    and `OPTIONS` with a body are unusual but permitted by HTTP and the JDK builder.
      *  - `CONNECT` — rejected; see [adapt]'s KDoc.
+     *
+     * **Bodyless-DELETE wire divergence (residual, documented).** For a bodyless DELETE the SDK body
+     * is `null`, so [BodyPublishers.adaptBody] returns `HttpRequest.BodyPublishers.noBody()`, whose
+     * `contentLength()` is `0`. On JDK builds that serialize a fixed zero length, this puts
+     * `Content-Length: 0` on the wire, whereas the OkHttp transport sends a bodyless DELETE with no
+     * `Content-Length` at all (its `null`-body path writes no framing header). The `java.net.http`
+     * builder API cannot express a non-GET method with a genuinely absent body — `method(String,
+     * BodyPublisher)` requires a non-null publisher and the `DELETE()` convenience itself uses
+     * `noBody()` — so `noBody()` is the only representable "empty" body and this residual difference
+     * cannot be eliminated at the adapter layer. It is a header-only divergence with no effect on the
+     * request semantics. (Bodyless POST/PUT/PATCH already emit `Content-Length: 0` on both transports
+     * — OkHttp substitutes a zero-length body there — so only DELETE diverges.)
      */
     private fun attachMethod(
         builder: HttpRequest.Builder,

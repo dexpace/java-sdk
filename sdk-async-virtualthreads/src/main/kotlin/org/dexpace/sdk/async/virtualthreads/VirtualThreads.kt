@@ -62,8 +62,13 @@ public fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
  * client contract (so callers can pass it to a pipeline) and [AutoCloseable] so the executor
  * is released on shutdown.
  *
- * Closing the executor does NOT cancel in-flight requests — virtual threads are
- * non-interruptible by default; the executor's `close()` waits for tasks to finish.
+ * Closing the executor does NOT cancel in-flight requests: `ExecutorService.close()` performs a
+ * graceful shutdown — `shutdown()` followed by `awaitTermination` — so it stops accepting new tasks
+ * and then *waits* for the running ones to finish rather than interrupting them (it only escalates
+ * to `shutdownNow()` if the thread calling `close()` is itself interrupted). Virtual threads honour
+ * `Thread.interrupt()` exactly like platform threads; the in-flight tasks are simply never
+ * interrupted here because this path does not call `shutdownNow()`. To abort a blocking call via
+ * interruption, wrap the client in coroutines and use `runInterruptible` instead.
  *
  * [close] is idempotent: only the first call shuts the executor down and emits the
  * `executor.closed` lifecycle event; subsequent calls are a true no-op (no log, no second

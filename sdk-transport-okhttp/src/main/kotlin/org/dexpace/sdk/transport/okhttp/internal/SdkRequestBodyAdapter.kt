@@ -23,10 +23,15 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  * provider's [org.dexpace.sdk.core.io.BufferedSink] surface. Bytes never leave the
  * streaming path — the OutputStream wrapper is a thin shim around the okio sink.
  *
- * [contentLength] is taken straight from the SDK body (`-1` if unknown). [contentType] is
- * derived from the SDK body's [org.dexpace.sdk.core.http.common.MediaType] via
- * `toString()` → `okhttp3.MediaType` parse; an unparseable string returns `null` and OkHttp
- * falls back to no `Content-Type`.
+ * [contentLength] is taken straight from the SDK body (`-1` if unknown). [contentType] is the
+ * caller's explicit request `Content-Type` header ([explicitContentType]) when one was set,
+ * otherwise the SDK body's [org.dexpace.sdk.core.http.common.MediaType]; either way it is parsed
+ * via `toString()` → `okhttp3.MediaType`, and an unparseable string returns `null`. Reporting the
+ * explicit header here is what keeps it authoritative: OkHttp's `BridgeInterceptor` overwrites the
+ * request's `Content-Type` with `body.contentType()` when the latter is non-null, so without this
+ * the auto-stamped body media type would silently replace a caller-set vendor `Content-Type`. A
+ * `null` return (no explicit header AND no body media type, or an unparseable explicit header)
+ * leaves the caller's own header untouched.
  *
  * [isOneShot] mirrors the SDK body's replayability: it returns `true` for a non-replayable
  * body so OkHttp will not re-write it on a connection-failure or auth (401/407) follow-up.
@@ -37,8 +42,14 @@ import org.dexpace.sdk.core.http.request.RequestBody as SdkRequestBody
  */
 internal class SdkRequestBodyAdapter(
     private val sdkBody: SdkRequestBody,
+    private val explicitContentType: String? = null,
 ) : RequestBody() {
-    override fun contentType(): okhttp3.MediaType? = sdkBody.mediaType()?.toString()?.toMediaTypeOrNull()
+    override fun contentType(): okhttp3.MediaType? =
+        if (explicitContentType != null) {
+            explicitContentType.toMediaTypeOrNull()
+        } else {
+            sdkBody.mediaType()?.toString()?.toMediaTypeOrNull()
+        }
 
     override fun contentLength(): Long = sdkBody.contentLength()
 

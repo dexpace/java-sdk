@@ -410,6 +410,10 @@ public class JdkHttpTransport private constructor(
          * Strictly opt-in: the environment is never consulted unless this is called, and the call
          * is a no-op when nothing there configures a proxy (or when `NO_PROXY=*` bypasses it). This
          * writes the same slot as [proxy], so whichever of the two runs last wins.
+         *
+         * If the resolved proxy carries Basic credentials, note the HTTPS CONNECT-tunnel caveat
+         * documented on [applyProxy]: the JDK client does not send Basic proxy credentials on an
+         * HTTPS tunnel unless `jdk.http.auth.tunneling.disabledSchemes` is cleared.
          */
         public fun proxyFromEnvironment(): Builder =
             apply {
@@ -504,6 +508,18 @@ public class JdkHttpTransport private constructor(
          *     proxy credentials never leak to an origin host. The `java.net.http` client's
          *     built-in handling of a registered `Authenticator` covers the **Basic** scheme
          *     only — this transport does **not** perform Digest proxy authentication.
+         *
+         * **Basic proxy auth over an HTTPS CONNECT tunnel is disabled by default.** For an HTTPS
+         * origin the JDK client establishes the proxy via a `CONNECT` tunnel, and since the fix for
+         * JDK-8168839 the `java.net.http` client refuses to send Basic proxy credentials on that
+         * tunnel — the `jdk.http.auth.tunneling.disabledSchemes` system property defaults to
+         * `Basic`. So a [ProxyOptions.username] / [ProxyOptions.password] Basic credential that works
+         * for a plaintext-HTTP origin (where the proxy is used as a forward proxy, not a tunnel)
+         * is silently NOT sent for an `https://` origin, and the proxy answers `407`. This diverges
+         * from the OkHttp transport, which sends Basic proxy credentials on HTTPS tunnels. To opt
+         * back in, launch the JVM with `-Djdk.http.auth.tunneling.disabledSchemes=` (empty value)
+         * — set it as an early startup property, since the JDK reads it once. Credentials are
+         * deliberately never logged.
          *
          * A configured [ProxyOptions.challengeHandler] is **not** honoured by this transport:
          * `java.net.http.HttpClient` exposes no per-407 hook through which a custom

@@ -23,6 +23,7 @@ import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -32,18 +33,40 @@ private val log = ClientLogger("org.dexpace.sdk.async.coroutines.Coroutines")
  * Suspend-friendly facade over [AsyncHttpClient]. Returns the [Response] directly; the underlying
  * `executeAsync(...)` future is awaited via `kotlinx-coroutines-jdk8`'s `CompletableFuture.await()`.
  *
- * Cancellation: cancelling the enclosing coroutine cancels the awaited future
- * (`CompletableFuture.cancel(true)`). Whether the in-flight transport is interrupted is up to
- * the [AsyncHttpClient] implementation — see [AsyncHttpClient.executeAsync]'s cancellation
- * contract.
+ * Cancellation: cancelling the enclosing coroutine cancels the awaited future via
+ * `CompletableFuture.cancel(false)` — `kotlinx-coroutines-jdk8`'s `await()` cancels *without*
+ * requesting interruption. A transport whose cancellation hook only fires on `cancel(true)` (e.g.
+ * the executor-bridged blocking clients built on sdk-core's `interruptibleFuture`) therefore keeps
+ * running the in-flight call to completion; native async transports that abort on a plain
+ * `cancel(false)` release it eagerly. See [AsyncHttpClient.executeAsync]'s cancellation contract.
  */
 public suspend fun AsyncHttpClient.execute(request: Request): Response = executeAsync(request).await()
+
+/**
+ * Suspend-friendly facade over [AsyncHttpClient] with per-call [options]. Threads [options] into
+ * `executeAsync(request, options)` so per-request overrides (timeout, retry budget, tags) survive
+ * the coroutine bridge instead of being dropped. Otherwise identical to the no-options [execute].
+ */
+public suspend fun AsyncHttpClient.execute(
+    request: Request,
+    options: RequestOptions,
+): Response = executeAsync(request, options).await()
 
 /**
  * Suspend-friendly facade over [AsyncHttpPipeline.sendAsync]. Mirrors [execute] above but for
  * the pipeline entry point.
  */
 public suspend fun AsyncHttpPipeline.send(request: Request): Response = sendAsync(request).await()
+
+/**
+ * Suspend-friendly facade over [AsyncHttpPipeline.sendAsync] with per-call [options]. Threads
+ * [options] into `sendAsync(request, options)` so per-request overrides survive the coroutine
+ * bridge. Otherwise identical to the no-options [send].
+ */
+public suspend fun AsyncHttpPipeline.send(
+    request: Request,
+    options: RequestOptions,
+): Response = sendAsync(request, options).await()
 
 /**
  * Builds a [CompletableFuture] from a suspending block inside [scope]. Thin re-export of
@@ -94,7 +117,56 @@ public fun HttpClient.asAsyncCoroutines(scope: CoroutineScope): AsyncHttpClient 
         override fun executeAsync(
             request: Request,
             options: RequestOptions,
-        ): CompletableFuture<Response> =
-            scope.future(MDCContext()) { runInterruptible(Dispatchers.IO) { client.execute(request, options) } }
+        ): CompletableFuture<Response> {
+            // `scope.future { }` propagates cancellation of the returned CompletableFuture into the
+            // coroutine (cancel() → Job cancel → runInterruptible interrupts the blocking call,
+            // regardless of the mayInterruptIfRunning flag), but kotlinx DISCARDS the coroutine's
+            // result once the Job is already cancelled. A
+            // Response computed in the cancellation race window would therefore be dropped without
+            // being closed, leaking its connection — unlike sdk-core's `interruptibleFuture`, which
+            // closes a lost value. Guard with a lock-free handshake so whoever loses the race — the
+            // coroutine producing a value the future will not deliver, or the future terminating
+            // before that value is produced — closes the Response exactly once.
+            val handoff = AtomicReference<Any?>(null)
+            val future =
+                scope.future(MDCContext()) {
+                    val response = runInterruptible(Dispatchers.IO) { client.execute(request, options) }
+                    // Register the response. If the future already terminated (cancelled / failed)
+                    // before we got here, its value is discarded, so close the orphan ourselves.
+                    if (handoff.getAndSet(response) === DISCARDED) {
+                        closeQuietly(response)
+                    }
+                    response
+                }
+            future.whenComplete { result, _ ->
+                // A null result means the future did NOT hand a Response to the caller (cancelled or
+                // exceptional). If the coroutine already registered one, it is orphaned — close it;
+                // otherwise publish DISCARDED so the coroutine closes the Response it is about to
+                // produce. `result != null` is the normal-delivery path: the caller owns the value.
+                if (result == null) {
+                    val prev = handoff.getAndSet(DISCARDED)
+                    if (prev is Response) closeQuietly(prev)
+                }
+            }
+            return future
+        }
+    }
+}
+
+/**
+ * Sentinel published to the [asAsyncCoroutines] handshake when the returned future terminates
+ * without delivering a value, signalling the coroutine to close any Response it produces.
+ */
+private val DISCARDED: Any = Any()
+
+/**
+ * Best-effort close on a discard path — the Response lost the completion race, so a failure to
+ * close it has nothing actionable to surface.
+ */
+private fun closeQuietly(response: Response) {
+    try {
+        response.close()
+    } catch (ignored: Throwable) {
+        // Intentionally ignored: the response is already being discarded.
     }
 }

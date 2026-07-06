@@ -218,11 +218,33 @@ public class OkHttpTransport private constructor(
                     call: Call,
                     e: IOException,
                 ) {
-                    // Every failure OkHttp reports here produced no response, so surface it as a
-                    // retryable NetworkException (see asNetworkException) — including a call-timeout,
-                    // matching the sync path and the JDK transport. Cancellation is handled
-                    // separately via call.cancel() after the future is already cancelled.
-                    future.completeExceptionally(asNetworkException(e))
+                    // A cancellation that originates INSIDE OkHttp — dispatcher().cancelAll(), or an
+                    // interceptor/EventListener calling call.cancel() — surfaces here as a bare
+                    // IOException("Canceled") while the SDK future is still live. Wrapping that as a
+                    // retryable NetworkException would have DefaultAsyncRetryStep re-send a
+                    // deliberately cancelled request, so complete with a non-retryable cancellation
+                    // instead: an InterruptedIOException (an IOException subtype, so catch(IOException)
+                    // sites keep matching) that the retry step's interrupt carve-out treats as
+                    // cancellation rather than a retryable failure. It is NOT wrapped as a
+                    // NetworkException.
+                    //
+                    // The `!is InterruptedIOException` guard separates that genuine cancellation from a
+                    // call-timeout: OkHttp's call-timeout watchdog ALSO cancels the call (so
+                    // isCanceled() is true), but it wraps the failure via timeoutExit() into
+                    // `InterruptedIOException("timeout")`, whereas an external cancel surfaces as a plain
+                    // IOException. A timeout produced no response and must stay a retryable
+                    // NetworkException — matching the sync path and the JDK transport — so it falls to
+                    // the else branch along with every other no-response failure (connection/DNS/TLS
+                    // error). Consumer-driven future cancellation is handled separately by call.cancel()
+                    // below, after the future is already cancelled, so that exception is discarded in
+                    // the race rather than observed.
+                    if (call.isCanceled() && e !is InterruptedIOException) {
+                        val cancelled = InterruptedIOException(e.message ?: "Canceled")
+                        cancelled.initCause(e)
+                        future.completeExceptionally(cancelled)
+                    } else {
+                        future.completeExceptionally(asNetworkException(e))
+                    }
                 }
             },
         )
@@ -374,6 +396,17 @@ public class OkHttpTransport private constructor(
      *
      * Note: `followRedirects` defaults to `false` because the SDK has `DefaultRedirectStep`
      * — letting OkHttp follow redirects underneath would double-handle them.
+     *
+     * ## Timeout defaults differ from the JDK transport
+     *
+     * When no timeout is configured here, the underlying [OkHttpClient] keeps OkHttp's own
+     * library defaults — notably a ~10 s socket read timeout. A default-built
+     * `JdkHttpTransport`, by contrast, applies a 30 s per-request response timeout. The same
+     * pipeline code therefore has a materially different response budget depending on which
+     * transport backs it. If you rely on default construction, set [readTimeout] (and, if you
+     * want a single overall budget, [callTimeout]) explicitly to get parity with the JDK
+     * transport. Runtime defaults are intentionally left as OkHttp's; only this documentation
+     * calls out the divergence.
      */
     public class Builder internal constructor() : SdkBuilder<OkHttpTransport> {
         private var connectTimeout: Duration? = null
@@ -390,7 +423,12 @@ public class OkHttpTransport private constructor(
                 this.connectTimeout = d
             }
 
-        /** Sets the socket read timeout (longest gap between bytes arriving). */
+        /**
+         * Sets the socket read timeout (longest gap between bytes arriving). Left unset, OkHttp's
+         * ~10 s library default applies — shorter than the JDK transport's 30 s default response
+         * timeout, so set this explicitly for a consistent response budget across transports (see
+         * the [Builder] class KDoc).
+         */
         public fun readTimeout(d: Duration): Builder =
             apply {
                 this.readTimeout = d
@@ -584,9 +622,12 @@ public class OkHttpTransport private constructor(
  * keep matching), so async timeouts retry exactly like the sync path and the JDK transport.
  *
  * There is no genuine-interrupt case to preserve here as there is on the sync path: the SDK never
- * interrupts OkHttp's dispatcher threads (`close()` uses `shutdown`, not `shutdownNow`), and future
- * cancellation is delivered via `call.cancel()` — surfacing as a plain `IOException("Canceled")`
- * after the future is already cancelled — so `onFailure`'s exception is discarded in that race
- * rather than observed by a caller.
+ * interrupts OkHttp's dispatcher threads (`close()` uses `shutdown`, not `shutdownNow`). Two
+ * cancellation shapes are handled by the `onFailure` caller before this function is reached:
+ * consumer-driven future cancellation is delivered via `call.cancel()` — surfacing as a plain
+ * `IOException("Canceled")` after the future is already cancelled, so the exception is discarded in
+ * that race rather than observed by a caller — and an OkHttp-internal cancellation (`cancelAll()` or
+ * an interceptor's `call.cancel()`, where the future is still live) is completed as a non-retryable
+ * `InterruptedIOException` in `onFailure`. Only a genuine no-response failure reaches this function.
  */
 private fun asNetworkException(e: IOException): IOException = NetworkException(e.message, e)

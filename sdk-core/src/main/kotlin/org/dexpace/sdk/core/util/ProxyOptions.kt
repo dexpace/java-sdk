@@ -28,12 +28,16 @@ import java.util.regex.Pattern
  * ## Proxy authentication
  *
  * Proxy auth is driven by [username] / [password]. **Both shipped transports authenticate the
- * proxy with the Basic scheme only:**
+ * proxy with the Basic scheme only,** but they differ over HTTPS CONNECT tunnels:
  * - OkHttp transport: its `proxyAuthenticator` emits `Proxy-Authorization: Basic …` from
- *   [username] / [password].
+ *   [username] / [password], including on the HTTPS CONNECT tunnel.
  * - JDK transport: installs a `java.net.Authenticator` on the `java.net.http` client. That
  *   built-in integration answers Basic proxy challenges only; it does not implement Digest
- *   proxy auth.
+ *   proxy auth. **Caveat:** for an HTTPS origin the `java.net.http` client refuses to send Basic
+ *   proxy credentials on the `CONNECT` tunnel by default — `jdk.http.auth.tunneling.disabledSchemes`
+ *   defaults to `Basic` (JDK-8168839) — so Basic proxy auth silently fails against an `https://`
+ *   origin until the JVM is launched with `-Djdk.http.auth.tunneling.disabledSchemes=` (empty). The
+ *   OkHttp transport has no such restriction.
  *
  * Neither transport performs Digest (or any other non-Basic scheme) proxy authentication. To
  * authenticate against a Digest-only proxy, supply your own pre-configured client — a

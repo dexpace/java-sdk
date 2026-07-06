@@ -12,6 +12,7 @@ package org.dexpace.sdk.async.reactor
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.sse.ServerSentEvent
 import org.dexpace.sdk.core.http.sse.ServerSentEventReader
@@ -47,6 +48,17 @@ private val log = ClientLogger("org.dexpace.sdk.async.reactor.Reactor")
 public fun AsyncHttpClient.executeMono(request: Request): Mono<Response> = deferMono { executeAsync(request) }
 
 /**
+ * Per-call-options [Mono] facade — see [executeMono]. Threads [options] into
+ * `executeAsync(request, options)` so per-request overrides (timeout, retry budget, tags) are not
+ * dropped at the Reactor boundary. Same cold-publisher and per-subscription MDC semantics as the
+ * no-options [executeMono].
+ */
+public fun AsyncHttpClient.executeMono(
+    request: Request,
+    options: RequestOptions,
+): Mono<Response> = deferMono { executeAsync(request, options) }
+
+/**
  * Pipeline-level [Mono] facade — see [executeMono].
  *
  * ## MDC propagation
@@ -61,6 +73,15 @@ public fun AsyncHttpClient.executeMono(request: Request): Mono<Response> = defer
  * `Hooks.enableAutomaticContextPropagation()` at the application level.
  */
 public fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> = deferMono { sendAsync(request) }
+
+/**
+ * Per-call-options pipeline [Mono] facade — see [sendMono]. Threads [options] into
+ * `sendAsync(request, options)` so per-request overrides survive the Reactor boundary.
+ */
+public fun AsyncHttpPipeline.sendMono(
+    request: Request,
+    options: RequestOptions,
+): Mono<Response> = deferMono { sendAsync(request, options) }
 
 /**
  * Bridges a [CompletableFuture]-returning [supplier] to a cold [Mono]. Each subscription runs

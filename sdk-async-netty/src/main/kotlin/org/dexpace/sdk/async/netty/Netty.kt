@@ -14,6 +14,7 @@ import io.netty.util.concurrent.Future
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.pipeline.AsyncHttpPipeline
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.MdcSnapshot
@@ -48,11 +49,33 @@ public fun AsyncHttpClient.executeNetty(
     executor: EventExecutor,
 ): Future<Response> = executeAsync(request).bridgeToNetty(executor)
 
+/**
+ * Per-call-options Netty future facade — see [executeNetty]. Threads [options] into
+ * `executeAsync(request, options)` so per-request overrides (timeout, retry budget, tags) are not
+ * dropped at the Netty boundary. Same cancellation and MDC-propagation semantics as the no-options
+ * [executeNetty].
+ */
+public fun AsyncHttpClient.executeNetty(
+    request: Request,
+    options: RequestOptions,
+    executor: EventExecutor,
+): Future<Response> = executeAsync(request, options).bridgeToNetty(executor)
+
 /** Pipeline-level Netty future facade — see [executeNetty]. */
 public fun AsyncHttpPipeline.sendNetty(
     request: Request,
     executor: EventExecutor,
 ): Future<Response> = sendAsync(request).bridgeToNetty(executor)
+
+/**
+ * Per-call-options pipeline Netty future facade — see [sendNetty]. Threads [options] into
+ * `sendAsync(request, options)` so per-request overrides survive the Netty boundary.
+ */
+public fun AsyncHttpPipeline.sendNetty(
+    request: Request,
+    options: RequestOptions,
+    executor: EventExecutor,
+): Future<Response> = sendAsync(request, options).bridgeToNetty(executor)
 
 /**
  * Shared bridge: mirror this [CompletableFuture]'s completion onto a Netty [Promise] created
