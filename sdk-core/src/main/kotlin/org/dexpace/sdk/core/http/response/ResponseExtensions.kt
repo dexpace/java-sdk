@@ -5,13 +5,18 @@
  * SPDX-License-Identifier: MIT
  */
 
+@file:JvmName("ResponseExtensions")
+
 package org.dexpace.sdk.core.http.response
 
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
+import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.TypeRef
 
@@ -32,29 +37,58 @@ private const val MAX_BUFFERED_ERROR_BODY_BYTES: Long = 1L * 1024 * 1024
  *
  * The error body is buffered in memory (up to 1 MiB; bytes beyond that limit are dropped)
  * so it is readable from the thrown exception after the original transport connection is
- * released. The buffered copy is a single, in-memory byte sequence — it is not infinitely
- * replayable; once read it is consumed.
+ * released. The buffered copy is replayable: [HttpException.bodyAs], `body.string()`, and
+ * `bodySnapshot()` each read the full buffered bytes independently.
  *
  * @throws HttpException for any 4xx or 5xx response.
  */
 public fun Response.throwOnError(): Response {
     if (!status.isError) return this
-    val buffer = Io.provider.buffer()
-    val originalBody = body
-    if (originalBody != null) {
-        originalBody.use { b ->
+    throw HttpExceptionFactory.fromResponse(bufferErrorBody(this, MAX_BUFFERED_ERROR_BODY_BYTES))
+}
+
+/**
+ * Returns a copy of [response] whose body has been drained (up to [maxBytes]; further bytes are
+ * dropped) into memory and made **replayable** — every [ResponseBody.source] call reads the full
+ * buffered bytes again — so the body survives the original transport connection being released and
+ * can be read more than once (e.g. decode via [HttpException.bodyAs], then log a snapshot). Returns
+ * [response] unchanged when it has no body.
+ *
+ * The in-memory buffer is acquired inside the original body's `use` block, so a failure to resolve
+ * an [Io] provider still closes the original body rather than leaking the connection. Shared by
+ * [throwOnError] and the pipeline's error-mapping recovery step so the two cannot drift.
+ */
+internal fun bufferErrorBody(
+    response: Response,
+    maxBytes: Long,
+): Response {
+    val original = response.body ?: return response
+    val mediaType = original.mediaType()
+    val bytes =
+        original.use { b ->
+            val buffer = Io.provider.buffer()
             val src = b.source()
-            var remaining = MAX_BUFFERED_ERROR_BODY_BYTES
+            var remaining = maxBytes
             while (remaining > 0L) {
                 val n = src.read(buffer, remaining)
                 if (n < 0L) break
                 remaining -= n
             }
+            buffer.readByteArray()
         }
-    }
-    val bufferedBody = originalBody?.let { ResponseBody.create(buffer, it.mediaType(), buffer.size) }
-    val bufferedResponse = newBuilder().body(bufferedBody).build()
-    throw HttpExceptionFactory.fromResponse(bufferedResponse)
+    val replayable =
+        object : ResponseBody() {
+            override fun mediaType(): MediaType? = mediaType
+
+            override fun contentLength(): Long = bytes.size.toLong()
+
+            override fun source(): BufferedSource = Io.provider.source(bytes)
+
+            override fun close() {
+                // In-memory copy; no transport resource to release.
+            }
+        }
+    return response.newBuilder().body(replayable).build()
 }
 
 /**
@@ -94,13 +128,13 @@ public fun <T> HttpException.bodyAs(
  * @param serde The [Serde] bundle whose [Serde.deserializer] is used for decoding.
  * @param type The target class token required for runtime type dispatch.
  * @return The decoded value.
- * @throws IllegalStateException if the response body is `null`.
+ * @throws SerdeException if the response body is `null`.
  */
 public fun <T> Response.deserialize(
     serde: Serde,
     type: Class<T>,
 ): T {
-    val b = body ?: error("Response body is null — cannot deserialize into $type")
+    val b = body ?: throw SerdeException("Response body is null — cannot deserialize into $type")
     return try {
         serde.deserializer.deserialize(b.source().inputStream(), type)
     } finally {
@@ -127,7 +161,7 @@ public fun <T> Response.deserialize(
     serde: Serde,
     ref: TypeRef<T>,
 ): T {
-    val b = body ?: error("Response body is null — cannot deserialize into ${ref.type}")
+    val b = body ?: throw SerdeException("Response body is null — cannot deserialize into ${ref.type}")
     return try {
         serde.deserializer.deserialize(b.source().inputStream(), ref)
     } finally {
@@ -139,11 +173,14 @@ public fun <T> Response.deserialize(
  * Decodes the response body as a reified type [T] using [serde]'s deserializer, then closes
  * the response.
  *
- * This is Kotlin-only sugar over [deserialize]; Java callers should use the explicit `Class`
- * overload.
+ * This is Kotlin-only sugar over [deserialize]; Java callers should use the explicit `Class` or
+ * `TypeRef` overload. It captures `T` as a [TypeRef], so a parametric target such as
+ * `response.deserialize<List<User>>(serde)` reifies its full type and decodes correctly instead of
+ * erasing to the raw class (which would heap-pollute). This routes through the `TypeRef` overload,
+ * so it requires a [serde] that resolves generics for a parametric `T`.
  *
  * @param serde The [Serde] bundle whose deserializer is used for decoding.
  * @return The decoded value.
- * @throws IllegalStateException if the response body is `null`.
+ * @throws SerdeException if the response body is `null`.
  */
-public inline fun <reified T> Response.deserialize(serde: Serde): T = deserialize(serde, T::class.java)
+public inline fun <reified T> Response.deserialize(serde: Serde): T = deserialize(serde, object : TypeRef<T>() {})

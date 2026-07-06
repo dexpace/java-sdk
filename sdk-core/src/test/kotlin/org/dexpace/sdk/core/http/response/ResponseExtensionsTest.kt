@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
+import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.Serializer
 import org.dexpace.sdk.io.OkioIoProvider
 import java.io.InputStream
@@ -247,16 +248,16 @@ class ResponseExtensionsTest {
     }
 
     @Test
-    fun `deserialize throws IllegalStateException when body is null`() {
+    fun `deserialize throws SerdeException when body is null`() {
         val serde = fakeSerde(throwingDeserializer())
         val r = response(Status.OK, null)
-        assertFailsWith<IllegalStateException> {
+        assertFailsWith<SerdeException> {
             r.deserialize(serde, User::class.java)
         }
     }
 
     @Test
-    fun `deserialize reified delegates to class overload`() {
+    fun `deserialize reified decodes a concrete type`() {
         val expected = User(99)
         val serde = fakeSerde(constantDeserializer(expected))
         val r = response(Status.OK, """{"id":99}""")

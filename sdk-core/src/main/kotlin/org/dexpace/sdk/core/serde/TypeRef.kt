@@ -55,11 +55,34 @@ public abstract class TypeRef<T> protected constructor() {
             "TypeRef must be created as an anonymous subclass with a type argument, " +
                 "e.g. object : TypeRef<List<User>>() {}."
         }
-        type = superClass.actualTypeArguments.first()
+        val captured = superClass.actualTypeArguments.first()
+        require(!containsTypeVariable(captured)) {
+            "TypeRef captured an unresolved type variable ($captured). Build it with a concrete " +
+                "type argument at the call site (e.g. object : TypeRef<List<User>>() {}); a TypeRef " +
+                "created inside a generic function or a generic subclass erases its argument to the " +
+                "bound and would silently decode into the wrong type."
+        }
+        type = captured
         rawClass = rawClassOf(type)
     }
 
     private companion object {
+        /**
+         * True when [type] is, or transitively contains, an unresolved [TypeVariable]. Such a type
+         * was captured where the argument is erased (a generic function or subclass), so decoding it
+         * would resolve to `Object` rather than the intended type.
+         */
+        private fun containsTypeVariable(type: Type): Boolean =
+            when (type) {
+                is TypeVariable<*> -> true
+                is ParameterizedType -> type.actualTypeArguments.any(::containsTypeVariable)
+                is GenericArrayType -> containsTypeVariable(type.genericComponentType)
+                is WildcardType ->
+                    type.upperBounds.any(::containsTypeVariable) ||
+                        type.lowerBounds.any(::containsTypeVariable)
+                else -> false
+            }
+
         /** Resolves the erased raw [Class] backing any reflective [Type]. */
         private fun rawClassOf(type: Type): Class<*> =
             when (type) {

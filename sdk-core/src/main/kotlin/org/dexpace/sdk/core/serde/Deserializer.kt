@@ -17,12 +17,13 @@ import java.io.InputStream
  * runtime — without it, the method-level `<T>` is erased and the only conformant implementation is
  * an unchecked cast to `Any`, which silently returns a `LinkedHashMap`/`List` and throws
  * `ClassCastException` at the first field access (heap pollution). The reified
- * [deserialize] extension forwards `T::class.java` for the common "the caller already knows `T` at
- * compile time" case.
+ * [deserialize] extension captures `T` as a [TypeRef], so a parametric `T` (`List<MyDto>`) reifies
+ * its full type and routes through the [TypeRef] overloads rather than erasing to a raw [Class].
  *
  * For parametric targets (`List<MyDto>`, `Map<String, MyDto>`) the raw [Class] token is
- * insufficient; adapter modules expose their own type-reference entry points (e.g.
- * `sdk-serde-jackson`'s `JacksonSerde.deserializeAs`).
+ * insufficient; the [TypeRef] overloads carry the full generic type, and adapter modules that
+ * resolve generics (e.g. `sdk-serde-jackson`) override them to decode parametric targets. A
+ * format-agnostic deserializer throws [SerdeException] for a genuinely parametric [TypeRef].
  *
  * Implementations surface decode failures as [DeserializationException] (a [SerdeException]
  * subtype), chaining the backing codec's error as the cause, so callers catch a single stable SDK
@@ -93,6 +94,18 @@ public interface Deserializer {
         inputStream: InputStream,
         ref: TypeRef<T>,
     ): T = deserializeViaRawClass(ref) { rawType -> deserialize(inputStream, rawType) }
+
+    /**
+     * Decode a complete document of the parametric type captured by [ref] from the in-memory [input]
+     * byte array. See the string overload for the generic-resolution contract.
+     *
+     * @throws SerdeException if this deserializer cannot resolve the generic [ref], or (from an
+     *   overriding implementation) [DeserializationException] if [input] is malformed or mismatched.
+     */
+    public fun <T> deserialize(
+        input: ByteArray,
+        ref: TypeRef<T>,
+    ): T = deserializeViaRawClass(ref) { rawType -> deserialize(input, rawType) }
 }
 
 /**
@@ -115,15 +128,19 @@ private inline fun <T> deserializeViaRawClass(
     )
 }
 
+// The reified extensions build an anonymous TypeRef<T> rather than forwarding T::class.java, so a
+// parametric target (List<User>) reifies its full type and routes through the TypeRef overloads
+// instead of erasing to the raw class. A concrete T still decodes exactly as before.
+
 /** Decode a complete document from the in-memory [input] string into the reified type [T]. */
-public inline fun <reified T> Deserializer.deserialize(input: String): T = deserialize(input, T::class.java)
+public inline fun <reified T> Deserializer.deserialize(input: String): T = deserialize(input, object : TypeRef<T>() {})
 
 /** Decode a complete document from the in-memory [input] byte array into the reified type [T]. */
-public inline fun <reified T> Deserializer.deserialize(input: ByteArray): T = deserialize(input, T::class.java)
+public inline fun <reified T> Deserializer.deserialize(input: ByteArray): T = deserialize(input, object : TypeRef<T>() {})
 
 /**
  * Decode a complete document by streaming from [inputStream] into the reified type [T]. The stream
  * is read to EOF but **not** closed — the caller retains ownership.
  */
 public inline fun <reified T> Deserializer.deserialize(inputStream: InputStream): T =
-    deserialize(inputStream, T::class.java)
+    deserialize(inputStream, object : TypeRef<T>() {})
