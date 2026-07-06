@@ -37,6 +37,12 @@ import java.io.IOException
  * (no further challenge handling — one retry only). The default implementation returns
  * `null`; subclasses override to implement token-refresh / step-up auth flows.
  *
+ * The replay is gated on body replayability, exactly like the retry and redirect steps: if the
+ * replacement request carries a body that is not replayable
+ * ([org.dexpace.sdk.core.http.request.RequestBody.isReplayable]), the replay is skipped and the
+ * original 401 is surfaced unchanged. Re-sending a single-use streaming body would trip its
+ * consume-once guard and mask the real 401 as an `IOException`.
+ *
  * ## Cross-origin redirects
  *
  * The AUTH stage runs *inside* the REDIRECT stage, so a redirect re-issue flows back
@@ -98,6 +104,15 @@ public abstract class AuthStep : HttpStep {
                 response.close()
                 throw t
             } ?: return response
+
+        // Gate the challenge replay on body replayability, exactly like the retry and redirect
+        // steps. A single-use streaming body cannot be re-sent: replaying it would trip the body's
+        // consume-once guard and surface an IOException("HTTP pipeline failure") that masks the real
+        // 401. When the replacement carries a non-replayable body, skip the replay and return the
+        // original 401 unchanged (do NOT close it — the caller owns and consumes it).
+        val retryBody = retryRequest.body
+        if (retryBody != null && !retryBody.isReplayable()) return response
+
         response.close()
         return next.copy().process(retryRequest)
     }
@@ -117,7 +132,9 @@ public abstract class AuthStep : HttpStep {
      *
      * Subclasses override to refresh tokens, parse the `WWW-Authenticate` challenge, or
      * step up to a different auth scheme. Returning a non-null [Request] triggers a
-     * single retry through the downstream chain; the original 401 is closed first.
+     * single retry through the downstream chain, provided its body is replayable — a
+     * non-replayable body skips the retry and surfaces the original 401 instead; the
+     * original 401 is closed first only when the replay actually proceeds.
      *
      * @param request the request already stamped with the original credential (the one
      *   that produced the 401). May or may not be reused for the retry.

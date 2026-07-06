@@ -93,6 +93,20 @@ public class AsyncHttpPipeline internal constructor(
     ): CompletableFuture<T> = sendAsync(request).handleWith(handler)
 
     /**
+     * Runs [request] through the pipeline with per-call [options] applied, then maps the response
+     * with [handler], returning the typed result. Combines the per-call [options] threading of
+     * [sendAsync]`(request, options)` with the terminal mapping of [sendAsync]`(request, handler)`;
+     * equivalent to `sendAsync(request, options).handleWith(handler)`. On success the handler's value
+     * completes the future and the response is closed; on failure the future is failed with the
+     * unwrapped cause. See [handleWith] for the exact semantics.
+     */
+    public fun <T> sendAsync(
+        request: Request,
+        options: RequestOptions,
+        handler: ResponseHandler<T>,
+    ): CompletableFuture<T> = sendAsync(request, options).handleWith(handler)
+
+    /**
      * [AsyncHttpClient] SPI conformance: delegates to [sendAsync] so this pipeline can be used as
      * an async transport. [sendAsync] remains the primary entry point.
      */
@@ -108,6 +122,23 @@ public class AsyncHttpPipeline internal constructor(
         options: RequestOptions,
     ): CompletableFuture<Response> = sendAsync(request, options)
 
+    /**
+     * No-op. **Closing the pipeline does NOT close the underlying transport.**
+     *
+     * The pipeline never owns its [httpClient] — it wraps a caller-supplied transport. Per the
+     * SDK's ownership rule a bring-your-own transport must never be closed by the SDK, and an
+     * SDK-managed transport handed to the pipeline stays the responsibility of whoever created it.
+     * Wrapping a pipeline in try-with-resources / `use { }` therefore releases **nothing**: do not
+     * let it create a false sense that the transport's threads, connection pool, or executor were
+     * freed. Close the transport directly (or through whatever created it) when you are done.
+     *
+     * This override exists only to carry that warning; behaviour is identical to the inherited
+     * [AsyncHttpClient] no-op.
+     */
+    override fun close() {
+        // Intentionally a no-op: the pipeline does not own the transport. See KDoc.
+    }
+
     public companion object {
         /**
          * Builds a step-less [AsyncHttpPipeline] that forwards every `sendAsync` directly to
@@ -122,9 +153,14 @@ public class AsyncHttpPipeline internal constructor(
         /**
          * Builds an async pipeline over [transport] wired with the async standard resilience
          * defaults — retry with backoff and instrumentation — via
-         * [AsyncHttpPipelineBuilder.appendStandardResilience]. As documented there, there is no
-         * async redirect default, and [scheduler] backs the retry step's non-blocking delays
-         * (the caller owns and shuts it down; the SDK never closes it).
+         * [AsyncHttpPipelineBuilder.appendStandardResilience]. [scheduler] backs the retry step's
+         * non-blocking delays (the caller owns and shuts it down; the SDK never closes it).
+         *
+         * **This async pipeline does NOT follow HTTP redirects at any layer.** There is no async
+         * redirect step in the SDK, and both reference transports default to
+         * `followRedirects = false`, so a 3xx surfaces to the caller verbatim. Callers who need
+         * redirect following must enable it on the transport itself, or use the synchronous
+         * [HttpPipeline.standard]. See [AsyncHttpPipelineBuilder.appendStandardResilience].
          */
         @JvmStatic
         public fun standard(

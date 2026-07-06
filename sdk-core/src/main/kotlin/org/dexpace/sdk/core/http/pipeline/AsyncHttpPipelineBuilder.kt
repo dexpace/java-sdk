@@ -19,9 +19,32 @@ import java.util.concurrent.ScheduledExecutorService
  * shared [StagedSteps] helper — including exclusive pillar occupancy: appending or prepending a
  * distinct second step to an already-occupied pillar throws [IllegalStateException]; use [replace]
  * to swap it.
+ *
+ * @constructor Starts a fresh, step-less builder whose terminal transport is [httpClient]. When
+ *   [httpClient] happens to be an [AsyncHttpPipeline], this **nests** it as an opaque transport:
+ *   the steps added to the outer builder run once, *outside* the nested pipeline's own
+ *   retry / auth loops. That is rarely the intent — to instead **flatten** an existing pipeline
+ *   (copy its steps into this builder) use the secondary `AsyncHttpPipelineBuilder(AsyncHttpPipeline)`
+ *   constructor or [from]. Overload resolution picks the flattening constructor for a
+ *   statically-typed [AsyncHttpPipeline] argument, so `AsyncHttpPipelineBuilder(pipeline)` flattens;
+ *   reach for this transport constructor only when you genuinely want to nest a pipeline as a
+ *   transport.
  */
 public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     private val steps: StagedSteps<AsyncHttpStep> = StagedSteps(stageOf = AsyncHttpStep::stage)
+
+    /**
+     * Seeds a new builder from [pipeline] by **flattening** it: [pipeline]'s steps become this
+     * builder's steps and its transport becomes this builder's terminal transport (identical to
+     * [from]). Prefer this over the generic [AsyncHttpClient] transport constructor whenever the
+     * argument is an [AsyncHttpPipeline] — the transport constructor would instead **nest** the
+     * pipeline as an opaque transport, running the outer steps outside the inner pipeline's
+     * retry / auth loops. Because [AsyncHttpPipeline] is more specific than [AsyncHttpClient],
+     * `AsyncHttpPipelineBuilder(pipeline)` resolves to this flattening constructor.
+     */
+    public constructor(pipeline: AsyncHttpPipeline) : this(pipeline.httpClient) {
+        steps.reload(pipeline.steps)
+    }
 
     /** Append [step] at the tail of its stage's deque (runs after steps already there). */
     public fun append(step: AsyncHttpStep): AsyncHttpPipelineBuilder = apply { steps.append(step) }
@@ -42,6 +65,11 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
      * matched anchor. A cross-stage insert throws [IllegalArgumentException] rather than
      * silently relocating [step] to wherever its own stage falls. Route a different-stage step
      * with [append] / [prepend] instead.
+     *
+     * @throws IllegalStateException if [step] would install a *distinct* second step onto an
+     *   already-occupied pillar stage — i.e. [T] is itself the pillar occupant and [step] is a
+     *   different step declaring that same pillar stage. A pillar admits exactly one step, so the
+     *   re-bucket after the insert rejects the duplicate. Use [replace] to swap a pillar's occupant.
      */
     public inline fun <reified T : AsyncHttpStep> insertAfter(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
         insertAfter(T::class.java, step)
@@ -49,6 +77,9 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     /**
      * Insert [step] immediately before the first instance of [T] in the pipeline. Same
      * within-stage-only constraint as [insertAfter] — see its KDoc.
+     *
+     * @throws IllegalStateException if [step] would install a *distinct* second step onto an
+     *   already-occupied pillar stage (see [insertAfter]); use [replace] to swap a pillar instead.
      */
     public inline fun <reified T : AsyncHttpStep> insertBefore(step: AsyncHttpStep): AsyncHttpPipelineBuilder =
         insertBefore(T::class.java, step)
@@ -102,9 +133,15 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
      * Appends the async standard resilience defaults: [DefaultAsyncRetryStep] ([Stage.RETRY]) and
      * [DefaultAsyncInstrumentationStep] ([Stage.LOGGING]).
      *
-     * There is **no async redirect default** — the SDK ships no [Stage.REDIRECT] `AsyncHttpStep`,
-     * so (unlike the synchronous [HttpPipelineBuilder.appendStandardResilience]) redirect following
-     * is omitted here. Add a custom async redirect step yourself if you need it.
+     * ## The async pipeline does NOT follow redirects
+     * There is **no async redirect step in the SDK**, so — unlike the synchronous
+     * [HttpPipelineBuilder.appendStandardResilience], which installs a `DefaultRedirectStep` — this
+     * preset (and the async pipeline as a whole) follows **no** HTTP redirects at any layer. Both
+     * reference transports also default to `followRedirects = false`, so a 3xx surfaces to the
+     * caller verbatim rather than being followed. If you need redirects followed you must either
+     * enable redirect following on the transport itself (e.g. the OkHttp / JDK-HttpClient
+     * `followRedirects` option) or use the synchronous [HttpPipeline], which ships a redirect step.
+     * Installing a custom async [Stage.REDIRECT] step is also an option.
      *
      * [DefaultAsyncRetryStep] requires a [ScheduledExecutorService] on which to schedule its
      * (non-blocking) backoff delays, so — unlike the synchronous no-arg preset — this method takes
@@ -126,24 +163,8 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
                 DefaultAsyncRetryStep(scheduler),
                 DefaultAsyncInstrumentationStep(),
             )
-        requireStandardPillarsAvailable(additions)
+        steps.requirePillarsVacant(additions)
         return appendAll(additions)
-    }
-
-    /**
-     * Precondition for [appendStandardResilience]: none of the pillar stages [additions] will fill
-     * may already be occupied. Validating up front turns what would otherwise be a
-     * partial-mutation-then-throw (the retry pillar installed before the later [append] rejects the
-     * conflict) into an atomic all-or-nothing check.
-     */
-    private fun requireStandardPillarsAvailable(additions: List<AsyncHttpStep>) {
-        val occupied = additions.map { it.stage }.filter { it.isPillar && steps.pillarAt(it) != null }
-        check(occupied.isEmpty()) {
-            "appendStandardResilience() installs the SDK's resilience pillars into empty slots only, " +
-                "but ${occupied.joinToString(", ")} ${if (occupied.size == 1) "is" else "are"} already " +
-                "configured on this builder. Call appendStandardResilience() first (on a fresh builder), " +
-                "then customize an individual pillar via replace<T>()."
-        }
     }
 
     /** Builds an immutable [AsyncHttpPipeline]. */
@@ -153,9 +174,12 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
     }
 
     public companion object {
-        /** Returns a new builder seeded with [pipeline]'s steps and client. */
+        /**
+         * Returns a new builder seeded with [pipeline]'s steps and client — i.e. **flattens**
+         * [pipeline] into a fresh builder. Delegates to the flattening
+         * `AsyncHttpPipelineBuilder(AsyncHttpPipeline)` constructor.
+         */
         @JvmStatic
-        public fun from(pipeline: AsyncHttpPipeline): AsyncHttpPipelineBuilder =
-            AsyncHttpPipelineBuilder(pipeline.httpClient).also { it.steps.reload(pipeline.steps) }
+        public fun from(pipeline: AsyncHttpPipeline): AsyncHttpPipelineBuilder = AsyncHttpPipelineBuilder(pipeline)
     }
 }

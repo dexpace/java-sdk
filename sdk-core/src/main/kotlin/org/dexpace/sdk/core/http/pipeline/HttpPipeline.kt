@@ -81,6 +81,23 @@ public class HttpPipeline internal constructor(
         options: RequestOptions,
     ): Response = send(request, options)
 
+    /**
+     * No-op. **Closing the pipeline does NOT close the underlying transport.**
+     *
+     * The pipeline never owns its [httpClient] — it wraps a caller-supplied transport. Per the
+     * SDK's ownership rule a bring-your-own transport must never be closed by the SDK, and an
+     * SDK-managed transport handed to the pipeline stays the responsibility of whoever created it.
+     * Wrapping a pipeline in try-with-resources / `use { }` therefore releases **nothing**: do not
+     * let it create a false sense that the transport's threads, connection pool, or executor were
+     * freed. Close the transport directly (or through whatever created it) when you are done.
+     *
+     * This override exists only to carry that warning; behaviour is identical to the inherited
+     * [HttpClient] no-op.
+     */
+    override fun close() {
+        // Intentionally a no-op: the pipeline does not own the transport. See KDoc.
+    }
+
     public companion object {
         /**
          * Builds a step-less [HttpPipeline] that forwards every `send` directly to [client].

@@ -80,11 +80,49 @@ internal class StagedSteps<S : Any>(
         return out
     }
 
-    /** Replaces the contents of this storage with [steps], preserving order. */
+    /**
+     * Replaces the contents of this storage with [steps], preserving order.
+     *
+     * All-or-nothing: the replacement stage/pillar state is assembled into local collections
+     * first, running the same exclusive-pillar validation as [append]. The live `perStage` /
+     * `pillars` fields are reassigned only once the whole rebuild succeeds, so a pillar collision
+     * (a *distinct* second step on an already-filled pillar) throws [IllegalStateException] with
+     * this storage left completely unchanged — never half-reloaded with the post-collision steps
+     * dropped.
+     */
     fun reload(steps: List<S>) {
+        val newPerStage = mutableMapOf<Stage, ArrayDeque<S>>()
+        val newPillars = mutableMapOf<Stage, S>()
+        for (step in steps) {
+            val stage = stageOf(step)
+            if (stage.isPillar) {
+                installPillarInto(newPillars, step, stage)
+            } else {
+                newPerStage.getOrPut(stage) { ArrayDeque() }.addLast(step)
+            }
+        }
+        // Rebuild succeeded — commit atomically. No throw can occur past this point.
         perStage.clear()
+        perStage.putAll(newPerStage)
         pillars.clear()
-        steps.forEach(::append)
+        pillars.putAll(newPillars)
+    }
+
+    /**
+     * Verifies that none of the pillar stages [additions] would occupy is already filled. The
+     * builders' `appendStandardResilience()` presets call this before installing any step so a
+     * conflict turns into an atomic up-front rejection rather than a partial-mutation-then-throw.
+     *
+     * @throws IllegalStateException if any pillar stage among [additions] already holds a step.
+     */
+    fun requirePillarsVacant(additions: List<S>) {
+        val occupied = additions.map(stageOf).filter { it.isPillar && pillarAt(it) != null }
+        check(occupied.isEmpty()) {
+            "appendStandardResilience() installs the SDK's resilience pillars into empty slots only, " +
+                "but ${occupied.joinToString(", ")} ${if (occupied.size == 1) "is" else "are"} already " +
+                "configured on this builder. Call appendStandardResilience() first (on a fresh builder), " +
+                "then customize an individual pillar via replace<T>()."
+        }
     }
 
     /**
@@ -167,8 +205,21 @@ internal class StagedSteps<S : Any>(
         step: S,
         stage: Stage,
     ) {
+        installPillarInto(pillars, step, stage)
+    }
+
+    /**
+     * Installs [step] as the pillar for [stage] into [target], enforcing exclusive occupancy.
+     * Shared by [append]/[prepend] (which pass the live [pillars]) and [reload] (which passes a
+     * scratch map so a mid-rebuild collision leaves the live state untouched).
+     */
+    private fun installPillarInto(
+        target: MutableMap<Stage, S>,
+        step: S,
+        stage: Stage,
+    ) {
         check(stage != Stage.SEND) { "SEND is the terminal client — not a step slot" }
-        val existing = pillars[stage]
+        val existing = target[stage]
         if (existing != null && existing !== step) {
             val existingType = existing::class.simpleName ?: "<anonymous>"
             val newType = step::class.simpleName ?: "<anonymous>"
@@ -178,7 +229,7 @@ internal class StagedSteps<S : Any>(
                     "replace<$existingType>(newStep) instead of append/prepend.",
             )
         }
-        pillars[stage] = step
+        target[stage] = step
     }
 }
 
