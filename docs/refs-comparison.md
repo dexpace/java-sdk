@@ -49,7 +49,7 @@ Source agent reports are not committed; this document is the synthesized conclus
 3. **The pipeline architecture absorbed Airbyte's `Hook` taxonomy**
    (`SdkInit` / `BeforeRequest` / `AfterSuccess` / `AfterError`) — the cleanest middleware
    shape we've seen. It maps onto `RequestPipelineStep` / `ResponsePipelineStep` plus a
-   recovery-aware `ResponsePipeline` that folds a sealed `ResponseOutcome`
+   recovery-aware `ResponseRecoveryChain` that folds a sealed `ResponseOutcome`
    (`Success(Response)` / `Failure(Throwable)`) rather than a bare response.
 4. **For code generation, build our own.** A KotlinPoet/JavaPoet-based emitter sitting on
    swagger-parser, distributed as a Gradle plugin, targeting our `sdk-core` runtime. None
@@ -110,8 +110,8 @@ Our `IoProvider` seam + `Source`/`Sink` contracts is the architecturally cleanes
 
 | SDK | Architecture | Verdict |
 |---|---|---|
-| Ours | `RequestPipeline` / recovery-aware `ResponsePipeline` fold over a sealed `ResponseOutcome`; `PipelineStep` `fun interface`s | Right shape; recovery semantics in place |
-| Expedia | `ExecutionPipeline` = `Request → Request` + `Response → Response` folds | Can't intercept transport, can't loop, can't proceed |
+| Ours | `RequestRecoveryChain` / recovery-aware `ResponseRecoveryChain` fold over a sealed `ResponseOutcome`; `PipelineStep` `fun interface`s | Right shape; recovery semantics in place |
+| Expedia | `RecoveryChain` = `Request → Request` + `Response → Response` folds | Can't intercept transport, can't loop, can't proceed |
 | Square | One OkHttp `Interceptor` (the retry one) | No SDK-level pipeline |
 | Airbyte | **Hook taxonomy: `SdkInit`, `BeforeRequest`, `AfterSuccess`, `AfterError`** | Best design in the cohort |
 | gax | Per-call-shape decorator chain (`Callables.retrying(...)`, `TracedUnaryCallable`, ...) | Powerful but N parallel hierarchies for N call shapes |
@@ -122,7 +122,7 @@ How Airbyte's hook taxonomy (`utils/Hook.java` in their repo) maps to our types,
 - `AfterSuccess` ≡ `ResponsePipelineStep` (runs on the success path only)
 - `AfterError` ≡ `ResponseRecoveryStep`, taking a sealed `ResponseOutcome` (`Success(Response)` / `Failure(Throwable)`) instead of `Either`
 
-`ResponsePipeline` folds the outcome through the response steps (success path) and then through
+`ResponseRecoveryChain` folds the outcome through the response steps (success path) and then through
 every recovery step, so recovery always observes the terminal outcome — including failures
 thrown by a response step. This generalizes Airbyte's `Hooks.afterError(...)`: a recovery step
 may rescue a failure into a success, replace the throwable, or pass through.
@@ -133,7 +133,7 @@ Two design choices stuck:
 
 ### Retry & Backoff
 
-Retry now ships as a pipeline step (`RetryStep` over `RetrySettings` + `BackoffCalculator` +
+Retry now ships as a pipeline step (`RetryRecovery` over `RetrySettings` + `BackoffCalculator` +
 `RetryAfterParser`, plus the stage-based `DefaultRetryStep`). The table below records which
 reference SDK each behavior was modeled on:
 
@@ -328,7 +328,7 @@ adapters where noted):
 
 - **Retry pipeline step.** `Retry-After` + `X-RateLimit-Reset` parsing, backoff with jitter, idempotency-aware (HTTP method + replayable body), `ScheduledExecutorService`-based delay. [`pipeline/step/retry/`, `http/pipeline/steps/DefaultRetryStep.kt`]
 - **Typed exception hierarchy.** `HttpException` base + status-code subclasses; `retryable` derived from `RetryUtils.isRetryable(status.code)`. [`http/response/exception/`]
-- **Recovery step.** Recovery-aware `ResponsePipeline` folding a sealed `ResponseOutcome` (`Success` / `Failure`); `ResponseRecoveryStep` is the `AfterError` analog. [`pipeline/`]
+- **Recovery step.** Recovery-aware `ResponseRecoveryChain` folding a sealed `ResponseOutcome` (`Success` / `Failure`); `ResponseRecoveryStep` is the `AfterError` analog. [`pipeline/`]
 - **`HttpClient.close()` / lifecycle.** `AutoCloseable` on both SPIs and both transports; SDK-managed clients close, BYO clients don't. [`client/`]
 - **Idempotency-key step.** Auto-injects `Idempotency-Key: UUID.randomUUID()` for `POST`/`PUT`/`PATCH`; caller-set header wins; pluggable key strategy. [`pipeline/step/IdempotencyKeyStep.kt`]
 - **Auth.** `Credential` family + RFC 7235 challenge parsing + Basic/Digest/Composite `ChallengeHandler`s + `AuthStep` pillar. [`auth/`, `http/pipeline/steps/`]

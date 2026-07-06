@@ -86,7 +86,7 @@ don't trip over each other.
 | `sdk-core/client/HttpClient.kt` | WU-4 only | WU-3/5/6/7 must NOT touch this file. |
 | `sdk-core/client/AsyncHttpClient.kt` | WU-4 only | Same. |
 | `sdk-core/instrumentation/` | WU-7 only | WU-3/5/6 emit no tracer events in this pass — wired in a follow-up. |
-| `sdk-core/pipeline/ResponsePipeline.kt` and step contracts | WU-1 only | WU-3 reads the contract WU-1 produces but does not modify pipeline types. |
+| `sdk-core/pipeline/ResponseRecoveryChain.kt` and step contracts | WU-1 only | WU-3 reads the contract WU-1 produces but does not modify pipeline types. |
 | `sdk-core/http/response/Status.kt` | WU-2 only | New exception package alongside, but Status itself only WU-2. |
 | `sdk-transport-okhttp/`, `sdk-transport-jdkhttp/` | WU-4 only (lifecycle) | Other WUs don't touch transport modules. |
 | `settings.gradle.kts` | WU-8 (sdk-serde-jackson) | WU-10's auth landed in `sdk-core`, so no second `settings.gradle.kts` edit materialized. |
@@ -96,9 +96,9 @@ don't trip over each other.
 ### WU-1: AfterError pipeline upgrade
 
 **Status: shipped.** `ResponseOutcome` (sealed `Success`/`Failure`), `ResponseRecoveryStep`, the
-recovery-aware `ResponsePipeline`, and `ExecutionPipeline` are all in `sdk-core/.../pipeline`.
+recovery-aware `ResponseRecoveryChain`, and `RecoveryChain` are all in `sdk-core/.../pipeline`.
 
-**Goal.** Replace the empty `ResponsePipeline` placeholder with Airbyte-style recovery
+**Goal.** Replace the empty `ResponseRecoveryChain` placeholder with Airbyte-style recovery
 semantics. Add a third step type that takes `Either<Response, Throwable>` and can rescue or
 rethrow. Funnel **all** exceptions through this path uniformly (don't repeat Airbyte's bug
 where `BeforeRequest` throws bypass `AfterError`).
@@ -110,8 +110,8 @@ where `BeforeRequest` throws bypass `AfterError`).
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/ResponseOutcome.kt` — sealed class `ResponseOutcome { data class Success(response); data class Failure(throwable) }`. Simpler than `Either<>`.
 
 **Files (modify):**
-- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/ResponsePipeline.kt` — promote from empty interface to a fold over `(ResponsePipelineStep+, ResponseRecoveryStep+)` lists. Document semantics.
-- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/ExecutionPipeline.kt` — wire request → transport → outcome → recovery → response steps. Catch transport exceptions, wrap into `ResponseOutcome.Failure`, feed through the recovery chain.
+- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/ResponseRecoveryChain.kt` — promote from empty interface to a fold over `(ResponsePipelineStep+, ResponseRecoveryStep+)` lists. Document semantics.
+- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/RecoveryChain.kt` — wire request → transport → outcome → recovery → response steps. Catch transport exceptions, wrap into `ResponseOutcome.Failure`, feed through the recovery chain.
 - `docs/pipelines.md` — update to reflect new architecture.
 
 **Acceptance criteria:**
@@ -177,7 +177,7 @@ the original per-subclass table got wrong: **408 is retryable** (it has its own
 
 ### WU-3: Retry pipeline step
 
-**Status: shipped.** `RetrySettings`, `RetryStep`, `BackoffCalculator`, and `RetryAfterParser`
+**Status: shipped.** `RetrySettings`, `RetryRecovery`, `BackoffCalculator`, and `RetryAfterParser`
 are all in `sdk-core/.../pipeline/step/retry`.
 
 **Goal.** Build the best-in-class retry step combining Square's `Retry-After` /
@@ -187,7 +187,7 @@ are all in `sdk-core/.../pipeline/step/retry`.
 
 **Files (create):**
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/step/retry/RetrySettings.kt` — immutable settings via Builder: `totalTimeout`, `initialDelay`, `delayMultiplier`, `maxDelay`, `maxAttempts`, `jitter` (fraction 0.0..1.0), `retryableStatuses: Set<Int>`, `retryableMethods: Set<Method>`.
-- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/step/retry/RetryStep.kt` — implements both `ResponseRecoveryStep` (decide retry on failure) and a `RequestPipelineStep` (records attempt start). Uses `ScheduledExecutorService` for delay (never `Thread.sleep`).
+- `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/step/retry/RetryRecovery.kt` — implements both `ResponseRecoveryStep` (decide retry on failure) and a `RequestPipelineStep` (records attempt start). Uses `ScheduledExecutorService` for delay (never `Thread.sleep`).
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/step/retry/BackoffCalculator.kt` — exponential backoff + symmetric jitter; deadline-shrinking cap (per gax).
 - `sdk-core/src/main/kotlin/org/dexpace/sdk/core/pipeline/step/retry/RetryAfterParser.kt` — `Retry-After` (numeric seconds OR HTTP date) + `X-RateLimit-Reset` (Unix epoch) parsing. Precedence: `Retry-After` numeric > `Retry-After` HTTP-date > `X-RateLimit-Reset` > exponential fallback.
 

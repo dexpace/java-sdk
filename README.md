@@ -323,8 +323,9 @@ val pipeline = HttpPipelineBuilder(transport)
 
 ### Throw typed exceptions on 4xx / 5xx
 
-Add `throwOnHttpError()` to the pipeline builder — it maps non-2xx responses to typed
-`HttpException` subclasses (`BadRequestException`, `TooManyRequestsException`, etc.):
+Add `throwOnHttpError()` to the pipeline builder — it maps 4xx / 5xx error responses to typed
+`HttpException` subclasses (`BadRequestException`, `TooManyRequestsException`, etc.); a non-error
+1xx / 3xx (e.g. an unfollowed redirect) or 2xx response passes through unchanged:
 
 ```kotlin
 val pipeline = HttpPipelineBuilder(transport)
@@ -351,12 +352,15 @@ pipeline.send(Request.get("https://api.example.com/slow"), opts).use { response 
 ### Page through a cursor-based resource
 
 ```kotlin
+// The strategy rewrites the request URL for each page, setting `cursorQueryParam` to the cursor
+// from the previous page; the extractor reads the page's items and next cursor in a single pass.
 val paginator = Paginator(
-    firstPageFetcher = { pipeline.send(Request.get("https://api.example.com/items")) },
-    nextPageFetcher = { cursor ->
-        pipeline.send(Request.get("https://api.example.com/items?page_token=$cursor"))
-    },
-    strategy = CursorPaginationStrategy(items = { parseItems(it) }, cursorExtractor = { nextToken(it) }),
+    httpClient = pipeline,
+    initialRequest = Request.get("https://api.example.com/items"),
+    strategy = CursorPaginationStrategy(
+        extractor = { response -> CursorResult(parseItems(response), nextToken(response)) },
+        cursorQueryParam = "page_token",
+    ),
 )
 
 paginator.iterateAll().forEach { item -> println(item) }
@@ -383,11 +387,14 @@ val request = Request.builder()
 Steps execute in declaration order of `Stage.entries`. Pillar stages (`isPillar = true`) admit exactly one step; non-pillar stages admit any number, ordered by `append` and `prepend`.
 
 ```
-REDIRECT (pillar)  →  POST_REDIRECT     →  RETRY (pillar)   →  POST_RETRY        →
-PRE_AUTH           →  AUTH (pillar)     →  POST_AUTH        →  PRE_LOGGING       →
-LOGGING (pillar)   →  POST_LOGGING      →  PRE_SERDE        →  SERDE (pillar)    →
-POST_SERDE         →  PRE_SEND          →  SEND (terminal — HttpClient.execute)
+PRE_REDIRECT       →  REDIRECT (pillar) →  POST_REDIRECT    →  RETRY (pillar)    →
+POST_RETRY         →  PRE_AUTH          →  AUTH (pillar)    →  POST_AUTH         →
+PRE_LOGGING        →  LOGGING (pillar)  →  POST_LOGGING     →  PRE_SERDE         →
+SERDE (pillar)     →  POST_SERDE        →  PRE_SEND         →  SEND (terminal — HttpClient.execute)
 ```
+
+`PRE_REDIRECT` is the outermost stage: a step placed there (e.g. the one `throwOnHttpError()`
+installs) observes only the final response, after the redirect and retry loops have run.
 
 See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 
@@ -417,7 +424,8 @@ See [docs/pipelines.md](docs/pipelines.md) for the step-author walkthrough.
 | `generics` | `Builder<T>` — the generic builder interface every SDK builder implements. |
 
 Token-style APIs (`next_page_token`, `pageToken`, …) are served by `CursorPaginationStrategy`:
-construct it with the desired query-param name, e.g. `CursorPaginationStrategy(items, extractor, "page_token")`.
+construct it with a `CursorExtractor` and the desired query-param name, e.g.
+`CursorPaginationStrategy(extractor, "page_token")`.
 
 ## Shrinking with R8 / ProGuard
 
