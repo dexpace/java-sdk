@@ -47,8 +47,23 @@ public data class Response private constructor(
     val headers: Headers,
     val body: ResponseBody?,
 ) : Closeable {
+    /** True when [status] is in the 1xx informational range. */
+    public val isInformational: Boolean get() = status.isInformational
+
     /** True when [status] is in the 2xx success range. */
     public val isSuccessful: Boolean get() = status.isSuccess
+
+    /** True when [status] is in the 3xx redirect range. */
+    public val isRedirect: Boolean get() = status.isRedirect
+
+    /** True when [status] is in the 4xx client-error range. */
+    public val isClientError: Boolean get() = status.isClientError
+
+    /** True when [status] is in the 5xx server-error range. */
+    public val isServerError: Boolean get() = status.isServerError
+
+    /** True when [status] is in the 4xx–5xx error range. */
+    public val isError: Boolean get() = status.isError
 
     /**
      * Returns a new [ResponseBuilder] initialized with this response's data.

@@ -163,6 +163,11 @@ public data class Request private constructor(
                 try {
                     this.url = uri.toURL()
                 } catch (e: MalformedURLException) {
+                    // A missing protocol handler surfaces as MalformedURLException...
+                    throw IllegalArgumentException("Invalid URL: $uri", e)
+                } catch (e: IllegalArgumentException) {
+                    // ...while a non-absolute URI throws an unwrapped IllegalArgumentException;
+                    // both are re-thrown with the same contextual message.
                     throw IllegalArgumentException("Invalid URL: $uri", e)
                 }
             }
@@ -348,16 +353,25 @@ public data class Request private constructor(
             }
 
         /**
+         * Shared implementation for the verb convenience methods: sets [method] and [body]
+         * together (bodyless verbs pass `null`).
+         */
+        private fun verb(
+            method: Method,
+            body: RequestBody?,
+        ): RequestBuilder =
+            apply {
+                this.method = method
+                this.body = body
+            }
+
+        /**
          * Sets the method to [Method.GET] and clears any previously-set body. Equivalent to
          * `method(Method.GET).body(null)`.
          *
          * @return This builder.
          */
-        public fun get(): RequestBuilder =
-            apply {
-                this.method = Method.GET
-                this.body = null
-            }
+        public fun get(): RequestBuilder = verb(Method.GET, null)
 
         /**
          * Sets the method to [Method.POST] and the body to [body].
@@ -365,11 +379,7 @@ public data class Request private constructor(
          * @param body The request body.
          * @return This builder.
          */
-        public fun post(body: RequestBody): RequestBuilder =
-            apply {
-                this.method = Method.POST
-                this.body = body
-            }
+        public fun post(body: RequestBody): RequestBuilder = verb(Method.POST, body)
 
         /**
          * Sets the method to [Method.PUT] and the body to [body].
@@ -377,11 +387,7 @@ public data class Request private constructor(
          * @param body The request body.
          * @return This builder.
          */
-        public fun put(body: RequestBody): RequestBuilder =
-            apply {
-                this.method = Method.PUT
-                this.body = body
-            }
+        public fun put(body: RequestBody): RequestBuilder = verb(Method.PUT, body)
 
         /**
          * Sets the method to [Method.DELETE] and clears any previously-set body. Equivalent to
@@ -391,11 +397,7 @@ public data class Request private constructor(
          *
          * @return This builder.
          */
-        public fun delete(): RequestBuilder =
-            apply {
-                this.method = Method.DELETE
-                this.body = null
-            }
+        public fun delete(): RequestBuilder = verb(Method.DELETE, null)
 
         /**
          * Sets the method to [Method.HEAD] and clears any previously-set body. Equivalent to
@@ -403,11 +405,7 @@ public data class Request private constructor(
          *
          * @return This builder.
          */
-        public fun head(): RequestBuilder =
-            apply {
-                this.method = Method.HEAD
-                this.body = null
-            }
+        public fun head(): RequestBuilder = verb(Method.HEAD, null)
 
         /**
          * Sets the method to [Method.PATCH] and the body to [body].
@@ -415,11 +413,7 @@ public data class Request private constructor(
          * @param body The request body.
          * @return This builder.
          */
-        public fun patch(body: RequestBody): RequestBuilder =
-            apply {
-                this.method = Method.PATCH
-                this.body = body
-            }
+        public fun patch(body: RequestBody): RequestBuilder = verb(Method.PATCH, body)
 
         /**
          * Builds the [Request].

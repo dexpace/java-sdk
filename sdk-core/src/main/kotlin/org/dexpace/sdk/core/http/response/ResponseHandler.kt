@@ -61,8 +61,10 @@ public fun interface ResponseHandler<out T> {
 
     public companion object {
         /**
-         * A handler that reads the entire response body as a UTF-8 [String] and closes the
-         * response. A bodyless response (e.g. `204 No Content`) yields an empty string.
+         * A handler that reads the entire response body as a [String] and closes the response.
+         * The body is decoded using the charset declared in its Content-Type media type, falling
+         * back to UTF-8 when none is declared or it is unrecognized. A bodyless response (e.g.
+         * `204 No Content`) yields an empty string.
          *
          * **Unbounded.** This reads the whole body into a single in-memory [String] with no size
          * cap, so it is an unbounded-allocation vector against a hostile or misbehaving server.
@@ -76,7 +78,7 @@ public fun interface ResponseHandler<out T> {
             ResponseHandler { response ->
                 response.use {
                     val body = it.body ?: return@use ""
-                    body.source().readString(StandardCharsets.UTF_8)
+                    body.source().readString(body.mediaType()?.charset ?: StandardCharsets.UTF_8)
                 }
             }
 

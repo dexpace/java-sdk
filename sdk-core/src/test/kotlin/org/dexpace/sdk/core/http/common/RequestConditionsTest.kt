@@ -288,12 +288,33 @@ class RequestConditionsTest {
 
     @Test
     fun `ifNoneMatch String overload parses weak and star forms`() {
-        val rc =
+        val weak = RequestConditions.builder().ifNoneMatch("W/\"v1\"").build()
+        assertEquals(listOf(ETag.weak("v1")), weak.ifNoneMatch)
+
+        val star = RequestConditions.builder().ifNoneMatch("*").build()
+        assertEquals(listOf(ETag.ANY), star.ifNoneMatch)
+    }
+
+    @Test
+    fun `build rejects mixing star with a concrete entity-tag`() {
+        assertFailsWith<IllegalArgumentException> {
             RequestConditions.builder()
                 .ifNoneMatch("W/\"v1\"")
                 .ifNoneMatch("*")
                 .build()
-        assertEquals(listOf(ETag.weak("v1"), ETag.ANY), rc.ifNoneMatch)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            RequestConditions.builder()
+                .ifMatch(ETag.ANY)
+                .ifMatch(ETag.strong("v1"))
+                .build()
+        }
+    }
+
+    @Test
+    fun `build collapses repeated star to a single star`() {
+        val rc = RequestConditions.builder().ifMatch(ETag.ANY).ifMatch(ETag.ANY).build()
+        assertEquals(listOf(ETag.ANY), rc.ifMatch)
     }
 
     @Test

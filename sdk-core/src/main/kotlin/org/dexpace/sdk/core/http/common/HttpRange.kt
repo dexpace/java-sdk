@@ -15,8 +15,10 @@ package org.dexpace.sdk.core.http.common
  * intentionally **not** supported by this type — call [parse] with a single range or
  * compose multiple `Range` headers at the [Headers.Builder] level.
  *
- * Round-trips with [toHeaderValue] / [parse]: parsing preserves the original textual
- * form, so unusual but valid whitespace and casing survive a parse/format cycle.
+ * Round-trips with [toHeaderValue] / [parse]: [parse] stores the accepted value verbatim, so
+ * its exact casing survives a parse/format cycle (`BYTES=0-1023` is preserved as written). The
+ * value must begin with the `bytes=` unit token — matched case-insensitively, but with no leading
+ * whitespace — so a leading space before `bytes=` is rejected rather than preserved.
  *
  * A plain immutable final class (not a `value class`): the factories are header helpers
  * where the boxing an inline class would avoid is irrelevant, and keeping it a plain class
@@ -76,14 +78,16 @@ public class HttpRange private constructor(private val raw: String) {
         }
 
         /**
-         * Parses a `Range` header value into an [HttpRange]. Round-trips with
-         * [toHeaderValue]: the original textual form is preserved (including any unusual
-         * whitespace) so identical headers can be emitted on the wire.
+         * Parses a `Range` header value into an [HttpRange]. The accepted value is stored
+         * verbatim and round-trips through [toHeaderValue] unchanged, so its exact casing is
+         * preserved on the wire.
          *
-         * Only the `bytes` unit is accepted; multi-range values are rejected.
+         * The value must begin with the `bytes=` unit token (matched case-insensitively, with no
+         * leading whitespace); only the `bytes` unit is accepted, and multi-range values are
+         * rejected.
          *
-         * @throws IllegalArgumentException if the unit is not `bytes` or the value
-         *   contains a comma (multi-range).
+         * @throws IllegalArgumentException if the value does not begin with the `bytes=` unit
+         *   token or contains a comma (multi-range).
          */
         @JvmStatic
         public fun parse(raw: String): HttpRange {
