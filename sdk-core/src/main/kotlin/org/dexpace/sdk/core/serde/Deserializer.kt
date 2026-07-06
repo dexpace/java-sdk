@@ -136,7 +136,8 @@ private inline fun <T> deserializeViaRawClass(
 public inline fun <reified T> Deserializer.deserialize(input: String): T = deserialize(input, object : TypeRef<T>() {})
 
 /** Decode a complete document from the in-memory [input] byte array into the reified type [T]. */
-public inline fun <reified T> Deserializer.deserialize(input: ByteArray): T = deserialize(input, object : TypeRef<T>() {})
+public inline fun <reified T> Deserializer.deserialize(input: ByteArray): T =
+    deserialize(input, object : TypeRef<T>() {})
 
 /**
  * Decode a complete document by streaming from [inputStream] into the reified type [T]. The stream

@@ -25,8 +25,6 @@ package org.dexpace.sdk.core.http.pipeline
  */
 @Suppress("unused")
 public enum class Stage(public val order: Int, public val isPillar: Boolean) {
-    // -- Outermost: sees only the final response --
-
     /**
      * Outermost stage — runs *outside* the redirect and retry loops. A step here observes only the
      * single final response, after redirects have been followed and retries exhausted, and never

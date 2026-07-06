@@ -16,8 +16,8 @@ import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.Deserializer
-import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.Serde
+import org.dexpace.sdk.core.serde.SerdeException
 import org.dexpace.sdk.core.serde.TypeRef
 
 private val logger = ClientLogger("org.dexpace.sdk.core.http.response.ResponseExtensions")

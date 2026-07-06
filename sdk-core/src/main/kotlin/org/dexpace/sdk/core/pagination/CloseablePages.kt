@@ -71,8 +71,14 @@ public class CloseablePages<T>
          * `hasNext()` probe but never returned by `next()` is retained and released by [close], so
          * an abandoned probe never strands a connection.
          *
+         * The underlying walker is a lazy sequence whose `hasNext()` performs the page fetch, so the
+         * returned iterator's `hasNext()` deliberately pulls that fetched page into a field we own —
+         * that prefetch is what lets [close] release a page from an abandoned probe (hence the
+         * `IteratorHasNextCallsNextMethod` suppression).
+         *
          * @throws IllegalStateException if called more than once on this view.
          */
+        @Suppress("IteratorHasNextCallsNextMethod")
         override fun iterator(): Iterator<Page<T>> {
             check(!iterated) { "CloseablePages is single-use; call byPage() again to restart pagination." }
             iterated = true

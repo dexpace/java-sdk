@@ -42,8 +42,7 @@ class PaginatorOptionsTest {
             if (body.isEmpty()) emptyList() else body.split(",")
         }
 
-    private fun options(): RequestOptions =
-        RequestOptions.builder().maxRetries(0).tag("origin", "test").build()
+    private fun options(): RequestOptions = RequestOptions.builder().maxRetries(0).tag("origin", "test").build()
 
     @Test
     fun `sync paginator threads its RequestOptions into every page fetch`() {

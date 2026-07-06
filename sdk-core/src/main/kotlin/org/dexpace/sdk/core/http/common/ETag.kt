@@ -144,8 +144,7 @@ public class ETag private constructor(private val raw: String) {
         // suffix + at least 1 opaque char between).
         private const val WEAK_FORM_MIN_LEN = 4
 
-        // RFC 7232 §2.3 etagc boundaries.
-        /** First printable ASCII byte allowed in `etagc` (`!`). */
+        /** First printable ASCII byte allowed in RFC 7232 §2.3 `etagc` (`!`). */
         private const val ETAGC_PRINTABLE_LOW: Int = 0x21
 
         /** The double-quote (`"`) — excluded from `etagc` so it cannot close the entity-tag. */

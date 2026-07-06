@@ -542,12 +542,12 @@ class RetryStepTest {
                 .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
                 .build()
 
-        // `process()` is declared `@Throws(IOException::class)`. A non-IO terminal failure
-        // is wrapped so Java callers' `catch (IOException)` is honored; the original is
-        // attached as cause.
-        val wrapped = assertFailsWith<IOException> { pipeline.send(getRequest()) }
-        assertTrue(wrapped.cause is RuntimeException, "expected RuntimeException cause")
-        assertEquals("unrelated", wrapped.cause?.message)
+        // An unchecked (RuntimeException) terminal failure propagates as-is: Java does not require
+        // it to be declared, so it does not violate the `@Throws(IOException::class)` contract, and
+        // preserving it keeps a typed exception (e.g. an HttpException from an inner pipeline)
+        // catchable rather than buried under IOException("HTTP pipeline failure").
+        val thrown = assertFailsWith<RuntimeException> { pipeline.send(getRequest()) }
+        assertEquals("unrelated", thrown.message)
         assertEquals(1, attempts.get())
     }
 
@@ -1723,10 +1723,11 @@ class RetryStepTest {
                 .append(DefaultRetryStep(opts, zeroDelayClock()))
                 .build()
 
-        // Non-IO terminal failure is wrapped as `IOException` (see `RuntimeException with no
-        // relevant cause is NOT retried`); the original is attached as cause.
-        val wrapped = assertFailsWith<IOException> { pipeline.send(getRequest()) }
-        assertTrue(wrapped.cause is RuntimeException)
+        // An unchecked terminal failure propagates as-is (see `RuntimeException with no relevant
+        // cause is NOT retried`), so the original RuntimeException surfaces rather than an
+        // IOException wrapper.
+        val thrown = assertFailsWith<RuntimeException> { pipeline.send(getRequest()) }
+        assertEquals("no retry classifier match", thrown.message)
         // Initial + 2 retries → 2 calls to the exception predicate (after attempt 0 and 1).
         assertEquals(2, invocations.get(), "exception predicate must be consulted on each retry decision")
     }

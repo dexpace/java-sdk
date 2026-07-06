@@ -273,6 +273,7 @@ public open class DefaultAsyncRetryStep
                 scheduleNext(delay)
             }
 
+            @Suppress("ReturnCount") // distinct early exits: cancelled, Error, interrupt, no-retry, predicate-threw
             private fun onFailure(rawError: Throwable) {
                 // The caller already completed or cancelled the returned future; drop the failure
                 // rather than scheduling more attempts.
