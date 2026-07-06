@@ -168,6 +168,17 @@ class JacksonSerdeTest {
     }
 
     @Test
+    fun `deserializer decodes a parametric TypeRef from a byte array`() {
+        // Byte-array counterpart to the string/InputStream parametric-TypeRef paths: the element
+        // type of List<Inner> must survive erasure via mapper.constructType(ref.type).
+        val serde = JacksonSerde.withDefaults()
+        val json = """[{"tag":"a","score":1},{"tag":"b","score":2}]"""
+        val list: List<Inner> =
+            serde.deserializer.deserialize(json.toByteArray(), object : TypeRef<List<Inner>>() {})
+        assertEquals(listOf(Inner("a", 1), Inner("b", 2)), list)
+    }
+
+    @Test
     fun `deserializer decodes a non-generic TypeRef via the raw-Class path`() {
         val serde = JacksonSerde.withDefaults()
         val dto: Inner = serde.deserializer.deserialize("""{"tag":"solo","score":3}""", object : TypeRef<Inner>() {})
@@ -213,6 +224,19 @@ class JacksonSerdeTest {
         val dto: Inner = serde.deserializer.deserialize(tracker, Inner::class.java)
         assertEquals(Inner("s", 5), dto)
         assertEquals(0, tracker.closeCount, "from(plain mapper) must not close the caller InputStream")
+    }
+
+    @Test
+    fun `deserializeAs InputStream TypeReference leaves the caller stream open on a from-mapper serde`() {
+        // The deserializeAs(InputStream, TypeReference) overload drives a per-call parser with
+        // AUTO_CLOSE_SOURCE disabled, so even a from(plain mapper) serde (whose copy inherits
+        // AUTO_CLOSE_SOURCE=true) must read to EOF and leave the caller's stream open.
+        val serde = JacksonSerde.from(ObjectMapper().registerKotlinModule())
+        val json = """{"tag":"s","score":5}"""
+        val tracker = TrackingInputStream(ByteArrayInputStream(json.toByteArray()))
+        val dto: Inner = serde.deserializeAs(tracker, object : TypeReference<Inner>() {})
+        assertEquals(Inner("s", 5), dto)
+        assertEquals(0, tracker.closeCount, "deserializeAs(InputStream, TypeReference) must not close the stream")
     }
 
     // ----- T10: from(mapper) must register TristateModule (silent-corruption fix) -----
@@ -385,6 +409,40 @@ class JacksonSerdeTest {
         assertFailsWith<DeserializationException> { serde.deserializeAs("""{bad""".toByteArray(), ref) }
         assertFailsWith<DeserializationException> {
             serde.deserializeAs(ByteArrayInputStream("""{bad""".toByteArray()), ref)
+        }
+    }
+
+    @Test
+    fun `decoding the JSON literal null through a non-null overload throws DeserializationException`() {
+        // Jackson's readValue yields a Java null for the literal `null`. The nonNull guard must
+        // convert that into a DeserializationException across every non-null overload rather than
+        // letting the null flow through the non-null generic T and detonate later as an NPE.
+        val serde = JacksonSerde.withDefaults()
+        val nullJson = "null"
+        val ref = object : TypeRef<Inner>() {}
+        val typeRef = object : TypeReference<Inner>() {}
+
+        // String / ByteArray / InputStream × Class
+        assertFailsWith<DeserializationException> { serde.deserializer.deserialize(nullJson, Inner::class.java) }
+        assertFailsWith<DeserializationException> {
+            serde.deserializer.deserialize(nullJson.toByteArray(), Inner::class.java)
+        }
+        assertFailsWith<DeserializationException> {
+            serde.deserializer.deserialize(ByteArrayInputStream(nullJson.toByteArray()), Inner::class.java)
+        }
+
+        // String / ByteArray / InputStream × TypeRef
+        assertFailsWith<DeserializationException> { serde.deserializer.deserialize(nullJson, ref) }
+        assertFailsWith<DeserializationException> { serde.deserializer.deserialize(nullJson.toByteArray(), ref) }
+        assertFailsWith<DeserializationException> {
+            serde.deserializer.deserialize(ByteArrayInputStream(nullJson.toByteArray()), ref)
+        }
+
+        // deserializeAs (TypeReference) overloads
+        assertFailsWith<DeserializationException> { serde.deserializeAs(nullJson, typeRef) }
+        assertFailsWith<DeserializationException> { serde.deserializeAs(nullJson.toByteArray(), typeRef) }
+        assertFailsWith<DeserializationException> {
+            serde.deserializeAs(ByteArrayInputStream(nullJson.toByteArray()), typeRef)
         }
     }
 

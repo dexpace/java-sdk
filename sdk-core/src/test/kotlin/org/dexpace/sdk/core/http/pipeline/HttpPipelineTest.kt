@@ -751,6 +751,51 @@ class HttpPipelineTest {
     }
 
     @Test
+    fun `surgical insert that would duplicate a pillar throws and leaves the builder intact`() {
+        // insertAfter re-buckets by reloading the flattened step list. A second distinct RETRY-stage
+        // step would create a duplicate RETRY pillar; the reload is atomic, so the collision throws
+        // and the builder's prior steps survive — build() still yields exactly the original pillar.
+        val client = RecordingHttpClient()
+        val originalRetry = DefaultRetryStep()
+        val builder = HttpPipelineBuilder(client).append(originalRetry)
+
+        assertFailsWith<IllegalStateException> {
+            builder.insertAfter<DefaultRetryStep>(DefaultRetryStep())
+        }
+
+        val pipeline = builder.build()
+        assertEquals(1, pipeline.steps.size, "the rejected insert must not leave a duplicate pillar behind")
+        assertSame(originalRetry, pipeline.steps[0], "the original retry pillar must remain intact")
+    }
+
+    @Test
+    fun `HttpPipelineBuilder of an HttpPipeline flattens rather than nesting`() {
+        // A statically-typed HttpPipeline argument resolves to the flattening constructor: the
+        // source pipeline's steps are copied into the new builder (same count/order as from()), NOT
+        // nested as an opaque transport — which would leave the outer builder with zero steps.
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val retryStep = TaggingStep(Stage.RETRY, "retry", order)
+        val preAuthStep = TaggingStep(Stage.PRE_AUTH, "pre-auth", order)
+        val base = HttpPipelineBuilder(client).append(retryStep).append(preAuthStep).build()
+
+        val viaConstructor = HttpPipelineBuilder(base).build()
+        val viaFrom = HttpPipelineBuilder.from(base).build()
+
+        // Same step count/order as from() — proving flatten, not nest.
+        assertEquals(viaFrom.steps.size, viaConstructor.steps.size)
+        assertEquals(2, viaConstructor.steps.size)
+        assertSame(retryStep, viaConstructor.steps[0])
+        assertSame(preAuthStep, viaConstructor.steps[1])
+        // The transport is the base's transport, not the base pipeline nested as a transport.
+        assertSame(client, viaConstructor.httpClient)
+
+        // Both steps actually run when sent (a nested pipeline would run zero outer steps).
+        viaConstructor.send(request())
+        assertEquals(listOf("retry", "pre-auth"), order)
+    }
+
+    @Test
     fun `appendAll with an empty list is a no-op`() {
         val client = RecordingHttpClient()
         val pipeline =

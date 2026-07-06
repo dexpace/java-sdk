@@ -181,4 +181,37 @@ class UrlRedactorTest {
         // The trailing '&' is intentionally dropped — the output must NOT end with '&'.
         assertTrue(!out.endsWith("&"), "trailing '&' must be dropped; got: $out")
     }
+
+    // ---- redactUrlValue: absolute vs relative header-value redaction ---------------------
+
+    @Test
+    fun `redactUrlValue redacts a disallowed query credential on an absolute URL`() {
+        // An OAuth authorization code in the query of an absolute (e.g. Location) header value
+        // must be redacted just like redact(URL) does.
+        val out = UrlRedactor.redactUrlValue("https://cb/?code=SECRET")
+        assertTrue(out.contains("code="), "the query key should be kept: $out")
+        assertTrue(out.contains("***"), "the credential value should be redacted: $out")
+        assertTrue(!out.contains("SECRET"), "raw authorization code leaked: $out")
+    }
+
+    @Test
+    fun `redactUrlValue redacts an implicit-flow access token in the fragment`() {
+        // Implicit-flow tokens ride in the URL fragment as key=value tokens; they must be redacted
+        // under the same allow-list as query parameters.
+        val out = UrlRedactor.redactUrlValue("https://cb/#access_token=SECRET")
+        assertTrue(out.contains("#"), "fragment marker should be present: $out")
+        assertTrue(out.contains("access_token="), "fragment key should be kept: $out")
+        assertTrue(out.contains("***"), "fragment token value should be redacted: $out")
+        assertTrue(!out.contains("SECRET"), "raw fragment token leaked: $out")
+    }
+
+    @Test
+    fun `redactUrlValue keeps the path but drops the query for a relative value`() {
+        // A relative Location value is not a parseable absolute URL, so the whole query (which may
+        // carry an OAuth code / pre-signed signature) is dropped while the path stays visible.
+        val out = UrlRedactor.redactUrlValue("/cb?code=SECRET")
+        assertEquals("/cb?***", out)
+        assertTrue(out.startsWith("/cb"), "the path must be preserved: $out")
+        assertTrue(!out.contains("SECRET"), "raw query credential leaked from a relative value: $out")
+    }
 }

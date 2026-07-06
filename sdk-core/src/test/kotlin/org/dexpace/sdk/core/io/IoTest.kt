@@ -306,6 +306,45 @@ class IoTest {
     }
 
     @Test
+    fun `installing OkioIoProvider after its ServiceLoader shim was resolved does not warn`() {
+        // The auto-resolved provider is the OkioIoProviderLoader shim (registered in
+        // META-INF/services), which delegates to OkioIoProvider. A later explicit
+        // installProvider(OkioIoProvider) is a DIFFERENT instance than the shim, but they share the
+        // same `underlying` implementation — so no mixed-provider state can arise and no WARN must
+        // fire (contrast the "replacing a resolved-and-handed-out provider" test, whose provider
+        // overrides `underlying` to itself precisely to force the warning).
+        val fake = FakeSlf4jLogger("io.test")
+        val savedLogger = Io.logger
+        val savedInstalled = Io.swapProvider(null)
+        Io.logger = ClientLogger.forTesting(fake)
+        try {
+            // Force ServiceLoader resolution AND hand-out.
+            val handedOut = Io.provider
+            assertTrue(
+                handedOut !== OkioIoProvider,
+                "the resolved provider must be the ServiceLoader shim, not the OkioIoProvider singleton",
+            )
+            assertSame(
+                OkioIoProvider,
+                handedOut.underlying,
+                "the shim delegates to OkioIoProvider — they share the same underlying implementation",
+            )
+            Io.installProvider(OkioIoProvider)
+            assertSame(OkioIoProvider, Io.provider, "explicit install must take effect")
+            assertTrue(
+                fake.records.none {
+                    it.level == Level.WARN &&
+                        it.keyValues.any { kv -> kv.key == "event" && kv.value == "io.provider.install_after_resolve" }
+                },
+                "installing OkioIoProvider after resolving its own ServiceLoader shim must not warn",
+            )
+        } finally {
+            Io.logger = savedLogger
+            Io.swapProvider(savedInstalled)
+        }
+    }
+
+    @Test
     fun `installProvider does not warn on a first install with no prior resolution`() {
         val fake = FakeSlf4jLogger("io.test")
         val savedLogger = Io.logger

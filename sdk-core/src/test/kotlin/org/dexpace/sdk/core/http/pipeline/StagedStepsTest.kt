@@ -87,6 +87,23 @@ class StagedStepsTest {
         assertTrue(staged.pillarAt(Stage.PRE_AUTH) == null)
     }
 
+    @Test
+    fun `reload that hits a pillar collision leaves prior state intact`() {
+        // reload commits atomically: it assembles the new state into scratch collections and only
+        // reassigns the live storage once the whole rebuild succeeds. A mid-rebuild pillar collision
+        // must therefore throw with the pre-reload state completely untouched — never half-reloaded.
+        val staged = stagedSteps()
+        staged.append(FakeStep(Stage.RETRY, "retry"))
+        staged.append(FakeStep(Stage.PRE_AUTH, "pre"))
+
+        assertFailsWith<IllegalStateException> {
+            staged.reload(listOf(FakeStep(Stage.RETRY, "retry-A"), FakeStep(Stage.RETRY, "retry-B")))
+        }
+
+        assertEquals("retry", staged.pillarAt(Stage.RETRY)?.tag, "the original pillar must survive the failed reload")
+        assertEquals(listOf("pre"), staged.nonPillarAt(Stage.PRE_AUTH).map { it.tag }, "non-pillar steps must survive")
+    }
+
     // -------- append / prepend pillar routing --------
 
     @Test

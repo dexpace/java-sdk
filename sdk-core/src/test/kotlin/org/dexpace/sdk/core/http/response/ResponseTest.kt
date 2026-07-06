@@ -403,6 +403,52 @@ class ResponseTest {
                 .build()
         assertFalse(resp.isSuccessful)
     }
+
+    // ---- status-class delegation (isInformational / isRedirect / isClientError / …) ---------
+
+    private fun responseWith(status: Status): Response =
+        Response.builder()
+            .request(request())
+            .protocol(Protocol.HTTP_1_1)
+            .status(status)
+            .build()
+
+    @Test
+    fun `status-class predicates delegate to Status for representative codes`() {
+        // Each predicate must mirror Status's own classification. Representative codes:
+        // 100 informational, 301 redirect, 404 client error, 503 server error, 200 success.
+        val informational = responseWith(Status.fromCode(100))
+        assertTrue(informational.isInformational)
+        assertFalse(informational.isRedirect)
+        assertFalse(informational.isClientError)
+        assertFalse(informational.isServerError)
+        assertFalse(informational.isError)
+
+        val redirect = responseWith(Status.fromCode(301))
+        assertFalse(redirect.isInformational)
+        assertTrue(redirect.isRedirect)
+        assertFalse(redirect.isClientError)
+        assertFalse(redirect.isServerError)
+        assertFalse(redirect.isError)
+
+        val clientError = responseWith(Status.fromCode(404))
+        assertFalse(clientError.isRedirect)
+        assertTrue(clientError.isClientError)
+        assertFalse(clientError.isServerError)
+        assertTrue(clientError.isError)
+
+        val serverError = responseWith(Status.fromCode(503))
+        assertFalse(serverError.isClientError)
+        assertTrue(serverError.isServerError)
+        assertTrue(serverError.isError)
+
+        val success = responseWith(Status.fromCode(200))
+        assertFalse(success.isInformational)
+        assertFalse(success.isRedirect)
+        assertFalse(success.isClientError)
+        assertFalse(success.isServerError)
+        assertFalse(success.isError)
+    }
 }
 
 class ResponseBodyTest {
@@ -521,5 +567,31 @@ class ResponseBodyTest {
         val source = Io.provider.source(ByteArray(0))
         val body = ResponseBody.create(source)
         assertContentEquals(ByteArray(0), body.bytes())
+    }
+
+    // ---- string() default charset derives from the media type ----------------------------
+
+    @Test
+    fun `no-arg string() decodes using the charset declared in the media type`() {
+        // 0xE9 is 'é' in ISO-8859-1 but an invalid lone byte in UTF-8. With the media type
+        // declaring charset=ISO-8859-1, the no-arg string() must latin-1-decode it to "é",
+        // not fall back to UTF-8.
+        val bytes = byteArrayOf(0xE9.toByte())
+        val mediaType = MediaType.parse("text/plain; charset=ISO-8859-1")
+        val source = Io.provider.source(bytes)
+        val body = ResponseBody.create(source, mediaType, bytes.size.toLong())
+        assertEquals("é", body.string())
+    }
+
+    @Test
+    fun `explicit charset argument overrides the media type charset`() {
+        // Bytes are the UTF-8 encoding of "é" (0xC3 0xA9). Even though the media type declares
+        // ISO-8859-1 (under which those bytes decode to "Ã©"), an explicit string(UTF_8) must use
+        // UTF-8 and yield "é" — proving the argument takes precedence over the media type charset.
+        val bytes = "é".toByteArray(Charsets.UTF_8)
+        val mediaType = MediaType.parse("text/plain; charset=ISO-8859-1")
+        val source = Io.provider.source(bytes)
+        val body = ResponseBody.create(source, mediaType, bytes.size.toLong())
+        assertEquals("é", body.string(Charsets.UTF_8))
     }
 }

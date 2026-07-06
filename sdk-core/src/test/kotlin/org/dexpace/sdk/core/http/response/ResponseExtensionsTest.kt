@@ -134,6 +134,24 @@ class ResponseExtensionsTest {
     }
 
     @Test
+    fun `throwOnError buffered body is replayable and readable more than once`() {
+        // bufferErrorBody produces a replayable in-memory body: each source() call re-reads the full
+        // bytes. So the caught exception's body can be decoded via bodyAs AND then read again via
+        // string(), both seeing the complete buffered payload.
+        val bodyText = """{"error":"boom","detail":"buffered and replayable"}"""
+        val r = response(Status.INTERNAL_SERVER_ERROR, bodyText)
+        val ex = assertFailsWith<HttpException> { r.throwOnError() }
+
+        // First read: decode via bodyAs using a deserializer that consumes the whole stream.
+        val firstRead = ex.bodyAs(streamReadingDeserializer(), String::class.java)
+        assertEquals(bodyText, firstRead)
+
+        // Second read: the buffered body is replayable, so string() re-reads the full bytes.
+        val secondRead = assertNotNull(ex.body).string()
+        assertEquals(bodyText, secondRead)
+    }
+
+    @Test
     fun `throwOnError exception status matches original response status`() {
         val r = response(Status.NOT_FOUND, "nope")
         val ex =
@@ -322,6 +340,26 @@ class ResponseExtensionsTest {
                 throw RuntimeException(
                     "decode failure",
                 )
+        }
+
+    /** Deserializer that reads the whole input stream and returns it as a UTF-8 String. */
+    @Suppress("UNCHECKED_CAST")
+    private fun streamReadingDeserializer(): Deserializer =
+        object : Deserializer {
+            override fun <R> deserialize(
+                input: String,
+                type: Class<R>,
+            ): R = throw UnsupportedOperationException()
+
+            override fun <R> deserialize(
+                input: ByteArray,
+                type: Class<R>,
+            ): R = throw UnsupportedOperationException()
+
+            override fun <R> deserialize(
+                inputStream: InputStream,
+                type: Class<R>,
+            ): R = inputStream.readBytes().toString(Charsets.UTF_8) as R
         }
 
     private fun fakeSerde(deserializer: Deserializer): Serde =

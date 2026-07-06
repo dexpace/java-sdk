@@ -28,6 +28,7 @@ import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
@@ -188,6 +189,22 @@ class DefaultAsyncRetryStepTest {
         // 2 prior failures attached as suppressed (initial + first retry), terminal is the 3rd.
         assertEquals(2, cause.suppressed.size)
         assertEquals(3, client.callCount)
+    }
+
+    @Test
+    fun `SocketTimeoutException is retried as a transient failure not treated as cancellation`() {
+        // SocketTimeoutException extends InterruptedIOException, but it is a read timeout, not a
+        // cancellation — it must retry via the normal classifier, unlike the InterruptedIOException
+        // and bare-InterruptedException cases which abort after one attempt and restore the
+        // interrupt flag.
+        val client = FailNTimesClient(failures = 2) { SocketTimeoutException("read timed out") }
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        assertEquals(3, client.callCount, "SocketTimeoutException must be retried, not surfaced as cancellation")
+        assertFalse(Thread.interrupted(), "a read timeout must not restore the interrupt flag")
     }
 
     @Test

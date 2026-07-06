@@ -337,6 +337,68 @@ class RetryRecoveryTest {
     }
 
     @Test
+    fun `transport returning 503 503 200 keeps retrying and returns the 200`() {
+        // The transport returns raw error-status RESPONSES (not thrown exceptions). classify()
+        // re-maps a 503 whose status is in retryableStatuses into a Failure so the retry loop keeps
+        // re-evaluating the budget — the sequence must reach the final 200 rather than stopping
+        // after a single re-send.
+        val ok = response(SC_OK)
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Ok(response(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(ok),
+                ),
+            )
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val result = step.attempt()
+        assertSame(ok, result, "the loop must keep retrying through both 503s and return the final 200")
+        assertEquals(3, client.calls.size, "initial send + two retries")
+    }
+
+    @Test
+    fun `exhausted 503 responses surface the mapped HttpException not a raw response`() {
+        // Every attempt returns a raw 503 response. With the budget exhausted the terminal outcome
+        // must be the typed HttpException classify() mapped the 503 into — never a raw 503 Response.
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Ok(response(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_SERVICE_UNAVAILABLE)),
+                    Canned.Ok(response(SC_SERVICE_UNAVAILABLE)),
+                ),
+            )
+        val step = RetryRecovery(client, zeroDelaySettings(InstantScheduler()), requestGet())
+        val ex = assertThrows(HttpException::class.java) { step.attempt() }
+        assertEquals(SC_SERVICE_UNAVAILABLE, ex.status.code)
+        assertEquals(DEFAULT_MAX_ATTEMPTS, client.calls.size)
+    }
+
+    @Test
+    fun `status configured in retryableStatuses but not classifier-retryable is retried`() {
+        // 425 Too Early is NOT in the built-in RetryUtils retryable set, but it IS configured here.
+        // For an HttpException the configured retryableStatuses is authoritative, so 425 must retry.
+        val ok = response(SC_OK)
+        val client =
+            FakeClient(
+                listOf(
+                    Canned.Ok(response(SC_TOO_EARLY)),
+                    Canned.Ok(ok),
+                ),
+            )
+        val settings =
+            zeroDelaySettings(InstantScheduler())
+                .newBuilder()
+                .retryableStatuses(setOf(SC_TOO_EARLY))
+                .build()
+        val step = RetryRecovery(client, settings, requestGet())
+        val result = step.attempt()
+        assertSame(ok, result, "a configured-but-not-classifier-retryable status must be retried")
+        assertEquals(2, client.calls.size, "initial 425 + one retry to the 200")
+    }
+
+    @Test
     fun `reused RetryRecovery retries correctly on a second top-level call`() {
         // C-3: the step holds no per-call state on the instance, so invoking it a second time
         // after the first call exhausted its attempt budget must start from a fresh budget and
@@ -747,6 +809,7 @@ class RetryRecoveryTest {
     private companion object {
         // HTTP status code constants for tests.
         private const val SC_OK = 200
+        private const val SC_TOO_EARLY = 425
         private const val SC_NOT_FOUND = 404
         private const val SC_SERVICE_UNAVAILABLE = 503
 

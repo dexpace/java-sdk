@@ -35,6 +35,7 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeoutException
@@ -502,6 +503,32 @@ class RetryStepTest {
         val response = pipeline.send(getRequest())
         assertEquals(200, response.status.code)
         assertEquals(2, attempts.get())
+    }
+
+    @Test
+    fun `SocketTimeoutException is retried as a transient failure not treated as cancellation`() {
+        // SocketTimeoutException extends InterruptedIOException, but it is a read timeout — NOT a
+        // cancellation. It must be routed through the normal retry classifier (retried up to
+        // maxRetries), NOT the interrupt path that rethrows immediately and re-sets the interrupt
+        // flag (contrast `InterruptedIOException from the transport is rethrown immediately`).
+        val attempts = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 3) throw SocketTimeoutException("read timed out")
+                    return okResponse(request)
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(3, attempts.get(), "SocketTimeoutException must be retried, not surfaced as cancellation")
+        assertTrue(!Thread.currentThread().isInterrupted, "a read timeout must not set the interrupt flag")
     }
 
     @Test
