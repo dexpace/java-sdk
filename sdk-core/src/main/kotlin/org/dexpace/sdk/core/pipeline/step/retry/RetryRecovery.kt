@@ -9,8 +9,11 @@ package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.MAX_BUFFERED_ERROR_BODY_BYTES
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.bufferErrorBody
 import org.dexpace.sdk.core.http.response.exception.HttpException
+import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.http.response.exception.Retryable
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
@@ -156,12 +159,7 @@ public class RetryRecovery
         public fun attempt(): Response {
             // The original send is attempt ordinal 1 — stamp it when the feature is enabled so
             // the very first request carries the same observable counter the retries will.
-            val initial: ResponseOutcome =
-                try {
-                    ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal = 1)))
-                } catch (t: Throwable) {
-                    ResponseOutcome.Failure(t)
-                }
+            val initial: ResponseOutcome = executeOnce(attemptOrdinal = 1)
             return when (val final = invoke(initial)) {
                 is ResponseOutcome.Success -> final.response
                 is ResponseOutcome.Failure -> throw final.error
@@ -289,9 +287,28 @@ public class RetryRecovery
          */
         private fun executeOnce(attemptOrdinal: Int): ResponseOutcome =
             try {
-                ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal)))
+                classify(httpClient.execute(stampAttempt(request, attemptOrdinal)))
             } catch (t: Throwable) {
                 failureOf(t)
+            }
+
+        /**
+         * Classifies a freshly-sent [response]. Transports return an error-status response rather
+         * than throwing, so a re-sent response whose status is in [RetrySettings.retryableStatuses]
+         * is re-mapped to a [ResponseOutcome.Failure] carrying the matching [HttpException] — exactly
+         * the mapping that turned the first attempt into the failure that triggered this retry. This
+         * keeps the retry loop re-evaluating the budget (so a `503, 503, 200` sequence reaches the
+         * `200`) and makes the terminal outcome a typed exception rather than a raw error response.
+         * The body is buffered into a bounded, replayable in-memory copy so the transport connection
+         * is released before the next attempt. All other responses pass through as a success.
+         */
+        private fun classify(response: Response): ResponseOutcome =
+            if (response.status.isError && settings.retryableStatuses.contains(response.status.code)) {
+                ResponseOutcome.Failure(
+                    HttpExceptionFactory.fromResponse(bufferErrorBody(response, MAX_BUFFERED_ERROR_BODY_BYTES)),
+                )
+            } else {
+                ResponseOutcome.Success(response)
             }
 
         /**
@@ -372,8 +389,12 @@ public class RetryRecovery
          * (no response, hence no status) passes once its flag is set.
          */
         private fun isClassifiedRetryable(error: Throwable): Boolean {
-            if (error !is Retryable || !error.isRetryable) return false
-            return error !is HttpException || settings.retryableStatuses.contains(error.status.code)
+            // For an HttpException the configured [RetrySettings.retryableStatuses] is authoritative:
+            // it both widens (a status the built-in classifier does not mark retryable, e.g. 425, is
+            // retried when configured) and narrows. Non-HttpException throwables (e.g. NetworkException)
+            // fall back to the [Retryable] flag.
+            if (error is HttpException) return settings.retryableStatuses.contains(error.status.code)
+            return error is Retryable && error.isRetryable
         }
 
         /**

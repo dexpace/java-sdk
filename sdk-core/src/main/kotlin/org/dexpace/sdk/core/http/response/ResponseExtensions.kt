@@ -22,8 +22,11 @@ import org.dexpace.sdk.core.serde.TypeRef
 
 private val logger = ClientLogger("org.dexpace.sdk.core.http.response.ResponseExtensions")
 
-/** Maximum bytes buffered from the error body in [throwOnError]. Bodies exceeding this limit are truncated. */
-private const val MAX_BUFFERED_ERROR_BODY_BYTES: Long = 1L * 1024 * 1024
+/**
+ * Maximum bytes buffered from an error body by [throwOnError] and the pipeline's error-mapping
+ * recovery so the two share one bound. Bodies exceeding this limit are truncated.
+ */
+internal const val MAX_BUFFERED_ERROR_BODY_BYTES: Long = 1L * 1024 * 1024
 
 /**
  * Returns this response unchanged when its status is not an error ([Status.isError] is `false` —

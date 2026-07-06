@@ -19,6 +19,7 @@ import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ScheduledExecutorService
@@ -180,8 +181,10 @@ public open class DefaultAsyncRetryStep
                         // Atomic exit-check: clearing `pumping` under the same lock as drive()'s
                         // re-arm means a concurrent drive() either set `rearm` before this check
                         // (so the pump continues) or starts a fresh pump after it (because it sees
-                        // `pumping` cleared) — the wakeup is never lost.
-                        if (!rearm) {
+                        // `pumping` cleared) — the wakeup is never lost. Also stop if the returned
+                        // future is already done (the caller cancelled or completed it), so a
+                        // cancelled call launches no further network attempts.
+                        if (!rearm || result.isDone) {
                             pumping = false
                             return
                         }
@@ -223,6 +226,12 @@ public open class DefaultAsyncRetryStep
             }
 
             private fun onSuccess(response: Response) {
+                // The caller already completed or cancelled the returned future while this attempt
+                // was in flight — close the now-orphaned response and stop; do not retry.
+                if (result.isDone) {
+                    closeQuietly(response)
+                    return
+                }
                 val delay: Duration =
                     try {
                         val retry =
@@ -265,6 +274,9 @@ public open class DefaultAsyncRetryStep
             }
 
             private fun onFailure(rawError: Throwable) {
+                // The caller already completed or cancelled the returned future; drop the failure
+                // rather than scheduling more attempts.
+                if (result.isDone) return
                 val error = Futures.unwrap(rawError)
                 // Errors (OOM, StackOverflow, …) are unrecoverable — never retry, never log.
                 // Surface as-is, matching DefaultRetryStep (which rethrows an Error before
@@ -274,12 +286,15 @@ public open class DefaultAsyncRetryStep
                     return
                 }
                 val exception = error as Exception
-                // Interrupts are never retryable, per the SDK-wide cancellation convention.
-                // Restore the interrupt flag (the completing thread's catch may have cleared it),
-                // normalise a bare InterruptedException to InterruptedIOException, and surface
-                // terminally with the prior-attempt trail attached — mirroring DefaultRetryStep's
-                // pre-classification interrupt carve-out.
-                if (exception is InterruptedIOException || exception is InterruptedException) {
+                // Interrupts are never retryable, per the SDK-wide cancellation convention: restore
+                // the interrupt flag, normalise a bare InterruptedException to InterruptedIOException,
+                // and surface terminally with the prior-attempt trail attached — mirroring
+                // DefaultRetryStep. SocketTimeoutException extends InterruptedIOException but is a
+                // retryable read timeout, not a cancellation, so it is excluded here and left to the
+                // normal retry classification below.
+                if ((exception is InterruptedIOException && exception !is SocketTimeoutException) ||
+                    exception is InterruptedException
+                ) {
                     Thread.currentThread().interrupt()
                     failTerminally(support.asInterruptedIo(exception))
                     return
