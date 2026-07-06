@@ -87,6 +87,29 @@ public object UrlRedactor {
             MALFORMED
         }
 
+    /**
+     * Redacts a URL that arrives as a header value (e.g. `Location`, `Content-Location`), which may
+     * be absolute or relative. An absolute value is redacted exactly like [redact]; a relative or
+     * otherwise unparseable value keeps its path and drops any query or fragment — which can carry
+     * an OAuth authorization code, a pre-signed request signature, or an implicit-flow access token.
+     * The value is therefore never logged verbatim while the host/path stays visible for diagnostics.
+     *
+     * @param value the raw header value.
+     * @param allowedQueryParams query parameter names whose values are kept (see [redact]).
+     */
+    @JvmStatic
+    @JvmOverloads
+    public fun redactUrlValue(
+        value: String,
+        allowedQueryParams: Set<String> = DEFAULT_ALLOWED,
+    ): String =
+        try {
+            redact(URL(value), allowedQueryParams)
+        } catch (_: Throwable) {
+            val base = value.substringBefore('?').substringBefore('#')
+            if (base.length == value.length) value else "$base?$REDACTED"
+        }
+
     private fun lowercaseAllowList(allowed: Set<String>): Set<String> {
         if (allowed.isEmpty()) return emptySet()
         return allowed.mapTo(HashSet(allowed.size)) { it.lowercase() }

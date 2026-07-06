@@ -12,6 +12,7 @@ import java.util.concurrent.CompletionException
 import java.util.concurrent.Executor
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.time.Duration as JDuration
 
@@ -102,18 +103,35 @@ public object Futures {
 private class InterruptibleFuture<T> : CompletableFuture<T>() {
     private val worker = AtomicReference<Thread?>()
 
+    // True only for the brief window in which cancel(true) is delivering the interrupt to the
+    // worker. unbindWorker() spins on it so the worker cannot return to its pool (and pick up an
+    // unrelated task) while an interrupt aimed at this call is still in flight — the FutureTask
+    // handshake that prevents a stale interrupt from poisoning a pooled thread.
+    private val interrupting = AtomicBoolean(false)
+
     fun bindWorker(thread: Thread) {
         worker.set(thread)
     }
 
     fun unbindWorker() {
         worker.set(null)
+        while (interrupting.get()) {
+            Thread.yield()
+        }
     }
 
     override fun cancel(mayInterruptIfRunning: Boolean): Boolean {
         val cancelled = super.cancel(mayInterruptIfRunning)
         if (cancelled && mayInterruptIfRunning) {
-            worker.getAndSet(null)?.interrupt()
+            val thread = worker.getAndSet(null)
+            if (thread != null) {
+                interrupting.set(true)
+                try {
+                    thread.interrupt()
+                } finally {
+                    interrupting.set(false)
+                }
+            }
         }
         return cancelled
     }
@@ -138,45 +156,42 @@ internal fun <T> interruptibleFuture(
     task: () -> T,
 ): CompletableFuture<T> {
     val result = InterruptibleFuture<T>()
-    executor.execute {
-        // Don't start if the caller already cancelled while we were queued.
-        if (result.isDone) return@execute
-        result.bindWorker(Thread.currentThread())
-        try {
-            // Re-check after publishing the thread: a cancel between the isDone check and the
-            // bind would otherwise miss us; if it already happened, skip the task entirely.
-            if (result.isDone) return@execute
-            val value = task()
-            // If we lost the completion race — the future was already cancelled (via the narrow
-            // window of cancel(true), or deterministically via cancel(false)'s run-to-completion
-            // path) — `complete` returns false and nothing downstream will ever hand `value` back
-            // to the caller. A `Closeable` value (e.g. a Response holding an open body / pooled
-            // connection) would then leak, so close it here on the discard path. Mirrors the
-            // native transports' `if (!future.complete(adapted)) closeQuietly(adapted)`.
-            if (!result.complete(value) && value is AutoCloseable) {
-                closeQuietly(value)
+    val worker =
+        Runnable {
+            // Don't start if the caller already cancelled while we were queued.
+            if (result.isDone) return@Runnable
+            result.bindWorker(Thread.currentThread())
+            try {
+                // Re-check after publishing the thread: a cancel between the isDone check and the
+                // bind would otherwise miss us; if it already happened, skip the task entirely.
+                if (result.isDone) return@Runnable
+                val value = task()
+                // If we lost the completion race — the future was already cancelled (via the narrow
+                // window of cancel(true), or deterministically via cancel(false)'s run-to-completion
+                // path) — `complete` returns false and nothing downstream will ever hand `value`
+                // back to the caller. A `Closeable` value (e.g. a Response holding an open body /
+                // pooled connection) would then leak, so close it here on the discard path. Mirrors
+                // the native transports' `if (!future.complete(adapted)) closeQuietly(adapted)`.
+                if (!result.complete(value) && value is AutoCloseable) {
+                    closeQuietly(value)
+                }
+            } catch (t: Throwable) {
+                result.completeExceptionally(t)
+            } finally {
+                // Stop targeting this thread before it returns to the pool, then clear any interrupt
+                // the cancel may have set so a pooled thread is handed back clean.
+                result.unbindWorker()
+                Thread.interrupted()
             }
-        } catch (t: Throwable) {
-            result.completeExceptionally(t)
-        } finally {
-            // Stop targeting this thread before it returns to the pool, then clear any interrupt
-            // the cancel may have set so a pooled thread is handed back clean.
-            result.unbindWorker()
-            Thread.interrupted()
         }
+    // A shut-down or saturated executor rejects the task synchronously with an unchecked
+    // RejectedExecutionException. Surface it through the returned future — never as a synchronous
+    // throw — so callers that assume async-only failure delivery (the AsyncHttpClient contract) do
+    // not have the exception escape a method that promised a future.
+    try {
+        executor.execute(worker)
+    } catch (t: Throwable) {
+        result.completeExceptionally(t)
     }
     return result
-}
-
-/**
- * Best-effort close on a discard path. Used when a computed value loses the completion race to a
- * cancelled future: the value is already being dropped, so a failure to close it has nothing
- * actionable to surface. Mirrors the native transports' identically-named helper.
- */
-private fun closeQuietly(closeable: AutoCloseable) {
-    try {
-        closeable.close()
-    } catch (ignored: Throwable) {
-        // Intentionally ignored: the value is already being discarded.
-    }
 }

@@ -10,6 +10,7 @@ package org.dexpace.sdk.core.client
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
+import java.io.IOException
 
 /**
  * Transport SPI: the seam between the SDK's request/response models and a concrete HTTP transport
@@ -48,7 +49,13 @@ public fun interface HttpClient : AutoCloseable {
     /**
      * Sends [request] over the underlying transport and returns the matching [Response]. The
      * response body is not pre-buffered — callers are responsible for closing it.
+     *
+     * Declares `throws IOException` (the SDK's canonical transport failure
+     * `org.dexpace.sdk.core.http.response.exception.NetworkException` extends [java.io.IOException])
+     * so a Java-authored transport may declare and throw it and a Java caller can
+     * `catch (IOException)` at this call site.
      */
+    @Throws(IOException::class)
     public fun execute(request: Request): Response
 
     /**
@@ -59,6 +66,7 @@ public fun interface HttpClient : AutoCloseable {
      * budget, tags — override this method to read [options]; see the reference transports for the
      * per-call-timeout wiring. Pipelines thread the caller's options into this overload.
      */
+    @Throws(IOException::class)
     public fun execute(
         request: Request,
         options: RequestOptions,

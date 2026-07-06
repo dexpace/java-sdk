@@ -145,18 +145,21 @@ public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient {
  *
  * The blocking wait honours `Thread.interrupt()`: interrupting the calling thread restores the
  * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException] (an
- * [IOException] subtype, so the `@Throws(IOException::class)` contract holds).
+ * [IOException] subtype). The `throws IOException` contract lives on the returned client's
+ * [HttpClient.execute] — where the blocking wait actually happens — not on this factory, which
+ * only constructs the wrapper and performs no I/O.
  *
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
-@Throws(IOException::class)
 public fun AsyncHttpClient.asBlocking(): HttpClient {
     val async = this
     return object : HttpClient {
+        @Throws(IOException::class)
         override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
 
         // Thread the caller's per-call options into the wrapped async send so overrides survive
         // the async→sync bridge instead of being dropped by the SPI's options-ignoring default.
+        @Throws(IOException::class)
         override fun execute(
             request: Request,
             options: RequestOptions,
