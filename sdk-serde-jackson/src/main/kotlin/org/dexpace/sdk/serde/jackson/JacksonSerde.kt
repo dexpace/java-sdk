@@ -66,7 +66,7 @@ public class JacksonSerde private constructor(
     public fun <T> deserializeAs(
         input: String,
         type: TypeReference<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.type.typeName)
 
     /**
      * Deserialize from a [ByteArray]. See [deserializeAs] for type-reference rationale.
@@ -76,7 +76,7 @@ public class JacksonSerde private constructor(
     public fun <T> deserializeAs(
         input: ByteArray,
         type: TypeReference<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.type.typeName)
 
     /**
      * Deserialize by streaming from [inputStream]. The implementation reads to EOF but does
@@ -87,7 +87,15 @@ public class JacksonSerde private constructor(
     public fun <T> deserializeAs(
         inputStream: InputStream,
         type: TypeReference<T>,
-    ): T = deserializing { mapper.readValue(inputStream, type) }
+    ): T {
+        // The caller owns closing the stream. Drive a per-call parser with AUTO_CLOSE_SOURCE off so
+        // a caller-supplied mapper (see JacksonSerde.from, whose copy inherits AUTO_CLOSE_SOURCE=true)
+        // is not mutated and the stream is read to EOF but left open — matching this method's KDoc.
+        val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
+        return parser.use { p ->
+            nonNull(deserializing { mapper.readValue(p, type) }, type.type.typeName)
+        }
+    }
 
     public companion object {
         /** Build a [JacksonSerde] backed by an [ObjectMapper] with the SDK-correct defaults. */
@@ -216,13 +224,13 @@ internal class JacksonDeserializer internal constructor(
     override fun <T> deserialize(
         input: String,
         type: Class<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.typeName)
 
     /** @throws DeserializationException if [input] is malformed or does not match [type]. */
     override fun <T> deserialize(
         input: ByteArray,
         type: Class<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.typeName)
 
     /** @throws DeserializationException if the payload is malformed or does not match [type]. */
     override fun <T> deserialize(
@@ -233,7 +241,7 @@ internal class JacksonDeserializer internal constructor(
         // a caller-supplied mapper (see JacksonSerde.from) is not mutated and the stream stays open.
         val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
         return parser.use { p ->
-            deserializing { mapper.readValue(p, type) }
+            nonNull(deserializing { mapper.readValue(p, type) }, type.typeName)
         }
     }
 
@@ -246,7 +254,18 @@ internal class JacksonDeserializer internal constructor(
     override fun <T> deserialize(
         input: String,
         ref: TypeRef<T>,
-    ): T = deserializing { mapper.readValue(input, mapper.constructType(ref.type)) }
+    ): T = nonNull(deserializing { mapper.readValue(input, mapper.constructType(ref.type)) }, ref.type.typeName)
+
+    /**
+     * Byte-array counterpart to the string [TypeRef] overload; resolves the parametric target via
+     * `mapper.constructType(ref.type)` so a `List<MyDto>` decodes with its element type intact.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [ref].
+     */
+    override fun <T> deserialize(
+        input: ByteArray,
+        ref: TypeRef<T>,
+    ): T = nonNull(deserializing { mapper.readValue(input, mapper.constructType(ref.type)) }, ref.type.typeName)
 
     /**
      * Streaming counterpart to the string [TypeRef] overload. Reads to EOF but does **not** close the
@@ -260,7 +279,7 @@ internal class JacksonDeserializer internal constructor(
     ): T {
         val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
         return parser.use { p ->
-            deserializing { mapper.readValue(p, mapper.constructType(ref.type)) }
+            nonNull(deserializing { mapper.readValue(p, mapper.constructType(ref.type)) }, ref.type.typeName)
         }
     }
 }
@@ -297,3 +316,19 @@ private inline fun <T> deserializing(block: () -> T): T =
     } catch (e: JsonProcessingException) {
         throw DeserializationException(e.originalMessage ?: e.message, e)
     }
+
+/**
+ * Guards the non-null return contract of the `deserialize`/`deserializeAs` overloads. Jackson's
+ * `readValue` yields a Java `null` when the document is the JSON literal `null`; left unchecked that
+ * `null` flows through the non-null generic `T` return and detonates as a `NullPointerException` far
+ * from the decode site. Convert it here into a [DeserializationException] naming [typeName], so the
+ * failure is reported where it happens and callers catch the SDK's stable serde type.
+ */
+private fun <T> nonNull(
+    value: T?,
+    typeName: String,
+): T =
+    value
+        ?: throw DeserializationException(
+            "Decoded a null value for $typeName; the input was the JSON literal null.",
+        )

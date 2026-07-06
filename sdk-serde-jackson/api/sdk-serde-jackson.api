@@ -25,7 +25,7 @@ public final class org/dexpace/sdk/serde/jackson/JacksonSerde$Companion {
 	public final fun withDefaults ()Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 }
 
-public final class org/dexpace/sdk/serde/jackson/JsonResponseHandlerKt {
+public final class org/dexpace/sdk/serde/jackson/JsonResponseHandlers {
 	public static final fun jsonHandler (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 	public static final fun jsonHandler (Lorg/dexpace/sdk/serde/jackson/JacksonSerde;Lcom/fasterxml/jackson/core/type/TypeReference;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 	public static final fun jsonHandlerOrThrow (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
