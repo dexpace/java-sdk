@@ -7,6 +7,7 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import org.dexpace.sdk.core.util.RetryUtils
@@ -96,6 +97,80 @@ public class HttpRetryOptions
                 delayFromCondition = delayFromCondition,
             )
 
+        /**
+         * Returns a new [Builder] pre-filled with every field from this instance. Mutating
+         * the builder never affects this [HttpRetryOptions].
+         */
+        public fun newBuilder(): Builder =
+            Builder().apply {
+                maxRetries(this@HttpRetryOptions.maxRetries)
+                baseDelay(this@HttpRetryOptions.baseDelay)
+                maxDelay(this@HttpRetryOptions.maxDelay)
+                fixedDelay(this@HttpRetryOptions.fixedDelay)
+                retryAfterHeaders(this@HttpRetryOptions.retryAfterHeaders)
+                shouldRetryCondition(this@HttpRetryOptions.shouldRetryCondition)
+                shouldRetryException(this@HttpRetryOptions.shouldRetryException)
+                delayFromCondition(this@HttpRetryOptions.delayFromCondition)
+            }
+
+        /**
+         * Builder for [HttpRetryOptions]. All fields default to the same values as the
+         * primary constructor. Obtain via [HttpRetryOptions.builder].
+         */
+        public class Builder : org.dexpace.sdk.core.generics.Builder<HttpRetryOptions> {
+            private var maxRetries: Int = DefaultRetryStep.DEFAULT_MAX_RETRIES
+            private var baseDelay: Duration = RetrySettings.DEFAULT_INITIAL_DELAY
+            private var maxDelay: Duration = RetrySettings.DEFAULT_MAX_DELAY
+            private var fixedDelay: Duration? = null
+            private var retryAfterHeaders: List<HttpHeaderName> = DEFAULT_RETRY_AFTER_HEADERS
+            private var shouldRetryCondition: HttpRetryConditionPredicate =
+                HttpRetryConditionPredicate(::defaultShouldRetryResponse)
+            private var shouldRetryException: HttpRetryConditionPredicate =
+                HttpRetryConditionPredicate(::defaultShouldRetryException)
+            private var delayFromCondition: HttpRetryDelayProvider = HttpRetryDelayProvider { null }
+
+            /** Sets the maximum number of retry attempts. */
+            public fun maxRetries(value: Int): Builder = apply { maxRetries = value }
+
+            /** Sets the base exponential-backoff delay. */
+            public fun baseDelay(value: Duration): Builder = apply { baseDelay = value }
+
+            /** Sets the maximum backoff delay cap. */
+            public fun maxDelay(value: Duration): Builder = apply { maxDelay = value }
+
+            /**
+             * Sets a fixed per-retry delay, disabling exponential backoff. Pass `null` to
+             * re-enable backoff (the default).
+             */
+            public fun fixedDelay(value: Duration?): Builder = apply { fixedDelay = value }
+
+            /** Sets the ordered list of `Retry-After`-style headers to parse. */
+            public fun retryAfterHeaders(value: List<HttpHeaderName>): Builder = apply { retryAfterHeaders = value }
+
+            /** Sets the response-side retry predicate. */
+            public fun shouldRetryCondition(value: HttpRetryConditionPredicate): Builder =
+                apply { shouldRetryCondition = value }
+
+            /** Sets the exception-side retry predicate. */
+            public fun shouldRetryException(value: HttpRetryConditionPredicate): Builder =
+                apply { shouldRetryException = value }
+
+            /** Sets the custom delay provider (return `null` to fall through to backoff). */
+            public fun delayFromCondition(value: HttpRetryDelayProvider): Builder = apply { delayFromCondition = value }
+
+            override fun build(): HttpRetryOptions =
+                HttpRetryOptions(
+                    maxRetries = maxRetries,
+                    baseDelay = baseDelay,
+                    maxDelay = maxDelay,
+                    fixedDelay = fixedDelay,
+                    retryAfterHeaders = retryAfterHeaders,
+                    shouldRetryCondition = shouldRetryCondition,
+                    shouldRetryException = shouldRetryException,
+                    delayFromCondition = delayFromCondition,
+                )
+        }
+
         public companion object {
             // The default retry count is the canonical SDK budget, kept in one place on
             // DefaultRetryStep (initial send + DEFAULT_MAX_RETRIES == RetrySettings.DEFAULT_MAX_ATTEMPTS).
@@ -112,6 +187,25 @@ public class HttpRetryOptions
                     HttpHeaderName.RETRY_AFTER_MS,
                     HttpHeaderName.X_MS_RETRY_AFTER_MS,
                 )
+
+            /** Returns a fresh [Builder] with all fields at their defaults. */
+            @JvmStatic
+            public fun builder(): Builder = Builder()
+
+            /**
+             * Reads retry configuration from [source] and returns an [HttpRetryOptions] that
+             * reflects the values found. Only [Configuration.MAX_RETRY_ATTEMPTS] is consulted;
+             * every other field keeps its default value.
+             *
+             * The lookup goes through the full [Configuration] layering — explicit override →
+             * environment variable → normalized system property → SDK default. Parsing
+             * failures (non-integer or missing key) fall back to [DefaultRetryStep.DEFAULT_MAX_RETRIES].
+             */
+            @JvmStatic
+            public fun fromConfiguration(source: Configuration): HttpRetryOptions =
+                Builder()
+                    .maxRetries(source.getInt(Configuration.MAX_RETRY_ATTEMPTS, DefaultRetryStep.DEFAULT_MAX_RETRIES))
+                    .build()
 
             /**
              * Returns an [HttpRetryOptions] that uses a flat [delay] between every retry — no

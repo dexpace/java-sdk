@@ -255,10 +255,12 @@ public final class org/dexpace/sdk/core/auth/NamedKeyCredential : org/dexpace/sd
 public abstract interface class org/dexpace/sdk/core/client/AsyncHttpClient : java/lang/AutoCloseable {
 	public fun close ()V
 	public abstract fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/client/AsyncHttpClient$DefaultImpls {
 	public static fun close (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)V
+	public static fun executeAsync (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public final class org/dexpace/sdk/core/client/AsyncHttpClients {
@@ -269,10 +271,12 @@ public final class org/dexpace/sdk/core/client/AsyncHttpClients {
 public abstract interface class org/dexpace/sdk/core/client/HttpClient : java/lang/AutoCloseable {
 	public fun close ()V
 	public abstract fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
 public final class org/dexpace/sdk/core/client/HttpClient$DefaultImpls {
 	public static fun close (Lorg/dexpace/sdk/core/client/HttpClient;)V
+	public static fun execute (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
 public final class org/dexpace/sdk/core/config/Configuration {
@@ -352,32 +356,26 @@ public final class org/dexpace/sdk/core/http/common/CommonMediaTypes {
 }
 
 public final class org/dexpace/sdk/core/http/common/ETag {
+	public static final field ANY Lorg/dexpace/sdk/core/http/common/ETag;
 	public static final field Companion Lorg/dexpace/sdk/core/http/common/ETag$Companion;
-	public static final synthetic fun box-impl (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
-	public static final fun getANY-Ibeg9ak ()Ljava/lang/String;
-	public static final fun getOpaque-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final fun getOpaque ()Ljava/lang/String;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
-	public static final fun isAny-impl (Ljava/lang/String;)Z
-	public static final fun isStrong-impl (Ljava/lang/String;)Z
-	public static final fun isWeak-impl (Ljava/lang/String;)Z
-	public static final fun parse-h2-RfS0 (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun strong-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun toHeaderValue-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final fun isAny ()Z
+	public final fun isStrong ()Z
+	public final fun isWeak ()Z
+	public static final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public static final fun strong (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public final fun toHeaderValue ()Ljava/lang/String;
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
-	public static final fun weak-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun weak (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
 }
 
 public final class org/dexpace/sdk/core/http/common/ETag$Companion {
-	public final fun getANY-Ibeg9ak ()Ljava/lang/String;
-	public final fun parse-h2-RfS0 (Ljava/lang/String;)Ljava/lang/String;
-	public final fun strong-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
-	public final fun weak-ag3KNXs (Ljava/lang/String;)Ljava/lang/String;
+	public final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public final fun strong (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
+	public final fun weak (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/ETag;
 }
 
 public final class org/dexpace/sdk/core/http/common/Headers {
@@ -513,31 +511,32 @@ public final class org/dexpace/sdk/core/http/common/HttpHeaderName$Companion {
 
 public final class org/dexpace/sdk/core/http/common/HttpRange {
 	public static final field Companion Lorg/dexpace/sdk/core/http/common/HttpRange$Companion;
-	public static final synthetic fun box-impl (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/HttpRange;
-	public static final fun bytes-Oepi37k (JJ)Ljava/lang/String;
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun bytes (JJ)Lorg/dexpace/sdk/core/http/common/HttpRange;
 	public fun equals (Ljava/lang/Object;)Z
-	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
-	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
-	public static final fun from-1jReFK8 (J)Ljava/lang/String;
+	public static final fun from (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
 	public fun hashCode ()I
-	public static fun hashCode-impl (Ljava/lang/String;)I
-	public static final fun parse-1jReFK8 (Ljava/lang/String;)Ljava/lang/String;
-	public static final fun suffix-1jReFK8 (J)Ljava/lang/String;
-	public static final fun toHeaderValue-impl (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public static final fun suffix (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun toHeaderValue ()Ljava/lang/String;
 	public fun toString ()Ljava/lang/String;
-	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
-	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/common/HttpRange$Companion {
-	public final fun bytes-Oepi37k (JJ)Ljava/lang/String;
-	public final fun from-1jReFK8 (J)Ljava/lang/String;
-	public final fun parse-1jReFK8 (Ljava/lang/String;)Ljava/lang/String;
-	public final fun suffix-1jReFK8 (J)Ljava/lang/String;
+	public final fun bytes (JJ)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun from (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun parse (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/HttpRange;
+	public final fun suffix (J)Lorg/dexpace/sdk/core/http/common/HttpRange;
 }
 
 public final class org/dexpace/sdk/core/http/common/MediaType {
+	public static final field APPLICATION_FORM_URLENCODED Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field APPLICATION_JSON Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field APPLICATION_OCTET_STREAM Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field APPLICATION_XML Lorg/dexpace/sdk/core/http/common/MediaType;
 	public static final field Companion Lorg/dexpace/sdk/core/http/common/MediaType$Companion;
+	public static final field TEXT_HTML Lorg/dexpace/sdk/core/http/common/MediaType;
+	public static final field TEXT_PLAIN Lorg/dexpace/sdk/core/http/common/MediaType;
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
@@ -635,9 +634,11 @@ public final class org/dexpace/sdk/core/http/common/RequestConditions$Builder {
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/http/common/RequestConditions;)V
 	public final fun build ()Lorg/dexpace/sdk/core/http/common/RequestConditions;
-	public final fun ifMatch-a6HYibk (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifMatch (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifMatch (Lorg/dexpace/sdk/core/http/common/ETag;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
 	public final fun ifModifiedSince (Ljava/time/Instant;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
-	public final fun ifNoneMatch-a6HYibk (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifNoneMatch (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
+	public final fun ifNoneMatch (Lorg/dexpace/sdk/core/http/common/ETag;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
 	public final fun ifUnmodifiedSince (Ljava/time/Instant;)Lorg/dexpace/sdk/core/http/common/RequestConditions$Builder;
 }
 
@@ -728,23 +729,33 @@ public final class org/dexpace/sdk/core/http/context/RequestContext : org/dexpac
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline {
+public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline : org/dexpace/sdk/core/client/AsyncHttpClient {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline$Companion;
+	public fun close ()V
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public fun executeAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/AsyncHttpClient;
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
+	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Ljava/util/concurrent/CompletableFuture;
+	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Ljava/util/concurrent/CompletableFuture;
+	public final fun sendAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Ljava/util/concurrent/CompletableFuture;
+	public static final fun standard (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline$Companion {
 	public final fun of (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
+	public final fun standard (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder$Companion;
 	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;)V
 	public final fun append (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpStep;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun appendAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
+	public final fun appendStandardResilience (Ljava/util/concurrent/ScheduledExecutorService;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun build ()Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;
 	public static final fun from (Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipeline;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun insertAfter (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpStep;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
@@ -753,6 +764,7 @@ public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder {
 	public final fun prependAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun remove (Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 	public final fun replace (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpStep;)Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
+	public final fun throwOnHttpError ()Lorg/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncHttpPipelineBuilder$Companion {
@@ -766,20 +778,31 @@ public abstract interface class org/dexpace/sdk/core/http/pipeline/AsyncHttpStep
 
 public final class org/dexpace/sdk/core/http/pipeline/AsyncPipelineNext {
 	public final fun copy ()Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;
+	public final fun getOptions ()Lorg/dexpace/sdk/core/http/request/RequestOptions;
 	public final fun processAsync ()Ljava/util/concurrent/CompletableFuture;
 	public final fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;)Ljava/util/concurrent/CompletableFuture;
 }
 
-public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline {
+public final class org/dexpace/sdk/core/http/pipeline/AsyncResponseHandlers {
+	public static final fun handleWith (Ljava/util/concurrent/CompletableFuture;Lorg/dexpace/sdk/core/http/response/ResponseHandler;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline : org/dexpace/sdk/core/client/HttpClient {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline$Companion;
+	public fun close ()V
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/HttpClient;
 	public final fun getSteps ()Ljava/util/List;
 	public static final fun of (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 	public final fun send (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
+	public final fun send (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/request/RequestOptions;)Lorg/dexpace/sdk/core/http/response/Response;
+	public static final fun standard (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipeline$Companion {
 	public final fun of (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
+	public final fun standard (Lorg/dexpace/sdk/core/client/HttpClient;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBridges {
@@ -790,8 +813,10 @@ public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBridges {
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder {
 	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder$Companion;
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;)V
+	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;)V
 	public final fun append (Lorg/dexpace/sdk/core/http/pipeline/HttpStep;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun appendAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
+	public final fun appendStandardResilience ()Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun build ()Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;
 	public static final fun from (Lorg/dexpace/sdk/core/http/pipeline/HttpPipeline;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun insertAfter (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/HttpStep;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
@@ -800,6 +825,7 @@ public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder {
 	public final fun prependAll (Ljava/lang/Iterable;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun remove (Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 	public final fun replace (Ljava/lang/Class;Lorg/dexpace/sdk/core/http/pipeline/HttpStep;)Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
+	public final fun throwOnHttpError ()Lorg/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/HttpPipelineBuilder$Companion {
@@ -813,6 +839,7 @@ public abstract interface class org/dexpace/sdk/core/http/pipeline/HttpStep {
 
 public final class org/dexpace/sdk/core/http/pipeline/PipelineNext {
 	public final fun copy ()Lorg/dexpace/sdk/core/http/pipeline/PipelineNext;
+	public final fun getOptions ()Lorg/dexpace/sdk/core/http/request/RequestOptions;
 	public final fun process ()Lorg/dexpace/sdk/core/http/response/Response;
 	public final fun process (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/response/Response;
 }
@@ -827,6 +854,7 @@ public final class org/dexpace/sdk/core/http/pipeline/Stage : java/lang/Enum {
 	public static final field POST_SERDE Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_AUTH Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_LOGGING Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public static final field PRE_REDIRECT Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_SEND Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field PRE_SERDE Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public static final field REDIRECT Lorg/dexpace/sdk/core/http/pipeline/Stage;
@@ -862,6 +890,12 @@ public class org/dexpace/sdk/core/http/pipeline/steps/AsyncBearerTokenAuthStep :
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/AsyncRetryStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
 	public fun <init> ()V
 	public final fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/AsyncThrowOnHttpErrorStep : org/dexpace/sdk/core/http/pipeline/AsyncHttpStep {
+	public fun <init> ()V
+	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public fun processAsync (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/AsyncPipelineNext;)Ljava/util/concurrent/CompletableFuture;
 }
 
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/AuthStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
@@ -955,6 +989,7 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationO
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;Ljava/util/Set;Ljava/util/Set;ZLorg/dexpace/sdk/core/instrumentation/Tracer;Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;)V
 	public fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;Ljava/util/Set;Ljava/util/Set;ZLorg/dexpace/sdk/core/instrumentation/Tracer;Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;I)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;Ljava/util/Set;Ljava/util/Set;ZLorg/dexpace/sdk/core/instrumentation/Tracer;Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
 	public final fun getAllowedHeaderNames ()Ljava/util/Set;
 	public final fun getAllowedQueryParamNames ()Ljava/util/Set;
 	public final fun getBodyPreviewMaxBytes ()I
@@ -962,9 +997,24 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationO
 	public final fun getMeter ()Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;
 	public final fun getTracer ()Lorg/dexpace/sdk/core/instrumentation/Tracer;
 	public final fun isRedactedHeaderNamesLoggingEnabled ()Z
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun allowedHeaderNames (Ljava/util/Set;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun allowedQueryParamNames (Ljava/util/Set;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun bodyPreviewMaxBytes (I)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions;
+	public final fun isRedactedHeaderNamesLoggingEnabled (Z)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun logLevel (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun meter (Lorg/dexpace/sdk/core/instrumentation/metrics/Meter;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
+	public final fun tracer (Lorg/dexpace/sdk/core/instrumentation/Tracer;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpInstrumentationOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpLogLevel : java/lang/Enum {
@@ -1001,20 +1051,39 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectConditio
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions {
+	public static final field Companion Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Companion;
 	public fun <init> ()V
 	public fun <init> (I)V
-	public fun <init> (ILjava/util/EnumSet;)V
-	public fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)V
-	public fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Z)V
-	public fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZ)V
-	public fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZLorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;)V
-	public synthetic fun <init> (ILjava/util/EnumSet;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZLorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ILjava/util/Set;)V
+	public fun <init> (ILjava/util/Set;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)V
+	public fun <init> (ILjava/util/Set;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Z)V
+	public fun <init> (ILjava/util/Set;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZ)V
+	public fun <init> (ILjava/util/Set;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZLorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;)V
+	public synthetic fun <init> (ILjava/util/Set;Lorg/dexpace/sdk/core/http/common/HttpHeaderName;ZZLorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
 	public final fun getAllowSchemeDowngrade ()Z
 	public final fun getAllowedMethods ()Ljava/util/Set;
 	public final fun getFollow303 ()Z
 	public final fun getLocationHeader ()Lorg/dexpace/sdk/core/http/common/HttpHeaderName;
 	public final fun getMaxHops ()I
 	public final fun getShouldRedirect ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun allowSchemeDowngrade (Z)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun allowedMethods (Ljava/util/Set;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions;
+	public final fun follow303 (Z)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun locationHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun maxHops (I)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+	public final fun shouldRedirect (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRedirectOptions$Builder;
 }
 
 public abstract interface class org/dexpace/sdk/core/http/pipeline/steps/HttpRedirectPredicate {
@@ -1059,7 +1128,9 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions {
 	public fun <init> (ILjava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/util/List;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)V
 	public fun <init> (ILjava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/util/List;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;)V
 	public synthetic fun <init> (ILjava/time/Duration;Ljava/time/Duration;Ljava/time/Duration;Ljava/util/List;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
 	public static final fun fixed (ILjava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
+	public static final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
 	public final fun getBaseDelay ()Ljava/time/Duration;
 	public final fun getDelayFromCondition ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;
 	public final fun getFixedDelay ()Ljava/time/Duration;
@@ -1068,10 +1139,27 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions {
 	public final fun getRetryAfterHeaders ()Ljava/util/List;
 	public final fun getShouldRetryCondition ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;
 	public final fun getShouldRetryException ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public final fun baseDelay (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
+	public final fun delayFromCondition (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryDelayProvider;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun fixedDelay (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun maxDelay (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun maxRetries (I)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun retryAfterHeaders (Ljava/util/List;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun shouldRetryCondition (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
+	public final fun shouldRetryException (Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryConditionPredicate;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions$Builder;
 	public final fun fixed (ILjava/time/Duration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
+	public final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/http/pipeline/steps/HttpRetryOptions;
 }
 
 public abstract class org/dexpace/sdk/core/http/pipeline/steps/InstrumentationStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
@@ -1113,6 +1201,12 @@ public final class org/dexpace/sdk/core/http/pipeline/steps/SetDateStep : org/de
 	public fun <init> ()V
 	public fun <init> (Lorg/dexpace/sdk/core/util/Clock;)V
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/util/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
+	public fun process (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/PipelineNext;)Lorg/dexpace/sdk/core/http/response/Response;
+}
+
+public final class org/dexpace/sdk/core/http/pipeline/steps/ThrowOnHttpErrorStep : org/dexpace/sdk/core/http/pipeline/HttpStep {
+	public fun <init> ()V
 	public fun getStage ()Lorg/dexpace/sdk/core/http/pipeline/Stage;
 	public fun process (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/pipeline/PipelineNext;)Lorg/dexpace/sdk/core/http/response/Response;
 }
@@ -1230,18 +1324,30 @@ public final class org/dexpace/sdk/core/http/request/Request {
 	public final fun component2 ()Ljava/net/URL;
 	public final fun component3 ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun component4 ()Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static final fun delete (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public fun equals (Ljava/lang/Object;)Z
+	public static final fun get (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getBody ()Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun getHeaders ()Lorg/dexpace/sdk/core/http/common/Headers;
 	public final fun getMethod ()Lorg/dexpace/sdk/core/http/request/Method;
 	public final fun getUrl ()Ljava/net/URL;
 	public fun hashCode ()I
+	public static final fun head (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public static final fun patch (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
+	public static final fun post (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
+	public static final fun put (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/request/Request$Companion {
 	public final fun builder ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun delete (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun get (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun head (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun patch (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun post (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun put (Ljava/lang/String;Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request;
 }
 
 public final class org/dexpace/sdk/core/http/request/Request$RequestBuilder : org/dexpace/sdk/core/generics/Builder {
@@ -1249,16 +1355,28 @@ public final class org/dexpace/sdk/core/http/request/Request$RequestBuilder : or
 	public fun <init> (Lorg/dexpace/sdk/core/http/request/Request;)V
 	public final fun addHeader (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun addHeader (Ljava/lang/String;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun addHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun addHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun addHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun body (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public synthetic fun build ()Ljava/lang/Object;
 	public fun build ()Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun delete ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun get ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun head ()Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun headers (Lorg/dexpace/sdk/core/http/common/Headers;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun method (Lorg/dexpace/sdk/core/http/request/Method;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun patch (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun post (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun put (Lorg/dexpace/sdk/core/http/request/RequestBody;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun removeHeader (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun removeHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun setHeader (Ljava/lang/String;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun setHeader (Ljava/lang/String;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun setHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun setHeader (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/util/List;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun url (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
+	public final fun url (Ljava/net/URI;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 	public final fun url (Ljava/net/URL;)Lorg/dexpace/sdk/core/http/request/Request$RequestBuilder;
 }
 
@@ -1268,6 +1386,8 @@ public abstract class org/dexpace/sdk/core/http/request/RequestBody {
 	public fun contentLength ()J
 	public static final fun create (Ljava/io/InputStream;J)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/io/InputStream;JLorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;Ljava/nio/charset/Charset;)Lorg/dexpace/sdk/core/http/request/RequestBody;
@@ -1296,6 +1416,8 @@ public abstract class org/dexpace/sdk/core/http/request/RequestBody {
 public final class org/dexpace/sdk/core/http/request/RequestBody$Companion {
 	public final fun create (Ljava/io/InputStream;J)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/io/InputStream;JLorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public final fun create (Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/lang/String;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create (Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;Ljava/nio/charset/Charset;)Lorg/dexpace/sdk/core/http/request/RequestBody;
@@ -1314,12 +1436,41 @@ public final class org/dexpace/sdk/core/http/request/RequestBody$Companion {
 	public final fun create ([B)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public final fun create ([BLorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/io/InputStream;JLorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/lang/Object;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/lang/String;Lorg/dexpace/sdk/core/http/common/MediaType;Ljava/nio/charset/Charset;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/nio/file/Path;Lorg/dexpace/sdk/core/http/common/MediaType;JJILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Ljava/util/Map;Ljava/nio/charset/Charset;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Lorg/dexpace/sdk/core/io/Buffer;Lorg/dexpace/sdk/core/http/common/MediaType;JILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;JILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/request/RequestBody$Companion;[BLorg/dexpace/sdk/core/http/common/MediaType;ILjava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestBody;
+}
+
+public final class org/dexpace/sdk/core/http/request/RequestOptions {
+	public static final field Companion Lorg/dexpace/sdk/core/http/request/RequestOptions$Companion;
+	public static final field EMPTY Lorg/dexpace/sdk/core/http/request/RequestOptions;
+	public synthetic fun <init> (Ljava/time/Duration;Ljava/util/Map;Ljava/lang/Integer;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Lorg/dexpace/sdk/core/http/request/RequestOptions$Builder;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxRetries ()Ljava/lang/Integer;
+	public final fun getTags ()Ljava/util/Map;
+	public final fun getTimeout ()Ljava/time/Duration;
+	public fun hashCode ()I
+	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/request/RequestOptions$Builder;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/dexpace/sdk/core/http/request/RequestOptions$Builder : org/dexpace/sdk/core/generics/Builder {
+	public fun <init> ()V
+	public fun <init> (Lorg/dexpace/sdk/core/http/request/RequestOptions;)V
+	public synthetic fun build ()Ljava/lang/Object;
+	public fun build ()Lorg/dexpace/sdk/core/http/request/RequestOptions;
+	public final fun maxRetries (Ljava/lang/Integer;)Lorg/dexpace/sdk/core/http/request/RequestOptions$Builder;
+	public final fun tag (Ljava/lang/String;Ljava/lang/Object;)Lorg/dexpace/sdk/core/http/request/RequestOptions$Builder;
+	public final fun timeout (Ljava/time/Duration;)Lorg/dexpace/sdk/core/http/request/RequestOptions$Builder;
+}
+
+public final class org/dexpace/sdk/core/http/request/RequestOptions$Companion {
+	public final fun builder ()Lorg/dexpace/sdk/core/http/request/RequestOptions$Builder;
 }
 
 public final class org/dexpace/sdk/core/http/response/LoggableResponseBody : org/dexpace/sdk/core/http/response/ResponseBody {
@@ -1375,6 +1526,12 @@ public final class org/dexpace/sdk/core/http/response/Response : java/io/Closeab
 	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getStatus ()Lorg/dexpace/sdk/core/http/response/Status;
 	public fun hashCode ()I
+	public final fun isClientError ()Z
+	public final fun isError ()Z
+	public final fun isInformational ()Z
+	public final fun isRedirect ()Z
+	public final fun isServerError ()Z
+	public final fun isSuccessful ()Z
 	public final fun newBuilder ()Lorg/dexpace/sdk/core/http/response/Response$ResponseBuilder;
 	public fun toString ()Ljava/lang/String;
 }
@@ -1405,6 +1562,7 @@ public final class org/dexpace/sdk/core/http/response/Response$ResponseBuilder :
 public abstract class org/dexpace/sdk/core/http/response/ResponseBody : java/io/Closeable {
 	public static final field Companion Lorg/dexpace/sdk/core/http/response/ResponseBody$Companion;
 	public fun <init> ()V
+	public final fun bytes ()[B
 	public abstract fun close ()V
 	public abstract fun contentLength ()J
 	public static final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
@@ -1412,6 +1570,9 @@ public abstract class org/dexpace/sdk/core/http/response/ResponseBody : java/io/
 	public static final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;J)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public abstract fun mediaType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public abstract fun source ()Lorg/dexpace/sdk/core/io/BufferedSource;
+	public final fun string ()Ljava/lang/String;
+	public final fun string (Ljava/nio/charset/Charset;)Ljava/lang/String;
+	public static synthetic fun string$default (Lorg/dexpace/sdk/core/http/response/ResponseBody;Ljava/nio/charset/Charset;ILjava/lang/Object;)Ljava/lang/String;
 }
 
 public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
@@ -1419,6 +1580,13 @@ public final class org/dexpace/sdk/core/http/response/ResponseBody$Companion {
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public final fun create (Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;J)Lorg/dexpace/sdk/core/http/response/ResponseBody;
 	public static synthetic fun create$default (Lorg/dexpace/sdk/core/http/response/ResponseBody$Companion;Lorg/dexpace/sdk/core/io/BufferedSource;Lorg/dexpace/sdk/core/http/common/MediaType;JILjava/lang/Object;)Lorg/dexpace/sdk/core/http/response/ResponseBody;
+}
+
+public final class org/dexpace/sdk/core/http/response/ResponseExtensions {
+	public static final fun bodyAs (Lorg/dexpace/sdk/core/http/response/exception/HttpException;Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/lang/Class;)Ljava/lang/Object;
+	public static final fun deserialize (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Ljava/lang/Object;
+	public static final fun deserialize (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/serde/Serde;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
+	public static final fun throwOnError (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
 public abstract interface class org/dexpace/sdk/core/http/response/ResponseHandler {
@@ -1506,6 +1674,11 @@ public final class org/dexpace/sdk/core/http/response/Status {
 	public final fun getCode ()I
 	public final fun getStatusName ()Ljava/lang/String;
 	public fun hashCode ()I
+	public final fun isClientError ()Z
+	public final fun isError ()Z
+	public final fun isInformational ()Z
+	public final fun isRedirect ()Z
+	public final fun isServerError ()Z
 	public final fun isSuccess ()Z
 	public fun toString ()Ljava/lang/String;
 }
@@ -2115,6 +2288,9 @@ public final class org/dexpace/sdk/core/instrumentation/UrlRedactor {
 	public static final fun redact (Ljava/net/URL;)Ljava/lang/String;
 	public static final fun redact (Ljava/net/URL;Ljava/util/Set;)Ljava/lang/String;
 	public static synthetic fun redact$default (Ljava/net/URL;Ljava/util/Set;ILjava/lang/Object;)Ljava/lang/String;
+	public static final fun redactUrlValue (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun redactUrlValue (Ljava/lang/String;Ljava/util/Set;)Ljava/lang/String;
+	public static synthetic fun redactUrlValue$default (Ljava/lang/String;Ljava/util/Set;ILjava/lang/Object;)Ljava/lang/String;
 }
 
 public abstract interface class org/dexpace/sdk/core/instrumentation/metrics/DoubleHistogram {
@@ -2208,17 +2384,22 @@ public abstract interface class org/dexpace/sdk/core/io/BufferedSource : org/dex
 
 public final class org/dexpace/sdk/core/io/Io {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/io/Io;
-	public final fun getProvider ()Lorg/dexpace/sdk/core/io/IoProvider;
-	public final fun installProvider (Lorg/dexpace/sdk/core/io/IoProvider;)V
+	public static final fun getProvider ()Lorg/dexpace/sdk/core/io/IoProvider;
+	public static final fun installProvider (Lorg/dexpace/sdk/core/io/IoProvider;)V
 }
 
 public abstract interface class org/dexpace/sdk/core/io/IoProvider {
 	public abstract fun buffer ()Lorg/dexpace/sdk/core/io/Buffer;
 	public abstract fun bufferedSink (Lorg/dexpace/sdk/core/io/Sink;)Lorg/dexpace/sdk/core/io/BufferedSink;
 	public abstract fun bufferedSource (Lorg/dexpace/sdk/core/io/Source;)Lorg/dexpace/sdk/core/io/BufferedSource;
+	public fun getUnderlying ()Lorg/dexpace/sdk/core/io/IoProvider;
 	public abstract fun sink (Ljava/io/OutputStream;)Lorg/dexpace/sdk/core/io/BufferedSink;
 	public abstract fun source (Ljava/io/InputStream;)Lorg/dexpace/sdk/core/io/BufferedSource;
 	public abstract fun source ([B)Lorg/dexpace/sdk/core/io/BufferedSource;
+}
+
+public final class org/dexpace/sdk/core/io/IoProvider$DefaultImpls {
+	public static fun getUnderlying (Lorg/dexpace/sdk/core/io/IoProvider;)Lorg/dexpace/sdk/core/io/IoProvider;
 }
 
 public abstract interface class org/dexpace/sdk/core/io/Sink : java/io/Closeable {
@@ -2255,7 +2436,8 @@ public final class org/dexpace/sdk/core/operation/OperationParams$DefaultImpls {
 public final class org/dexpace/sdk/core/pagination/AsyncPaginator {
 	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;)V
 	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;J)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JLorg/dexpace/sdk/core/http/request/RequestOptions;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/AsyncHttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JLorg/dexpace/sdk/core/http/request/RequestOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun collectAllAsync ()Ljava/util/concurrent/CompletableFuture;
 	public final fun collectAllAsync (Ljava/util/concurrent/Executor;)Ljava/util/concurrent/CompletableFuture;
 	public final fun forEachAsync (Ljava/util/function/Consumer;)Ljava/util/concurrent/CompletableFuture;
@@ -2270,10 +2452,14 @@ public final class org/dexpace/sdk/core/pagination/CloseablePages : java/lang/Au
 	public final fun stream ()Ljava/util/stream/Stream;
 }
 
+public abstract interface class org/dexpace/sdk/core/pagination/CursorExtractor {
+	public abstract fun extract (Lorg/dexpace/sdk/core/http/response/Response;)Lorg/dexpace/sdk/core/pagination/CursorResult;
+}
+
 public final class org/dexpace/sdk/core/pagination/CursorPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/CursorExtractor;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/CursorExtractor;Ljava/lang/String;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/CursorExtractor;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
@@ -2294,10 +2480,14 @@ public abstract interface class org/dexpace/sdk/core/pagination/FirstPageFetcher
 	public abstract fun fetch (Lorg/dexpace/sdk/core/pagination/PagingOptions;)Lorg/dexpace/sdk/core/pagination/Page;
 }
 
+public abstract interface class org/dexpace/sdk/core/pagination/ItemsExtractor {
+	public abstract fun extract (Lorg/dexpace/sdk/core/http/response/Response;)Ljava/util/List;
+}
+
 public final class org/dexpace/sdk/core/pagination/LinkHeaderPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;Ljava/lang/String;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
@@ -2333,10 +2523,10 @@ public final class org/dexpace/sdk/core/pagination/PageInfo {
 }
 
 public final class org/dexpace/sdk/core/pagination/PageNumberPaginationStrategy : org/dexpace/sdk/core/pagination/PaginationStrategy {
-	public fun <init> (Lkotlin/jvm/functions/Function1;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;)V
-	public fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;I)V
-	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Ljava/lang/String;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;Ljava/lang/String;)V
+	public fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;Ljava/lang/String;I)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/pagination/ItemsExtractor;Ljava/lang/String;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun parse (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/pagination/PageInfo;
 }
 
@@ -2359,7 +2549,8 @@ public abstract interface class org/dexpace/sdk/core/pagination/PaginationStrate
 public final class org/dexpace/sdk/core/pagination/Paginator {
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;)V
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;J)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JLorg/dexpace/sdk/core/http/request/RequestOptions;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/pagination/PaginationStrategy;JLorg/dexpace/sdk/core/http/request/RequestOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun byPage ()Lorg/dexpace/sdk/core/pagination/CloseablePages;
 	public final fun iterateAll ()Ljava/lang/Iterable;
 	public final fun streamAll ()Ljava/util/stream/Stream;
@@ -2382,23 +2573,23 @@ public final class org/dexpace/sdk/core/pagination/PagingOptions {
 	public final fun setPageSize (Ljava/lang/Long;)V
 }
 
-public final class org/dexpace/sdk/core/pipeline/ExecutionPipeline {
+public final class org/dexpace/sdk/core/pipeline/RecoveryChain {
 	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;)V
-	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestPipeline;)V
-	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestPipeline;Lorg/dexpace/sdk/core/pipeline/ResponsePipeline;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestPipeline;Lorg/dexpace/sdk/core/pipeline/ResponsePipeline;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/response/Response;
+	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;)V
+	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/HttpClient;
-	public final fun getRequestPipeline ()Lorg/dexpace/sdk/core/pipeline/RequestPipeline;
-	public final fun getResponsePipeline ()Lorg/dexpace/sdk/core/pipeline/ResponsePipeline;
+	public final fun getRequestChain ()Lorg/dexpace/sdk/core/pipeline/RequestRecoveryChain;
+	public final fun getResponseChain ()Lorg/dexpace/sdk/core/pipeline/ResponseRecoveryChain;
+	public final fun recover (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/response/Response;
 }
 
-public final class org/dexpace/sdk/core/pipeline/RequestPipeline {
+public final class org/dexpace/sdk/core/pipeline/RequestRecoveryChain {
 	public fun <init> ()V
 	public fun <init> (Ljava/util/List;)V
 	public synthetic fun <init> (Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/request/Request;
 	public final fun getSteps ()Ljava/util/List;
+	public final fun recover (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/request/Request;
 }
 
 public abstract class org/dexpace/sdk/core/pipeline/ResponseOutcome {
@@ -2431,7 +2622,7 @@ public final class org/dexpace/sdk/core/pipeline/ResponseOutcome$Success : org/d
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class org/dexpace/sdk/core/pipeline/ResponsePipeline {
+public final class org/dexpace/sdk/core/pipeline/ResponseRecoveryChain {
 	public fun <init> ()V
 	public fun <init> (Ljava/util/List;)V
 	public fun <init> (Ljava/util/List;Ljava/util/List;)V
@@ -2449,7 +2640,6 @@ public final class org/dexpace/sdk/core/pipeline/step/ClientIdentityStep : org/d
 	public fun <init> (Ljava/util/List;Ljava/lang/String;)V
 	public fun <init> (Ljava/util/List;Ljava/lang/String;Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;)V
 	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$Mode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun apply (Lorg/dexpace/sdk/core/http/request/Request;)Lorg/dexpace/sdk/core/http/request/Request;
 	public static final fun builder ()Lorg/dexpace/sdk/core/pipeline/step/ClientIdentityStep$ClientIdentityStepBuilder;
 	public synthetic fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
 	public fun execute (Lorg/dexpace/sdk/core/http/request/Request;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/request/Request;
@@ -2529,8 +2719,8 @@ public abstract interface class org/dexpace/sdk/core/pipeline/step/ResponseRecov
 	public abstract fun invoke (Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;)Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;
 }
 
-public final class org/dexpace/sdk/core/pipeline/step/ThrowOnHttpErrorStep : org/dexpace/sdk/core/pipeline/step/ResponsePipelineStep {
-	public static final field INSTANCE Lorg/dexpace/sdk/core/pipeline/step/ThrowOnHttpErrorStep;
+public final class org/dexpace/sdk/core/pipeline/step/ThrowOnHttpErrorRecovery : org/dexpace/sdk/core/pipeline/step/ResponsePipelineStep {
+	public static final field INSTANCE Lorg/dexpace/sdk/core/pipeline/step/ThrowOnHttpErrorRecovery;
 	public synthetic fun execute (Ljava/lang/Object;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Ljava/lang/Object;
 	public fun execute (Lorg/dexpace/sdk/core/http/response/Response;Lorg/dexpace/sdk/core/http/context/DispatchContext;)Lorg/dexpace/sdk/core/http/response/Response;
 }
@@ -2547,6 +2737,21 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetryAfterParser {
 	public static final field INSTANCE Lorg/dexpace/sdk/core/pipeline/step/retry/RetryAfterParser;
 	public static final fun parse (Lorg/dexpace/sdk/core/http/common/Headers;Ljava/time/Instant;)Ljava/time/Duration;
 	public static final fun parseHeaderValue (Lorg/dexpace/sdk/core/http/common/HttpHeaderName;Ljava/lang/String;Ljava/time/Instant;)Ljava/time/Duration;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/retry/RetryRecovery : org/dexpace/sdk/core/pipeline/step/ResponseRecoveryStep {
+	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/retry/RetryRecovery$Companion;
+	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;Lorg/dexpace/sdk/core/http/request/Request;)V
+	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;Lorg/dexpace/sdk/core/http/request/Request;Ljava/time/Clock;)V
+	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;Lorg/dexpace/sdk/core/http/request/Request;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun attempt ()Lorg/dexpace/sdk/core/http/response/Response;
+	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/HttpClient;
+	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
+	public final fun getSettings ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;
+	public fun invoke (Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;)Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;
+}
+
+public final class org/dexpace/sdk/core/pipeline/step/retry/RetryRecovery$Companion {
 }
 
 public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings {
@@ -2597,21 +2802,6 @@ public final class org/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetryS
 	public final fun totalTimeout (Ljava/time/Duration;)Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings$RetrySettingsBuilder;
 }
 
-public final class org/dexpace/sdk/core/pipeline/step/retry/RetryStep : org/dexpace/sdk/core/pipeline/step/ResponseRecoveryStep {
-	public static final field Companion Lorg/dexpace/sdk/core/pipeline/step/retry/RetryStep$Companion;
-	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;Lorg/dexpace/sdk/core/http/request/Request;)V
-	public fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;Lorg/dexpace/sdk/core/http/request/Request;Ljava/time/Clock;)V
-	public synthetic fun <init> (Lorg/dexpace/sdk/core/client/HttpClient;Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;Lorg/dexpace/sdk/core/http/request/Request;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun attempt ()Lorg/dexpace/sdk/core/http/response/Response;
-	public final fun getHttpClient ()Lorg/dexpace/sdk/core/client/HttpClient;
-	public final fun getRequest ()Lorg/dexpace/sdk/core/http/request/Request;
-	public final fun getSettings ()Lorg/dexpace/sdk/core/pipeline/step/retry/RetrySettings;
-	public fun invoke (Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;)Lorg/dexpace/sdk/core/pipeline/ResponseOutcome;
-}
-
-public final class org/dexpace/sdk/core/pipeline/step/retry/RetryStep$Companion {
-}
-
 public class org/dexpace/sdk/core/serde/DeserializationException : org/dexpace/sdk/core/serde/SerdeException {
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/String;)V
@@ -2621,11 +2811,21 @@ public class org/dexpace/sdk/core/serde/DeserializationException : org/dexpace/s
 
 public abstract interface class org/dexpace/sdk/core/serde/Deserializer {
 	public abstract fun deserialize (Ljava/io/InputStream;Ljava/lang/Class;)Ljava/lang/Object;
+	public fun deserialize (Ljava/io/InputStream;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 	public abstract fun deserialize (Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;
+	public fun deserialize (Ljava/lang/String;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 	public abstract fun deserialize ([BLjava/lang/Class;)Ljava/lang/Object;
+	public fun deserialize ([BLorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
+}
+
+public final class org/dexpace/sdk/core/serde/Deserializer$DefaultImpls {
+	public static fun deserialize (Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/io/InputStream;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
+	public static fun deserialize (Lorg/dexpace/sdk/core/serde/Deserializer;Ljava/lang/String;Lorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
+	public static fun deserialize (Lorg/dexpace/sdk/core/serde/Deserializer;[BLorg/dexpace/sdk/core/serde/TypeRef;)Ljava/lang/Object;
 }
 
 public abstract interface class org/dexpace/sdk/core/serde/Serde {
+	public abstract fun contentType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public abstract fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public abstract fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
 }
@@ -2697,6 +2897,12 @@ public final class org/dexpace/sdk/core/serde/Tristate$Present : org/dexpace/sdk
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract class org/dexpace/sdk/core/serde/TypeRef {
+	protected fun <init> ()V
+	public final fun getRawClass ()Ljava/lang/Class;
+	public final fun getType ()Ljava/lang/reflect/Type;
+}
+
 public abstract interface class org/dexpace/sdk/core/util/Clock {
 	public static final field Companion Lorg/dexpace/sdk/core/util/Clock$Companion;
 	public static final field SYSTEM Lorg/dexpace/sdk/core/util/Clock;
@@ -2732,6 +2938,7 @@ public final class org/dexpace/sdk/core/util/ProxyOptions {
 	public synthetic fun <init> (Lorg/dexpace/sdk/core/util/ProxyOptions$Type;Ljava/net/InetSocketAddress;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lorg/dexpace/sdk/core/auth/ChallengeHandler;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun bypassesProxy (Ljava/lang/String;)Z
 	public static final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/util/ProxyOptions;
+	public static final fun fromEnvironment ()Lorg/dexpace/sdk/core/util/ProxyOptions;
 	public final fun getAddress ()Ljava/net/InetSocketAddress;
 	public final fun getBypassAllHosts ()Z
 	public final fun getChallengeHandler ()Lorg/dexpace/sdk/core/auth/ChallengeHandler;
@@ -2744,6 +2951,7 @@ public final class org/dexpace/sdk/core/util/ProxyOptions {
 
 public final class org/dexpace/sdk/core/util/ProxyOptions$Companion {
 	public final fun fromConfiguration (Lorg/dexpace/sdk/core/config/Configuration;)Lorg/dexpace/sdk/core/util/ProxyOptions;
+	public final fun fromEnvironment ()Lorg/dexpace/sdk/core/util/ProxyOptions;
 }
 
 public final class org/dexpace/sdk/core/util/ProxyOptions$Type : java/lang/Enum {

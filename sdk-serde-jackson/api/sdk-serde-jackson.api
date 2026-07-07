@@ -6,10 +6,12 @@ public final class org/dexpace/sdk/serde/jackson/JacksonObjectMappers {
 public final class org/dexpace/sdk/serde/jackson/JacksonSerde : org/dexpace/sdk/core/serde/Serde {
 	public static final field Companion Lorg/dexpace/sdk/serde/jackson/JacksonSerde$Companion;
 	public synthetic fun <init> (Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun contentType ()Lorg/dexpace/sdk/core/http/common/MediaType;
 	public final fun deserializeAs (Ljava/io/InputStream;Lcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public final fun deserializeAs (Ljava/lang/String;Lcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public final fun deserializeAs ([BLcom/fasterxml/jackson/core/type/TypeReference;)Ljava/lang/Object;
 	public static final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
+	public static final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;Z)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 	public fun getDeserializer ()Lorg/dexpace/sdk/core/serde/Deserializer;
 	public final fun getMapper ()Lcom/fasterxml/jackson/databind/ObjectMapper;
 	public fun getSerializer ()Lorg/dexpace/sdk/core/serde/Serializer;
@@ -18,12 +20,16 @@ public final class org/dexpace/sdk/serde/jackson/JacksonSerde : org/dexpace/sdk/
 
 public final class org/dexpace/sdk/serde/jackson/JacksonSerde$Companion {
 	public final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
+	public final fun from (Lcom/fasterxml/jackson/databind/ObjectMapper;Z)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
+	public static synthetic fun from$default (Lorg/dexpace/sdk/serde/jackson/JacksonSerde$Companion;Lcom/fasterxml/jackson/databind/ObjectMapper;ZILjava/lang/Object;)Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 	public final fun withDefaults ()Lorg/dexpace/sdk/serde/jackson/JacksonSerde;
 }
 
-public final class org/dexpace/sdk/serde/jackson/JsonResponseHandlerKt {
+public final class org/dexpace/sdk/serde/jackson/JsonResponseHandlers {
 	public static final fun jsonHandler (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 	public static final fun jsonHandler (Lorg/dexpace/sdk/serde/jackson/JacksonSerde;Lcom/fasterxml/jackson/core/type/TypeReference;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public static final fun jsonHandlerOrThrow (Lorg/dexpace/sdk/core/serde/Serde;Ljava/lang/Class;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
+	public static final fun jsonHandlerOrThrow (Lorg/dexpace/sdk/serde/jackson/JacksonSerde;Lcom/fasterxml/jackson/core/type/TypeReference;)Lorg/dexpace/sdk/core/http/response/ResponseHandler;
 }
 
 public final class org/dexpace/sdk/serde/jackson/TristateModule : com/fasterxml/jackson/databind/module/SimpleModule {

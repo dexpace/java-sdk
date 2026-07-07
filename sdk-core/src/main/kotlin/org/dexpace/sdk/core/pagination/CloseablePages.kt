@@ -21,6 +21,20 @@ import java.util.stream.Stream
  * - The terminal `hasNext()` (source exhausted) closes the last page.
  * - [close] closes the page currently held open.
  *
+ * ## Prefetch and the close-on-abandon guarantee
+ *
+ * The underlying walk is page-lazy but its `hasNext()` is *eager*: probing for the next page runs
+ * the exchange that fetches it (still exactly one HTTP exchange per page yielded — `next()` returns
+ * the page the preceding `hasNext()` already fetched). This view buffers that fetched-but-not-yet-
+ * returned page in a field it owns, so a `hasNext()` that is never followed by `next()` — an
+ * emptiness probe, a peeking-iterator wrapper, or a `break` right after `hasNext()` — cannot strand
+ * a live page. [close] releases **both** the page currently held open and any such buffered page,
+ * so wrapping the view in `use { }` / try-with-resources always drains every page it fetched.
+ *
+ * Because probing prefetches the next page while the current one is still held, up to two live
+ * pages can be open at once (the one being inspected and the one just fetched); [close] releases
+ * both.
+ *
  * Because an early `break`/`return` leaves the current page open, consumers MUST wrap the view in
  * `use { }` (Kotlin) or try-with-resources (Java) so that path still releases the held page:
  *
@@ -43,29 +57,51 @@ public class CloseablePages<T>
         private val source: Iterator<Page<T>>,
     ) : AutoCloseable, Iterable<Page<T>> {
         private var current: Page<T>? = null
+
+        // A page fetched by hasNext() but not yet returned by next(). The source's hasNext() runs
+        // the fetch eagerly, so we pull that page into a field we own — otherwise a hasNext() with
+        // no matching next() would strand it (unreachable by close()). Held until next() promotes
+        // it to `current`, or close() releases it.
+        private var prefetched: Page<T>? = null
         private var iterated: Boolean = false
 
         /**
          * Returns the single auto-closing iterator over the underlying walk. The page returned by
-         * `next()` stays open until the next `next()`, exhaustion, or [close].
+         * `next()` stays open until the next `next()`, exhaustion, or [close]. A page fetched by a
+         * `hasNext()` probe but never returned by `next()` is retained and released by [close], so
+         * an abandoned probe never strands a connection.
+         *
+         * The underlying walker is a lazy sequence whose `hasNext()` performs the page fetch, so the
+         * returned iterator's `hasNext()` deliberately pulls that fetched page into a field we own —
+         * that prefetch is what lets [close] release a page from an abandoned probe (hence the
+         * `IteratorHasNextCallsNextMethod` suppression).
          *
          * @throws IllegalStateException if called more than once on this view.
          */
+        @Suppress("IteratorHasNextCallsNextMethod")
         override fun iterator(): Iterator<Page<T>> {
             check(!iterated) { "CloseablePages is single-use; call byPage() again to restart pagination." }
             iterated = true
             return object : Iterator<Page<T>> {
                 override fun hasNext(): Boolean {
-                    val has = source.hasNext()
-                    if (!has) closeCurrent() // close the last page when iteration is exhausted
-                    return has
+                    if (prefetched != null) return true // already fetched by a prior probe
+                    if (!source.hasNext()) {
+                        closeCurrent() // close the last page when iteration is exhausted
+                        return false
+                    }
+                    // source.hasNext() has already run the fetch; pull the page into a field we own
+                    // so close() can release it even if next() is never called.
+                    prefetched = source.next()
+                    return true
                 }
 
                 override fun next(): Page<T> {
-                    // hasNext() also closes the held page when the source is exhausted.
                     if (!hasNext()) throw NoSuchElementException()
                     closeCurrent() // close the previous page as we advance past it
-                    return source.next().also { current = it }
+                    val page = prefetched ?: throw NoSuchElementException()
+                    prefetched = null // promoted to current; no longer separately held
+                    current = page
+                    return page
                 }
             }
         }
@@ -103,14 +139,38 @@ public class CloseablePages<T>
             )
 
         /**
-         * Closes the page currently held open (the one being inspected). Safe to call repeatedly.
+         * Closes the page currently held open (the one being inspected) **and** any page fetched by
+         * a `hasNext()` probe but never returned by `next()`. Safe to call repeatedly. If both
+         * closes fail, the first failure propagates with the second attached as a suppressed
+         * exception, so neither page's connection is leaked.
          *
-         * @throws IOException If the held page's [Page.close] (and thus its [Page.response] close)
+         * @throws IOException If a held page's [Page.close] (and thus its [Page.response] close)
          *   fails.
          */
         @Throws(IOException::class)
         override fun close() {
-            closeCurrent()
+            val held = current
+            val pending = prefetched
+            // Null out first so a page is never double-closed if close() runs again.
+            current = null
+            prefetched = null
+
+            var failure: IOException? = null
+            if (held != null) {
+                try {
+                    held.close()
+                } catch (e: IOException) {
+                    failure = e
+                }
+            }
+            if (pending != null) {
+                try {
+                    pending.close()
+                } catch (e: IOException) {
+                    if (failure == null) failure = e else failure.addSuppressed(e)
+                }
+            }
+            failure?.let { throw it }
         }
 
         private fun closeCurrent() {

@@ -10,8 +10,10 @@
 package org.dexpace.sdk.core.client
 
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
+import org.dexpace.sdk.core.util.interruptibleFuture
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.CompletableFuture
@@ -72,6 +74,19 @@ public fun interface AsyncHttpClient : AutoCloseable {
     public fun executeAsync(request: Request): CompletableFuture<Response>
 
     /**
+     * Sends [request] with per-call [options] applied. The default implementation ignores
+     * [options] and delegates to [executeAsync], so this stays a single-abstract-method
+     * `fun interface` and existing implementations (SAM literals, transports written before
+     * per-request overrides) keep working unchanged. Transports that honour per-call overrides
+     * override this method to read [options]; see the reference transports for the
+     * per-call-timeout wiring. Pipelines thread the caller's options into this overload.
+     */
+    public fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> = executeAsync(request)
+
+    /**
      * Releases any resources held by this transport. The default implementation is a no-op so
      * SAM literals and lightweight client wrappers do not need to implement [AutoCloseable.close]
      * explicitly. Transport implementations that own background threads, connection pools, or
@@ -94,14 +109,33 @@ public fun interface AsyncHttpClient : AutoCloseable {
  * number of platform threads that the JVM shares with parallel streams and CompletableFuture
  * default executors, so a blocking HTTP call starves every other commonPool consumer.
  *
- * The returned future completes with the response from `execute`. Cancellation of the future
- * does NOT interrupt the in-flight blocking call (Java's `CompletableFuture` has no such
- * hook); for true cancellation, use an [AsyncHttpClient] backed by an async transport.
+ * The returned future completes with the response from `execute`.
+ *
+ * ## Cancellation
+ * Cancelling the returned future with `cancel(true)` interrupts the worker thread running the
+ * in-flight `execute(...)`, matching [HttpPipeline.toAsync][org.dexpace.sdk.core.http.pipeline.toAsync]'s
+ * cancellation semantics. The interrupt is delivered only while the send is actually executing — a
+ * not-yet-started task (still queued on [executor]) is simply abandoned, and an already-completed
+ * send is unaffected. `cancel(false)` completes the future as cancelled without interrupting the
+ * worker, so a blocking `execute` that ignores interrupts runs to completion in the background.
+ * For the interrupt to abort I/O, the wrapped [HttpClient] must honour `Thread.interrupt()` (the
+ * shipped transports do).
  */
-public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
-    AsyncHttpClient { request ->
-        CompletableFuture.supplyAsync({ execute(request) }, executor)
+public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient {
+    val sync = this
+    return object : AsyncHttpClient {
+        override fun executeAsync(request: Request): CompletableFuture<Response> =
+            executeAsync(request, RequestOptions.EMPTY)
+
+        // Thread the caller's per-call options into the wrapped blocking send so overrides
+        // (timeout, retry budget, tags) survive the sync→async bridge instead of being dropped
+        // by the SPI's options-ignoring default.
+        override fun executeAsync(
+            request: Request,
+            options: RequestOptions,
+        ): CompletableFuture<Response> = interruptibleFuture(executor) { sync.execute(request, options) }
     }
+}
 
 /**
  * Wraps an [AsyncHttpClient] as a blocking [HttpClient] by blocking on `executeAsync(...).get()`
@@ -111,30 +145,44 @@ public fun HttpClient.asAsync(executor: Executor): AsyncHttpClient =
  *
  * The blocking wait honours `Thread.interrupt()`: interrupting the calling thread restores the
  * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException] (an
- * [IOException] subtype, so the `@Throws(IOException::class)` contract holds).
+ * [IOException] subtype). The `throws IOException` contract lives on the returned client's
+ * [HttpClient.execute] — where the blocking wait actually happens — not on this factory, which
+ * only constructs the wrapper and performs no I/O.
  *
  * The returned [Response] must be closed by the caller, per the [HttpClient.execute] contract.
  */
-@Throws(IOException::class)
-public fun AsyncHttpClient.asBlocking(): HttpClient =
-    HttpClient { request ->
-        val future = executeAsync(request)
-        try {
-            future.get()
-        } catch (ie: InterruptedException) {
-            // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
-            // the in-flight exchange, and surface an InterruptedIOException so callers' I/O
-            // error handling terminates cleanly. See RetryStep.awaitDelay for the same pattern.
-            Thread.currentThread().interrupt()
-            future.cancel(true)
-            val ioe = InterruptedIOException("Interrupted while waiting for response")
-            ioe.initCause(ie)
-            throw ioe
-        } catch (ee: ExecutionException) {
-            // `get()` wraps every exceptional completion in ExecutionException; unwrap so
-            // callers' `catch (IOException)` blocks see the original failure rather than the
-            // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
-            // is a RuntimeException, not an ExecutionException, so it propagates as-is.
-            throw Futures.unwrap(ee)
+public fun AsyncHttpClient.asBlocking(): HttpClient {
+    val async = this
+    return object : HttpClient {
+        @Throws(IOException::class)
+        override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+        // Thread the caller's per-call options into the wrapped async send so overrides survive
+        // the async→sync bridge instead of being dropped by the SPI's options-ignoring default.
+        @Throws(IOException::class)
+        override fun execute(
+            request: Request,
+            options: RequestOptions,
+        ): Response {
+            val future = async.executeAsync(request, options)
+            return try {
+                future.get()
+            } catch (ie: InterruptedException) {
+                // `get()` parks interruptibly (unlike `join()`). Restore the interrupt flag, abort
+                // the in-flight exchange, and surface an InterruptedIOException so callers' I/O
+                // error handling terminates cleanly. See RetryRecovery.awaitDelay for the same pattern.
+                Thread.currentThread().interrupt()
+                future.cancel(true)
+                val ioe = InterruptedIOException("Interrupted while waiting for response")
+                ioe.initCause(ie)
+                throw ioe
+            } catch (ee: ExecutionException) {
+                // `get()` wraps every exceptional completion in ExecutionException; unwrap so
+                // callers' `catch (IOException)` blocks see the original failure rather than the
+                // JDK wrapper. `CancellationException` from a cancelled future is unaffected — it
+                // is a RuntimeException, not an ExecutionException, so it propagates as-is.
+                throw Futures.unwrap(ee)
+            }
         }
     }
+}

@@ -63,4 +63,16 @@ public interface IoProvider {
      * Wraps an existing primitive [Sink] with the typed write surface of [BufferedSink].
      */
     public fun bufferedSink(sink: Sink): BufferedSink
+
+    /**
+     * The canonical provider instance this one ultimately delegates to, or `this` when it does not
+     * delegate.
+     *
+     * `ServiceLoader` cannot instantiate a Kotlin `object`, so a singleton provider is registered
+     * through a thin `class`-based shim that forwards every call to the singleton. Such a shim
+     * overrides this property to return the singleton it wraps, so [Io] can recognise that an
+     * auto-resolved shim and an explicitly installed singleton are the *same* implementation and
+     * suppress a spurious mixed-provider warning. Non-delegating providers keep the default.
+     */
+    public val underlying: IoProvider get() = this
 }

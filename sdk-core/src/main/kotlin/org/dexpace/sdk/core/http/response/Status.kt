@@ -28,8 +28,23 @@ public class Status private constructor(
     public val code: Int,
     public val statusName: String?,
 ) {
+    /** True when the code is in the 1xx informational range. */
+    public val isInformational: Boolean get() = code in 100..199
+
     /** True when the code is in the 2xx success range. */
     public val isSuccess: Boolean get() = code in 200..299
+
+    /** True when the code is in the 3xx redirect range. */
+    public val isRedirect: Boolean get() = code in 300..399
+
+    /** True when the code is in the 4xx client-error range. */
+    public val isClientError: Boolean get() = code in 400..499
+
+    /** True when the code is in the 5xx server-error range. */
+    public val isServerError: Boolean get() = code in 500..599
+
+    /** True when the code is in the 4xx–5xx error range. */
+    public val isError: Boolean get() = code in 400..599
 
     override fun equals(other: Any?): Boolean = this === other || (other is Status && other.code == code)
 

@@ -171,9 +171,12 @@ public class MultipartBody private constructor(
 
             /**
              * A value field named [name] whose [value] is encoded through [serde]'s serializer at
-             * construction time. The resulting bytes are replayable; the part carries the supplied
-             * [mediaType] (the serialized bytes are opaque to `sdk-core`, so the caller names the
-             * type).
+             * construction time. The resulting bytes are replayable.
+             *
+             * When [mediaType] is `null` the part's `Content-Type` defaults to [Serde.contentType]
+             * (typically `application/json`) — mirroring `RequestBody.create(value, serde)`. Pass an
+             * explicit [mediaType] to override it (the serialized bytes are opaque to `sdk-core`, so
+             * the caller may name a different type).
              */
             @JvmStatic
             @JvmOverloads
@@ -184,8 +187,9 @@ public class MultipartBody private constructor(
                 mediaType: MediaType? = null,
             ): Part {
                 val bytes = serde.serializer.serializeToByteArray(value)
-                val body = RequestBody.create(bytes, mediaType)
-                return Part(buildHeaders(name, null, mediaType), body)
+                val resolvedMediaType = mediaType ?: serde.contentType()
+                val body = RequestBody.create(bytes, resolvedMediaType)
+                return Part(buildHeaders(name, null, resolvedMediaType), body)
             }
 
             private fun buildHeaders(

@@ -153,7 +153,7 @@ class ETagTest {
     }
 
     @Test
-    fun `equal inline-class instances compare equal and share hashCode`() {
+    fun `equal instances compare equal and share hashCode`() {
         val a = ETag.strong("xyz")
         val b = ETag.strong("xyz")
         assertEquals(a, b)
@@ -164,7 +164,7 @@ class ETagTest {
     fun `weak and strong with the same opaque are not equal`() {
         val weak = ETag.weak("xyz")
         val strong = ETag.strong("xyz")
-        // Touch the equality path for the inline-class — the underlying raw values differ.
+        // Touch the equality path — the underlying raw values differ.
         assertEquals(false, weak == strong)
     }
 

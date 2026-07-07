@@ -175,4 +175,94 @@ class StatusTest {
         assertEquals(Integer.MAX_VALUE, sMax.code)
         assertNull(sMax.statusName)
     }
+
+    // ---- range predicates (T1) --------------------------------------------------------
+
+    @Test
+    fun `100 isInformational is true`() {
+        assertTrue(Status.fromCode(100).isInformational)
+        assertTrue(Status.CONTINUE.isInformational)
+        assertTrue(Status.SWITCHING_PROTOCOLS.isInformational)
+        assertFalse(Status.fromCode(99).isInformational)
+        assertFalse(Status.fromCode(200).isInformational)
+    }
+
+    @Test
+    fun `200 isSuccess and not isError`() {
+        val s = Status.fromCode(200)
+        assertTrue(s.isSuccess)
+        assertFalse(s.isError)
+    }
+
+    @Test
+    fun `301 isRedirect is true`() {
+        assertTrue(Status.fromCode(301).isRedirect)
+        assertTrue(Status.MOVED_PERMANENTLY.isRedirect)
+        assertFalse(Status.OK.isRedirect)
+        assertFalse(Status.NOT_FOUND.isRedirect)
+    }
+
+    @Test
+    fun `404 isClientError and isError are true`() {
+        val s = Status.fromCode(404)
+        assertTrue(s.isClientError)
+        assertTrue(s.isError)
+        assertFalse(s.isServerError)
+    }
+
+    @Test
+    fun `503 isServerError and isError are true`() {
+        val s = Status.fromCode(503)
+        assertTrue(s.isServerError)
+        assertTrue(s.isError)
+        assertFalse(s.isClientError)
+    }
+
+    @Test
+    fun `isInformational covers full 1xx range`() {
+        for (code in 100..199) {
+            assertTrue(Status.fromCode(code).isInformational, "code $code should be informational")
+        }
+        assertFalse(Status.fromCode(99).isInformational)
+        assertFalse(Status.fromCode(200).isInformational)
+    }
+
+    @Test
+    fun `isRedirect covers full 3xx range`() {
+        for (code in 300..399) {
+            assertTrue(Status.fromCode(code).isRedirect, "code $code should be redirect")
+        }
+        assertFalse(Status.fromCode(299).isRedirect)
+        assertFalse(Status.fromCode(400).isRedirect)
+    }
+
+    @Test
+    fun `isClientError covers full 4xx range`() {
+        for (code in 400..499) {
+            assertTrue(Status.fromCode(code).isClientError, "code $code should be client error")
+        }
+        assertFalse(Status.fromCode(399).isClientError)
+        assertFalse(Status.fromCode(500).isClientError)
+    }
+
+    @Test
+    fun `isServerError covers full 5xx range`() {
+        for (code in 500..599) {
+            assertTrue(Status.fromCode(code).isServerError, "code $code should be server error")
+        }
+        assertFalse(Status.fromCode(499).isServerError)
+        assertFalse(Status.fromCode(600).isServerError)
+    }
+
+    @Test
+    fun `isError is true for 4xx and 5xx only`() {
+        for (code in 400..599) {
+            assertTrue(Status.fromCode(code).isError, "code $code should be error")
+        }
+        assertFalse(Status.fromCode(399).isError)
+        assertFalse(Status.fromCode(600).isError)
+        assertFalse(Status.OK.isError)
+        assertFalse(Status.MOVED_PERMANENTLY.isError)
+        assertFalse(Status.CONTINUE.isError)
+    }
 }

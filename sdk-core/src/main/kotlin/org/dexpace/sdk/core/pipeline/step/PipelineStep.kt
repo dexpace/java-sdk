@@ -23,8 +23,8 @@ import org.dexpace.sdk.core.http.context.DispatchContext
  * transformed, not on the step instance.
  *
  * ## Exception semantics
- * If a step throws, the surrounding pipeline (e.g. [org.dexpace.sdk.core.pipeline.RequestPipeline]
- * or [org.dexpace.sdk.core.pipeline.ResponsePipeline]) is responsible for routing the
+ * If a step throws, the surrounding chain (e.g. [org.dexpace.sdk.core.pipeline.RequestRecoveryChain]
+ * or [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain]) is responsible for routing the
  * throwable into the recovery chain rather than propagating it directly. Steps should not
  * swallow exceptions silently.
  *

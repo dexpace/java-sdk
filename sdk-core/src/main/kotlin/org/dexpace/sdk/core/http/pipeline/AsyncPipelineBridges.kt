@@ -12,11 +12,12 @@ package org.dexpace.sdk.core.http.pipeline
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.asBlocking
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.util.interruptibleFuture
 import java.io.InterruptedIOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Adapts a synchronous [HttpPipeline] into an [AsyncHttpPipeline] by submitting each
@@ -47,68 +48,20 @@ import java.util.concurrent.atomic.AtomicReference
  */
 public fun HttpPipeline.toAsync(executor: Executor): AsyncHttpPipeline {
     val sync = this
-    return AsyncHttpPipeline.of { request -> sendInterruptibly(sync, request, executor) }
-}
+    val asyncClient =
+        object : AsyncHttpClient {
+            override fun executeAsync(request: Request): CompletableFuture<Response> =
+                executeAsync(request, RequestOptions.EMPTY)
 
-/**
- * A [CompletableFuture] that publishes the worker thread running a blocking task so that
- * `cancel(true)` can interrupt it. `cancel(false)` cancels without interrupting — mirroring
- * the `mayInterruptIfRunning` contract that plain `CompletableFuture.cancel` silently ignores.
- *
- * The worker reference is set when the task begins and cleared (in a `finally`) when it ends,
- * so a thread that has returned to its pool is never interrupted for a completed call.
- */
-private class InterruptibleSendFuture : CompletableFuture<Response>() {
-    private val worker = AtomicReference<Thread?>()
-
-    fun bindWorker(thread: Thread) {
-        worker.set(thread)
-    }
-
-    fun unbindWorker() {
-        worker.set(null)
-    }
-
-    override fun cancel(mayInterruptIfRunning: Boolean): Boolean {
-        val cancelled = super.cancel(mayInterruptIfRunning)
-        if (cancelled && mayInterruptIfRunning) {
-            worker.getAndSet(null)?.interrupt()
+            // Thread the caller's per-call options into the wrapped sync `send` so overrides
+            // (timeout, per-call retry budget, tags) survive the sync→async bridge instead of
+            // being dropped by the SPI's options-ignoring default.
+            override fun executeAsync(
+                request: Request,
+                options: RequestOptions,
+            ): CompletableFuture<Response> = interruptibleFuture(executor) { sync.send(request, options) }
         }
-        return cancelled
-    }
-}
-
-/**
- * Submits `pipeline.send(request)` to [executor] on an [InterruptibleSendFuture] so the returned
- * future's `cancel(true)` interrupts the in-flight send. A send not yet started (still queued) or
- * already finished is never interrupted.
- */
-private fun sendInterruptibly(
-    pipeline: HttpPipeline,
-    request: Request,
-    executor: Executor,
-): CompletableFuture<Response> {
-    val result = InterruptibleSendFuture()
-    executor.execute {
-        // Don't start if the caller already cancelled while we were queued.
-        if (result.isDone) return@execute
-        result.bindWorker(Thread.currentThread())
-        try {
-            // Re-check after publishing the thread: a cancel between the isDone check and the
-            // bind would otherwise miss us; if it already happened, skip the send entirely.
-            if (result.isDone) return@execute
-            val response = pipeline.send(request)
-            result.complete(response)
-        } catch (t: Throwable) {
-            result.completeExceptionally(t)
-        } finally {
-            // Stop targeting this thread before it returns to the pool, then clear any interrupt
-            // the cancel may have set so a pooled thread is handed back clean.
-            result.unbindWorker()
-            Thread.interrupted()
-        }
-    }
-    return result
+    return AsyncHttpPipeline.of(asyncClient)
 }
 
 /**
@@ -121,4 +74,7 @@ private fun sendInterruptibly(
  * interrupt flag, cancels the in-flight future, and throws an [InterruptedIOException].
  */
 public fun AsyncHttpPipeline.toBlocking(): HttpPipeline =
-    HttpPipeline.of(AsyncHttpClient { sendAsync(it) }.asBlocking())
+    // AsyncHttpPipeline already implements AsyncHttpClient, and its `executeAsync(request, options)`
+    // override threads options into `sendAsync(request, options)`. Bridging it directly (rather than
+    // through a 1-arg SAM literal) preserves per-call options across the async→sync bridge.
+    HttpPipeline.of(asBlocking())

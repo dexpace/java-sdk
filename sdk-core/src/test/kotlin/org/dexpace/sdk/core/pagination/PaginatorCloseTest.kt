@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
 import java.io.IOException
 import java.io.UncheckedIOException
 import java.util.concurrent.atomic.AtomicInteger
@@ -17,6 +16,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * Response-close coverage for the sync [Paginator] that the async mirror already has: the
@@ -32,15 +32,16 @@ class PaginatorCloseTest {
             .method(Method.GET)
             .build()
 
-    private val extractor: (Response) -> CursorResult<String> = { resp ->
-        val body = resp.body!!.source().use { it.readUtf8() }
-        val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
-        val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
-        val itemsRaw = itemsLine.removePrefix("items=")
-        val cursorRaw = cursorLine.removePrefix("cursor=")
-        val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
-        CursorResult(items, cursorRaw.ifEmpty { null })
-    }
+    private val extractor =
+        CursorExtractor<String> { resp ->
+            val body = resp.body!!.source().use { it.readUtf8() }
+            val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
+            val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
+            val itemsRaw = itemsLine.removePrefix("items=")
+            val cursorRaw = cursorLine.removePrefix("cursor=")
+            val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
+            CursorResult(items, cursorRaw.ifEmpty { null })
+        }
 
     /** Two-page cursor stub whose page responses record their close count into [closes]. */
     private fun twoPageClient(closes: AtomicInteger): StubHttpClient =
@@ -129,6 +130,32 @@ class PaginatorCloseTest {
 
         view.close()
         assertEquals(2, closes.get(), "close() is idempotent — no double-close")
+    }
+
+    @Test
+    fun `byPage hasNext probe without next still releases the prefetched page on close`() {
+        // A hasNext() that is never followed by next() (an emptiness probe, a peeking-iterator
+        // wrapper) makes the walker fetch and buffer the next page's live Response. That page must
+        // remain reachable so close() can release it — otherwise its connection leaks.
+        val closes = AtomicInteger(0)
+        val paginator =
+            Paginator(twoPageClient(closes), initialRequest(), CursorPaginationStrategy(extractor, "cursor"))
+
+        val view = paginator.byPage()
+        val pages = view.iterator()
+
+        // Probe once: page 1 is fetched and buffered, but next() is never called.
+        assertTrue(pages.hasNext())
+        assertEquals(0, closes.get(), "the probed page is still open — not yet closed")
+        // A repeated probe must not fetch again (idempotent) and must not open a second page.
+        assertTrue(pages.hasNext())
+        assertEquals(0, closes.get())
+
+        view.close()
+        assertEquals(1, closes.get(), "close() must release the page fetched by the abandoned hasNext() probe")
+
+        view.close()
+        assertEquals(1, closes.get(), "close() is idempotent — no double-close of the prefetched page")
     }
 
     @Test

@@ -13,6 +13,7 @@ import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.client.asAsync
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import java.util.concurrent.CompletableFuture
@@ -61,8 +62,13 @@ public fun HttpClient.asAsyncVirtualThreads(): VirtualThreadAsyncHttpClient {
  * client contract (so callers can pass it to a pipeline) and [AutoCloseable] so the executor
  * is released on shutdown.
  *
- * Closing the executor does NOT cancel in-flight requests — virtual threads are
- * non-interruptible by default; the executor's `close()` waits for tasks to finish.
+ * Closing the executor does NOT cancel in-flight requests: `ExecutorService.close()` performs a
+ * graceful shutdown — `shutdown()` followed by `awaitTermination` — so it stops accepting new tasks
+ * and then *waits* for the running ones to finish rather than interrupting them (it only escalates
+ * to `shutdownNow()` if the thread calling `close()` is itself interrupted). Virtual threads honour
+ * `Thread.interrupt()` exactly like platform threads; the in-flight tasks are simply never
+ * interrupted here because this path does not call `shutdownNow()`. To abort a blocking call via
+ * interruption, wrap the client in coroutines and use `runInterruptible` instead.
  *
  * [close] is idempotent: only the first call shuts the executor down and emits the
  * `executor.closed` lifecycle event; subsequent calls are a true no-op (no log, no second
@@ -75,6 +81,11 @@ public class VirtualThreadAsyncHttpClient internal constructor(
     private val closed = AtomicBoolean(false)
 
     override fun executeAsync(request: Request): CompletableFuture<Response> = delegate.executeAsync(request)
+
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> = delegate.executeAsync(request, options)
 
     /**
      * Shuts down the virtual-thread executor and waits for in-flight tasks to complete.

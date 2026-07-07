@@ -71,6 +71,68 @@ public class HttpInstrumentationOptions
         public val meter: Meter = NoopMeter,
         public val bodyPreviewMaxBytes: Int = DEFAULT_BODY_PREVIEW_MAX_BYTES,
     ) {
+        /**
+         * Returns a new [Builder] pre-filled with every field from this instance. Mutating the
+         * builder never affects this [HttpInstrumentationOptions].
+         */
+        public fun newBuilder(): Builder =
+            Builder().apply {
+                logLevel(this@HttpInstrumentationOptions.logLevel)
+                allowedHeaderNames(this@HttpInstrumentationOptions.allowedHeaderNames)
+                allowedQueryParamNames(this@HttpInstrumentationOptions.allowedQueryParamNames)
+                isRedactedHeaderNamesLoggingEnabled(this@HttpInstrumentationOptions.isRedactedHeaderNamesLoggingEnabled)
+                tracer(this@HttpInstrumentationOptions.tracer)
+                meter(this@HttpInstrumentationOptions.meter)
+                bodyPreviewMaxBytes(this@HttpInstrumentationOptions.bodyPreviewMaxBytes)
+            }
+
+        /**
+         * Builder for [HttpInstrumentationOptions]. All fields default to the same values as
+         * the primary constructor. Obtain via [HttpInstrumentationOptions.builder].
+         */
+        public class Builder : org.dexpace.sdk.core.generics.Builder<HttpInstrumentationOptions> {
+            private var logLevel: HttpLogLevel = HttpLogLevel.NONE
+            private var allowedHeaderNames: Set<HttpHeaderName> = DEFAULT_ALLOWED_HEADERS
+            private var allowedQueryParamNames: Set<String> = UrlRedactor.DEFAULT_ALLOWED
+            private var isRedactedHeaderNamesLoggingEnabled: Boolean = true
+            private var tracer: Tracer = NoopTracer
+            private var meter: Meter = NoopMeter
+            private var bodyPreviewMaxBytes: Int = DEFAULT_BODY_PREVIEW_MAX_BYTES
+
+            /** Sets the log level applied to every request/response pair. */
+            public fun logLevel(value: HttpLogLevel): Builder = apply { logLevel = value }
+
+            /** Sets the allow-listed header names emitted without redaction. */
+            public fun allowedHeaderNames(value: Set<HttpHeaderName>): Builder = apply { allowedHeaderNames = value }
+
+            /** Sets the allow-listed query parameter names emitted without redaction. */
+            public fun allowedQueryParamNames(value: Set<String>): Builder = apply { allowedQueryParamNames = value }
+
+            /** When `false`, redacted headers are omitted entirely rather than emitted as `"REDACTED"`. */
+            public fun isRedactedHeaderNamesLoggingEnabled(value: Boolean): Builder =
+                apply { isRedactedHeaderNamesLoggingEnabled = value }
+
+            /** Sets the tracer used for span creation. */
+            public fun tracer(value: Tracer): Builder = apply { tracer = value }
+
+            /** Sets the meter used for emitting metrics. */
+            public fun meter(value: Meter): Builder = apply { meter = value }
+
+            /** Sets the maximum byte count buffered for body previews under [HttpLogLevel.BODY_AND_HEADERS]. */
+            public fun bodyPreviewMaxBytes(value: Int): Builder = apply { bodyPreviewMaxBytes = value }
+
+            override fun build(): HttpInstrumentationOptions =
+                HttpInstrumentationOptions(
+                    logLevel = logLevel,
+                    allowedHeaderNames = allowedHeaderNames,
+                    allowedQueryParamNames = allowedQueryParamNames,
+                    isRedactedHeaderNamesLoggingEnabled = isRedactedHeaderNamesLoggingEnabled,
+                    tracer = tracer,
+                    meter = meter,
+                    bodyPreviewMaxBytes = bodyPreviewMaxBytes,
+                )
+        }
+
         public companion object {
             // ~20 headers that are safe to surface by default — diagnostic, not credential.
             @JvmField
@@ -102,5 +164,9 @@ public class HttpInstrumentationOptions
                 )
 
             public const val DEFAULT_BODY_PREVIEW_MAX_BYTES: Int = 8 * 1024
+
+            /** Returns a fresh [Builder] with all fields at their defaults. */
+            @JvmStatic
+            public fun builder(): Builder = Builder()
         }
     }

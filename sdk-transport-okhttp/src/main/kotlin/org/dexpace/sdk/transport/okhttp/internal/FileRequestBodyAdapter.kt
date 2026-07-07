@@ -30,13 +30,22 @@ import org.dexpace.sdk.core.http.request.FileRequestBody
  * and each write opens a fresh handle positioned at [position].
  *
  * [contentLength] is the body's [count] (the exact number of bytes that will be written).
- * [contentType] is derived from the body's [org.dexpace.sdk.core.http.common.MediaType]; an
- * unparseable value yields `null` and OkHttp emits no `Content-Type`.
+ * [contentType] is the caller's explicit request `Content-Type` header ([explicitContentType])
+ * when one was set, otherwise the body's [org.dexpace.sdk.core.http.common.MediaType]; an
+ * unparseable value yields `null` and OkHttp emits no `Content-Type`. Reporting the explicit
+ * header here keeps it authoritative over OkHttp's `BridgeInterceptor`, which otherwise overwrites
+ * the request's `Content-Type` with `body.contentType()` — see [SdkRequestBodyAdapter].
  */
 internal class FileRequestBodyAdapter(
     private val sdkBody: FileRequestBody,
+    private val explicitContentType: String? = null,
 ) : RequestBody() {
-    override fun contentType(): okhttp3.MediaType? = sdkBody.mediaType()?.toString()?.toMediaTypeOrNull()
+    override fun contentType(): okhttp3.MediaType? =
+        if (explicitContentType != null) {
+            explicitContentType.toMediaTypeOrNull()
+        } else {
+            sdkBody.mediaType()?.toString()?.toMediaTypeOrNull()
+        }
 
     override fun contentLength(): Long = sdkBody.count
 

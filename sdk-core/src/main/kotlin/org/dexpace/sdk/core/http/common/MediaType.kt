@@ -159,6 +159,35 @@ public data class MediaType private constructor(
     private fun isHeaderUnsafe(ch: Char): Boolean = isProhibitedInValue(ch.code)
 
     public companion object {
+        // --- Common media-type shortcuts -----------------------------------------------
+        // Built directly via of() so these constants are self-contained. They must NOT read
+        // CommonMediaTypes, which builds its own constants through MediaType.of(...): a reference
+        // in either direction forms a class-initialization cycle, and whichever class initializes
+        // second would observe the other's static fields still at their default null (JLS 12.4.2),
+        // permanently leaving these non-null constants null. Keeping MediaType's <clinit> free of
+        // any CommonMediaTypes read breaks that cycle. Exposed as @JvmField so Java callers see a
+        // plain static field (MediaType.APPLICATION_JSON) rather than a generated getter.
+
+        /** `application/json`. */
+        @JvmField public val APPLICATION_JSON: MediaType = of("application", "json")
+
+        /** `text/plain`. */
+        @JvmField public val TEXT_PLAIN: MediaType = of("text", "plain")
+
+        /** `application/octet-stream`. */
+        @JvmField public val APPLICATION_OCTET_STREAM: MediaType = of("application", "octet-stream")
+
+        /** `application/x-www-form-urlencoded`. */
+        @JvmField public val APPLICATION_FORM_URLENCODED: MediaType = of("application", "x-www-form-urlencoded")
+
+        /** `text/html`. */
+        @JvmField public val TEXT_HTML: MediaType = of("text", "html")
+
+        /** `application/xml`. */
+        @JvmField public val APPLICATION_XML: MediaType = of("application", "xml")
+
+        // -------------------------------------------------------------------------------
+
         /** RFC 7230 §3.2.6 `tchar` punctuation (the non-alphanumeric members of the token set). */
         private const val TOKEN_SPECIALS: String = "!#$%&'*+-.^_`|~"
 

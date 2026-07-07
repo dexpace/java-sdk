@@ -26,9 +26,36 @@ class LinkHeaderPaginationTest {
             .method(Method.GET)
             .build()
 
-    private val itemsExtractor: (Response) -> List<String> = { resp ->
-        val body = resp.body!!.source().use { it.readUtf8() }
-        if (body.isEmpty()) emptyList() else body.split(",")
+    private val itemsExtractor =
+        ItemsExtractor<String> { resp ->
+            val body = resp.body!!.source().use { it.readUtf8() }
+            if (body.isEmpty()) emptyList() else body.split(",")
+        }
+
+    @Test
+    fun `link strategy accepts a Java-style SAM extractor and walks two pages`() {
+        val client = StubHttpClient()
+        client.on("https://api.example.com/repo/issues") { req ->
+            textResponse(
+                req,
+                "i1,i2",
+                extraHeaders = mapOf("Link" to "<https://api.example.com/repo/issues?page=2>; rel=\"next\""),
+            )
+        }
+        client.on("https://api.example.com/repo/issues?page=2") { req ->
+            textResponse(req, "i3,i4")
+        }
+        // Java caller path: an explicit ItemsExtractor implementation, not a Kotlin function type.
+        val javaStyle =
+            object : ItemsExtractor<String> {
+                override fun extract(response: Response): List<String> {
+                    val body = response.body!!.source().use { it.readUtf8() }
+                    return if (body.isEmpty()) emptyList() else body.split(",")
+                }
+            }
+        val paginator = Paginator(client, initialRequest(), LinkHeaderPaginationStrategy(javaStyle))
+        assertEquals(listOf("i1", "i2", "i3", "i4"), paginator.iterateAll().toList())
+        assertEquals(2, client.callCount)
     }
 
     @Test

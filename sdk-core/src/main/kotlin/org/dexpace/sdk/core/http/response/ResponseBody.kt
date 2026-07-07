@@ -11,6 +11,8 @@ import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.io.BufferedSource
 import java.io.Closeable
 import java.io.IOException
+import java.nio.charset.Charset
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Represents the body of an HTTP response.
@@ -62,6 +64,38 @@ public abstract class ResponseBody : Closeable {
     public abstract fun source(): BufferedSource
 
     /**
+     * Reads the entire body and returns it decoded as a [String]. The body is closed in a
+     * `finally` block whether or not the read succeeds.
+     *
+     * @param charset The character set to use for decoding. Defaults to the charset declared in
+     *   the body's Content-Type media type, falling back to UTF-8 when none is declared or it is
+     *   unrecognized.
+     * @throws IOException If an I/O error occurs while reading.
+     */
+    @JvmOverloads
+    @Throws(IOException::class)
+    public fun string(charset: Charset = mediaType()?.charset ?: Charsets.UTF_8): String =
+        try {
+            source().readString(charset)
+        } finally {
+            close()
+        }
+
+    /**
+     * Reads the entire body and returns it as a [ByteArray]. The body is closed in a
+     * `finally` block whether or not the read succeeds.
+     *
+     * @throws IOException If an I/O error occurs while reading.
+     */
+    @Throws(IOException::class)
+    public fun bytes(): ByteArray =
+        try {
+            source().readByteArray()
+        } finally {
+            close()
+        }
+
+    /**
      * Closes the response body and releases any transport resources.
      *
      * Implementations must release the underlying source (or whatever transport handle the
@@ -97,6 +131,8 @@ public abstract class ResponseBody : Closeable {
             contentLength: Long = -1L,
         ): ResponseBody =
             object : ResponseBody() {
+                private val closed = AtomicBoolean(false)
+
                 override fun mediaType(): MediaType? = mediaType
 
                 override fun contentLength(): Long = contentLength
@@ -104,7 +140,11 @@ public abstract class ResponseBody : Closeable {
                 override fun source(): BufferedSource = source
 
                 override fun close() {
-                    source.close()
+                    // Honor the idempotent-close contract even if the wrapped source throws on a
+                    // second close: only the first call reaches through to the source.
+                    if (closed.compareAndSet(false, true)) {
+                        source.close()
+                    }
                 }
             }
     }

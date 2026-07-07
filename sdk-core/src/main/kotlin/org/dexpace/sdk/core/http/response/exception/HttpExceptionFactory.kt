@@ -68,9 +68,12 @@ public object HttpExceptionFactory {
     /**
      * Whether [code] is in the 400..599 error range this factory maps to an [HttpException].
      *
-     * This is the single source of truth for the error-status boundary; callers that want to
-     * pre-check before mapping (e.g. a pipeline step that only acts on error responses) should
-     * use this rather than re-declaring the range.
+     * A plain integer range check for raw-`Int` callers (e.g. [fromResponse] / [fromResponseOrNull]
+     * pre-checking a wire code before mapping) — it never allocates a
+     * [org.dexpace.sdk.core.http.response.Status]. A caller that already holds a
+     * [org.dexpace.sdk.core.http.response.Status] should prefer its
+     * [org.dexpace.sdk.core.http.response.Status.isError] property directly rather than unwrapping
+     * to an `Int` and routing back through here.
      */
     @JvmStatic
     public fun isErrorStatus(code: Int): Boolean = code in SC_CLIENT_ERROR_MIN..SC_SERVER_ERROR_MAX

@@ -387,11 +387,11 @@ if (!response.status.isSuccess) {
 The factory throws `IllegalArgumentException` if called with a status outside 400..599 —
 1xx/2xx/3xx outcomes are not exceptions and should not be funneled through this path.
 
-For the recovery-aware pipeline, `ThrowOnHttpErrorStep` packages this mapping as a
-`ResponsePipelineStep`: drop it into a `ResponsePipeline.responseSteps` list and it calls
-`fromResponse` on a 4xx/5xx response and throws the result. `ResponsePipeline` converts that
+For the recovery-aware pipeline, `ThrowOnHttpErrorRecovery` packages this mapping as a
+`ResponsePipelineStep`: drop it into a `ResponseRecoveryChain.responseSteps` list and it calls
+`fromResponse` on a 4xx/5xx response and throws the result. `ResponseRecoveryChain` converts that
 throw into a `ResponseOutcome.Failure`, which then flows through the recovery chain (e.g.
-`RetryStep`) exactly like a transport failure — and because the thrown `HttpException` is
+`RetryRecovery`) exactly like a transport failure — and because the thrown `HttpException` is
 `Retryable`, retry classification keys off it uniformly. The step is a building block; no
 default pipeline in `sdk-core` assembles it for you.
 

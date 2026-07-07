@@ -118,9 +118,16 @@ internal class RequestAdapter(
         }
         val methodToken = request.method.method
         val body = request.body
+        // Read the caller's explicit Content-Type (case-insensitively) so it can be made
+        // authoritative over the body's own media type. OkHttp's BridgeInterceptor overwrites the
+        // request's Content-Type with body.contentType() when the latter is non-null, so an
+        // explicit vendor Content-Type would otherwise be silently replaced by the auto-stamped
+        // body media type; threading it into the body adapter's contentType() keeps the caller's
+        // value winning, matching the JDK transport.
+        val explicitContentType = request.headers.get("Content-Type")
         val okhttpBody =
             when {
-                body != null -> toOkHttpBody(body)
+                body != null -> toOkHttpBody(body, explicitContentType)
                 // OkHttp rejects a null body for the methods it treats as requiring one. The
                 // SDK allows a body-less request for any method, so substitute an empty body
                 // here rather than letting Request.Builder.method throw.
@@ -146,12 +153,16 @@ internal class RequestAdapter(
      * Selects the OkHttp [RequestBody] adapter for an SDK body. A [FileRequestBody] streams
      * zero-copy via [FileRequestBodyAdapter] (okio `FileHandle` → OkHttp's `BufferedSink`,
      * honouring `position`/`count`); every other body shape uses the generic
-     * [SdkRequestBodyAdapter].
+     * [SdkRequestBodyAdapter]. [explicitContentType], when non-null, is the caller's explicit
+     * request `Content-Type` header and is made authoritative by the adapter's `contentType()`.
      */
-    private fun toOkHttpBody(body: SdkRequestBody): RequestBody =
+    private fun toOkHttpBody(
+        body: SdkRequestBody,
+        explicitContentType: String?,
+    ): RequestBody =
         when (body) {
-            is FileRequestBody -> FileRequestBodyAdapter(body)
-            else -> SdkRequestBodyAdapter(body)
+            is FileRequestBody -> FileRequestBodyAdapter(body, explicitContentType)
+            else -> SdkRequestBodyAdapter(body, explicitContentType)
         }
 
     private companion object {

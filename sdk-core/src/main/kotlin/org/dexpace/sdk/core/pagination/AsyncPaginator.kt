@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
@@ -122,6 +123,10 @@ import java.util.function.Consumer
  * @property strategy Strategy that parses each response into a [PageInfo].
  * @property maxPages Safety cap on the total number of pages (HTTP exchanges) the walk will
  *   fetch. Defaults to `Long.MAX_VALUE` (unbounded). Must be positive.
+ * @property options Per-call overrides applied to every page fetch (passed to
+ *   `AsyncHttpClient.executeAsync(request, options)`). Defaults to [RequestOptions.EMPTY], i.e. no
+ *   overrides. Set a timeout, retry budget, or tags here to have them reach each page request —
+ *   without it a caller's per-operation options could never influence the paginator's own exchanges.
  */
 public class AsyncPaginator<T>
     @JvmOverloads
@@ -130,6 +135,7 @@ public class AsyncPaginator<T>
         private val initialRequest: Request,
         private val strategy: PaginationStrategy<T>,
         private val maxPages: Long = Long.MAX_VALUE,
+        private val options: RequestOptions = RequestOptions.EMPTY,
     ) {
         init {
             requirePositiveMaxPages(maxPages)
@@ -456,7 +462,7 @@ public class AsyncPaginator<T>
                 pagesFetched++
                 val transportFuture: CompletableFuture<Response> =
                     try {
-                        asyncHttpClient.executeAsync(request)
+                        asyncHttpClient.executeAsync(request, options)
                     } catch (t: Throwable) {
                         // An eager throw from executeAsync (a contract violation, but be
                         // defensive) becomes an exceptional future so the driver stays uniform.

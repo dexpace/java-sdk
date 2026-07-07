@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.util.DateTimeRfc1123
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -261,6 +262,90 @@ class RequestConditionsTest {
                 .ifUnmodifiedSince(second)
                 .build()
         assertEquals(second, rc.ifUnmodifiedSince)
+    }
+
+    @Test
+    fun `ifMatch String overload parses the raw header value like the typed path`() {
+        val typed = Headers.builder()
+        RequestConditions.builder().ifMatch(ETag.strong("abc")).build().applyTo(typed)
+
+        val fromString = Headers.builder()
+        RequestConditions.builder().ifMatch("\"abc\"").build().applyTo(fromString)
+
+        assertEquals(
+            typed.build().get(HttpHeaderName.IF_MATCH),
+            fromString.build().get(HttpHeaderName.IF_MATCH),
+        )
+    }
+
+    @Test
+    fun `ifMatch String overload produces the same ETag entries as the typed overload`() {
+        val fromString = RequestConditions.builder().ifMatch("\"abc\"").build()
+        val typed = RequestConditions.builder().ifMatch(ETag.strong("abc")).build()
+        assertEquals(typed.ifMatch, fromString.ifMatch)
+        assertEquals(ETag.strong("abc"), fromString.ifMatch.single())
+    }
+
+    @Test
+    fun `ifNoneMatch String overload parses weak and star forms`() {
+        val weak = RequestConditions.builder().ifNoneMatch("W/\"v1\"").build()
+        assertEquals(listOf(ETag.weak("v1")), weak.ifNoneMatch)
+
+        val star = RequestConditions.builder().ifNoneMatch("*").build()
+        assertEquals(listOf(ETag.ANY), star.ifNoneMatch)
+    }
+
+    @Test
+    fun `build rejects mixing star with a concrete entity-tag`() {
+        assertFailsWith<IllegalArgumentException> {
+            RequestConditions.builder()
+                .ifNoneMatch("W/\"v1\"")
+                .ifNoneMatch("*")
+                .build()
+        }
+        assertFailsWith<IllegalArgumentException> {
+            RequestConditions.builder()
+                .ifMatch(ETag.ANY)
+                .ifMatch(ETag.strong("v1"))
+                .build()
+        }
+    }
+
+    @Test
+    fun `build collapses repeated star to a single star`() {
+        val rc = RequestConditions.builder().ifMatch(ETag.ANY).ifMatch(ETag.ANY).build()
+        assertEquals(listOf(ETag.ANY), rc.ifMatch)
+    }
+
+    @Test
+    fun `String and typed ifMatch overloads interleave in call order`() {
+        val rc =
+            RequestConditions.builder()
+                .ifMatch("\"a\"")
+                .ifMatch(ETag.weak("b"))
+                .build()
+        assertEquals(listOf(ETag.strong("a"), ETag.weak("b")), rc.ifMatch)
+    }
+
+    @Test
+    fun `ifMatch String overload rejects a blank value`() {
+        assertFailsWith<IllegalArgumentException> {
+            RequestConditions.builder().ifMatch("   ")
+        }
+    }
+
+    @Test
+    fun `ifMatch String overload rejects a malformed value`() {
+        assertFailsWith<IllegalArgumentException> {
+            RequestConditions.builder().ifMatch("malformed")
+        }
+    }
+
+    @Test
+    fun `ifNoneMatch String overload rejects a blank value`() {
+        assertFailsWith<IllegalArgumentException> {
+            RequestConditions.builder().ifNoneMatch("")
+        }
     }
 
     @Test

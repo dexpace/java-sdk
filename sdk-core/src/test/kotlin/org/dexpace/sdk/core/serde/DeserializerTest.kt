@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream
 import java.io.InputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 
 class DeserializerTest {
@@ -79,5 +80,35 @@ class DeserializerTest {
         val d = RecordingDeserializer()
         val out = d.deserialize("dave", Dto::class.java)
         assertEquals(Dto("dave"), out)
+    }
+
+    @Test
+    fun `default TypeRef string overload delegates to the Class overload for a non-generic ref`() {
+        val d = RecordingDeserializer()
+        // A TypeRef whose captured type is a plain Class (no type args): the interface default
+        // delegates to the existing Class overload, so a non-Jackson deserializer still works.
+        val out: Dto = d.deserialize("erin", object : TypeRef<Dto>() {})
+        assertEquals(Dto("erin"), out)
+        assertSame(Dto::class.java, d.lastType)
+    }
+
+    @Test
+    fun `default TypeRef stream overload delegates to the Class overload for a non-generic ref`() {
+        val d = RecordingDeserializer()
+        val out: Dto = d.deserialize(ByteArrayInputStream("frank".toByteArray()), object : TypeRef<Dto>() {})
+        assertEquals(Dto("frank"), out)
+        assertSame(Dto::class.java, d.lastType)
+    }
+
+    @Test
+    fun `default TypeRef overload throws SerdeException for a generic ref a plain Deserializer cannot resolve`() {
+        val d = RecordingDeserializer()
+        // A parametric ref (List<Dto>) has no raw-Class fast path, and a format-agnostic Deserializer
+        // cannot resolve the element type — the default must fail loudly, not silently return a map.
+        val ex =
+            assertFailsWith<SerdeException> {
+                d.deserialize("[]", object : TypeRef<List<Dto>>() {})
+            }
+        assertEquals(true, ex.message?.contains("does not resolve generic types") == true)
     }
 }

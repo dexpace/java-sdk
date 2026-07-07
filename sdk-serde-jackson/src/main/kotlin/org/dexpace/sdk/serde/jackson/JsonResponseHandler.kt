@@ -5,13 +5,19 @@
  * SPDX-License-Identifier: MIT
  */
 
+@file:JvmName("JsonResponseHandlers")
+
 package org.dexpace.sdk.serde.jackson
 
 import com.fasterxml.jackson.core.type.TypeReference
+import org.dexpace.sdk.core.http.common.HttpHeaderName
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseHandler
+import org.dexpace.sdk.core.http.response.exception.HttpException
+import org.dexpace.sdk.core.http.response.throwOnError
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerdeException
+import java.io.IOException
 
 /**
  * A [ResponseHandler] that streams the response body through [serde]'s deserializer into a value
@@ -22,9 +28,10 @@ import org.dexpace.sdk.core.serde.SerdeException
  * raw header / status inspection must happen before the handler runs — pair it with a
  * `ParsedResponse` to keep raw access available and to parse lazily exactly once.
  *
- * A missing body (e.g. a `204 No Content`) or any failure from the deserializer is surfaced as a
- * [SerdeException], with the original codec exception preserved as the cause; the response is
- * still closed on the failure path.
+ * A missing body (e.g. a `204 No Content`) or a codec/parse failure is surfaced as a
+ * [SerdeException], with the original codec exception preserved as the cause; a genuine mid-stream
+ * [IOException] (e.g. a connection reset) propagates unwrapped so a caller's `catch (IOException)`
+ * still fires. The response is closed on the failure path either way.
  *
  * This overload takes a raw [Class] token, which is sufficient for non-parametric targets. For
  * parametric targets (`List<Dto>`, `Map<String, Dto>`) the raw class erases the element type — use
@@ -48,7 +55,8 @@ public fun <T> jsonHandler(
  *
  * Use this overload for generic targets (`List<Dto>`, `Map<String, Dto>`) where a raw [Class]
  * token would lose the element type. Behaves like the [Class] overload otherwise: it consumes and
- * closes the body and surfaces deserialization failures (and a missing body) as a [SerdeException].
+ * closes the body, surfaces codec failures (and a missing body) as a [SerdeException], and lets a
+ * genuine mid-stream [IOException] propagate unwrapped.
  *
  * @param serde The Jackson serde whose mapper decodes the body.
  * @param type The parametric target type.
@@ -63,9 +71,88 @@ public fun <T> jsonHandler(
     }
 
 /**
+ * Status-aware variant of [jsonHandler]: on a 2xx response it decodes the body into [type]; on any
+ * non-2xx response it throws instead of attempting to deserialize an error payload as [type].
+ *
+ * A 4xx / 5xx response is mapped through [Response.throwOnError] to the matching
+ * [org.dexpace.sdk.core.http.response.exception.HttpException] subclass, whose error
+ * [org.dexpace.sdk.core.http.response.ResponseBody] is a **buffered** in-memory copy (bounded to
+ * 1 MiB) — so it stays readable from the caught exception (e.g. via `bodySnapshot()` or typed
+ * error-body deserialization) even after this handler runs inside a `response.use { … }` block that
+ * closes the live response. Any other non-success status (1xx / 3xx reaching a terminal handler)
+ * closes the response and fails with a [SerdeException]. On the success path the body is consumed
+ * and the response closed exactly as the plain [jsonHandler].
+ *
+ * @param serde The serde whose deserializer decodes the body.
+ * @param type The non-parametric success target type.
+ * @return A [ResponseHandler] that yields a value of [type] on 2xx, and throws on non-2xx.
+ */
+public fun <T> jsonHandlerOrThrow(
+    serde: Serde,
+    type: Class<T>,
+): ResponseHandler<T> =
+    ResponseHandler { response ->
+        throwIfNotSuccess(response)
+        decode(response, type.typeName) { stream -> serde.deserializer.deserialize(stream, type) }
+    }
+
+/**
+ * Status-aware variant of the parametric [jsonHandler]: decodes the body into the type captured by
+ * [type] on 2xx, and throws on any non-2xx response. See the [Class] overload of [jsonHandlerOrThrow]
+ * for the non-success mapping contract.
+ *
+ * @param serde The Jackson serde whose mapper decodes the body.
+ * @param type The parametric success target type.
+ * @return A [ResponseHandler] that yields a value of the captured type on 2xx, and throws on non-2xx.
+ */
+public fun <T> jsonHandlerOrThrow(
+    serde: JacksonSerde,
+    type: TypeReference<T>,
+): ResponseHandler<T> =
+    ResponseHandler { response ->
+        throwIfNotSuccess(response)
+        decode(response, type.type.typeName) { stream -> serde.deserializeAs(stream, type) }
+    }
+
+/**
+ * Throws when [response] is not a 2xx: a 4xx / 5xx is mapped to its [HttpException] via
+ * [Response.throwOnError], which buffers a bounded (≤ 1 MiB) copy of the error body into the thrown
+ * exception so it survives the live response being closed (e.g. by a surrounding `response.use { … }`).
+ *
+ * Any other non-success status (a 1xx, or an unfollowed 3xx such as a `304 Not Modified` from a
+ * conditional request) is a **protocol/status condition, not a decode failure**: it raises a
+ * [SerdeException] whose message leads with the status code and carries any `ETag` / `Location`
+ * header — captured before the response is closed — so the caller can tell it apart from a codec
+ * bug and still recover the conditional-request / redirect context. The type stays [SerdeException]
+ * so existing `catch` sites keep working. Returns normally on a 2xx so the caller proceeds to decode.
+ */
+private fun throwIfNotSuccess(response: Response) {
+    val status = response.status
+    if (status.isSuccess) return
+    if (status.isError) {
+        // Buffers the error body (≤ 1 MiB) into the mapped HttpException and throws, so the caught
+        // exception's body is readable even after the live response is closed. Always throws here.
+        response.throwOnError()
+    }
+    // A 1xx or an unfollowed 3xx (e.g. 304 Not Modified). Capture the status code and the ETag /
+    // Location context BEFORE close() discards the response, and word the message as a status
+    // condition — not a deserialization failure — so it is not mistaken for a codec bug.
+    val message =
+        buildString {
+            append("HTTP ").append(status.code)
+            append(" is not a 2xx success status; refusing to decode a body from a non-success response.")
+            response.headers.get(HttpHeaderName.ETAG)?.let { append(" ETag=").append(it) }
+            response.headers.get(HttpHeaderName.LOCATION)?.let { append(" Location=").append(it) }
+        }
+    response.close()
+    throw SerdeException(message)
+}
+
+/**
  * Shared body-streaming + error-translation core for the [jsonHandler] overloads. Reads the
  * response body as an `InputStream`, hands it to [decoder], and closes the response in all cases.
- * A missing body or any decoder failure is translated into a [SerdeException].
+ * A missing body or a codec/parse failure is translated into a [SerdeException]; a genuine
+ * mid-stream [IOException] propagates unwrapped.
  */
 private inline fun <T> decode(
     response: Response,
@@ -81,6 +168,13 @@ private inline fun <T> decode(
         try {
             decoder(body.source().inputStream())
         } catch (e: SerdeException) {
+            throw e
+        } catch (e: IOException) {
+            // A genuine mid-stream read failure (e.g. a connection reset) is an I/O condition, not a
+            // codec fault, so propagate it unwrapped — a caller's catch (IOException) must still fire.
+            // The deserializer already normalizes parse/shape failures to SerdeException (caught
+            // above), matching the "a genuine stream-read IOException propagates unwrapped" contract
+            // JacksonDeserializer documents.
             throw e
         } catch (e: Exception) {
             throw SerdeException("Failed to deserialize response body: ${e.message}", e)

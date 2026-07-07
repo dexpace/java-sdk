@@ -9,14 +9,23 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Protocol
+import org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep
+import org.dexpace.sdk.core.http.pipeline.steps.RetryStep
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.pagination.PageInfo
+import org.dexpace.sdk.core.pagination.PaginationStrategy
+import org.dexpace.sdk.core.pagination.Paginator
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -29,6 +38,28 @@ private class RecordingHttpClient : HttpClient {
 
     override fun execute(request: Request): Response {
         requests.add(request)
+        return Response.builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .status(Status.OK)
+            .build()
+    }
+}
+
+/**
+ * Transport that records the [RequestOptions] threaded into the per-call `execute` overload — the
+ * seam a pipeline uses to hand a caller's options to the transport.
+ */
+private class OptionsRecordingHttpClient : HttpClient {
+    val seenOptions: MutableList<RequestOptions> = ArrayList()
+
+    override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+    override fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response {
+        seenOptions.add(options)
         return Response.builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
@@ -65,6 +96,118 @@ class HttpPipelineTest {
         assertEquals(1, client.requests.size)
         assertEquals(Status.OK, response.status)
         assertTrue(pipeline.steps.isEmpty())
+    }
+
+    @Test
+    fun `empty pipeline threads RequestOptions to the transport per-call overload`() {
+        val client = OptionsRecordingHttpClient()
+        val pipeline = HttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().timeout(Duration.ofSeconds(2)).maxRetries(1).build()
+
+        pipeline.send(request(), options)
+
+        assertEquals(1, client.seenOptions.size)
+        assertSame(options, client.seenOptions[0], "empty pipeline must pass options straight through")
+    }
+
+    @Test
+    fun `send without options threads EMPTY to the transport`() {
+        val client = OptionsRecordingHttpClient()
+        val pipeline = HttpPipelineBuilder(client).build()
+
+        pipeline.send(request())
+
+        assertEquals(RequestOptions.EMPTY, client.seenOptions.single())
+    }
+
+    @Test
+    fun `steps see the caller's options and the terminal dispatch threads them through`() {
+        val client = OptionsRecordingHttpClient()
+        val seenByStep = AtomicReference<RequestOptions?>(null)
+        val readingStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.PRE_SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response {
+                    seenByStep.set(next.options)
+                    return next.process()
+                }
+            }
+        val pipeline = HttpPipelineBuilder(client).append(readingStep).build()
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        pipeline.send(request(), options)
+
+        assertSame(options, seenByStep.get(), "the step must read the caller's options via next.options")
+        assertSame(options, client.seenOptions.single(), "options must reach the terminal dispatch")
+    }
+
+    @Test
+    fun `execute request through the HttpClient SPI threads EMPTY options`() {
+        val client = OptionsRecordingHttpClient()
+        val transport: HttpClient = HttpPipelineBuilder(client).build()
+
+        transport.execute(request())
+
+        assertNull(client.seenOptions.single().maxRetries)
+        assertEquals(RequestOptions.EMPTY, client.seenOptions.single())
+    }
+
+    @Test
+    fun `execute conforms to the HttpClient SPI and routes through the pipeline steps`() {
+        val client = RecordingHttpClient()
+        val headerStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.PRE_SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response = next.process(request.newBuilder().setHeader("X-Pipeline", "on").build())
+            }
+        // Typed as the transport SPI to prove HttpPipeline conforms to HttpClient.
+        val transport: HttpClient = HttpPipelineBuilder(client).append(headerStep).build()
+
+        val response = transport.execute(request())
+
+        assertEquals(Status.OK, response.status)
+        assertEquals(1, client.requests.size)
+        assertEquals("on", client.requests[0].headers.get("X-Pipeline"))
+    }
+
+    @Test
+    fun `Paginator over the pipeline as HttpClient walks two pages through the steps`() {
+        val client = RecordingHttpClient()
+        val stepRuns = AtomicInteger(0)
+        val countingStep =
+            object : HttpStep {
+                override val stage: Stage = Stage.PRE_SEND
+
+                override fun process(
+                    request: Request,
+                    next: PipelineNext,
+                ): Response {
+                    stepRuns.incrementAndGet()
+                    return next.process()
+                }
+            }
+        val transport: HttpClient = HttpPipelineBuilder(client).append(countingStep).build()
+
+        val pageCount = AtomicInteger(0)
+        val strategy =
+            PaginationStrategy<String> { _, initial ->
+                val n = pageCount.incrementAndGet()
+                PageInfo(listOf("item-$n"), if (n < 2) initial else null)
+            }
+
+        val items = Paginator(transport, request(), strategy).iterateAll().toList()
+
+        assertEquals(listOf("item-1", "item-2"), items)
+        assertEquals(2, client.requests.size, "two page fetches routed through the pipeline")
+        assertEquals(2, stepRuns.get(), "the pipeline step ran on each page")
     }
 
     @Test
@@ -130,23 +273,30 @@ class HttpPipelineTest {
     }
 
     @Test
-    fun `pillar replace at same stage emits warning and keeps newest`() {
+    fun `appending a distinct second pillar step throws IllegalStateException`() {
         val client = RecordingHttpClient()
-        val order = mutableListOf<String>()
-        val firstRetry = TaggingStep(Stage.RETRY, "retry-A", order)
-        val secondRetry = TaggingStep(Stage.RETRY, "retry-B", order)
+        val builder =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep())
+
+        val ex = assertFailsWith<IllegalStateException> { builder.append(DefaultRetryStep()) }
+        assertTrue(ex.message!!.contains("RETRY"), "message names the pillar stage: ${ex.message}")
+        assertTrue(ex.message!!.contains("replace"), "message points at replace<T>(): ${ex.message}")
+    }
+
+    @Test
+    fun `replace swaps a pillar step in place`() {
+        val client = RecordingHttpClient()
+        val replacement = DefaultRetryStep()
 
         val pipeline =
             HttpPipelineBuilder(client)
-                .append(firstRetry)
-                .append(secondRetry)
+                .append(DefaultRetryStep())
+                .replace<RetryStep>(replacement)
                 .build()
 
-        pipeline.send(request())
-
-        // Only the second retry-step is present; the first is replaced.
         assertEquals(1, pipeline.steps.size)
-        assertEquals(listOf("retry-B"), order)
+        assertSame(replacement, pipeline.steps[0])
     }
 
     @Test
@@ -601,6 +751,51 @@ class HttpPipelineTest {
     }
 
     @Test
+    fun `surgical insert that would duplicate a pillar throws and leaves the builder intact`() {
+        // insertAfter re-buckets by reloading the flattened step list. A second distinct RETRY-stage
+        // step would create a duplicate RETRY pillar; the reload is atomic, so the collision throws
+        // and the builder's prior steps survive — build() still yields exactly the original pillar.
+        val client = RecordingHttpClient()
+        val originalRetry = DefaultRetryStep()
+        val builder = HttpPipelineBuilder(client).append(originalRetry)
+
+        assertFailsWith<IllegalStateException> {
+            builder.insertAfter<DefaultRetryStep>(DefaultRetryStep())
+        }
+
+        val pipeline = builder.build()
+        assertEquals(1, pipeline.steps.size, "the rejected insert must not leave a duplicate pillar behind")
+        assertSame(originalRetry, pipeline.steps[0], "the original retry pillar must remain intact")
+    }
+
+    @Test
+    fun `HttpPipelineBuilder of an HttpPipeline flattens rather than nesting`() {
+        // A statically-typed HttpPipeline argument resolves to the flattening constructor: the
+        // source pipeline's steps are copied into the new builder (same count/order as from()), NOT
+        // nested as an opaque transport — which would leave the outer builder with zero steps.
+        val client = RecordingHttpClient()
+        val order = mutableListOf<String>()
+        val retryStep = TaggingStep(Stage.RETRY, "retry", order)
+        val preAuthStep = TaggingStep(Stage.PRE_AUTH, "pre-auth", order)
+        val base = HttpPipelineBuilder(client).append(retryStep).append(preAuthStep).build()
+
+        val viaConstructor = HttpPipelineBuilder(base).build()
+        val viaFrom = HttpPipelineBuilder.from(base).build()
+
+        // Same step count/order as from() — proving flatten, not nest.
+        assertEquals(viaFrom.steps.size, viaConstructor.steps.size)
+        assertEquals(2, viaConstructor.steps.size)
+        assertSame(retryStep, viaConstructor.steps[0])
+        assertSame(preAuthStep, viaConstructor.steps[1])
+        // The transport is the base's transport, not the base pipeline nested as a transport.
+        assertSame(client, viaConstructor.httpClient)
+
+        // Both steps actually run when sent (a nested pipeline would run zero outer steps).
+        viaConstructor.send(request())
+        assertEquals(listOf("retry", "pre-auth"), order)
+    }
+
+    @Test
     fun `appendAll with an empty list is a no-op`() {
         val client = RecordingHttpClient()
         val pipeline =
@@ -626,26 +821,17 @@ class HttpPipelineTest {
     }
 
     @Test
-    fun `pillar prepend at a pillar stage replaces with a warning event`() {
+    fun `prepending a distinct second pillar step throws IllegalStateException`() {
         // Branch coverage on HttpPipelineBuilder.prepend: pillar stages route through
-        // installPillar regardless of head/tail intent. Two distinct retry steps must
-        // collapse to the second one with a warning log.
+        // installPillar regardless of head/tail intent, so a distinct second retry step
+        // must fail fast rather than silently collapse.
         val client = RecordingHttpClient()
-        val order = mutableListOf<String>()
-        val first = TaggingStep(Stage.RETRY, "retry-1", order)
-        val second = TaggingStep(Stage.RETRY, "retry-2", order)
-
-        val pipeline =
+        val builder =
             HttpPipelineBuilder(client)
-                .prepend(first)
-                .prepend(second)
-                .build()
+                .prepend(DefaultRetryStep())
 
-        pipeline.send(request())
-
-        // Second prepend replaces the first via installPillar.
-        assertEquals(1, pipeline.steps.size)
-        assertEquals(listOf("retry-2"), order)
+        val ex = assertFailsWith<IllegalStateException> { builder.prepend(DefaultRetryStep()) }
+        assertTrue(ex.message!!.contains("RETRY"), "message names the pillar stage: ${ex.message}")
     }
 
     @Test

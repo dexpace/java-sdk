@@ -46,14 +46,14 @@ import java.net.URL
 public class LinkHeaderPaginationStrategy<T>
     @JvmOverloads
     constructor(
-        private val itemsExtractor: (Response) -> List<T>,
+        private val itemsExtractor: ItemsExtractor<T>,
         private val linkHeader: String = "Link",
     ) : PaginationStrategy<T> {
         override fun parse(
             response: Response,
             initialRequest: Request,
         ): PageInfo<T> {
-            val items: List<T> = itemsExtractor(response)
+            val items: List<T> = itemsExtractor.extract(response)
             // Some servers emit multiple `Link` headers (one per link-value) instead of a single
             // comma-separated header. Joining the values with ',' normalizes both wire shapes into
             // one string so a single parser handles either. An empty header list joins to "", which

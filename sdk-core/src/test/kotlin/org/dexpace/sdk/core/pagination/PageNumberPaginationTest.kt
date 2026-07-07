@@ -26,13 +26,39 @@ class PageNumberPaginationTest {
             .method(Method.GET)
             .build()
 
-    private val itemsExtractor: (Response) -> List<String> = { resp ->
-        val body = resp.body!!.source().use { it.readUtf8() }
-        if (body.isEmpty()) {
-            emptyList()
-        } else {
-            body.split(",")
+    private val itemsExtractor =
+        ItemsExtractor<String> { resp ->
+            val body = resp.body!!.source().use { it.readUtf8() }
+            if (body.isEmpty()) {
+                emptyList()
+            } else {
+                body.split(",")
+            }
         }
+
+    @Test
+    fun `page-number strategy accepts a Java-style SAM extractor and walks two pages`() {
+        val client = StubHttpClient()
+        client.on("https://api.example.com/things") { req ->
+            textResponse(req, "a,b")
+        }
+        client.on("https://api.example.com/things?page=2") { req ->
+            textResponse(req, "c,d")
+        }
+        client.on("https://api.example.com/things?page=3") { req ->
+            textResponse(req, "")
+        }
+        // Java caller path: an explicit ItemsExtractor implementation, not a Kotlin function type.
+        val javaStyle =
+            object : ItemsExtractor<String> {
+                override fun extract(response: Response): List<String> {
+                    val body = response.body!!.source().use { it.readUtf8() }
+                    return if (body.isEmpty()) emptyList() else body.split(",")
+                }
+            }
+        val paginator = Paginator(client, initialRequest(), PageNumberPaginationStrategy(javaStyle))
+        assertEquals(listOf("a", "b", "c", "d"), paginator.iterateAll().toList())
+        assertEquals(3, client.callCount)
     }
 
     @Test

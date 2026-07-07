@@ -12,7 +12,7 @@ import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.pow
 
 /**
- * Pure delay computation for [RetryStep]. Combines:
+ * Pure delay computation for [RetryRecovery]. Combines:
  *  - Square's exponential backoff with symmetric jitter (`delay = initial * multiplier^(n-1)`,
  *    then sampled uniformly from `[delay * (1 - j/2), delay * (1 + j/2)]`).
  *  - gax's per-attempt deadline shrinking — the computed delay is capped so the next

@@ -3,6 +3,12 @@
 This document covers the design, architecture, and usage of the SDK's pipeline system for
 composable request/response processing.
 
+> **Orientation — two layers, two names.** This document describes the recovery-aware `pipeline`
+> package: `RecoveryChain` orchestrating `RequestRecoveryChain` / `ResponseRecoveryChain` over a
+> sealed `ResponseOutcome` — the resilience/recovery layer. The user-facing **dispatch** pipeline
+> is the separate stage-based `http.pipeline` package (`HttpPipeline` / `HttpStep` / `Stage`); see
+> [Async Dispatch](#async-dispatch) and `docs/architecture.md`.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -10,9 +16,9 @@ composable request/response processing.
     - [Pipeline Types](#pipeline-types)
     - [Step System](#step-system)
     - [Context Flow](#context-flow)
-- [RequestPipeline](#requestpipeline)
-- [ResponsePipeline](#responsepipeline)
-- [ExecutionPipeline](#executionpipeline)
+- [RequestRecoveryChain](#requestrecoverychain)
+- [ResponseRecoveryChain](#responserecoverychain)
+- [RecoveryChain](#recoverychain)
 - [Retry](#retry)
 - [Async Dispatch](#async-dispatch)
 - [Design Decisions](#design-decisions)
@@ -47,9 +53,9 @@ This enables:
 
 | File                       | Package               | Purpose                                                          |
 |----------------------------|-----------------------|------------------------------------------------------------------|
-| `RequestPipeline.kt`       | `pipeline`            | Sequential request transformation                                |
-| `ResponsePipeline.kt`      | `pipeline`            | Recovery-aware response fold (response + recovery steps)         |
-| `ExecutionPipeline.kt`     | `pipeline`            | Top-level request → transport → recovery → response orchestrator |
+| `RequestRecoveryChain.kt`       | `pipeline`            | Sequential request transformation                                |
+| `ResponseRecoveryChain.kt`      | `pipeline`            | Recovery-aware response fold (response + recovery steps)         |
+| `RecoveryChain.kt`     | `pipeline`            | Top-level request → transport → recovery → response orchestrator |
 | `ResponseOutcome.kt`       | `pipeline`            | Sealed `Success(Response)` / `Failure(Throwable)` sum type       |
 | `PipelineStep.kt`          | `pipeline.step`       | Generic `PipelineStep<T, V>` functional interface                |
 | `RequestPipelineStep.kt`   | `pipeline.step`       | `Request → Request` specialization                               |
@@ -57,8 +63,8 @@ This enables:
 | `ResponseRecoveryStep.kt`  | `pipeline.step`       | `ResponseOutcome → ResponseOutcome` recovery hook                |
 | `IdempotencyKeyStep.kt`    | `pipeline.step`       | `RequestPipelineStep` that injects an idempotency key            |
 | `ClientIdentityStep.kt`    | `pipeline.step`       | `RequestPipelineStep` that injects client identity headers       |
-| `RetryStep.kt`             | `pipeline.step.retry` | `ResponseRecoveryStep`: backoff retry on retryable failures      |
-| `RetrySettings.kt`         | `pipeline.step.retry` | Immutable retry configuration for `RetryStep`                    |
+| `RetryRecovery.kt`             | `pipeline.step.retry` | `ResponseRecoveryStep`: backoff retry on retryable failures      |
+| `RetrySettings.kt`         | `pipeline.step.retry` | Immutable retry configuration for `RetryRecovery`                    |
 
 ---
 
@@ -69,7 +75,7 @@ This enables:
 The SDK defines three pipeline types, each handling a different phase of the HTTP lifecycle:
 
 ```
-                      RequestPipeline
+                      RequestRecoveryChain
                     (transform request — BeforeRequest)
                             │
                             ▼
@@ -77,24 +83,24 @@ The SDK defines three pipeline types, each handling a different phase of the HTT
                     (transport — produces ResponseOutcome)
                             │
                             ▼
-                     ResponsePipeline
+                     ResponseRecoveryChain
                     (response steps + recovery chain
                      — AfterSuccess + AfterError)
 
-                  Orchestrated by ExecutionPipeline
+                  Orchestrated by RecoveryChain
                   (catches all exceptions, threads through recovery)
 ```
 
 | Pipeline            | Input             | Output            | Phase                                                  |
 |---------------------|-------------------|-------------------|--------------------------------------------------------|
-| `RequestPipeline`   | `Request`         | `Request`         | Pre-execution: transform the request                   |
-| `ExecutionPipeline` | `Request`         | `Response`        | Top-level orchestrator: request + transport + recovery |
-| `ResponsePipeline`  | `ResponseOutcome` | `ResponseOutcome` | Post-execution: response transforms + recovery chain   |
+| `RequestRecoveryChain`   | `Request`         | `Request`         | Pre-execution: transform the request                   |
+| `RecoveryChain` | `Request`         | `Response`        | Top-level orchestrator: request + transport + recovery |
+| `ResponseRecoveryChain`  | `ResponseOutcome` | `ResponseOutcome` | Post-execution: response transforms + recovery chain   |
 
 ### Step System
 
 Two distinct step shapes are wired into the pipeline. The first is the generic transformer
-used by `RequestPipeline` and `ResponsePipeline`:
+used by `RequestRecoveryChain` and `ResponseRecoveryChain`:
 
 ```kotlin
 public fun interface PipelineStep<in T, out V> {
@@ -109,7 +115,7 @@ public fun interface RequestPipelineStep : PipelineStep<Request, Request>
 public fun interface ResponsePipelineStep : PipelineStep<Response, Response>
 ```
 
-The second shape is the recovery hook used by `ResponsePipeline`'s recovery chain — it takes
+The second shape is the recovery hook used by `ResponseRecoveryChain`'s recovery chain — it takes
 the full outcome rather than a bare value so steps can inspect failures:
 
 ```kotlin
@@ -118,7 +124,7 @@ public fun interface ResponseRecoveryStep {
 }
 ```
 
-Retry is implemented as a `ResponseRecoveryStep` (`RetryStep`) rather than a property of any
+Retry is implemented as a `ResponseRecoveryStep` (`RetryRecovery`) rather than a property of any
 single step, so it composes uniformly with the rest of the recovery chain. See
 [Retry](#retry).
 
@@ -146,17 +152,17 @@ known.
 
 ---
 
-## RequestPipeline
+## RequestRecoveryChain
 
-The `RequestPipeline` processes a `Request` through an ordered list of
+The `RequestRecoveryChain` processes a `Request` through an ordered list of
 `RequestPipelineStep`s. Each step receives the current request and the dispatch context,
 and returns a (potentially modified) request.
 
 ```kotlin
-public class RequestPipeline(
+public class RequestRecoveryChain(
     public val steps: List<RequestPipelineStep> = emptyList(),
 ) {
-    public fun execute(request: Request, context: DispatchContext): Request
+    public fun recover(request: Request, context: DispatchContext): Request
 }
 ```
 
@@ -165,7 +171,7 @@ Empty pipelines return the input request unchanged. Individual steps are typical
 courtesy of `fun interface RequestPipelineStep`:
 
 ```kotlin
-val pipeline = RequestPipeline(
+val pipeline = RequestRecoveryChain(
     steps = listOf(
         RequestPipelineStep { request, context ->
             request.newBuilder()
@@ -176,8 +182,8 @@ val pipeline = RequestPipeline(
 )
 ```
 
-If a step throws, `RequestPipeline.execute` propagates the throwable unchanged. The
-surrounding `ExecutionPipeline` is responsible for translating that throwable into a
+If a step throws, `RequestRecoveryChain.recover` propagates the throwable unchanged. The
+surrounding `RecoveryChain` is responsible for translating that throwable into a
 `ResponseOutcome.Failure` so it can be observed by recovery steps (see below).
 
 ### Common request steps
@@ -193,14 +199,14 @@ surrounding `ExecutionPipeline` is responsible for translating that throwable in
 
 ---
 
-## ResponsePipeline
+## ResponseRecoveryChain
 
-The `ResponsePipeline` is the recovery-aware post-execution counterpart to `RequestPipeline`.
+The `ResponseRecoveryChain` is the recovery-aware post-execution counterpart to `RequestRecoveryChain`.
 It folds a `ResponseOutcome` (a sealed sum of `Success(Response)` and `Failure(Throwable)`)
 through two ordered step lists:
 
 ```kotlin
-public class ResponsePipeline(
+public class ResponseRecoveryChain(
     responseSteps: List<ResponsePipelineStep> = emptyList(),
     recoverySteps: List<ResponseRecoveryStep> = emptyList(),
 )
@@ -235,7 +241,7 @@ to surface a `Response` or rethrow.
 #### Close ownership: discarding a `Success` response
 
 When a step is handed a `ResponseOutcome.Success`, the wrapped `Response` holds an open
-transport connection / body stream that must be closed exactly once. The `ResponsePipeline`
+transport connection / body stream that must be closed exactly once. The `ResponseRecoveryChain`
 takes that responsibility on **only one path: when a step throws while holding the response.**
 Both the success-path (`applyResponseSteps`) and the recovery chain (`invokeRecovery`)
 close-before-propagate — they close the in-hand response and attach any close error to the
@@ -286,25 +292,25 @@ single value.
 
 | Step                | Purpose                                                                |
 |---------------------|------------------------------------------------------------------------|
-| `RetryStep`         | Re-invoke transport on retryable failures with exponential backoff     |
+| `RetryRecovery`         | Re-invoke transport on retryable failures with exponential backoff     |
 | Status-to-exception | Map 4xx/5xx responses (or transport `IOException`) to typed exceptions |
 | Auth-401 eviction   | Evict cached OAuth token on `UnauthorizedException` and retry once     |
 | Circuit breaker     | Open the breaker on consecutive failures; fast-fail for the open phase |
 
 ---
 
-## ExecutionPipeline
+## RecoveryChain
 
-The `ExecutionPipeline` is the top-level entry point that ties `RequestPipeline`, the
-`HttpClient` transport, and the recovery-aware `ResponsePipeline` together. SDK consumers
-call `executionPipeline.execute(request, context)` and receive a `Response` (or rethrow the
+The `RecoveryChain` is the top-level entry point that ties `RequestRecoveryChain`, the
+`HttpClient` transport, and the recovery-aware `ResponseRecoveryChain` together. SDK consumers
+call `recoveryChain.recover(request, context)` and receive a `Response` (or rethrow the
 terminal failure).
 
 ```kotlin
-public class ExecutionPipeline(
+public class RecoveryChain(
     public val httpClient: HttpClient,
-    public val requestPipeline: RequestPipeline = RequestPipeline(),
-    public val responsePipeline: ResponsePipeline = ResponsePipeline(),
+    public val requestChain: RequestRecoveryChain = RequestRecoveryChain(),
+    public val responseChain: ResponseRecoveryChain = ResponseRecoveryChain(),
 )
 ```
 
@@ -312,12 +318,12 @@ public class ExecutionPipeline(
 
 ```
                   ┌─────────────────────────────────────────┐
-                  │              ExecutionPipeline           │
+                  │              RecoveryChain           │
                   └─────────────────────────────────────────┘
                                        │
                                        ▼
                               ┌────────────────┐
-                              │ RequestPipeline│  (BeforeRequest)
+                              │ RequestRecoveryChain│  (BeforeRequest)
                               └────────┬───────┘
                                        │     throw
                                        │     ──────────────┐
@@ -334,7 +340,7 @@ public class ExecutionPipeline(
                                        └────────┬────────┘
                                                 ▼
                               ┌────────────────────────────┐
-                              │      ResponsePipeline       │
+                              │      ResponseRecoveryChain       │
                               │                             │
                               │  [responseSteps (Success)]  │  (AfterSuccess)
                               │             │               │
@@ -356,7 +362,7 @@ the recovery chain runs. Recovery steps observe the failure regardless of where 
 pipeline it originated — this fixes Airbyte's design defect where a `BeforeRequest` exception
 bypassed `AfterError` entirely (`utils/Hook.java`).
 
-`execute` rethrows the terminal `Failure.error` unchanged when no recovery step rescued it.
+`recover` rethrows the terminal `Failure.error` unchanged when no recovery step rescued it.
 Wrapping into typed SDK exceptions is the recovery chain's job — the typed `HttpException`
 hierarchy and the auth steps map raw failures into domain exceptions there.
 
@@ -364,15 +370,15 @@ hierarchy and the auth steps map raw failures into domain exceptions there.
 
 ## Retry
 
-Retry is a `ResponseRecoveryStep` — `RetryStep` — wired into a `ResponsePipeline`'s
+Retry is a `ResponseRecoveryStep` — `RetryRecovery` — wired into a `ResponseRecoveryChain`'s
 `recoverySteps`. It re-executes a failed request with exponential backoff, server-driven
 pacing (`Retry-After` / `X-RateLimit-Reset`), and a total-timeout budget that shrinks the
 per-attempt deadline as attempts accrue.
 
-A `RetryStep` is constructed against a captured transport and a single request template:
+A `RetryRecovery` is constructed against a captured transport and a single request template:
 
 ```kotlin
-public class RetryStep(
+public class RetryRecovery(
     public val httpClient: HttpClient,
     public val settings: RetrySettings,
     public val request: Request,
@@ -485,12 +491,12 @@ with state, dependencies, and configuration.
 
 Steps operate on immutable `Request` and `Response` objects — each transforming step produces
 a new instance via `newBuilder().build()` rather than mutating in place. The pipelines
-themselves are immutable after construction: `RequestPipeline` wraps its step list in an
-unmodifiable view, `ResponsePipeline` does the same for both step lists, and `ExecutionPipeline`
+themselves are immutable after construction: `RequestRecoveryChain` wraps its step list in an
+unmodifiable view, `ResponseRecoveryChain` does the same for both step lists, and `RecoveryChain`
 holds final references to its components. Instances are therefore safe to share across threads
 provided the steps they hold are themselves thread-safe.
 
-This is what makes retry tractable. Because a step never destroys its input, `RetryStep` can
+This is what makes retry tractable. Because a step never destroys its input, `RetryRecovery` can
 re-send the original `Request` template verbatim — the only safety question is idempotency
 (method + body replayability), not state corruption from a partially-applied step. Recovery is
 modelled as a fold over `ResponseOutcome` rather than rollback over mutated state: a failure
@@ -504,14 +510,14 @@ order they execute. There is no automatic dependency resolution or topological s
 Consuming libraries are responsible for ensuring correct ordering. Common patterns:
 
 ```
-RequestPipeline.steps (BeforeRequest):
+RequestRecoveryChain.steps (BeforeRequest):
   1. Validation steps     (fail fast on bad input)
   2. Header injection     (User-Agent, Accept, Content-Type)
   3. Authentication       (Authorization header)
   4. Logging              (log the final request)
 ```
 
-Retry is **not** a request step — it lives in `ResponsePipeline.recoverySteps` so it can observe
+Retry is **not** a request step — it lives in `ResponseRecoveryChain.recoverySteps` so it can observe
 the transport outcome and re-issue the request. Order recovery steps so retry runs before any
 status-to-exception mapping you do not want a transient failure to surface prematurely.
 
@@ -544,8 +550,10 @@ hop itself rather than a configurable pillar. The reasons:
   surgical `insertAfter` / `insertBefore` / `replace` edits operate against this declared order.
 - **Pillar-uniqueness invariants.** Redirect, retry, auth, logging, and serde are concerns you
   want *exactly one* of — two retry layers or two auth layers is almost always a bug. A pillar
-  stage enforces that: installing a second step in a pillar replaces the first and emits a
-  `pipeline.pillar.replaced` SLF4J warning (`HttpPipelineBuilder`). The shipped pillar steps go
+  stage enforces that: installing a *distinct* second step in a pillar fails fast with an
+  `IllegalStateException` rather than silently overwriting the first — re-installing the *same*
+  instance is idempotent, and to swap the existing step you call `replace<T>()`
+  (`HttpPipelineBuilder` / `StagedSteps`). The shipped pillar steps go
   further and lock their slot at the type level — `RedirectStep`, `RetryStep`, `AuthStep`, and
   `InstrumentationStep` each declare `final override val stage`, so a subclass cannot relocate
   itself out of its pillar. Nested decorators cannot express "there is exactly one auth layer";
@@ -588,9 +596,9 @@ val authStep = RequestPipelineStep { request, context ->
         .build()
 }
 
-val pipeline = RequestPipeline(steps = listOf(loggingStep, authStep))
+val pipeline = RequestRecoveryChain(steps = listOf(loggingStep, authStep))
 
-val finalRequest = pipeline.execute(request, DispatchContext.default())
+val finalRequest = pipeline.recover(request, DispatchContext.default())
 ```
 
 ### Configuring a retry step
@@ -601,9 +609,9 @@ val settings = RetrySettings.builder()
     .initialDelay(Duration.ofMillis(250))
     .build()
 
-val retryStep = RetryStep(httpClient = transport, settings = settings, request = request)
+val retryStep = RetryRecovery(httpClient = transport, settings = settings, request = request)
 
-// Wired into a ResponsePipeline's recovery chain, or invoked directly:
+// Wired into a ResponseRecoveryChain's recovery chain, or invoked directly:
 val response = retryStep.attempt()
 ```
 
@@ -618,16 +626,16 @@ val mapToTypedException = ResponseRecoveryStep { outcome ->
     }
 }
 
-val pipeline = ExecutionPipeline(
+val pipeline = RecoveryChain(
     httpClient = transport,
-    requestPipeline = RequestPipeline(listOf(authStep, userAgentStep)),
-    responsePipeline = ResponsePipeline(
+    requestChain = RequestRecoveryChain(listOf(authStep, userAgentStep)),
+    responseChain = ResponseRecoveryChain(
         responseSteps = listOf(decodingStep),
         recoverySteps = listOf(retryStep, mapToTypedException),
     ),
 )
 
-val response = pipeline.execute(request, DispatchContext.default())
+val response = pipeline.recover(request, DispatchContext.default())
 ```
 
 If any phase of the pipeline raises an exception, the recovery chain observes it through a
@@ -640,9 +648,9 @@ unwrapped: `Success` returns the `Response`; `Failure` rethrows.
 
 | File                            | Visibility | Description                                                                |
 |---------------------------------|------------|----------------------------------------------------------------------------|
-| `RequestPipeline.kt`            | public     | Sequential request transformation                                          |
-| `ResponsePipeline.kt`           | public     | Recovery-aware response fold (response + recovery steps)                   |
-| `ExecutionPipeline.kt`          | public     | Top-level orchestrator: request → transport → recovery → response          |
+| `RequestRecoveryChain.kt`            | public     | Sequential request transformation                                          |
+| `ResponseRecoveryChain.kt`           | public     | Recovery-aware response fold (response + recovery steps)                   |
+| `RecoveryChain.kt`          | public     | Top-level orchestrator: request → transport → recovery → response          |
 | `ResponseOutcome.kt`            | public     | Sealed `Success(Response)` / `Failure(Throwable)` sum type                 |
 | `step/PipelineStep.kt`          | public     | Generic `PipelineStep<T, V>` functional interface                          |
 | `step/RequestPipelineStep.kt`   | public     | `Request → Request` specialization                                         |
@@ -650,5 +658,5 @@ unwrapped: `Success` returns the `Response`; `Failure` rethrows.
 | `step/ResponseRecoveryStep.kt`  | public     | `ResponseOutcome → ResponseOutcome` recovery hook                          |
 | `step/IdempotencyKeyStep.kt`    | public     | `RequestPipelineStep` that injects an idempotency key                      |
 | `step/ClientIdentityStep.kt`    | public     | `RequestPipelineStep` that injects client identity headers                 |
-| `step/retry/RetryStep.kt`       | public     | `ResponseRecoveryStep`: backoff retry on retryable failures                |
-| `step/retry/RetrySettings.kt`   | public     | Immutable retry configuration for `RetryStep`                              |
+| `step/retry/RetryRecovery.kt`       | public     | `ResponseRecoveryStep`: backoff retry on retryable failures                |
+| `step/retry/RetrySettings.kt`   | public     | Immutable retry configuration for `RetryRecovery`                              |

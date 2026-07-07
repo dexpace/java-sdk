@@ -11,12 +11,15 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.junit5.StartStop
 import okio.Buffer
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.http.request.RequestOptions
+import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.Io
@@ -192,6 +195,72 @@ class JdkHttpTransportTest {
         }
         val recorded = server.takeRequest()
         assertEquals(payload, recorded.body?.utf8())
+    }
+
+    // -------- per-call RequestOptions.timeout --------
+
+    @Test
+    fun `perCallTimeoutFiresOnSlowResponse`() {
+        // A short per-call timeout replaces the transport's 30s default response timeout for this
+        // request only. The headers delay comfortably exceeds the 200ms budget, so the JDK's
+        // per-request timeout fires and surfaces as an IOException (HttpTimeoutException).
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        val ex =
+            assertFails {
+                transport.execute(simpleGet("/slow-percall"), options).close()
+            }
+        assertTrue(ex is IOException, "expected IOException, got ${ex::class}")
+    }
+
+    @Test
+    fun `perCallTimeoutHonouredWhenGenerousAndAbsent`() {
+        // Contrast: the SAME per-call mechanism with a generous budget does NOT prematurely fail a
+        // moderately slow response, proving the configured duration is honoured. A second request
+        // with EMPTY options (no per-call override, so the 30s default applies) also succeeds —
+        // the no-override path is unchanged.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("on-time")
+                .headersDelay(150, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val generous = RequestOptions.builder().timeout(Duration.ofSeconds(10)).build()
+        transport.execute(simpleGet("/generous-percall"), generous).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("on-time", response.body?.source()?.readUtf8())
+        }
+
+        server.enqueue(MockResponse.Builder().code(200).body("empty-opts").build())
+        transport.execute(simpleGet("/empty-opts"), RequestOptions.EMPTY).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("empty-opts", response.body?.source()?.readUtf8())
+        }
+    }
+
+    @Test
+    fun `perCallTimeoutFiresOnSlowResponseAsync`() {
+        // Async mirror: the per-call timeout is set on the per-request builder, so the returned
+        // future completes exceptionally.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        val future = transport.executeAsync(simpleGet("/slow-percall-async"), options)
+        val ex = assertFails { future.get(5, TimeUnit.SECONDS) }
+        assertTrue(ex is ExecutionException, "expected ExecutionException, got ${ex::class}")
+        assertTrue(ex.cause is IOException, "expected IOException cause, got ${ex.cause?.let { it::class }}")
     }
 
     // -------- async adaptation failures --------
@@ -658,6 +727,86 @@ class JdkHttpTransportTest {
         }
     }
 
+    // -------- proxy: opt-in proxyFromEnvironment() --------
+
+    @Test
+    fun `proxyFromEnvironmentAppliesConfiguredProxy`() {
+        // With HTTPS_PROXY pointed at MockWebServer, proxyFromEnvironment() must apply it: a
+        // request to an unresolvable `.example` host still reaches MockWebServer, which is only
+        // possible via the forward proxy (a direct connect would fail DNS).
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("via-proxy").build())
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .proxyFromEnvironment()
+                .build()
+                .use { proxied ->
+                    val request =
+                        Request.builder()
+                            .method(Method.GET)
+                            .url(URL("http://downstream.example/resource"))
+                            .build()
+                    proxied.execute(request).use { response ->
+                        assertEquals(
+                            200,
+                            response.status.code,
+                            "request routed through the env-configured proxy must succeed",
+                        )
+                        assertEquals("via-proxy", response.body?.source()?.readUtf8())
+                    }
+                }
+            val recorded = server.takeRequest()
+            assertTrue(
+                recorded.target.contains("downstream.example"),
+                "request must have been forwarded via the env-configured proxy, target was: ${recorded.target}",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
+    @Test
+    fun `proxyFromEnvironmentIsOptIn`() {
+        // The very same global config carries a proxy, but a builder that does NOT call
+        // proxyFromEnvironment() must ignore it: a direct request lands on MockWebServer with an
+        // origin-form target, proving no forward proxy was inserted.
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("direct").build())
+            JdkHttpTransport.builder()
+                .httpVersion(JdkHttpTransport.HttpVersion.HTTP_1_1)
+                .build()
+                .use { plain ->
+                    plain.execute(simpleGet("/direct")).use { response ->
+                        assertEquals(200, response.status.code)
+                    }
+                }
+            val recorded = server.takeRequest()
+            assertEquals(
+                "/direct",
+                recorded.target,
+                "an opt-out transport must issue an origin-form request (no proxy applied)",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
     // -------- response body streaming --------
 
     @Test
@@ -731,6 +880,70 @@ class JdkHttpTransportTest {
         // shutdown doesn't observe a stale task.
         Thread.interrupted()
         Thread.sleep(900)
+    }
+
+    // -------- transport error contract: NetworkException --------
+
+    @Test
+    fun `connectionFailureSurfacesAsNetworkExceptionSync`() {
+        // A refused TCP connect (a freed-then-closed local port) is a transport-level IOException
+        // with no response on the wire. The transport must surface it as the SDK's
+        // NetworkException — an IOException subtype, so existing `catch (IOException)` sites keep
+        // matching — and it must be retryable.
+        val deadPort = freePort()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val ex =
+            assertFailsWith<NetworkException> {
+                transport.execute(request).close()
+            }
+        assertTrue(ex.isRetryable, "a transport-level failure must be retryable")
+    }
+
+    @Test
+    fun `connectionFailureSurfacesAsNetworkExceptionAsync`() {
+        val deadPort = freePort()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val future = transport.executeAsync(request)
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        val cause = ex.cause
+        assertTrue(cause is NetworkException, "expected NetworkException, got ${cause?.let { it::class }}")
+        assertTrue(cause.isRetryable, "a transport-level failure must be retryable")
+    }
+
+    @Test
+    fun `interruptIsNotWrappedAsNetworkException`() {
+        // The interrupt path must remain unchanged: a thread interrupted mid-call surfaces an
+        // InterruptedIOException, never a NetworkException. Pre-interrupt the worker so the JDK's
+        // send side observes the interrupt before any socket I/O.
+        val errorRef = AtomicReference<Throwable?>()
+        val worker =
+            Thread {
+                Thread.currentThread().interrupt()
+                try {
+                    transport.execute(simpleGet("/never-served"))
+                } catch (t: Throwable) {
+                    errorRef.set(t)
+                }
+            }
+        worker.start()
+        worker.join(3000)
+        assertTrue(!worker.isAlive, "worker should exit on interrupt")
+        val captured = errorRef.get()
+        assertNotNull(captured, "expected InterruptedIOException to surface")
+        assertTrue(
+            captured is java.io.InterruptedIOException,
+            "interrupt must surface as InterruptedIOException, got ${captured::class}",
+        )
+        // An InterruptedIOException is disjoint from NetworkException (sibling IOException
+        // subtypes), so surfacing the former proves the interrupt was NOT wrapped as the latter.
     }
 
     // -------- cancellation --------

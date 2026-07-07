@@ -99,6 +99,8 @@ class MultipartBodyTest {
                     type: Class<T>,
                 ): T = throw UnsupportedOperationException()
             }
+
+        override fun contentType() = CommonMediaTypes.TEXT_PLAIN
     }
 
     private fun drain(body: RequestBody): ByteArray {
@@ -316,6 +318,20 @@ class MultipartBodyTest {
                 .build()
         val wire = String(drain(body), Charsets.UTF_8)
         assertContains(wire, "Content-Type: application/json")
+        assertContains(wire, "raw-value")
+    }
+
+    @Test
+    fun `serialized part without an explicit media type defaults its Content-Type to the serde's`() {
+        // Mirrors RequestBody.create(value, serde): when the caller omits a media type, the part's
+        // Content-Type falls back to Serde.contentType() (here text/plain) rather than being absent.
+        val body =
+            MultipartBody.builder()
+                .boundary("D")
+                .addPart("payload", "raw-value", StringSerde)
+                .build()
+        val wire = String(drain(body), Charsets.UTF_8)
+        assertContains(wire, "Content-Type: text/plain")
         assertContains(wire, "raw-value")
     }
 

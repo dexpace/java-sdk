@@ -19,7 +19,7 @@ import org.dexpace.sdk.core.http.request.Request
  * multiple threads.
  *
  * ## Exception semantics
- * If [execute] throws, [org.dexpace.sdk.core.pipeline.ExecutionPipeline] catches the throwable
+ * If [execute] throws, [org.dexpace.sdk.core.pipeline.RecoveryChain] catches the throwable
  * and routes it through the recovery chain — the failure does not bypass
  * [org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep]s. This is a deliberate departure
  * from Airbyte's hook model, where a `BeforeRequest` exception skips `AfterError`.

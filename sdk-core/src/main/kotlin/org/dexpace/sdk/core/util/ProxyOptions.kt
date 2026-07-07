@@ -28,12 +28,16 @@ import java.util.regex.Pattern
  * ## Proxy authentication
  *
  * Proxy auth is driven by [username] / [password]. **Both shipped transports authenticate the
- * proxy with the Basic scheme only:**
+ * proxy with the Basic scheme only,** but they differ over HTTPS CONNECT tunnels:
  * - OkHttp transport: its `proxyAuthenticator` emits `Proxy-Authorization: Basic …` from
- *   [username] / [password].
+ *   [username] / [password], including on the HTTPS CONNECT tunnel.
  * - JDK transport: installs a `java.net.Authenticator` on the `java.net.http` client. That
  *   built-in integration answers Basic proxy challenges only; it does not implement Digest
- *   proxy auth.
+ *   proxy auth. **Caveat:** for an HTTPS origin the `java.net.http` client refuses to send Basic
+ *   proxy credentials on the `CONNECT` tunnel by default — `jdk.http.auth.tunneling.disabledSchemes`
+ *   defaults to `Basic` (JDK-8168839) — so Basic proxy auth silently fails against an `https://`
+ *   origin until the JVM is launched with `-Djdk.http.auth.tunneling.disabledSchemes=` (empty). The
+ *   OkHttp transport has no such restriction.
  *
  * Neither transport performs Digest (or any other non-Basic scheme) proxy authentication. To
  * authenticate against a Digest-only proxy, supply your own pre-configured client — a
@@ -176,6 +180,30 @@ public class ProxyOptions
 
                 return parseProxyUrl(envProxyUrl, nonProxyHosts)
             }
+
+            /**
+             * Resolves proxy settings from the process-wide [Configuration.getGlobalConfiguration],
+             * returning the configured [ProxyOptions] or `null` when the environment configures no
+             * proxy (or bypasses it entirely via `NO_PROXY=*`). A convenience over
+             * [fromConfiguration] that supplies the global configuration, so callers — chiefly the
+             * shipped transports' `proxyFromEnvironment()` builder hooks — don't repeat the lookup.
+             *
+             * Resolution follows [fromConfiguration]: system properties win over environment
+             * variables (JDK convention). Recognised sources:
+             * - System property `https.proxyHost` / `https.proxyPort` / `https.proxyUser` /
+             *   `https.proxyPassword` (preferred), falling back to `http.proxyHost` /
+             *   `http.proxyPort`.
+             * - System property `http.nonProxyHosts` (pipe-separated, backslash-escapable).
+             * - Environment variable `HTTPS_PROXY` / `HTTP_PROXY` — full URL form
+             *   `http://user:pass@proxy:8080`.
+             * - Environment variable `NO_PROXY` — comma-separated; a bare `*` bypasses the proxy for
+             *   every host, in which case this returns `null`.
+             *
+             * Strictly opt-in from a transport's perspective: nothing consults the environment until
+             * this (or [fromConfiguration]) is called.
+             */
+            @JvmStatic
+            public fun fromEnvironment(): ProxyOptions? = fromConfiguration(Configuration.getGlobalConfiguration())
 
             /**
              * Parses a full proxy URL (`http://user:pass@proxy:8080`) into a [ProxyOptions].

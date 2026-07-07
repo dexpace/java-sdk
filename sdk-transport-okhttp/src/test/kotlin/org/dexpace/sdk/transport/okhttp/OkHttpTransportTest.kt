@@ -14,14 +14,17 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okio.Buffer
 import org.dexpace.sdk.core.auth.BasicChallengeHandler
+import org.dexpace.sdk.core.config.Configuration
 import org.dexpace.sdk.core.http.common.CommonMediaTypes
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.FileRequestBody
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.util.ProxyOptions
@@ -508,17 +511,197 @@ class OkHttpTransportTest {
             OkHttpTransport.builder()
                 .readTimeout(Duration.ofMillis(200))
                 .build()
-        val ex =
-            assertFails {
-                shortReadTransport.execute(simpleGet("/slow")).close()
-            }
-        assertTrue(ex is IOException, "expected IOException, got ${ex::class}")
-        // The transport's `execute` preserves the interrupt status when surfacing an
-        // `InterruptedIOException`. OkHttp's SocketTimeoutException path on JDK 25 leaves
-        // the thread's interrupt flag set; clear it before sleeping so MockWebServer's
-        // pending dispatch has time to drain without an InterruptedException.
-        Thread.interrupted()
+        // A read timeout arrives as a SocketTimeoutException (an InterruptedIOException subtype),
+        // but it is a timeout, not a cancellation: the transport surfaces it as a retryable
+        // NetworkException and does not set the caller thread's interrupt flag.
+        assertFailsWith<NetworkException> {
+            shortReadTransport.execute(simpleGet("/slow")).close()
+        }
+        assertFalse(
+            Thread.currentThread().isInterrupted,
+            "a timeout must not leave the caller thread's interrupt flag set",
+        )
+        // Let MockWebServer's pending dispatch drain before @StartStop shuts it down.
         Thread.sleep(900)
+    }
+
+    // -------- per-call RequestOptions.timeout --------
+
+    @Test
+    fun perCallTimeoutFiresOnSlowResponse() {
+        // A short per-call timeout must bound a slow exchange even though the default-built
+        // transport imposes no callTimeout of its own. The headers delay comfortably exceeds the
+        // 200ms per-call budget so the timeout fires.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        // A timeout is a retryable transport failure, not a cancellation: it surfaces as a
+        // NetworkException (an IOException subtype) so DefaultRetryStep re-attempts it.
+        val ex =
+            assertFailsWith<NetworkException> {
+                transport.execute(simpleGet("/slow-percall"), options).close()
+            }
+        assertTrue(ex.isRetryable, "a timeout must be retryable")
+        // The timeout must NOT set the caller thread's interrupt flag; only a genuine interrupt
+        // does. (This is why the previous `Thread.interrupted()` workaround is no longer needed.)
+        assertFalse(
+            Thread.currentThread().isInterrupted,
+            "a timeout must not leave the caller thread's interrupt flag set",
+        )
+        // Let MockWebServer's pending dispatch drain before @StartStop shuts it down.
+        Thread.sleep(900)
+    }
+
+    @Test
+    fun subMillisPerCallTimeoutIsClampedNotDisabled() {
+        // A positive sub-millisecond per-call timeout truncates to 0ms via Duration.toMillis(), and
+        // okio's Timeout treats 0 as "no timeout". Without clamping this would silently DISABLE the
+        // per-call timeout and let the slow exchange run to completion. The transport clamps the
+        // applied deadline to at least 1ms, so the timeout stays finite and fires on the slow
+        // response rather than being disabled.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        // 500_000 ns = 0.5 ms → toMillis() == 0, the truncation the clamp exists to defend against.
+        val subMillis = RequestOptions.builder().timeout(Duration.ofNanos(500_000)).build()
+        // The clamped-but-finite timeout must still fire, surfacing as a retryable NetworkException.
+        val ex =
+            assertFailsWith<NetworkException> {
+                transport.execute(simpleGet("/sub-ms-timeout"), subMillis).close()
+            }
+        assertTrue(ex.isRetryable, "a timeout must be retryable")
+        assertFalse(
+            Thread.currentThread().isInterrupted,
+            "a timeout must not leave the caller thread's interrupt flag set",
+        )
+        // Let MockWebServer's pending dispatch drain before @StartStop shuts it down.
+        Thread.sleep(900)
+    }
+
+    @Test
+    fun perCallTimeoutHonouredWhenGenerousAndAbsent() {
+        // Contrast for perCallTimeoutFiresOnSlowResponse: the SAME per-call mechanism with a
+        // generous budget does NOT prematurely fail a moderately slow response, proving the
+        // configured duration is honoured rather than a fixed tiny default. A second request with
+        // EMPTY options (no per-call override) also succeeds — the no-override path is unchanged.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("on-time")
+                .headersDelay(150, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val generous = RequestOptions.builder().timeout(Duration.ofSeconds(10)).build()
+        transport.execute(simpleGet("/generous-percall"), generous).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("on-time", response.body?.source()?.readUtf8())
+        }
+
+        server.enqueue(MockResponse.Builder().code(200).body("empty-opts").build())
+        transport.execute(simpleGet("/empty-opts"), RequestOptions.EMPTY).use { response ->
+            assertEquals(200, response.status.code)
+            assertEquals("empty-opts", response.body?.source()?.readUtf8())
+        }
+    }
+
+    @Test
+    fun perCallTimeoutFiresOnSlowResponseAsync() {
+        // Async mirror of perCallTimeoutFiresOnSlowResponse: the per-call timeout is applied to the
+        // enqueued OkHttp call, so the returned future completes exceptionally.
+        server.enqueue(
+            MockResponse.Builder()
+                .code(200)
+                .body("late")
+                .headersDelay(800, TimeUnit.MILLISECONDS)
+                .build(),
+        )
+        val options = RequestOptions.builder().timeout(Duration.ofMillis(200)).build()
+        val future = transport.executeAsync(simpleGet("/slow-percall-async"), options)
+        val ex = assertFails { future.join() }
+        // join() wraps the failure in CompletionException. The async path must surface an OkHttp
+        // call-timeout as a retryable NetworkException, mirroring the sync path and the JDK transport.
+        assertTrue(ex is CompletionException, "expected CompletionException, got ${ex::class}")
+        val cause = ex.cause
+        assertTrue(cause is NetworkException, "expected NetworkException cause, got ${cause?.let { it::class }}")
+        assertTrue(cause.isRetryable, "an async timeout must be retryable")
+        Thread.sleep(900)
+    }
+
+    // -------- transport error contract: NetworkException --------
+
+    @Test
+    fun connectionFailureSurfacesAsNetworkExceptionSync() {
+        // A refused TCP connect (a freed-then-closed local port) is a transport-level IOException
+        // with no response on the wire. The transport must surface it as the SDK's
+        // NetworkException — an IOException subtype, so existing `catch (IOException)` sites keep
+        // matching — and it must be retryable.
+        val deadPort = freePort()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val ex =
+            assertFailsWith<NetworkException> {
+                transport.execute(request).close()
+            }
+        assertTrue(ex.isRetryable, "a transport-level failure must be retryable")
+    }
+
+    @Test
+    fun connectionFailureSurfacesAsNetworkExceptionAsync() {
+        val deadPort = freePort()
+        val request =
+            Request.builder()
+                .method(Method.GET)
+                .url(URL("http://127.0.0.1:$deadPort/"))
+                .build()
+        val future = transport.executeAsync(request)
+        val ex = assertFailsWith<ExecutionException> { future.get(5, TimeUnit.SECONDS) }
+        val cause = ex.cause
+        assertTrue(cause is NetworkException, "expected NetworkException, got ${cause?.let { it::class }}")
+        assertTrue(cause.isRetryable, "a transport-level failure must be retryable")
+    }
+
+    @Test
+    fun interruptIsNotWrappedAsNetworkException() {
+        // A genuine thread interrupt must remain terminal: it surfaces as an InterruptedIOException
+        // (with the interrupt flag re-asserted), never repackaged as a retryable NetworkException.
+        // OkHttp collapses interrupts and timeouts into InterruptedIOException, so the transport
+        // discriminates on the caller thread's interrupt flag; the interceptor sets that flag to
+        // model a real interrupt (a timeout would leave it clear and be wrapped as a
+        // NetworkException instead).
+        val interceptedTransport =
+            OkHttpTransport.create(
+                OkHttpClient.Builder()
+                    .addInterceptor {
+                        Thread.currentThread().interrupt()
+                        throw java.io.InterruptedIOException("simulated interrupt")
+                    }
+                    .build(),
+            )
+        val captured =
+            assertFails {
+                interceptedTransport.execute(simpleGet("/never-served"))
+            }
+        assertTrue(
+            captured is java.io.InterruptedIOException,
+            "interrupt must surface as InterruptedIOException, got ${captured::class}",
+        )
+        // An InterruptedIOException is disjoint from NetworkException (sibling IOException
+        // subtypes), so surfacing the former proves the interrupt was NOT wrapped as the latter.
+        // The transport re-asserts the interrupt flag on this thread; clear it so it does not
+        // leak into later tests sharing the JUnit worker thread.
+        Thread.interrupted()
     }
 
     // -------- cancellation --------
@@ -529,15 +712,17 @@ class OkHttpTransportTest {
         // `InterruptedIOException`, the calling thread's interrupt status is preserved.
         // OkHttp 5.x's default transport uses plain `java.net.Socket` rather than
         // `SocketChannel`, so `Thread.interrupt()` does NOT in general abort a pending
-        // socket read — we therefore inject an `InterruptedIOException` via a custom
-        // OkHttp interceptor (the same hook that real callers would use to wire
-        // cancellation into their own stack) and verify that our wrapper re-asserts
+        // socket read — we therefore model a genuine interrupt via a custom OkHttp
+        // interceptor that sets the thread's interrupt flag before throwing an
+        // `InterruptedIOException` (the flag is how the transport tells a real interrupt
+        // apart from a timeout), and verify that our wrapper re-asserts
         // `Thread.currentThread().interrupt()` before rethrowing.
         val interceptedTransport =
             OkHttpTransport.create(
                 OkHttpClient.Builder()
                     .addInterceptor(
                         Interceptor {
+                            Thread.currentThread().interrupt()
                             throw java.io.InterruptedIOException("simulated interrupt")
                         },
                     )
@@ -717,6 +902,80 @@ class OkHttpTransportTest {
             recorded.target,
             "request must have been forwarded via the proxy in absolute form",
         )
+    }
+
+    // -------- proxy: opt-in proxyFromEnvironment() --------
+
+    @Test
+    fun proxyFromEnvironmentAppliesConfiguredProxy() {
+        // With HTTPS_PROXY pointed at MockWebServer, proxyFromEnvironment() must apply it: a
+        // request to an unresolvable `.example` host still reaches MockWebServer (proving the
+        // forward proxy is in play) and arrives in absolute-form request-target.
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("via-proxy").build())
+            OkHttpTransport.builder().proxyFromEnvironment().build().use { proxied ->
+                val request =
+                    Request.builder()
+                        .method(Method.GET)
+                        .url(URL("http://downstream.example/resource"))
+                        .build()
+                proxied.execute(request).use { response ->
+                    assertEquals(
+                        200,
+                        response.status.code,
+                        "request routed through the env-configured proxy must succeed",
+                    )
+                    assertEquals("via-proxy", response.body?.source()?.readUtf8())
+                }
+            }
+            val recorded = server.takeRequest()
+            assertEquals(
+                "http://downstream.example/resource",
+                recorded.target,
+                "request must have been forwarded via the env-configured proxy in absolute form",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
+    }
+
+    @Test
+    fun proxyFromEnvironmentIsOptIn() {
+        // The very same global config carries a proxy, but a builder that does NOT call
+        // proxyFromEnvironment() must ignore it: a direct request lands on MockWebServer with an
+        // origin-form target, proving no forward proxy was inserted.
+        val previous = Configuration.getGlobalConfiguration()
+        try {
+            Configuration.setGlobalConfiguration(
+                Configuration.builder()
+                    .envSource { null }
+                    .propsSource { null }
+                    .put(Configuration.HTTPS_PROXY, "http://${server.hostName}:${server.port}")
+                    .build(),
+            )
+            server.enqueue(MockResponse.Builder().code(200).body("direct").build())
+            OkHttpTransport.builder().build().use { plain ->
+                plain.execute(simpleGet("/direct")).use { response ->
+                    assertEquals(200, response.status.code)
+                }
+            }
+            val recorded = server.takeRequest()
+            assertEquals(
+                "/direct",
+                recorded.target,
+                "an opt-out transport must issue an origin-form request (no proxy applied)",
+            )
+        } finally {
+            Configuration.setGlobalConfiguration(previous)
+        }
     }
 
     // -------- redirect behaviour --------

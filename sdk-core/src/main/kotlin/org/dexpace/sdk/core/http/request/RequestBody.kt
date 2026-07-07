@@ -14,6 +14,7 @@ import org.dexpace.sdk.core.io.BufferedSink
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.io.IoProvider
+import org.dexpace.sdk.core.serde.Serde
 import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
@@ -187,6 +188,27 @@ public abstract class RequestBody {
             position: Long = 0,
             count: Long = -1,
         ): RequestBody = FileRequestBody(file, mediaType, position, count)
+
+        /**
+         * Creates a replayable request body by serializing [value] via [serde].
+         *
+         * The [mediaType] defaults to [Serde.contentType] (typically `application/json`). Pass an
+         * explicit [mediaType] to override the content type for a given call without changing the
+         * serde's default (e.g. when a single serde instance is shared across multiple endpoints
+         * that agree on encoding but declare different `Content-Type` values).
+         *
+         * @param value The object to serialize.
+         * @param serde The serde whose [Serde.serializer] encodes [value] to wire bytes.
+         * @param mediaType The body's media type; defaults to [Serde.contentType].
+         * @return A replayable body whose bytes are the [serde]-encoded form of [value].
+         */
+        @JvmStatic
+        @JvmOverloads
+        public fun create(
+            value: Any,
+            serde: Serde,
+            mediaType: MediaType = serde.contentType(),
+        ): RequestBody = create(serde.serializer.serializeToByteArray(value), mediaType)
 
         /**
          * Creates a replayable `application/x-www-form-urlencoded` body from [formData].

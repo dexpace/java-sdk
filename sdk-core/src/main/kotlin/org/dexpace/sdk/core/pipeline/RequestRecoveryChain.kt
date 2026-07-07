@@ -17,7 +17,7 @@ import org.dexpace.sdk.core.pipeline.step.RequestPipelineStep
  * the `BeforeRequest` chain.
  *
  * The pipeline preserves the original [Request] when the list is empty — an empty pipeline
- * is a no-op. Steps may throw; the [ExecutionPipeline] catches throwables from this pipeline
+ * is a no-op. Steps may throw; the [RecoveryChain] catches throwables from this pipeline
  * and routes them through the recovery chain rather than propagating them to the caller.
  *
  * ## Thread-safety
@@ -25,28 +25,28 @@ import org.dexpace.sdk.core.pipeline.step.RequestPipelineStep
  * are safe to share across threads provided the steps themselves are thread-safe.
  *
  * ## Exception semantics
- * If any step throws, [execute] propagates the throwable to the caller without invoking the
- * remaining steps. The wider [ExecutionPipeline] is responsible for translating that throwable
+ * If any step throws, [recover] propagates the throwable to the caller without invoking the
+ * remaining steps. The wider [RecoveryChain] is responsible for translating that throwable
  * into a [ResponseOutcome.Failure] so it can be observed by recovery steps.
  *
  * @property steps Ordered list of [RequestPipelineStep]s applied left-to-right.
  */
-public class RequestPipeline
+public class RequestRecoveryChain
     @JvmOverloads
     constructor(
         public val steps: List<RequestPipelineStep> = emptyList(),
     ) {
         /**
          * Applies every step in [steps] to [request] sequentially under [context] and returns the
-         * final transformed [Request]. Empty pipelines return [request] unchanged.
+         * final transformed [Request]. An empty chain returns [request] unchanged.
          *
          * @param request The initial request to feed into the chain.
          * @param context The shared dispatch context.
          * @return The request produced by the last step (or [request] if [steps] is empty).
          * @throws Throwable Any exception thrown by a step is rethrown unchanged. Callers should
-         *  funnel this throwable through the recovery chain (see [ExecutionPipeline]).
+         *  funnel this throwable through the recovery chain (see [RecoveryChain]).
          */
-        public fun execute(
+        public fun recover(
             request: Request,
             context: DispatchContext,
         ): Request = steps.fold(request) { current, step -> step.execute(current, context) }

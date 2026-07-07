@@ -9,8 +9,11 @@ package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.response.MAX_BUFFERED_ERROR_BODY_BYTES
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.bufferErrorBody
 import org.dexpace.sdk.core.http.response.exception.HttpException
+import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
 import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.http.response.exception.Retryable
 import org.dexpace.sdk.core.pipeline.ResponseOutcome
@@ -80,7 +83,7 @@ import java.util.concurrent.TimeUnit
  *
  * ## Lifecycle &amp; thread-safety
  *
- * A `RetryStep` instance is **stateless across calls** and therefore safe to share, reuse,
+ * A `RetryRecovery` instance is **stateless across calls** and therefore safe to share, reuse,
  * and invoke concurrently — honouring the [ResponseRecoveryStep] contract ("steps are shared
  * across concurrent requests"). The per-call retry state (attempt count, start instant) is
  * not held on the instance; it is allocated fresh inside each top-level [invoke]/[attempt]
@@ -92,17 +95,17 @@ import java.util.concurrent.TimeUnit
  *
  * The [httpClient] and the originating [request] are captured at construction; a single
  * instance therefore retries exactly that one request template. Construct a distinct
- * `RetryStep` per logical request you intend to retry.
+ * `RetryRecovery` per logical request you intend to retry.
  *
- * Wire it into a pipeline by adding it to the `recoverySteps` of a
- * [org.dexpace.sdk.core.pipeline.ResponsePipeline], or invoke [attempt] directly to obtain
+ * Wire it into a chain by adding it to the `recoverySteps` of a
+ * [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain], or invoke [attempt] directly to obtain
  * the final response without the rest of the pipeline machinery.
  *
  * @property httpClient Transport used to send retry attempts. Captured at construction.
  * @property settings Retry configuration; see [RetrySettings] for defaults.
  * @property request Originating request — used as the template for each retry attempt.
  */
-public class RetryStep
+public class RetryRecovery
     @JvmOverloads
     constructor(
         public val httpClient: HttpClient,
@@ -112,7 +115,7 @@ public class RetryStep
     ) : ResponseRecoveryStep {
         /**
          * Per-call retry bookkeeping. Allocated fresh at the top of each [invoke]/[attempt] so
-         * a shared/reused [RetryStep] never inherits a stale attempt budget and concurrent
+         * a shared/reused [RetryRecovery] never inherits a stale attempt budget and concurrent
          * invocations cannot clobber each other's state.
          *
          * @property attempt 1-indexed number for the **next** retry; starts at 1 (the delay
@@ -156,12 +159,7 @@ public class RetryStep
         public fun attempt(): Response {
             // The original send is attempt ordinal 1 — stamp it when the feature is enabled so
             // the very first request carries the same observable counter the retries will.
-            val initial: ResponseOutcome =
-                try {
-                    ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal = 1)))
-                } catch (t: Throwable) {
-                    ResponseOutcome.Failure(t)
-                }
+            val initial: ResponseOutcome = executeOnce(attemptOrdinal = 1)
             return when (val final = invoke(initial)) {
                 is ResponseOutcome.Success -> final.response
                 is ResponseOutcome.Failure -> throw final.error
@@ -289,9 +287,28 @@ public class RetryStep
          */
         private fun executeOnce(attemptOrdinal: Int): ResponseOutcome =
             try {
-                ResponseOutcome.Success(httpClient.execute(stampAttempt(request, attemptOrdinal)))
+                classify(httpClient.execute(stampAttempt(request, attemptOrdinal)))
             } catch (t: Throwable) {
                 failureOf(t)
+            }
+
+        /**
+         * Classifies a freshly-sent [response]. Transports return an error-status response rather
+         * than throwing, so a re-sent response whose status is in [RetrySettings.retryableStatuses]
+         * is re-mapped to a [ResponseOutcome.Failure] carrying the matching [HttpException] — exactly
+         * the mapping that turned the first attempt into the failure that triggered this retry. This
+         * keeps the retry loop re-evaluating the budget (so a `503, 503, 200` sequence reaches the
+         * `200`) and makes the terminal outcome a typed exception rather than a raw error response.
+         * The body is buffered into a bounded, replayable in-memory copy so the transport connection
+         * is released before the next attempt. All other responses pass through as a success.
+         */
+        private fun classify(response: Response): ResponseOutcome =
+            if (response.status.isError && settings.retryableStatuses.contains(response.status.code)) {
+                ResponseOutcome.Failure(
+                    HttpExceptionFactory.fromResponse(bufferErrorBody(response, MAX_BUFFERED_ERROR_BODY_BYTES)),
+                )
+            } else {
+                ResponseOutcome.Success(response)
             }
 
         /**
@@ -372,8 +389,12 @@ public class RetryStep
          * (no response, hence no status) passes once its flag is set.
          */
         private fun isClassifiedRetryable(error: Throwable): Boolean {
-            if (error !is Retryable || !error.isRetryable) return false
-            return error !is HttpException || settings.retryableStatuses.contains(error.status.code)
+            // For an HttpException the configured [RetrySettings.retryableStatuses] is authoritative:
+            // it both widens (a status the built-in classifier does not mark retryable, e.g. 425, is
+            // retried when configured) and narrows. Non-HttpException throwables (e.g. NetworkException)
+            // fall back to the [Retryable] flag.
+            if (error is HttpException) return settings.retryableStatuses.contains(error.status.code)
+            return error is Retryable && error.isRetryable
         }
 
         /**

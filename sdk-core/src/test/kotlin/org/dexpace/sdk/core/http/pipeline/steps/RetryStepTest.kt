@@ -18,6 +18,7 @@ import org.dexpace.sdk.core.http.pipeline.PipelineNext
 import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
@@ -34,6 +35,7 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeoutException
@@ -88,6 +90,91 @@ class RetryStepTest {
         val response = pipeline.send(getRequest())
         assertEquals(503, response.status.code)
         assertEquals(1, fake.callCount)
+    }
+
+    // ----------------- per-call RequestOptions.maxRetries override -----------------
+
+    @Test
+    fun `per-call maxRetries=0 suppresses a retry the configured budget would allow`() {
+        // Configured budget is 3, but the caller passes maxRetries=0 for THIS call, so the 503 is
+        // returned after exactly one attempt — no retry, fail fast.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(200) } // must never be reached
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val options = RequestOptions.builder().maxRetries(0).build()
+        val response = pipeline.send(getRequest(), options)
+        assertEquals(503, response.status.code)
+        assertEquals(1, fake.callCount, "per-call maxRetries=0 must fail fast")
+    }
+
+    @Test
+    fun `per-call maxRetries overrides the configured budget for this call`() {
+        // Configured budget is 5; the caller caps this call at 1 retry → 2 attempts total.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) } // must never be reached (budget is 1 retry)
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 5), zeroDelayClock()))
+                .build()
+
+        val options = RequestOptions.builder().maxRetries(1).build()
+        val response = pipeline.send(getRequest(), options)
+        assertEquals(503, response.status.code)
+        assertEquals(2, fake.callCount, "per-call cap of 1 retry → initial + 1 = 2 attempts")
+    }
+
+    @Test
+    fun `null per-call maxRetries falls back to the configured budget`() {
+        // EMPTY options (maxRetries == null) leave the configured budget of 3 in force.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest(), RequestOptions.EMPTY)
+        assertEquals(200, response.status.code)
+        assertEquals(4, fake.callCount, "null override keeps the configured budget of 3 retries")
+    }
+
+    @Test
+    fun `negative per-call maxRetries falls back to the configured budget, not zero retries`() {
+        // A negative per-call override is clamped to "use default" — mirroring the configured-path
+        // clamp in RetryPolicySupport — so the configured budget of 3 stays in force rather than
+        // collapsing to 0 retries.
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(503) }
+                .enqueue { status(200) }
+
+        val pipeline =
+            HttpPipelineBuilder(fake)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val options = RequestOptions.builder().maxRetries(-1).build()
+        val response = pipeline.send(getRequest(), options)
+        assertEquals(200, response.status.code)
+        assertEquals(4, fake.callCount, "negative override must fall back to the configured budget of 3")
     }
 
     @Test
@@ -419,6 +506,32 @@ class RetryStepTest {
     }
 
     @Test
+    fun `SocketTimeoutException is retried as a transient failure not treated as cancellation`() {
+        // SocketTimeoutException extends InterruptedIOException, but it is a read timeout — NOT a
+        // cancellation. It must be routed through the normal retry classifier (retried up to
+        // maxRetries), NOT the interrupt path that rethrows immediately and re-sets the interrupt
+        // flag (contrast `InterruptedIOException from the transport is rethrown immediately`).
+        val attempts = AtomicInteger(0)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response {
+                    val n = attempts.incrementAndGet()
+                    if (n < 3) throw SocketTimeoutException("read timed out")
+                    return okResponse(request)
+                }
+            }
+        val pipeline =
+            HttpPipelineBuilder(client)
+                .append(DefaultRetryStep(HttpRetryOptions(maxRetries = 3), zeroDelayClock()))
+                .build()
+
+        val response = pipeline.send(getRequest())
+        assertEquals(200, response.status.code)
+        assertEquals(3, attempts.get(), "SocketTimeoutException must be retried, not surfaced as cancellation")
+        assertTrue(!Thread.currentThread().isInterrupted, "a read timeout must not set the interrupt flag")
+    }
+
+    @Test
     fun `nested cause chain RuntimeException-of-IOException is retried`() {
         val attempts = AtomicInteger(0)
         val client =
@@ -456,12 +569,12 @@ class RetryStepTest {
                 .append(DefaultRetryStep(HttpRetryOptions(), zeroDelayClock()))
                 .build()
 
-        // `process()` is declared `@Throws(IOException::class)`. A non-IO terminal failure
-        // is wrapped so Java callers' `catch (IOException)` is honored; the original is
-        // attached as cause.
-        val wrapped = assertFailsWith<IOException> { pipeline.send(getRequest()) }
-        assertTrue(wrapped.cause is RuntimeException, "expected RuntimeException cause")
-        assertEquals("unrelated", wrapped.cause?.message)
+        // An unchecked (RuntimeException) terminal failure propagates as-is: Java does not require
+        // it to be declared, so it does not violate the `@Throws(IOException::class)` contract, and
+        // preserving it keeps a typed exception (e.g. an HttpException from an inner pipeline)
+        // catchable rather than buried under IOException("HTTP pipeline failure").
+        val thrown = assertFailsWith<RuntimeException> { pipeline.send(getRequest()) }
+        assertEquals("unrelated", thrown.message)
         assertEquals(1, attempts.get())
     }
 
@@ -692,7 +805,7 @@ class RetryStepTest {
         // retryable status — a second POST could duplicate a side effect the server already
         // applied. The 503 is returned as-is after exactly one attempt. This exercises the
         // body == null branch of isRetrySafe on a non-idempotent method. Mirrored by the
-        // `body-less POST is not retried` case in the pipeline.step.retry RetryStep suite.
+        // `body-less POST is not retried` case in the pipeline.step.retry RetryRecovery suite.
         val fake =
             FakeHttpClient()
                 .enqueue { status(503) }
@@ -718,7 +831,7 @@ class RetryStepTest {
     fun `body-less PUT IS retried because PUT is idempotent`() {
         // Control for the body == null branch: with no body the gate falls through to method
         // idempotency. PUT is idempotent, so a body-less PUT is retry-safe and retries normally.
-        // Mirrored by the `body-less PUT is retried` case in the pipeline.step.retry RetryStep suite.
+        // Mirrored by the `body-less PUT is retried` case in the pipeline.step.retry RetryRecovery suite.
         val fake =
             FakeHttpClient()
                 .enqueue { status(503) }
@@ -1637,10 +1750,11 @@ class RetryStepTest {
                 .append(DefaultRetryStep(opts, zeroDelayClock()))
                 .build()
 
-        // Non-IO terminal failure is wrapped as `IOException` (see `RuntimeException with no
-        // relevant cause is NOT retried`); the original is attached as cause.
-        val wrapped = assertFailsWith<IOException> { pipeline.send(getRequest()) }
-        assertTrue(wrapped.cause is RuntimeException)
+        // An unchecked terminal failure propagates as-is (see `RuntimeException with no relevant
+        // cause is NOT retried`), so the original RuntimeException surfaces rather than an
+        // IOException wrapper.
+        val thrown = assertFailsWith<RuntimeException> { pipeline.send(getRequest()) }
+        assertEquals("no retry classifier match", thrown.message)
         // Initial + 2 retries → 2 calls to the exception predicate (after attempt 0 and 1).
         assertEquals(2, invocations.get(), "exception predicate must be consulted on each retry decision")
     }

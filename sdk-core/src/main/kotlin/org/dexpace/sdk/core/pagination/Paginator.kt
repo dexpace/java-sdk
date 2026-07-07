@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import java.util.stream.Stream
 
@@ -81,6 +82,10 @@ import java.util.stream.Stream
  * @property strategy Strategy that parses each response into a [PageInfo].
  * @property maxPages Safety cap on the total number of pages (HTTP exchanges) the iterator
  *   will fetch. Defaults to `Long.MAX_VALUE` (unbounded). Must be positive.
+ * @property options Per-call overrides applied to every page fetch (passed to
+ *   `HttpClient.execute(request, options)`). Defaults to [RequestOptions.EMPTY], i.e. no overrides.
+ *   Set a timeout, retry budget, or tags here to have them reach each page request — without it a
+ *   caller's per-operation options could never influence the paginator's own exchanges.
  */
 public class Paginator<T>
     @JvmOverloads
@@ -89,6 +94,7 @@ public class Paginator<T>
         private val initialRequest: Request,
         private val strategy: PaginationStrategy<T>,
         private val maxPages: Long = Long.MAX_VALUE,
+        private val options: RequestOptions = RequestOptions.EMPTY,
     ) {
         init {
             requirePositiveMaxPages(maxPages)
@@ -113,7 +119,7 @@ public class Paginator<T>
                 source = {
                     val request = nextRequest ?: return@PageWalker null
                     nextRequest = null
-                    val response: Response = httpClient.execute(request)
+                    val response: Response = httpClient.execute(request, options)
                     val info: PageInfo<T> = strategy.parseOrClose(response, initialRequest)
                     nextRequest = info.nextRequest
                     Page(response, info.items)

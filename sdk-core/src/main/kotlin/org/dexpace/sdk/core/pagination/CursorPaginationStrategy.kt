@@ -11,6 +11,25 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.Response
 
 /**
+ * Single-pass extractor for [CursorPaginationStrategy]: reads a page's items and its next cursor
+ * out of one [Response] read, returned together as a [CursorResult].
+ *
+ * A dedicated functional interface (rather than a raw `(Response) -> CursorResult<T>` function type)
+ * gives Java callers a clean SAM to implement — `new CursorExtractor<>() { ... }` or a lambda —
+ * instead of `kotlin.jvm.functions.Function1`. Kotlin callers pass a lambda unchanged via SAM
+ * conversion.
+ *
+ * @param T Element type carried in the produced [CursorResult].
+ */
+public fun interface CursorExtractor<T> {
+    /**
+     * Reads [response] once, returning both the page's items and the next cursor as a
+     * [CursorResult]. Must drain the response body synchronously; must not close it.
+     */
+    public fun extract(response: Response): CursorResult<T>
+}
+
+/**
  * Cursor-based [PaginationStrategy]. The server returns an opaque cursor (typically in
  * the response body) which the client echoes back as a query parameter on the next
  * request.
@@ -44,14 +63,14 @@ import org.dexpace.sdk.core.http.response.Response
 public class CursorPaginationStrategy<T>
     @JvmOverloads
     constructor(
-        private val extractor: (Response) -> CursorResult<T>,
+        private val extractor: CursorExtractor<T>,
         private val cursorQueryParam: String = "cursor",
     ) : PaginationStrategy<T> {
         override fun parse(
             response: Response,
             initialRequest: Request,
         ): PageInfo<T> {
-            val result: CursorResult<T> = extractor(response)
+            val result: CursorResult<T> = extractor.extract(response)
             val nextCursor: String? = result.nextCursor
             val nextRequest: Request? =
                 if (!nextCursor.isNullOrEmpty()) {

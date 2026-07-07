@@ -9,9 +9,12 @@ package org.dexpace.sdk.core.http.pipeline
 
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.ResponseHandler
 import org.dexpace.sdk.core.util.Futures
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ScheduledExecutorService
 
 /**
  * Asynchronous counterpart of [HttpPipeline]. Holds an ordered, stage-sorted [Array] of
@@ -24,13 +27,20 @@ import java.util.concurrent.CompletableFuture
  * concurrent sends never share mutable state inside the pipeline itself. Steps must remain
  * thread-safe across concurrent invocations per the pipeline contract.
  *
+ * ## Transport SPI conformance
+ * `AsyncHttpPipeline` itself implements [AsyncHttpClient]: [executeAsync] delegates to
+ * [sendAsync]. A fully configured pipeline can therefore stand in anywhere an async transport is
+ * expected — most usefully as the client backing an
+ * [org.dexpace.sdk.core.pagination.AsyncPaginator]. The inherited [close] is a no-op: the
+ * pipeline wraps a caller-supplied transport it does not own, so it never closes it.
+ *
  * Construct via [AsyncHttpPipelineBuilder]; the constructor is internal.
  */
 public class AsyncHttpPipeline internal constructor(
     /** The transport that receives the request when no further step remains. */
     public val httpClient: AsyncHttpClient,
     internal val stepArray: Array<AsyncHttpStep>,
-) {
+) : AsyncHttpClient {
     /** Read-only list view of the ordered steps. Backed by [stepArray]; for inspection only. */
     public val steps: List<AsyncHttpStep> = stepArray.asList()
 
@@ -44,10 +54,22 @@ public class AsyncHttpPipeline internal constructor(
      * or step failure. Synchronous exceptions thrown by the first step are normalised into
      * a failed future so callers see a uniform async error model.
      */
-    public fun sendAsync(request: Request): CompletableFuture<Response> {
+    public fun sendAsync(request: Request): CompletableFuture<Response> = sendAsync(request, RequestOptions.EMPTY)
+
+    /**
+     * Runs [request] through the pipeline with per-call [options] applied. The options are carried
+     * for the whole call: async steps read them via [AsyncPipelineNext.options] (the async stage
+     * retry step honours a per-call [RequestOptions.maxRetries]), and the terminal dispatch threads
+     * them into `AsyncHttpClient.executeAsync(request, options)` so the transport applies a per-call
+     * timeout. Empty pipelines short-circuit directly to the transport's per-call overload.
+     */
+    public fun sendAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> {
         if (stepArray.isEmpty()) {
             return try {
-                httpClient.executeAsync(request)
+                httpClient.executeAsync(request, options)
             } catch (e: Exception) {
                 // Defensive: the AsyncHttpClient contract says transport failures complete
                 // the future exceptionally. Normalise any sync throw to keep the contract
@@ -55,8 +77,66 @@ public class AsyncHttpPipeline internal constructor(
                 Futures.failed(e)
             }
         }
-        val state = AsyncPipelineCallState(this, request)
+        val state = AsyncPipelineCallState(this, request, options)
         return AsyncPipelineNext(state).processAsync()
+    }
+
+    /**
+     * Runs [request] through the pipeline and maps the response with [handler], returning the
+     * typed result. A terminal convenience equivalent to `sendAsync(request).handleWith(handler)`:
+     * on success the handler's value completes the future and the response is closed; on failure
+     * the future is failed with the unwrapped cause. See [handleWith] for the exact semantics.
+     */
+    public fun <T> sendAsync(
+        request: Request,
+        handler: ResponseHandler<T>,
+    ): CompletableFuture<T> = sendAsync(request).handleWith(handler)
+
+    /**
+     * Runs [request] through the pipeline with per-call [options] applied, then maps the response
+     * with [handler], returning the typed result. Combines the per-call [options] threading of
+     * [sendAsync]`(request, options)` with the terminal mapping of [sendAsync]`(request, handler)`;
+     * equivalent to `sendAsync(request, options).handleWith(handler)`. On success the handler's value
+     * completes the future and the response is closed; on failure the future is failed with the
+     * unwrapped cause. See [handleWith] for the exact semantics.
+     */
+    public fun <T> sendAsync(
+        request: Request,
+        options: RequestOptions,
+        handler: ResponseHandler<T>,
+    ): CompletableFuture<T> = sendAsync(request, options).handleWith(handler)
+
+    /**
+     * [AsyncHttpClient] SPI conformance: delegates to [sendAsync] so this pipeline can be used as
+     * an async transport. [sendAsync] remains the primary entry point.
+     */
+    override fun executeAsync(request: Request): CompletableFuture<Response> = sendAsync(request)
+
+    /**
+     * [AsyncHttpClient] per-call SPI conformance: delegates to [sendAsync] so a caller's [options]
+     * reach the pipeline (and the transport) even when the pipeline is used through the async
+     * transport SPI.
+     */
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> = sendAsync(request, options)
+
+    /**
+     * No-op. **Closing the pipeline does NOT close the underlying transport.**
+     *
+     * The pipeline never owns its [httpClient] — it wraps a caller-supplied transport. Per the
+     * SDK's ownership rule a bring-your-own transport must never be closed by the SDK, and an
+     * SDK-managed transport handed to the pipeline stays the responsibility of whoever created it.
+     * Wrapping a pipeline in try-with-resources / `use { }` therefore releases **nothing**: do not
+     * let it create a false sense that the transport's threads, connection pool, or executor were
+     * freed. Close the transport directly (or through whatever created it) when you are done.
+     *
+     * This override exists only to carry that warning; behaviour is identical to the inherited
+     * [AsyncHttpClient] no-op.
+     */
+    override fun close() {
+        // Intentionally a no-op: the pipeline does not own the transport. See KDoc.
     }
 
     public companion object {
@@ -69,5 +149,23 @@ public class AsyncHttpPipeline internal constructor(
          */
         @JvmStatic
         public fun of(client: AsyncHttpClient): AsyncHttpPipeline = AsyncHttpPipelineBuilder(client).build()
+
+        /**
+         * Builds an async pipeline over [transport] wired with the async standard resilience
+         * defaults — retry with backoff and instrumentation — via
+         * [AsyncHttpPipelineBuilder.appendStandardResilience]. [scheduler] backs the retry step's
+         * non-blocking delays (the caller owns and shuts it down; the SDK never closes it).
+         *
+         * **This async pipeline does NOT follow HTTP redirects at any layer.** There is no async
+         * redirect step in the SDK, and both reference transports default to
+         * `followRedirects = false`, so a 3xx surfaces to the caller verbatim. Callers who need
+         * redirect following must enable it on the transport itself, or use the synchronous
+         * [HttpPipeline.standard]. See [AsyncHttpPipelineBuilder.appendStandardResilience].
+         */
+        @JvmStatic
+        public fun standard(
+            transport: AsyncHttpClient,
+            scheduler: ScheduledExecutorService,
+        ): AsyncHttpPipeline = AsyncHttpPipelineBuilder(transport).appendStandardResilience(scheduler).build()
     }
 }

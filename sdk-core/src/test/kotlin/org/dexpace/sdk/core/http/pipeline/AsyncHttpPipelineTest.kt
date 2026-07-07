@@ -12,8 +12,12 @@ import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.common.Protocol
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.pagination.AsyncPaginator
+import org.dexpace.sdk.core.pagination.PageInfo
+import org.dexpace.sdk.core.pagination.PaginationStrategy
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.URL
@@ -28,6 +32,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -46,6 +51,35 @@ class AsyncHttpPipelineTest {
         val pipeline = AsyncHttpPipelineBuilder(constantClient(200)).build()
         val response = pipeline.sendAsync(getRequest()).join()
         assertEquals(200, response.status.code)
+    }
+
+    @Test
+    fun `sendAsync threads RequestOptions to the transport and steps read them`() {
+        val client = OptionsRecordingAsyncClient()
+        val seenByStep = AtomicReference<RequestOptions?>(null)
+        val step =
+            TestStep(Stage.PRE_SEND) { _, next ->
+                seenByStep.set(next.options)
+                next.processAsync()
+            }
+        val pipeline = AsyncHttpPipelineBuilder(client).append(step).build()
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        pipeline.sendAsync(getRequest(), options).join()
+
+        assertSame(options, seenByStep.get(), "the step must read options via next.options")
+        assertSame(options, client.seenOptions.single(), "options must reach the terminal dispatch")
+    }
+
+    @Test
+    fun `empty async pipeline threads options straight to the transport`() {
+        val client = OptionsRecordingAsyncClient()
+        val pipeline = AsyncHttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().maxRetries(2).build()
+
+        pipeline.sendAsync(getRequest(), options).join()
+
+        assertSame(options, client.seenOptions.single())
     }
 
     @Test
@@ -166,6 +200,31 @@ class AsyncHttpPipelineTest {
     }
 
     @Test
+    fun `toAsync threads per-call RequestOptions into the wrapped sync pipeline`() {
+        // sendAsync(request, options) through the async facade must reach the sync pipeline's
+        // terminal dispatch as `execute(request, options)`, not collapse to RequestOptions.EMPTY.
+        val seen = AtomicReference<RequestOptions?>(null)
+        val client =
+            object : HttpClient {
+                override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+                override fun execute(
+                    request: Request,
+                    options: RequestOptions,
+                ): Response {
+                    seen.set(options)
+                    return mockResponse(request, 200)
+                }
+            }
+        val sync = HttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().maxRetries(0).tag("k", "v").build()
+
+        sync.toAsync(executor).sendAsync(getRequest(), options).get(2, TimeUnit.SECONDS)
+
+        assertSame(options, seen.get(), "per-call options must survive the sync→async bridge")
+    }
+
+    @Test
     fun `toAsync future cancel(true) interrupts the in-flight sync send`() {
         // A blocking transport awaits an (interruptible) latch. Cancelling the async future with
         // mayInterruptIfRunning=true must interrupt the worker thread so the blocking send aborts
@@ -248,6 +307,19 @@ class AsyncHttpPipelineTest {
         val sync = async.toBlocking()
         val thrown = assertFails { sync.send(getRequest()) }
         assertEquals("oops", thrown.message)
+    }
+
+    @Test
+    fun `toBlocking threads per-call RequestOptions into the wrapped async pipeline`() {
+        // send(request, options) through the blocking facade must reach the async pipeline's
+        // terminal dispatch as `executeAsync(request, options)`, not collapse to RequestOptions.EMPTY.
+        val client = OptionsRecordingAsyncClient()
+        val async = AsyncHttpPipelineBuilder(client).build()
+        val options = RequestOptions.builder().maxRetries(2).tag("k", "v").build()
+
+        async.toBlocking().send(getRequest(), options)
+
+        assertSame(options, client.seenOptions.single(), "per-call options must survive the async→sync bridge")
     }
 
     @Test
@@ -347,15 +419,87 @@ class AsyncHttpPipelineTest {
     }
 
     @Test
-    fun `installing two pillars at the same stage emits a replacement warning and keeps the latest`() {
-        val firstAuth = TestPillarStep(Stage.AUTH)
-        val secondAuth = TestPillarStep(Stage.AUTH)
+    fun `appending a distinct second pillar step throws IllegalStateException`() {
+        val builder =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(TestPillarStep(Stage.AUTH))
+
+        val ex = assertFailsWith<IllegalStateException> { builder.append(TestPillarStep(Stage.AUTH)) }
+        assertTrue(ex.message!!.contains("AUTH"), "message names the pillar stage: ${ex.message}")
+        assertTrue(ex.message!!.contains("replace"), "message points at replace<T>(): ${ex.message}")
+    }
+
+    @Test
+    fun `same pillar instance re-appended is idempotent`() {
+        val auth = TestPillarStep(Stage.AUTH)
         val pipeline =
             AsyncHttpPipelineBuilder(constantClient(200))
-                .append(firstAuth)
-                .append(secondAuth)
+                .append(auth)
+                .append(auth)
                 .build()
-        assertSame(secondAuth, pipeline.steps.single())
+        assertSame(auth, pipeline.steps.single())
+    }
+
+    @Test
+    fun `replace swaps a pillar step in place`() {
+        val replacement = TestPillarStep(Stage.AUTH)
+        val pipeline =
+            AsyncHttpPipelineBuilder(constantClient(200))
+                .append(TestPillarStep(Stage.AUTH))
+                .replace<TestPillarStep>(replacement)
+                .build()
+        assertSame(replacement, pipeline.steps.single())
+    }
+
+    @Test
+    fun `executeAsync conforms to the AsyncHttpClient SPI and routes through the steps`() {
+        val recorded = AtomicReference<Request>()
+        val transportClient =
+            AsyncHttpClient { request ->
+                recorded.set(request)
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+        val headerStep =
+            TestStep(Stage.PRE_SEND) { req, next ->
+                next.processAsync(req.newBuilder().setHeader("X-Pipeline", "on").build())
+            }
+        // Typed as the transport SPI to prove AsyncHttpPipeline conforms to AsyncHttpClient.
+        val transport: AsyncHttpClient = AsyncHttpPipelineBuilder(transportClient).append(headerStep).build()
+
+        val response = transport.executeAsync(getRequest()).join()
+
+        assertEquals(200, response.status.code)
+        assertEquals("on", recorded.get().headers.get("X-Pipeline"))
+    }
+
+    @Test
+    fun `AsyncPaginator over the pipeline as AsyncHttpClient walks two pages through the steps`() {
+        val fetches = AtomicInteger(0)
+        val transportClient =
+            AsyncHttpClient { request ->
+                fetches.incrementAndGet()
+                CompletableFuture.completedFuture(mockResponse(request, 200))
+            }
+        val stepRuns = AtomicInteger(0)
+        val countingStep =
+            TestStep(Stage.PRE_SEND) { _, next ->
+                stepRuns.incrementAndGet()
+                next.processAsync()
+            }
+        val transport: AsyncHttpClient = AsyncHttpPipelineBuilder(transportClient).append(countingStep).build()
+
+        val pageCount = AtomicInteger(0)
+        val strategy =
+            PaginationStrategy<String> { _, initial ->
+                val n = pageCount.incrementAndGet()
+                PageInfo(listOf("item-$n"), if (n < 2) initial else null)
+            }
+
+        val items = AsyncPaginator(transport, getRequest(), strategy).collectAllAsync().join()
+
+        assertEquals(listOf("item-1", "item-2"), items)
+        assertEquals(2, fetches.get(), "two page fetches routed through the pipeline")
+        assertEquals(2, stepRuns.get(), "the pipeline step ran on each page")
     }
 
     @Test
@@ -423,6 +567,22 @@ class AsyncHttpPipelineTest {
 
     private fun constantClient(code: Int): AsyncHttpClient =
         AsyncHttpClient { request -> CompletableFuture.completedFuture(mockResponse(request, code)) }
+
+    /** Async transport recording the [RequestOptions] threaded into the per-call overload. */
+    private inner class OptionsRecordingAsyncClient : AsyncHttpClient {
+        val seenOptions: MutableList<RequestOptions> = ArrayList()
+
+        override fun executeAsync(request: Request): CompletableFuture<Response> =
+            executeAsync(request, RequestOptions.EMPTY)
+
+        override fun executeAsync(
+            request: Request,
+            options: RequestOptions,
+        ): CompletableFuture<Response> {
+            seenOptions.add(options)
+            return CompletableFuture.completedFuture(mockResponse(request, 200))
+        }
+    }
 
     private fun getRequest(): Request =
         Request.builder()

@@ -17,6 +17,7 @@ import org.dexpace.sdk.core.http.pipeline.Stage
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestBody
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
@@ -27,6 +28,7 @@ import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
@@ -74,6 +76,58 @@ class DefaultAsyncRetryStepTest {
         scheduler.runAll()
         assertEquals(503, future.join().status.code)
         assertEquals(1, client.callCount)
+    }
+
+    @Test
+    fun `per-call maxRetries=0 suppresses a retry the configured budget would allow`() {
+        // Configured budget is 3, but the caller caps this call at 0 retries → one attempt.
+        val client = QueueClient().enqueue(503).enqueue(200)
+        val options = RequestOptions.builder().maxRetries(0).build()
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofMillis(50)))
+                .sendAsync(getRequest(), options)
+        scheduler.runAll()
+        assertEquals(503, future.join().status.code)
+        assertEquals(1, client.callCount, "per-call maxRetries=0 must fail fast")
+    }
+
+    @Test
+    fun `per-call maxRetries overrides the configured budget for this call`() {
+        // Configured budget is 5; the caller caps this call at 1 retry → 2 attempts total.
+        val client = QueueClient().enqueue(503).enqueue(503).enqueue(200)
+        val options = RequestOptions.builder().maxRetries(1).build()
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 5, delay = Duration.ofMillis(50)))
+                .sendAsync(getRequest(), options)
+        scheduler.runAll()
+        assertEquals(503, future.join().status.code)
+        assertEquals(2, client.callCount, "per-call cap of 1 retry → initial + 1 = 2 attempts")
+    }
+
+    @Test
+    fun `null per-call maxRetries falls back to the configured budget`() {
+        // EMPTY options (maxRetries == null) leave the configured budget of 3 in force.
+        val client = QueueClient().enqueue(503).enqueue(503).enqueue(503).enqueue(200)
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofMillis(50)))
+                .sendAsync(getRequest(), RequestOptions.EMPTY)
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        assertEquals(4, client.callCount, "null override keeps the configured budget of 3 retries")
+    }
+
+    @Test
+    fun `negative per-call maxRetries falls back to the configured budget, not zero retries`() {
+        // A negative per-call override is clamped to "use default" — mirroring the configured-path
+        // clamp — so the configured budget of 3 stays in force rather than collapsing to 0 retries.
+        val client = QueueClient().enqueue(503).enqueue(503).enqueue(503).enqueue(200)
+        val options = RequestOptions.builder().maxRetries(-1).build()
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofMillis(50)))
+                .sendAsync(getRequest(), options)
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        assertEquals(4, client.callCount, "negative override must fall back to the configured budget of 3")
     }
 
     @Test
@@ -135,6 +189,22 @@ class DefaultAsyncRetryStepTest {
         // 2 prior failures attached as suppressed (initial + first retry), terminal is the 3rd.
         assertEquals(2, cause.suppressed.size)
         assertEquals(3, client.callCount)
+    }
+
+    @Test
+    fun `SocketTimeoutException is retried as a transient failure not treated as cancellation`() {
+        // SocketTimeoutException extends InterruptedIOException, but it is a read timeout, not a
+        // cancellation — it must retry via the normal classifier, unlike the InterruptedIOException
+        // and bare-InterruptedException cases which abort after one attempt and restore the
+        // interrupt flag.
+        val client = FailNTimesClient(failures = 2) { SocketTimeoutException("read timed out") }
+        val future =
+            pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ZERO))
+                .sendAsync(getRequest())
+        scheduler.runAll()
+        assertEquals(200, future.join().status.code)
+        assertEquals(3, client.callCount, "SocketTimeoutException must be retried, not surfaced as cancellation")
+        assertFalse(Thread.interrupted(), "a read timeout must not restore the interrupt flag")
     }
 
     @Test

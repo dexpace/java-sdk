@@ -38,7 +38,7 @@ import org.dexpace.sdk.core.http.response.Response
 public class PageNumberPaginationStrategy<T>
     @JvmOverloads
     constructor(
-        private val itemsExtractor: (Response) -> List<T>,
+        private val itemsExtractor: ItemsExtractor<T>,
         private val pageParam: String = "page",
         private val startPage: Int = 1,
     ) : PaginationStrategy<T> {
@@ -46,7 +46,7 @@ public class PageNumberPaginationStrategy<T>
             response: Response,
             initialRequest: Request,
         ): PageInfo<T> {
-            val items: List<T> = itemsExtractor(response)
+            val items: List<T> = itemsExtractor.extract(response)
             // Empty page → end of stream. Defensive against servers that "succeed" with an
             // empty list rather than 404 / a sentinel field once you've paged off the end.
             if (items.isEmpty()) {

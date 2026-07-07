@@ -32,14 +32,41 @@ class CursorPaginationTest {
      * the body exactly once and returns both the items and the next cursor as a
      * [CursorResult], so there is no double-drain of the single-use response body.
      */
-    private val extractor: (Response) -> CursorResult<String> = { resp ->
-        val body = resp.body!!.source().use { it.readUtf8() }
-        val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
-        val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
-        val itemsRaw = itemsLine.removePrefix("items=")
-        val cursorRaw = cursorLine.removePrefix("cursor=")
-        val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
-        CursorResult(items, cursorRaw.ifEmpty { null })
+    private val extractor =
+        CursorExtractor<String> { resp ->
+            val body = resp.body!!.source().use { it.readUtf8() }
+            val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
+            val cursorLine = body.lineSequence().firstOrNull { it.startsWith("cursor=") } ?: "cursor="
+            val itemsRaw = itemsLine.removePrefix("items=")
+            val cursorRaw = cursorLine.removePrefix("cursor=")
+            val items = if (itemsRaw.isEmpty()) emptyList() else itemsRaw.split(",")
+            CursorResult(items, cursorRaw.ifEmpty { null })
+        }
+
+    @Test
+    fun `cursor strategy accepts a Java-style SAM extractor and walks two pages`() {
+        val client = StubHttpClient()
+        client.on("https://api.example.com/items") { req ->
+            textResponse(req, "items=a,b\ncursor=n1")
+        }
+        client.on("https://api.example.com/items?cursor=n1") { req ->
+            textResponse(req, "items=c,d\ncursor=")
+        }
+        // Java caller path: an explicit CursorExtractor implementation (what an anonymous class
+        // compiles to), not a Kotlin function type — proves the constructor takes the fun interface,
+        // not kotlin.jvm.functions.Function1.
+        val javaStyle =
+            object : CursorExtractor<String> {
+                override fun extract(response: Response): CursorResult<String> {
+                    val body = response.body!!.source().use { it.readUtf8() }
+                    val items = body.substringAfter("items=").substringBefore("\n").split(",")
+                    val cursor = body.substringAfter("cursor=").ifEmpty { null }
+                    return CursorResult(items, cursor)
+                }
+            }
+        val paginator = Paginator(client, initialRequest(), CursorPaginationStrategy(javaStyle))
+        assertEquals(listOf("a", "b", "c", "d"), paginator.iterateAll().toList())
+        assertEquals(2, client.callCount)
     }
 
     @Test

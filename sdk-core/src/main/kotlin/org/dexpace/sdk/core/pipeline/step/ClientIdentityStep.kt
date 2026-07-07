@@ -23,20 +23,21 @@ import org.dexpace.sdk.core.util.SdkInfo
  *
  * ## Modes
  *
- * - [Mode.Append] (default): if the chosen header already carries a value, the SDK token
- *   line is appended after a single space. This preserves caller-set identifiers such as
- *   `MyApp/1.0`, producing `MyApp/1.0 dexpace-sdk/X jvm/Y`. If the header is absent the
- *   token line is set as the sole value.
- * - [Mode.Replace]: the existing header value (if any) is overwritten with the SDK token
+ * - [Mode.Append] (default): if the chosen header already carries one or more values, the SDK
+ *   token line is appended to the first value after a single space, and every other pre-existing
+ *   value is preserved. This keeps caller-set identifiers such as `MyApp/1.0` intact, producing
+ *   `MyApp/1.0 dexpace-sdk/X jvm/Y`. If the header is absent the token line is set as the sole
+ *   value.
+ * - [Mode.Replace]: any existing header value(s) are overwritten with the SDK token
  *   line. Use when the SDK is the sole producer of the header and a caller-set value
  *   would conflict with fleet conventions.
  *
- * ## Empty token lists
+ * ## Empty or blank token lists
  *
- * If the configured token list is empty, the step is a no-op — the request is returned
- * unchanged. The step deliberately does not emit a blank header in this case (an empty
- * `User-Agent` is a wire-protocol violation, and an empty custom header carries no
- * information).
+ * If the configured token list is empty — or every token is blank, so the joined line is blank —
+ * the step is a no-op and the request is returned unchanged. The step deliberately never emits a
+ * blank or whitespace-only header (an empty `User-Agent` is a wire-protocol violation, and a blank
+ * custom header carries no information).
  *
  * ## Thread-safety
  *
@@ -75,13 +76,21 @@ public class ClientIdentityStep
         }
 
         /**
-         * Pipeline entry point — delegates to [apply], which carries the full step logic and
-         * is also the Java-friendly direct-call form.
+         * The single public way to apply this step's transform: emits the composite
+         * client-identity token line onto [input] and returns the resulting request. [context]
+         * is unused — the transform depends only on the request's existing headers.
+         *
+         * Resolution rules:
+         *  - empty or all-blank tokens -> no change (request returned unchanged)
+         *  - header absent             -> header set to the joined token line
+         *  - header present + Append   -> joined line appended to the first existing value; all
+         *                                 other pre-existing values preserved
+         *  - header present + Replace  -> all existing values replaced with the joined line
          */
         override fun execute(
             input: Request,
             context: DispatchContext,
-        ): Request = apply(input)
+        ): Request = applyTokens(input)
 
         /**
          * Returns a [ClientIdentityStepBuilder] pre-filled with this instance's token list,
@@ -98,32 +107,35 @@ public class ClientIdentityStep
          */
         public fun newBuilder(): ClientIdentityStepBuilder = ClientIdentityStepBuilder(this)
 
-        /**
-         * Applies the step to [request] and returns the resulting request. If the
-         * configured token list is empty the request is returned unchanged.
-         *
-         * Resolution rules:
-         *  - empty tokens          -> no change
-         *  - header absent         -> header set to the joined token line
-         *  - header present + Append  -> header set to `existing + " " + joined`
-         *  - header present + Replace -> header set to joined
-         */
-        public fun apply(request: Request): Request {
+        /** Private transform carrying the full step logic; the sole caller is [execute]. */
+        private fun applyTokens(request: Request): Request {
             if (tokens.isEmpty()) return request
 
             val tokenLine = tokens.joinToString(" ")
-            val existing = request.headers.get(headerName)
+            // A list of blank/whitespace-only tokens joins to a blank line; emitting it would write a
+            // useless (and, for User-Agent, protocol-violating) blank header. Treat it as a no-op.
+            if (tokenLine.isBlank()) return request
 
-            val newValue =
+            // Read ALL existing values, not just the first: reading only get() (the first value) then
+            // replacing with a single value would silently drop any additional pre-existing values.
+            val existingValues: List<String> = request.headers.values(headerName)
+
+            val newValues: List<String> =
                 when {
-                    existing.isNullOrEmpty() -> tokenLine
-                    mode == Mode.Replace -> tokenLine
-                    else -> "$existing $tokenLine"
+                    existingValues.isEmpty() -> listOf(tokenLine)
+                    mode == Mode.Replace -> listOf(tokenLine)
+                    else -> {
+                        // Append the token line to the first existing value and keep every other
+                        // value intact. An empty first value is treated as "absent" (no leading space).
+                        val head = existingValues.first()
+                        val appendedHead = if (head.isEmpty()) tokenLine else "$head $tokenLine"
+                        listOf(appendedHead) + existingValues.drop(1)
+                    }
                 }
 
             return request
                 .newBuilder()
-                .setHeader(headerName, newValue)
+                .setHeader(headerName, newValues)
                 .build()
         }
 

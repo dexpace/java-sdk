@@ -25,17 +25,21 @@ import org.dexpace.sdk.core.http.response.Response as SdkResponse
  *     `InputStream`), the adapted response is closed so its connection returns to the pool.
  *
  * @param inFlight the future from `HttpClient.sendAsync(..., BodyHandlers.ofInputStream())`.
+ * @param mapError maps a failure delivered through [inFlight] onto the exception the returned
+ *   future should complete with — e.g. wrapping a transport [java.io.IOException] as the SDK's
+ *   `NetworkException`. Defaults to identity (surface the failure verbatim).
  * @param adapt converts the JDK response into an SDK [SdkResponse]; it must close the response
  *   body itself if it throws (the SDK [ResponseAdapter] does).
  */
 internal fun bridgeAsyncResponse(
     inFlight: CompletableFuture<HttpResponse<InputStream>>,
+    mapError: (Throwable) -> Throwable = { it },
     adapt: (HttpResponse<InputStream>) -> SdkResponse,
 ): CompletableFuture<SdkResponse> {
     val result = CompletableFuture<SdkResponse>()
     inFlight.whenComplete { jdkResponse, error ->
         if (error != null) {
-            result.completeExceptionally(error)
+            result.completeExceptionally(mapError(error))
         } else {
             val adapted =
                 try {

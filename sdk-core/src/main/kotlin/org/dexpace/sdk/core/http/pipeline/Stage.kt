@@ -25,6 +25,16 @@ package org.dexpace.sdk.core.http.pipeline
  */
 @Suppress("unused")
 public enum class Stage(public val order: Int, public val isPillar: Boolean) {
+    /**
+     * Outermost stage — runs *outside* the redirect and retry loops. A step here observes only the
+     * single final response, after redirects have been followed and retries exhausted, and never
+     * sees the intermediate 3xx or retried responses that those loops consume internally. Intended
+     * for steps that must react to just the terminal outcome, e.g.
+     * [org.dexpace.sdk.core.http.pipeline.steps.ThrowOnHttpErrorStep] (installed via
+     * [HttpPipelineBuilder.throwOnHttpError]).
+     */
+    PRE_REDIRECT(50, false),
+
     // -- Wrapping steps (re-invoke downstream via next.copy()) --
     REDIRECT(100, true), // pillar: RedirectStep singleton
     POST_REDIRECT(150, false), // runs *inside* the redirect loop, per hop

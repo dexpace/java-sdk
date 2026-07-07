@@ -18,12 +18,15 @@ package org.dexpace.sdk.core.http.common
  */
 @Suppress("unused")
 public object CommonMediaTypes {
+    // The six constants that also exist on MediaType's companion delegate to those instances so
+    // there is a single source of truth and no duplicate MediaType objects.
+
     // Text Types
     @JvmField
-    public val TEXT_PLAIN: MediaType = MediaType.of("text", "plain")
+    public val TEXT_PLAIN: MediaType = MediaType.TEXT_PLAIN
 
     @JvmField
-    public val TEXT_HTML: MediaType = MediaType.of("text", "html")
+    public val TEXT_HTML: MediaType = MediaType.TEXT_HTML
 
     @JvmField
     public val TEXT_CSS: MediaType = MediaType.of("text", "css")
@@ -36,16 +39,16 @@ public object CommonMediaTypes {
 
     // Application Types
     @JvmField
-    public val APPLICATION_JSON: MediaType = MediaType.of("application", "json")
+    public val APPLICATION_JSON: MediaType = MediaType.APPLICATION_JSON
 
     @JvmField
-    public val APPLICATION_XML: MediaType = MediaType.of("application", "xml")
+    public val APPLICATION_XML: MediaType = MediaType.APPLICATION_XML
 
     @JvmField
-    public val APPLICATION_FORM_URLENCODED: MediaType = MediaType.of("application", "x-www-form-urlencoded")
+    public val APPLICATION_FORM_URLENCODED: MediaType = MediaType.APPLICATION_FORM_URLENCODED
 
     @JvmField
-    public val APPLICATION_OCTET_STREAM: MediaType = MediaType.of("application", "octet-stream")
+    public val APPLICATION_OCTET_STREAM: MediaType = MediaType.APPLICATION_OCTET_STREAM
 
     @JvmField
     public val APPLICATION_PDF: MediaType = MediaType.of("application", "pdf")

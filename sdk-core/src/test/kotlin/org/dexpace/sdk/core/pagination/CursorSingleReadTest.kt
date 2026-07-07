@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -37,8 +36,8 @@ class CursorSingleReadTest {
      * Parses the body format `items=<csv>\ncursor=<next-or-empty>` into a [CursorResult].
      * Reads the body exactly once and reports each read through [reads].
      */
-    private fun singleReadExtractor(reads: AtomicInteger): (Response) -> CursorResult<String> =
-        { resp ->
+    private fun singleReadExtractor(reads: AtomicInteger): CursorExtractor<String> =
+        CursorExtractor { resp ->
             reads.incrementAndGet()
             val body = resp.body!!.source().use { it.readUtf8() }
             val itemsLine = body.lineSequence().firstOrNull { it.startsWith("items=") } ?: "items="
@@ -81,12 +80,13 @@ class CursorSingleReadTest {
             singleUseResponse(req, "items=x,y\ncursor=")
         }
 
-        val parsing: (Response) -> CursorResult<String> = { resp ->
-            parses.incrementAndGet()
-            val body = resp.body!!.source().use { it.readUtf8() }
-            val itemsRaw = body.substringAfter("items=").substringBefore('\n')
-            CursorResult(itemsRaw.split(","), null)
-        }
+        val parsing =
+            CursorExtractor<String> { resp ->
+                parses.incrementAndGet()
+                val body = resp.body!!.source().use { it.readUtf8() }
+                val itemsRaw = body.substringAfter("items=").substringBefore('\n')
+                CursorResult(itemsRaw.split(","), null)
+            }
         val strategy = CursorPaginationStrategy(parsing)
         val paginator = Paginator(client, initialRequest(), strategy)
 

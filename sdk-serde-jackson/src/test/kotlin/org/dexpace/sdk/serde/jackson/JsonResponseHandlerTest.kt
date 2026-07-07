@@ -16,9 +16,12 @@ import org.dexpace.sdk.core.http.response.ParsedResponse
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.ResponseBody
 import org.dexpace.sdk.core.http.response.Status
+import org.dexpace.sdk.core.http.response.deserialize
+import org.dexpace.sdk.core.http.response.exception.HttpException
 import org.dexpace.sdk.core.io.BufferedSource
 import org.dexpace.sdk.core.io.Io
 import org.dexpace.sdk.core.serde.SerdeException
+import org.dexpace.sdk.core.serde.TypeRef
 import org.dexpace.sdk.io.OkioIoProvider
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.BeforeTest
@@ -34,13 +37,16 @@ class JsonResponseHandlerTest {
         Io.installProvider(OkioIoProvider)
     }
 
-    private fun jsonResponse(payload: String): Response {
+    private fun jsonResponse(
+        payload: String,
+        status: Status = Status.OK,
+    ): Response {
         val source = Io.provider.source(payload.toByteArray())
         val body = ResponseBody.create(source, MediaType.parse("application/json"), payload.length.toLong())
         return Response.builder()
             .request(Request.builder().url("https://api.example.test/p").method(Method.GET).build())
             .protocol(Protocol.HTTP_1_1)
-            .status(Status.OK)
+            .status(status)
             .body(body)
             .build()
     }
@@ -113,6 +119,96 @@ class JsonResponseHandlerTest {
         val serde = JacksonSerde.withDefaults()
         val handler = jsonHandler(serde, object : TypeReference<List<Dto>>() {})
         val list = handler.handle(jsonResponse("""[{"name":"a","score":1},{"name":"b","score":2}]"""))
+        assertEquals(listOf(Dto("a", 1), Dto("b", 2)), list)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow decodes the typed value on a 2xx response`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        val dto = handler.handle(jsonResponse("""{"name":"ok","score":1}"""))
+        assertEquals(Dto("ok", 1), dto)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow throws the mapped HttpException on a 500 instead of decoding`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        val ex =
+            assertFailsWith<HttpException> {
+                handler.handle(jsonResponse("""{"error":"boom"}""", status = Status.INTERNAL_SERVER_ERROR))
+            }
+        // The exception carries the originating status; it was NOT a decode attempt of the error body.
+        assertEquals(500, ex.status.code)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow buffers the error body so it survives the response being closed`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        val resp = jsonResponse("""{"error":"boom"}""", status = Status.INTERNAL_SERVER_ERROR)
+        // Mirrors handleWith: the handler runs inside response.use { }, so the live response (and its
+        // body) is closed as the block unwinds via the thrown exception.
+        val ex =
+            assertFailsWith<HttpException> {
+                resp.use { handler.handle(it) }
+            }
+        // The error body was buffered into the exception, so it is still readable after the outer
+        // use{} closed the live response — no use-after-close.
+        val body = ex.body ?: error("expected a buffered error body on the thrown HttpException")
+        assertEquals("""{"error":"boom"}""", body.source().readString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow with a TypeReference decodes parametric types on 2xx and throws on 5xx`() {
+        val serde = JacksonSerde.withDefaults()
+        val ok =
+            jsonHandlerOrThrow(serde, object : TypeReference<List<Dto>>() {})
+                .handle(jsonResponse("""[{"name":"a","score":1}]"""))
+        assertEquals(listOf(Dto("a", 1)), ok)
+
+        assertFailsWith<HttpException> {
+            jsonHandlerOrThrow(serde, object : TypeReference<List<Dto>>() {})
+                .handle(jsonResponse("""{"error":"nope"}""", status = Status.SERVICE_UNAVAILABLE))
+        }
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow throws the mapped HttpException on a non-canonical 5xx code`() {
+        val serde = JacksonSerde.withDefaults()
+        val handler = jsonHandlerOrThrow(serde, Dto::class.java)
+        // 599 has no canonical Status constant; status.isError (400..599) must still route it
+        // through throwOnError to a mapped HttpException rather than decoding the error body.
+        val ex =
+            assertFailsWith<HttpException> {
+                handler.handle(jsonResponse("""{"error":"boom"}""", status = Status.fromCode(599)))
+            }
+        assertEquals(599, ex.status.code)
+    }
+
+    @Test
+    fun `jsonHandlerOrThrow closes the response and raises SerdeException on a non-error non-2xx status`() {
+        val serde = JacksonSerde.withDefaults()
+        val body = CountingBody("""{"whatever":true}""")
+        val resp =
+            Response.builder()
+                .request(Request.builder().url("https://api.example.test/p").method(Method.GET).build())
+                .protocol(Protocol.HTTP_1_1)
+                // 304: neither success nor error, so it is neither decoded nor mapped to an
+                // HttpException — the handler closes the response and fails with a SerdeException.
+                .status(Status.NOT_MODIFIED)
+                .body(body)
+                .build()
+        val ex = assertFailsWith<SerdeException> { jsonHandlerOrThrow(serde, Dto::class.java).handle(resp) }
+        assertEquals(true, ex.message?.contains("304") == true, "message should name the offending status")
+        assertEquals(1, body.closeCount.get(), "the non-success response must be closed")
+    }
+
+    @Test
+    fun `Response deserialize with a TypeRef decodes a parametric List via a JacksonSerde`() {
+        val serde = JacksonSerde.withDefaults()
+        val resp = jsonResponse("""[{"name":"a","score":1},{"name":"b","score":2}]""")
+        val list: List<Dto> = resp.deserialize(serde, object : TypeRef<List<Dto>>() {})
         assertEquals(listOf(Dto("a", 1), Dto("b", 2)), list)
     }
 

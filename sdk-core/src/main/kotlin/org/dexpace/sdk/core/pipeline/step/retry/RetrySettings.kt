@@ -19,7 +19,7 @@ import java.util.concurrent.ScheduledExecutorService
 private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_VALUE)
 
 /**
- * Immutable configuration for [RetryStep].
+ * Immutable configuration for [RetryRecovery].
  *
  * Combines the configurations of two reference implementations:
  *  - Square's `RetryInterceptor` — exponential backoff, `Retry-After` parsing, jitter.
@@ -40,7 +40,7 @@ private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_V
  *  - [retryableStatuses] = `{408, 429, 500, 502, 503, 504}` — canonical retryable codes.
  *  - [retryableMethods] = `{GET, HEAD, OPTIONS, PUT, DELETE}` — safe-by-method per RFC 9110.
  *    `POST`/`PATCH`/etc. retry only when the request body is replayable.
- *  - [scheduler] = `null` — fall back to the lazy daemon scheduler created by [RetryStep].
+ *  - [scheduler] = `null` — fall back to the lazy daemon scheduler created by [RetryRecovery].
  *  - [attemptHeaderName] = `null` — no per-attempt header is stamped (opt-in; see the property).
  *
  * ## Thread-safety
@@ -64,9 +64,9 @@ private val MAX_NANO_REPRESENTABLE_DELAY: Duration = Duration.ofNanos(Long.MAX_V
  *   [org.dexpace.sdk.core.http.response.exception.HttpException] surfaces with one of them.
  * @property retryableMethods HTTP methods that may be retried unconditionally (idempotent by
  *   RFC). Non-idempotent methods (`POST`, `PATCH`) only retry when the body is replayable.
- * @property scheduler Optional caller-provided scheduler. When `null` [RetryStep] uses a
+ * @property scheduler Optional caller-provided scheduler. When `null` [RetryRecovery] uses a
  *   process-wide lazy daemon scheduler.
- * @property attemptHeaderName Optional request header stamped on each attempt [RetryStep]
+ * @property attemptHeaderName Optional request header stamped on each attempt [RetryRecovery]
  *   dispatches, carrying the 1-based attempt ordinal (`1` for the original send, `2` for the
  *   first retry, and so on) so servers and proxies can observe the retry count. `null` (the
  *   default) disables the header entirely. The header is set on a per-attempt copy of the
@@ -198,9 +198,9 @@ public class RetrySettings
                 }
 
             /**
-             * Sets [RetrySettings.scheduler]. When `null` [RetryStep] uses a process-wide
+             * Sets [RetrySettings.scheduler]. When `null` [RetryRecovery] uses a process-wide
              * lazy daemon scheduler. Caller-supplied schedulers are **not** shut down by
-             * [RetryStep].
+             * [RetryRecovery].
              */
             public fun scheduler(scheduler: ScheduledExecutorService?): RetrySettingsBuilder =
                 apply {
@@ -208,7 +208,7 @@ public class RetrySettings
                 }
 
             /**
-             * Sets [RetrySettings.attemptHeaderName]. When non-null, [RetryStep] stamps this
+             * Sets [RetrySettings.attemptHeaderName]. When non-null, [RetryRecovery] stamps this
              * header (carrying the 1-based attempt ordinal) on each attempt's request copy.
              * `null` (the default) leaves attempts unstamped.
              */
@@ -242,7 +242,7 @@ public class RetrySettings
             /**
              * Canonical exponential-backoff multiplier shared by both retry stacks: each delay is
              * `previous * 2.0`. Exposed so the stage-based [DefaultRetryStep][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep]
-             * and the recovery-aware [RetryStep] compute the same schedule from one constant.
+             * and the recovery-aware [RetryRecovery] compute the same schedule from one constant.
              */
             public const val DEFAULT_DELAY_MULTIPLIER: Double = 2.0
 
@@ -255,7 +255,7 @@ public class RetrySettings
 
             /**
              * Canonical retry budget shared by both stacks: **3 total attempts**, i.e. the initial
-             * send plus 2 retries. The recovery-aware [RetryStep] counts total attempts directly
+             * send plus 2 retries. The recovery-aware [RetryRecovery] counts total attempts directly
              * via [maxAttempts]; the stage-based step counts retries, so its equivalent default is
              * [DefaultRetryStep.DEFAULT_MAX_RETRIES][org.dexpace.sdk.core.http.pipeline.steps.DefaultRetryStep.DEFAULT_MAX_RETRIES]
              * `= 2`. Both yield the same 3 sends.
@@ -279,7 +279,7 @@ public class RetrySettings
              * (internal), `502` (bad gateway), `503` (service unavailable), `504` (gateway
              * timeout).
              *
-             * This is the recovery-aware step's allow-list; [RetryStep] intersects it with
+             * This is the recovery-aware step's allow-list; [RetryRecovery] intersects it with
              * [HttpException.isRetryable][org.dexpace.sdk.core.http.response.exception.HttpException.isRetryable]
              * (which is itself derived from [RetryUtils.isRetryable][org.dexpace.sdk.core.util.RetryUtils.isRetryable]).
              * With this default set the recovery-aware step retries the same common statuses the
@@ -301,7 +301,7 @@ public class RetrySettings
             /**
              * Default retryable HTTP methods: idempotent methods per RFC 9110 §9.2.2.
              * POST/PATCH are intentionally excluded — they only retry when the request body
-             * is replayable (the orthogonal axis checked by [RetryStep.canRetry]).
+             * is replayable (the orthogonal axis checked by [RetryRecovery.canRetry]).
              */
             @JvmField
             public val DEFAULT_RETRYABLE_METHODS: Set<Method> =

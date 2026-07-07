@@ -199,7 +199,7 @@ public class HttpHeaderName private constructor(
 
         @JvmField public val X_XSS_PROTECTION: HttpHeaderName = fromString("X-XSS-Protection")
 
-        // Microsoft retry headers — consumed by RetryStep (Phase B).
+        // Microsoft retry headers — consumed by RetryRecovery (Phase B).
         @JvmField public val RETRY_AFTER_MS: HttpHeaderName = fromString("retry-after-ms")
 
         @JvmField public val X_MS_RETRY_AFTER_MS: HttpHeaderName = fromString("x-ms-retry-after-ms")

@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * testFixtures `FakeHttpClient` so this test file stays the canonical reference for the
  * pipeline contract.
  */
-class ResponsePipelineTest {
+class ResponseRecoveryChainTest {
     // region -- test fakes --
 
     /**
@@ -126,13 +126,13 @@ class ResponsePipelineTest {
         val transport = FakeHttpClient(listOf(TransportEntry.Ok(transportResponse)))
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                requestPipeline = RequestPipeline(),
-                responsePipeline = ResponsePipeline(),
+                requestChain = RequestRecoveryChain(),
+                responseChain = ResponseRecoveryChain(),
             )
 
-        val out = pipeline.execute(req, ctx())
+        val out = pipeline.recover(req, ctx())
 
         assertSame(transportResponse, out, "Response should be the exact transport response")
         assertEquals(1, transport.received.size)
@@ -154,12 +154,12 @@ class ResponsePipelineTest {
             }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponsePipeline(recoverySteps = listOf(rescue)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(rescue)),
             )
 
-        val out = pipeline.execute(req, ctx())
+        val out = pipeline.recover(req, ctx())
         assertSame(rescued, out, "Recovery step should rescue the transport failure")
     }
 
@@ -173,12 +173,12 @@ class ResponsePipelineTest {
         val passthrough = ResponseRecoveryStep { outcome -> outcome }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponsePipeline(recoverySteps = listOf(passthrough)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(passthrough)),
             )
 
-        val thrown = assertThrows(IOException::class.java) { pipeline.execute(req, ctx()) }
+        val thrown = assertThrows(IOException::class.java) { pipeline.recover(req, ctx()) }
         assertSame(transportError, thrown, "Failure must be propagated unchanged")
     }
 
@@ -198,12 +198,12 @@ class ResponsePipelineTest {
             }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponsePipeline(recoverySteps = listOf(replace)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(replace)),
             )
 
-        val thrown = assertThrows(IllegalStateException::class.java) { pipeline.execute(req, ctx()) }
+        val thrown = assertThrows(IllegalStateException::class.java) { pipeline.recover(req, ctx()) }
         assertSame(replacementError, thrown, "Replacement throwable should be surfaced")
     }
 
@@ -232,16 +232,16 @@ class ResponsePipelineTest {
             }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                responsePipeline =
-                    ResponsePipeline(
+                responseChain =
+                    ResponseRecoveryChain(
                         responseSteps = listOf(failingResponseStep),
                         recoverySteps = listOf(recoverFromResponseStep),
                     ),
             )
 
-        val out = pipeline.execute(req, ctx())
+        val out = pipeline.recover(req, ctx())
 
         assertSame(transportResponse, out)
         assertNotNull(recoverySawError, "Recovery step should have observed the response-step exception")
@@ -260,7 +260,7 @@ class ResponsePipelineTest {
                 throw responseStepError
             }
 
-        val pipeline = ResponsePipeline(responseSteps = listOf(failingResponseStep))
+        val pipeline = ResponseRecoveryChain(responseSteps = listOf(failingResponseStep))
 
         val out = pipeline.apply(ResponseOutcome.Success(inHand), ctx())
 
@@ -282,7 +282,7 @@ class ResponsePipelineTest {
                 throw recoveryError
             }
 
-        val pipeline = ResponsePipeline(recoverySteps = listOf(failingRecoveryStep))
+        val pipeline = ResponseRecoveryChain(recoverySteps = listOf(failingRecoveryStep))
 
         val out = pipeline.apply(ResponseOutcome.Success(inHand), ctx())
 
@@ -319,13 +319,13 @@ class ResponsePipelineTest {
             }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                requestPipeline = RequestPipeline(listOf(failingRequestStep)),
-                responsePipeline = ResponsePipeline(recoverySteps = listOf(recoverFromRequestStep)),
+                requestChain = RequestRecoveryChain(listOf(failingRequestStep)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(recoverFromRequestStep)),
             )
 
-        val thrown = assertThrows(IllegalArgumentException::class.java) { pipeline.execute(req, ctx()) }
+        val thrown = assertThrows(IllegalArgumentException::class.java) { pipeline.recover(req, ctx()) }
         assertSame(requestStepError, thrown, "The original request-step error must propagate")
         assertSame(
             requestStepError,
@@ -354,12 +354,12 @@ class ResponsePipelineTest {
             }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponsePipeline(recoverySteps = listOf(observeTransportFailure)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(observeTransportFailure)),
             )
 
-        val thrown = assertThrows(IOException::class.java) { pipeline.execute(req, ctx()) }
+        val thrown = assertThrows(IOException::class.java) { pipeline.recover(req, ctx()) }
         assertSame(transportError, thrown)
         assertSame(transportError, recoverySawError, "Recovery must observe transport failures")
     }
@@ -419,12 +419,12 @@ class ResponsePipelineTest {
             }
 
         val pipeline =
-            ExecutionPipeline(
+            RecoveryChain(
                 httpClient = transport,
-                responsePipeline = ResponsePipeline(recoverySteps = listOf(tag1, rescue, tag3)),
+                responseChain = ResponseRecoveryChain(recoverySteps = listOf(tag1, rescue, tag3)),
             )
 
-        val out = pipeline.execute(req, ctx())
+        val out = pipeline.recover(req, ctx())
 
         assertSame(rescued, out)
         assertEquals(listOf("step1:Failure", "step2:Failure", "step3:Success"), observed)

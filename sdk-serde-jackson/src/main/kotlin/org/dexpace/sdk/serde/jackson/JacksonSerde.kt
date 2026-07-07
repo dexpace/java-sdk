@@ -12,11 +12,13 @@ import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.dexpace.sdk.core.http.common.MediaType
 import org.dexpace.sdk.core.serde.DeserializationException
 import org.dexpace.sdk.core.serde.Deserializer
 import org.dexpace.sdk.core.serde.Serde
 import org.dexpace.sdk.core.serde.SerializationException
 import org.dexpace.sdk.core.serde.Serializer
+import org.dexpace.sdk.core.serde.TypeRef
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -52,6 +54,9 @@ public class JacksonSerde private constructor(
     override val serializer: Serializer = JacksonSerializer(mapper)
     override val deserializer: Deserializer = JacksonDeserializer(mapper)
 
+    /** JSON is this serde's wire format, so bodies built from it default to `application/json`. */
+    override fun contentType(): MediaType = MediaType.APPLICATION_JSON
+
     /**
      * Deserialize [input] into a value of the type captured by [type]. This overload is the
      * "correct" entry point for parametric or otherwise erased generic targets.
@@ -61,7 +66,7 @@ public class JacksonSerde private constructor(
     public fun <T> deserializeAs(
         input: String,
         type: TypeReference<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.type.typeName)
 
     /**
      * Deserialize from a [ByteArray]. See [deserializeAs] for type-reference rationale.
@@ -71,7 +76,7 @@ public class JacksonSerde private constructor(
     public fun <T> deserializeAs(
         input: ByteArray,
         type: TypeReference<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.type.typeName)
 
     /**
      * Deserialize by streaming from [inputStream]. The implementation reads to EOF but does
@@ -82,7 +87,15 @@ public class JacksonSerde private constructor(
     public fun <T> deserializeAs(
         inputStream: InputStream,
         type: TypeReference<T>,
-    ): T = deserializing { mapper.readValue(inputStream, type) }
+    ): T {
+        // The caller owns closing the stream. Drive a per-call parser with AUTO_CLOSE_SOURCE off so
+        // a caller-supplied mapper (see JacksonSerde.from, whose copy inherits AUTO_CLOSE_SOURCE=true)
+        // is not mutated and the stream is read to EOF but left open — matching this method's KDoc.
+        val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
+        return parser.use { p ->
+            nonNull(deserializing { mapper.readValue(p, type) }, type.type.typeName)
+        }
+    }
 
     public companion object {
         /** Build a [JacksonSerde] backed by an [ObjectMapper] with the SDK-correct defaults. */
@@ -92,14 +105,45 @@ public class JacksonSerde private constructor(
         /**
          * Build a [JacksonSerde] backed by a caller-supplied [mapper].
          *
+         * This method operates on a **defensive copy** of [mapper] — the caller's original instance
+         * is never mutated. Because the copy is taken via [ObjectMapper.copy], the supplied mapper
+         * must be a standard `ObjectMapper` / `JsonMapper` (or a subclass that overrides `copy()`):
+         * Jackson's own `copy()` throws `IllegalStateException` for a subclass that does not override
+         * it. Modules registered on [mapper] *after* this call are not reflected in the copy — register
+         * them before calling [from], or register them on the returned serde's [mapper].
+         *
+         * ## Tristate PATCH semantics
+         *
+         * [org.dexpace.sdk.core.serde.Tristate] PATCH fields **require** [TristateModule] to be
+         * registered on the underlying mapper. Without it, [org.dexpace.sdk.core.serde.Tristate.Absent]
+         * and [org.dexpace.sdk.core.serde.Tristate.Null] are indistinguishable on the wire — both
+         * serialize to a non-absent representation, silently corrupting `PATCH` payloads. By default,
+         * [from] registers [TristateModule] on the copy automatically.
+         *
+         * Pass `registerTristate = false` only when the caller's mapper already carries a
+         * manually-registered [TristateModule] (or a compatible substitute) and a second
+         * registration is undesirable.
+         *
          * The caller-owned-stream contract on [Serializer.serialize] / [Deserializer.deserialize]
          * holds regardless of the mapper's `AUTO_CLOSE_TARGET`/`AUTO_CLOSE_SOURCE` settings: the
          * stream overloads drive a per-call generator/parser with auto-close disabled, so the
-         * caller's [OutputStream]/[InputStream] is left open and the supplied [mapper] is never
-         * mutated.
+         * caller's [OutputStream]/[InputStream] is left open.
+         *
+         * @param mapper The mapper to copy and use as the serialization engine.
+         * @param registerTristate When `true` (the default), [TristateModule] is registered on
+         *   the copy. Pass `false` when the caller has already registered the module or a
+         *   compatible substitute.
          */
         @JvmStatic
-        public fun from(mapper: ObjectMapper): JacksonSerde = JacksonSerde(mapper)
+        @JvmOverloads
+        public fun from(
+            mapper: ObjectMapper,
+            registerTristate: Boolean = true,
+        ): JacksonSerde {
+            val copy = mapper.copy()
+            if (registerTristate) copy.registerModule(TristateModule())
+            return JacksonSerde(copy)
+        }
     }
 }
 
@@ -180,13 +224,13 @@ internal class JacksonDeserializer internal constructor(
     override fun <T> deserialize(
         input: String,
         type: Class<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.typeName)
 
     /** @throws DeserializationException if [input] is malformed or does not match [type]. */
     override fun <T> deserialize(
         input: ByteArray,
         type: Class<T>,
-    ): T = deserializing { mapper.readValue(input, type) }
+    ): T = nonNull(deserializing { mapper.readValue(input, type) }, type.typeName)
 
     /** @throws DeserializationException if the payload is malformed or does not match [type]. */
     override fun <T> deserialize(
@@ -197,7 +241,45 @@ internal class JacksonDeserializer internal constructor(
         // a caller-supplied mapper (see JacksonSerde.from) is not mutated and the stream stays open.
         val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
         return parser.use { p ->
-            deserializing { mapper.readValue(p, type) }
+            nonNull(deserializing { mapper.readValue(p, type) }, type.typeName)
+        }
+    }
+
+    /**
+     * Resolves the parametric target via `mapper.constructType(ref.type)`, so a `List<MyDto>` decodes
+     * with its element type intact — no Jackson type needed at the call site.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [ref].
+     */
+    override fun <T> deserialize(
+        input: String,
+        ref: TypeRef<T>,
+    ): T = nonNull(deserializing { mapper.readValue(input, mapper.constructType(ref.type)) }, ref.type.typeName)
+
+    /**
+     * Byte-array counterpart to the string [TypeRef] overload; resolves the parametric target via
+     * `mapper.constructType(ref.type)` so a `List<MyDto>` decodes with its element type intact.
+     *
+     * @throws DeserializationException if [input] is malformed or does not match [ref].
+     */
+    override fun <T> deserialize(
+        input: ByteArray,
+        ref: TypeRef<T>,
+    ): T = nonNull(deserializing { mapper.readValue(input, mapper.constructType(ref.type)) }, ref.type.typeName)
+
+    /**
+     * Streaming counterpart to the string [TypeRef] overload. Reads to EOF but does **not** close the
+     * stream — the caller retains ownership.
+     *
+     * @throws DeserializationException if the payload is malformed or does not match [ref].
+     */
+    override fun <T> deserialize(
+        inputStream: InputStream,
+        ref: TypeRef<T>,
+    ): T {
+        val parser = mapper.factory.createParser(inputStream).disable(JsonParser.Feature.AUTO_CLOSE_SOURCE)
+        return parser.use { p ->
+            nonNull(deserializing { mapper.readValue(p, mapper.constructType(ref.type)) }, ref.type.typeName)
         }
     }
 }
@@ -234,3 +316,19 @@ private inline fun <T> deserializing(block: () -> T): T =
     } catch (e: JsonProcessingException) {
         throw DeserializationException(e.originalMessage ?: e.message, e)
     }
+
+/**
+ * Guards the non-null return contract of the `deserialize`/`deserializeAs` overloads. Jackson's
+ * `readValue` yields a Java `null` when the document is the JSON literal `null`; left unchecked that
+ * `null` flows through the non-null generic `T` return and detonates as a `NullPointerException` far
+ * from the decode site. Convert it here into a [DeserializationException] naming [typeName], so the
+ * failure is reported where it happens and callers catch the SDK's stable serde type.
+ */
+private fun <T> nonNull(
+    value: T?,
+    typeName: String,
+): T =
+    value
+        ?: throw DeserializationException(
+            "Decoded a null value for $typeName; the input was the JSON literal null.",
+        )

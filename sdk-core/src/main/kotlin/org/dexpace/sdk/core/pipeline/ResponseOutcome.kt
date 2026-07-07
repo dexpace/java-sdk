@@ -11,9 +11,9 @@ import org.dexpace.sdk.core.http.response.Response
 
 /**
  * Sealed sum type representing the result of a request/response exchange after it has passed
- * through the [ExecutionPipeline].
+ * through the [RecoveryChain].
  *
- * The recovery-aware [ResponsePipeline] threads an outcome through its fold rather than a bare
+ * The recovery-aware [ResponseRecoveryChain] threads an outcome through its fold rather than a bare
  * [Response]: this lets [org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep]s observe and
  * rescue failures uniformly, regardless of whether the throwable originated in a request step,
  * the transport, or a downstream response step.
@@ -26,7 +26,7 @@ import org.dexpace.sdk.core.http.response.Response
  * Instances are immutable; equality is structural via [equals]/[hashCode] inherited from the
  * data-class variants. Safe to share across threads.
  *
- * @see ResponsePipeline
+ * @see ResponseRecoveryChain
  * @see org.dexpace.sdk.core.pipeline.step.ResponseRecoveryStep
  */
 public sealed class ResponseOutcome {
@@ -93,7 +93,7 @@ public sealed class ResponseOutcome {
  * Wraps [t] in a [ResponseOutcome.Failure]. When [t] is an [InterruptedException] the interrupt
  * flag is restored on the current thread before wrapping, honouring the SDK's cancellation
  * contract so a thread blocked on the surfaced outcome still observes the cancellation. Shared by
- * [ExecutionPipeline], [ResponsePipeline], and [org.dexpace.sdk.core.pipeline.step.retry.RetryStep]
+ * [RecoveryChain], [ResponseRecoveryChain], and [org.dexpace.sdk.core.pipeline.step.retry.RetryRecovery]
  * so the interrupt-aware wrapper has exactly one definition.
  */
 internal fun failureOf(t: Throwable): ResponseOutcome.Failure {

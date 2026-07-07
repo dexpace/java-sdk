@@ -11,7 +11,7 @@ import org.dexpace.sdk.core.pipeline.ResponseOutcome
 
 /**
  * Recovery hook applied to every [ResponseOutcome] produced by the
- * [org.dexpace.sdk.core.pipeline.ExecutionPipeline]. The Airbyte-equivalent of `AfterError`,
+ * [org.dexpace.sdk.core.pipeline.RecoveryChain]. The Airbyte-equivalent of `AfterError`,
  * but with broader scope: this step is invoked uniformly on both successes and failures, and
  * on failures originating from any phase of the pipeline (request steps, transport, response
  * steps).
@@ -25,15 +25,15 @@ import org.dexpace.sdk.core.pipeline.ResponseOutcome
  *  - **Pass-through.** Return the input outcome unchanged when the step does not apply.
  *  - **Retry (delegated).** Re-invoke the underlying transport via a captured
  *    [org.dexpace.sdk.core.client.HttpClient] reference and return the resulting outcome.
- *    See `RetryStep` (WU-3) for the canonical implementation.
+ *    See `RetryRecovery` for the canonical implementation.
  *
  * Recovery steps **must not** throw. If a recovery step itself raises an exception, the
- * surrounding [org.dexpace.sdk.core.pipeline.ResponsePipeline] wraps the throwable into a
+ * surrounding [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain] wraps the throwable into a
  * [ResponseOutcome.Failure] and feeds it to the next recovery step. Implementations should
  * still avoid this path — surface errors as [ResponseOutcome.Failure] explicitly.
  *
  * ## Close ownership when discarding a Success
- * The [org.dexpace.sdk.core.pipeline.ResponsePipeline] closes the in-hand
+ * The [org.dexpace.sdk.core.pipeline.ResponseRecoveryChain] closes the in-hand
  * [ResponseOutcome.Success] response on exactly one path: when a step *throws*. A step that is
  * handed a [ResponseOutcome.Success] and instead deliberately **returns** a different outcome
  * — a [ResponseOutcome.Failure] (the Success→Failure transform, e.g. status-to-typed-exception
@@ -50,7 +50,7 @@ import org.dexpace.sdk.core.pipeline.ResponseOutcome
  * multiple threads.
  *
  * @see org.dexpace.sdk.core.pipeline.ResponseOutcome
- * @see org.dexpace.sdk.core.pipeline.ResponsePipeline
+ * @see org.dexpace.sdk.core.pipeline.ResponseRecoveryChain
  */
 public fun interface ResponseRecoveryStep {
     /**

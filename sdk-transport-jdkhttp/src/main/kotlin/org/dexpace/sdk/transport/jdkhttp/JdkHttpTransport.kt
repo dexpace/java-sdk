@@ -10,13 +10,16 @@ package org.dexpace.sdk.transport.jdkhttp
 import org.dexpace.sdk.core.client.AsyncHttpClient
 import org.dexpace.sdk.core.client.HttpClient
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
+import org.dexpace.sdk.core.http.response.exception.NetworkException
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.instrumentation.DroppedHeaderLogging
 import org.dexpace.sdk.core.util.ProxyOptions
 import org.dexpace.sdk.transport.jdkhttp.internal.RequestAdapter
 import org.dexpace.sdk.transport.jdkhttp.internal.ResponseAdapter
 import org.dexpace.sdk.transport.jdkhttp.internal.bridgeAsyncResponse
+import org.dexpace.sdk.transport.jdkhttp.internal.mapTransportFailure
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
@@ -98,32 +101,54 @@ public class JdkHttpTransport private constructor(
     private val closed: AtomicBoolean = AtomicBoolean(false)
 
     /**
-     * Synchronously executes [request] on the caller's thread. Honours `Thread.interrupt`
-     * via [InterruptedIOException]: the JDK client surfaces a thread-interrupt mid-call
-     * as a wrapped [InterruptedException]; the adapter unwraps that, re-asserts the
-     * thread interrupt status, and rethrows as [InterruptedIOException] so callers see a
-     * consistent interrupt surface.
+     * Synchronously executes [request] on the caller's thread. Delegates to the per-call overload
+     * with [RequestOptions.EMPTY], so the configured [responseTimeout] applies unchanged.
      */
     @Throws(IOException::class)
-    override fun execute(request: Request): Response {
-        val jdkRequest = requestAdapter.adapt(request, responseTimeout)
-        return try {
-            val jdkResponse: HttpResponse<InputStream> =
+    override fun execute(request: Request): Response = execute(request, RequestOptions.EMPTY)
+
+    /**
+     * Synchronously executes [request] with per-call [options] on the caller's thread. When
+     * [RequestOptions.timeout] is non-null it replaces the configured [responseTimeout] on this
+     * request's [java.net.http.HttpRequest.Builder.timeout] for this call only; a null timeout
+     * keeps the configured default. Honours `Thread.interrupt` via [InterruptedIOException]: the
+     * JDK client surfaces a thread-interrupt mid-call as a wrapped [InterruptedException]; the
+     * adapter unwraps that, re-asserts the thread interrupt status, and rethrows as
+     * [InterruptedIOException] so callers see a consistent interrupt surface.
+     */
+    @Throws(IOException::class)
+    override fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response {
+        val jdkRequest = requestAdapter.adapt(request, effectiveTimeout(options))
+        // The dispatch is guarded on its own so only a `client.send` failure maps onto the
+        // transport-error contract — a later `responseAdapter.adapt` failure keeps its own type.
+        val jdkResponse: HttpResponse<InputStream> =
+            try {
                 client.send(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
-            responseAdapter.adapt(request, jdkResponse)
-        } catch (e: InterruptedException) {
-            // `HttpClient.send` declares `InterruptedException` — the JDK throws it when the
-            // calling thread is interrupted mid-call. Re-assert the interrupt flag so the
-            // caller's surrounding code can observe interrupt status, then surface as the
-            // SDK's documented `InterruptedIOException`.
-            Thread.currentThread().interrupt()
-            val wrapped = InterruptedIOException("interrupted while waiting for response")
-            wrapped.initCause(e)
-            throw wrapped
-        } catch (e: InterruptedIOException) {
-            Thread.currentThread().interrupt()
-            throw e
-        }
+            } catch (e: InterruptedException) {
+                // `HttpClient.send` declares `InterruptedException` — the JDK throws it when the
+                // calling thread is interrupted mid-call. Re-assert the interrupt flag so the
+                // caller's surrounding code can observe interrupt status, then surface as the
+                // SDK's documented `InterruptedIOException`.
+                Thread.currentThread().interrupt()
+                val wrapped = InterruptedIOException("interrupted while waiting for response")
+                wrapped.initCause(e)
+                throw wrapped
+            } catch (e: InterruptedIOException) {
+                Thread.currentThread().interrupt()
+                throw e
+            } catch (e: IOException) {
+                // A non-interrupt transport failure — connect refused, DNS lookup failure, peer
+                // reset, TLS handshake failure, a non-interrupt (Http)timeout — produced no
+                // response. Surface it as the SDK's NetworkException; because that is itself an
+                // IOException, existing `catch (IOException)` sites keep matching while the retry
+                // classifier now sees the retryable transport-failure contract. The two interrupt
+                // branches above run first, so an interrupt-derived failure is never wrapped here.
+                throw NetworkException(e.message, e)
+            }
+        return responseAdapter.adapt(request, jdkResponse)
     }
 
     /**
@@ -137,15 +162,29 @@ public class JdkHttpTransport private constructor(
      * [bridgeAsyncResponse]). The intermediate `thenApply`-style future the JDK hands back does
      * not propagate cancellation to the `sendAsync` exchange on its own, so the bridge wires that
      * through explicitly. Consumers should still call `Response.close()` on success-path
-     * completions to release the body's connection back to the pool.
+     * completions to release the body's connection back to the pool. Delegates to the per-call
+     * overload with [RequestOptions.EMPTY], so the configured [responseTimeout] applies unchanged.
      */
-    override fun executeAsync(request: Request): CompletableFuture<Response> {
+    override fun executeAsync(request: Request): CompletableFuture<Response> =
+        executeAsync(request, RequestOptions.EMPTY)
+
+    /**
+     * Asynchronously executes [request] with per-call [options]. When [RequestOptions.timeout] is
+     * non-null it replaces the configured [responseTimeout] on this request's per-request timeout
+     * for this call only; a null timeout keeps the configured default. Otherwise identical to
+     * [executeAsync]: the returned future completes with the [Response] or the transport failure,
+     * and cancelling it cancels the underlying JDK exchange.
+     */
+    override fun executeAsync(
+        request: Request,
+        options: RequestOptions,
+    ): CompletableFuture<Response> {
         // Held outside the try so the catch can release the JDK exchange if dispatch succeeded but a
         // later step threw (see the catch). Null until `sendAsync` returns: a throw at or before
         // dispatch leaves nothing to clean up.
         var inFlight: CompletableFuture<HttpResponse<InputStream>>? = null
         return try {
-            val jdkRequest = requestAdapter.adapt(request, responseTimeout)
+            val jdkRequest = requestAdapter.adapt(request, effectiveTimeout(options))
             // `sendAsync` is inside the guard too. Its contract does not promise that every failure
             // is delivered through the returned future: the JDK's own Javadoc permits a synchronous
             // `IllegalArgumentException` for a request it rejects, and a custom or future
@@ -155,7 +194,12 @@ public class JdkHttpTransport private constructor(
             // failures into an already-failed future — e.g. on a closed client — which the bridge
             // propagates and so never reaches this catch; the guard is for the throwing case.)
             inFlight = client.sendAsync(jdkRequest, HttpResponse.BodyHandlers.ofInputStream())
-            bridgeAsyncResponse(inFlight) { jdkResponse -> responseAdapter.adapt(request, jdkResponse) }
+            // `mapTransportFailure` maps a non-interrupt transport IOException delivered through the
+            // exchange future onto the SDK's NetworkException contract (interrupt-derived failures
+            // pass through untouched), mirroring the sync `execute` path.
+            bridgeAsyncResponse(inFlight, ::mapTransportFailure) { jdkResponse ->
+                responseAdapter.adapt(request, jdkResponse)
+            }
         } catch (e: Exception) {
             // The async contract is that errors arrive through the returned future. The dispatch
             // path above runs on the caller's thread and can throw — request adaptation rejecting a
@@ -176,6 +220,15 @@ public class JdkHttpTransport private constructor(
             CompletableFuture.failedFuture<Response>(e)
         }
     }
+
+    /**
+     * The per-request timeout to apply for this call: [RequestOptions.timeout] when the caller
+     * supplied one, otherwise the transport's configured [responseTimeout] (which may itself be
+     * null, i.e. no per-request timeout). The JDK client has no global response-timeout knob, so
+     * the resolved value is handed to [RequestAdapter.adapt] and set via
+     * [java.net.http.HttpRequest.Builder.timeout].
+     */
+    private fun effectiveTimeout(options: RequestOptions): Duration? = options.timeout ?: responseTimeout
 
     /**
      * Releases SDK-owned JDK HTTP resources. When this transport was built via [builder]:
@@ -277,6 +330,16 @@ public class JdkHttpTransport private constructor(
          * assignment.
          */
         internal const val DEFAULT_RESPONSE_TIMEOUT_SECONDS: Long = 30L
+
+        /**
+         * Default connect timeout in seconds applied when the [Builder] is used without
+         * an explicit [Builder.connectTimeout] call. 10 s covers most real-world TCP + TLS
+         * handshake latencies while keeping test feedback tight on dead ports.
+         *
+         * Internal for the same reason as [DEFAULT_RESPONSE_TIMEOUT_SECONDS] — callers rely
+         * on the [Builder]'s default rather than reading this constant.
+         */
+        internal const val DEFAULT_CONNECT_TIMEOUT_SECONDS: Long = 10L
     }
 
     /**
@@ -298,7 +361,8 @@ public class JdkHttpTransport private constructor(
      * [java.net.http.HttpClient] directly and pass it to [JdkHttpTransport.create].
      *
      * Defaults:
-     *  - `connectTimeout`: not set (the JDK applies its platform default).
+     *  - `connectTimeout`: 10 seconds (TCP + TLS handshake budget). Pass `null` to
+     *    `connectTimeout(null)` to disable and fall back to the JDK platform default.
      *  - `responseTimeout`: 30 seconds (applied per-request).
      *  - `proxy`: none.
      *  - `followRedirects`: `false` (SDK has `DefaultRedirectStep`).
@@ -306,15 +370,18 @@ public class JdkHttpTransport private constructor(
      */
     public class Builder internal constructor() : SdkBuilder<JdkHttpTransport> {
         private val log: ClientLogger = ClientLogger("org.dexpace.sdk.transport.jdkhttp.JdkHttpTransport.Builder")
-        private var connectTimeout: Duration? = null
+        private var connectTimeout: Duration? = Duration.ofSeconds(DEFAULT_CONNECT_TIMEOUT_SECONDS)
         private var responseTimeout: Duration? = Duration.ofSeconds(DEFAULT_RESPONSE_TIMEOUT_SECONDS)
         private var proxy: ProxyOptions? = null
         private var followRedirects: Boolean = false
         private var httpVersion: HttpVersion = HttpVersion.HTTP_2
         private var droppedHeaderLogging: DroppedHeaderLogging = DroppedHeaderLogging.ONCE_PER_HEADER
 
-        /** Sets the connect timeout (TCP handshake + TLS handshake). */
-        public fun connectTimeout(d: Duration): Builder =
+        /**
+         * Sets the connect timeout (TCP + TLS handshake). Pass `null` to disable the
+         * timeout and fall back to the JDK's platform default (effectively infinite).
+         */
+        public fun connectTimeout(d: Duration?): Builder =
             apply {
                 this.connectTimeout = d
             }
@@ -333,6 +400,24 @@ public class JdkHttpTransport private constructor(
         public fun proxy(p: ProxyOptions?): Builder =
             apply {
                 this.proxy = p
+            }
+
+        /**
+         * Reads proxy settings from the process-wide environment via [ProxyOptions.fromEnvironment]
+         * and applies the resolved proxy to the client being built. See that method for the exact
+         * environment-variable / system-property resolution.
+         *
+         * Strictly opt-in: the environment is never consulted unless this is called, and the call
+         * is a no-op when nothing there configures a proxy (or when `NO_PROXY=*` bypasses it). This
+         * writes the same slot as [proxy], so whichever of the two runs last wins.
+         *
+         * If the resolved proxy carries Basic credentials, note the HTTPS CONNECT-tunnel caveat
+         * documented on [applyProxy]: the JDK client does not send Basic proxy credentials on an
+         * HTTPS tunnel unless `jdk.http.auth.tunneling.disabledSchemes` is cleared.
+         */
+        public fun proxyFromEnvironment(): Builder =
+            apply {
+                ProxyOptions.fromEnvironment()?.let { this.proxy = it }
             }
 
         /**
@@ -423,6 +508,18 @@ public class JdkHttpTransport private constructor(
          *     proxy credentials never leak to an origin host. The `java.net.http` client's
          *     built-in handling of a registered `Authenticator` covers the **Basic** scheme
          *     only — this transport does **not** perform Digest proxy authentication.
+         *
+         * **Basic proxy auth over an HTTPS CONNECT tunnel is disabled by default.** For an HTTPS
+         * origin the JDK client establishes the proxy via a `CONNECT` tunnel, and since the fix for
+         * JDK-8168839 the `java.net.http` client refuses to send Basic proxy credentials on that
+         * tunnel — the `jdk.http.auth.tunneling.disabledSchemes` system property defaults to
+         * `Basic`. So a [ProxyOptions.username] / [ProxyOptions.password] Basic credential that works
+         * for a plaintext-HTTP origin (where the proxy is used as a forward proxy, not a tunnel)
+         * is silently NOT sent for an `https://` origin, and the proxy answers `407`. This diverges
+         * from the OkHttp transport, which sends Basic proxy credentials on HTTPS tunnels. To opt
+         * back in, launch the JVM with `-Djdk.http.auth.tunneling.disabledSchemes=` (empty value)
+         * — set it as an early startup property, since the JDK reads it once. Credentials are
+         * deliberately never logged.
          *
          * A configured [ProxyOptions.challengeHandler] is **not** honoured by this transport:
          * `java.net.http.HttpClient` exposes no per-407 hook through which a custom

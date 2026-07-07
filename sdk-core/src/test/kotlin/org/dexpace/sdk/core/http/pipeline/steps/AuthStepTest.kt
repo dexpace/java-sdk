@@ -590,6 +590,34 @@ class AuthStepTest {
     }
 
     @Test
+    fun `401 challenge whose replacement carries a non-replayable body surfaces the real 401`() {
+        // The challenge handler returns a replacement request whose body cannot be replayed. Driving
+        // it through the chain would trip the body's consume-once guard and surface an
+        // IOException("HTTP pipeline failure") that masks the real 401. The step must instead skip
+        // the replay (like the retry/redirect steps' replayability gate) and return the original 401.
+        val step =
+            object : KeyCredentialAuthStep(KeyCredential("k")) {
+                override fun authorizeRequestOnChallenge(
+                    request: Request,
+                    response: Response,
+                ): Request =
+                    request.newBuilder()
+                        .method(Method.POST)
+                        .body(NonReplayableRequestBody())
+                        .build()
+            }
+        val fake =
+            FakeHttpClient()
+                .enqueue { status(401).header("WWW-Authenticate", "Bearer realm=\"x\"") }
+
+        val pipeline = HttpPipelineBuilder(fake).append(step).build()
+        val response = pipeline.send(getHttpsRequest())
+
+        assertEquals(401, response.status.code, "the real 401 must surface, not a masked IOException")
+        assertEquals(1, fake.callCount, "a non-replayable replacement body must skip the challenge replay")
+    }
+
+    @Test
     fun `challenge retry closes the 401 response before driving the retry`() {
         val closes = AtomicInteger(0)
         // Wrap the second response (401) in a custom body that tracks close().
@@ -975,6 +1003,20 @@ class AuthStepTest {
             .method(Method.GET)
             .url("https://api.example.com/x")
             .build()
+
+    /** Single-use request body: isReplayable() is false and writeTo streams fixed bytes. */
+    private class NonReplayableRequestBody : org.dexpace.sdk.core.http.request.RequestBody() {
+        override fun mediaType(): org.dexpace.sdk.core.http.common.MediaType? =
+            org.dexpace.sdk.core.http.common.MediaType.parse("text/plain")
+
+        override fun contentLength(): Long = 5
+
+        override fun isReplayable(): Boolean = false
+
+        override fun writeTo(sink: org.dexpace.sdk.core.io.BufferedSink) {
+            sink.write("hello".toByteArray(Charsets.UTF_8))
+        }
+    }
 
     /** ResponseBody that increments [closes] on close() and refuses source() reads. */
     private class CloseTrackingResponseBody(

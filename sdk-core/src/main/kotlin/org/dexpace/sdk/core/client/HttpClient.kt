@@ -8,7 +8,9 @@
 package org.dexpace.sdk.core.client
 
 import org.dexpace.sdk.core.http.request.Request
+import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.http.response.Response
+import java.io.IOException
 
 /**
  * Transport SPI: the seam between the SDK's request/response models and a concrete HTTP transport
@@ -47,8 +49,28 @@ public fun interface HttpClient : AutoCloseable {
     /**
      * Sends [request] over the underlying transport and returns the matching [Response]. The
      * response body is not pre-buffered — callers are responsible for closing it.
+     *
+     * Declares `throws IOException` (the SDK's canonical transport failure
+     * `org.dexpace.sdk.core.http.response.exception.NetworkException` extends [java.io.IOException])
+     * so a Java-authored transport may declare and throw it and a Java caller can
+     * `catch (IOException)` at this call site.
      */
+    @Throws(IOException::class)
     public fun execute(request: Request): Response
+
+    /**
+     * Sends [request] with per-call [options] applied. The default implementation ignores
+     * [options] and delegates to [execute], so this stays a single-abstract-method `fun interface`
+     * and existing implementations (SAM literals, transports written before per-request overrides)
+     * keep working unchanged. Transports that honour per-call overrides — a timeout, a retry
+     * budget, tags — override this method to read [options]; see the reference transports for the
+     * per-call-timeout wiring. Pipelines thread the caller's options into this overload.
+     */
+    @Throws(IOException::class)
+    public fun execute(
+        request: Request,
+        options: RequestOptions,
+    ): Response = execute(request)
 
     /**
      * Releases any resources held by this transport. The default implementation is a no-op so

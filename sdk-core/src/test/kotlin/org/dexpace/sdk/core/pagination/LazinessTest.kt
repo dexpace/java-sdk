@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.pagination
 
 import org.dexpace.sdk.core.http.request.Method
 import org.dexpace.sdk.core.http.request.Request
-import org.dexpace.sdk.core.http.response.Response
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,10 +26,11 @@ class LazinessTest {
             .method(Method.GET)
             .build()
 
-    private val itemsExtractor: (Response) -> List<String> = { resp ->
-        val body = resp.body!!.source().use { it.readUtf8() }
-        if (body.isEmpty()) emptyList() else body.split(",")
-    }
+    private val itemsExtractor =
+        ItemsExtractor<String> { resp ->
+            val body = resp.body!!.source().use { it.readUtf8() }
+            if (body.isEmpty()) emptyList() else body.split(",")
+        }
 
     @Test
     fun `constructing a paginator triggers zero HTTP calls`() {
