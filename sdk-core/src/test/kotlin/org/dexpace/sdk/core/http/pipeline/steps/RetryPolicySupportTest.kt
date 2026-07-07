@@ -11,6 +11,7 @@ import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class RetryPolicySupportTest {
     private val logger = ClientLogger(RetryPolicySupportTest::class)
@@ -28,11 +29,12 @@ class RetryPolicySupportTest {
     }
 
     @Test
-    fun `negative per-call override falls back to the configured budget, not zero retries`() {
-        // A negative per-call value means "use the configured default", mirroring how a negative
-        // CONFIGURED maxRetries is clamped — it must NOT collapse to 0 retries.
-        assertEquals(5, support(configuredMaxRetries = 5).effectiveMaxRetries(options(-1)))
-        assertEquals(5, support(configuredMaxRetries = 5).effectiveMaxRetries(options(-100)))
+    fun `negative per-call maxRetries is rejected by the builder`() {
+        // The builder fails fast on a negative override, so effectiveMaxRetries never sees one: a
+        // caller wanting to suppress retries must pass 0, not a negative sentinel that would once
+        // have been silently reinterpreted as "use the configured default".
+        assertFailsWith<IllegalArgumentException> { options(-1) }
+        assertFailsWith<IllegalArgumentException> { options(-100) }
     }
 
     @Test

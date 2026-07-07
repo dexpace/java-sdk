@@ -117,17 +117,17 @@ class DefaultAsyncRetryStepTest {
     }
 
     @Test
-    fun `negative per-call maxRetries falls back to the configured budget, not zero retries`() {
-        // A negative per-call override is clamped to "use default" — mirroring the configured-path
-        // clamp — so the configured budget of 3 stays in force rather than collapsing to 0 retries.
-        val client = QueueClient().enqueue(503).enqueue(503).enqueue(503).enqueue(200)
-        val options = RequestOptions.builder().maxRetries(-1).build()
+    fun `per-call maxRetries of zero performs exactly one attempt`() {
+        // 0 is honoured as a real budget: the 503 is returned without any retry, even though the
+        // configured budget is 3 — the per-call override takes effect.
+        val client = QueueClient().enqueue(503).enqueue(200)
+        val options = RequestOptions.builder().maxRetries(0).build()
         val future =
             pipeline(client, HttpRetryOptions.fixed(maxRetries = 3, delay = Duration.ofMillis(50)))
                 .sendAsync(getRequest(), options)
         scheduler.runAll()
-        assertEquals(200, future.join().status.code)
-        assertEquals(4, client.callCount, "negative override must fall back to the configured budget of 3")
+        assertEquals(503, future.join().status.code)
+        assertEquals(1, client.callCount, "maxRetries(0) must suppress retries even under a configured budget of 3")
     }
 
     @Test

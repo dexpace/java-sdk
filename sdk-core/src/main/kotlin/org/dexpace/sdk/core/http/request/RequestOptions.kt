@@ -45,7 +45,7 @@ import org.dexpace.sdk.core.generics.Builder as SdkBuilder
  *   single-attempt bound.
  * @property tags Opaque per-call tags, keyed by string. Read-only; never `null`, may be empty.
  * @property maxRetries Per-call retry-count override, or `null` to keep the retry step's configured
- *   budget. `0` disables retries for this call.
+ *   budget. `0` disables retries for this call; a negative value is rejected by the builder.
  */
 public class RequestOptions private constructor(
     public val timeout: Duration?,
@@ -123,10 +123,21 @@ public class RequestOptions private constructor(
 
         /**
          * Sets the per-call retry-count override, or clears it when [maxRetries] is `null` (fall
-         * back to the retry step's configured budget). `0` disables retries for the call.
+         * back to the retry step's configured budget).
+         *
+         * A non-`null` [maxRetries] must be non-negative: a negative value is rejected here rather
+         * than reaching the retry step, where it would be silently reinterpreted as "use the
+         * configured default" — the opposite of the caller's likely intent to suppress retries.
+         * Pass `0` to disable retries for the call, or `null` to use the transport / pipeline
+         * default.
+         *
+         * @throws IllegalArgumentException if [maxRetries] is negative.
          */
         public fun maxRetries(maxRetries: Int?): Builder =
             apply {
+                require(maxRetries == null || maxRetries >= 0) {
+                    "maxRetries must be non-negative (or null to use the transport default), was $maxRetries"
+                }
                 this.maxRetries = maxRetries
             }
 

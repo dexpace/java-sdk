@@ -29,6 +29,7 @@ import java.net.PasswordAuthentication
 import java.net.Proxy
 import java.net.ProxySelector
 import java.net.SocketAddress
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.http.HttpResponse
 import java.time.Duration
@@ -136,6 +137,16 @@ public class JdkHttpTransport private constructor(
                 val wrapped = InterruptedIOException("interrupted while waiting for response")
                 wrapped.initCause(e)
                 throw wrapped
+            } catch (e: SocketTimeoutException) {
+                // `SocketTimeoutException` extends `InterruptedIOException`, but a response/read
+                // timeout is a retryable transport failure, not a thread interrupt. Letting it fall
+                // into the `InterruptedIOException` branch below would spuriously set the caller's
+                // interrupt flag. Classify it exactly like a generic transport IOException so it
+                // surfaces as a retryable `NetworkException`, matching the retry steps' carve-out
+                // (`is InterruptedIOException && !is SocketTimeoutException`, treating a socket
+                // timeout as a retryable timeout). This catch must precede the
+                // `InterruptedIOException` one to stay reachable, since it is a subtype.
+                throw NetworkException(e.message, e)
             } catch (e: InterruptedIOException) {
                 Thread.currentThread().interrupt()
                 throw e
