@@ -56,6 +56,21 @@ class RequestOptionsTest {
     }
 
     @Test
+    fun `maxRetries rejects a negative override`() {
+        // Fail fast rather than let a negative value be silently reinterpreted downstream as
+        // "use the configured default" — the opposite of a caller's likely intent to suppress
+        // retries. Callers disable retries with 0, not a negative sentinel.
+        assertFailsWith<IllegalArgumentException> {
+            RequestOptions.builder().maxRetries(-1)
+        }
+    }
+
+    @Test
+    fun `maxRetries accepts zero to disable retries`() {
+        assertEquals(0, RequestOptions.builder().maxRetries(0).build().maxRetries)
+    }
+
+    @Test
     fun `timeout accepts null to clear the override`() {
         val options = RequestOptions.builder().timeout(Duration.ofSeconds(1)).timeout(null).build()
         assertNull(options.timeout)

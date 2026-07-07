@@ -18,7 +18,6 @@ import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import org.dexpace.sdk.core.util.Clock
 import java.io.IOException
 import java.io.InterruptedIOException
-import java.net.SocketTimeoutException
 import java.time.Duration
 
 /**
@@ -229,9 +228,7 @@ public open class DefaultRetryStep
                 // the @Throws(IOException) contract holds, with prior failures attached.
                 // SocketTimeoutException extends InterruptedIOException but is a read timeout, not a
                 // cancellation, so it is excluded here and left to the normal retry classification.
-                if ((exception is InterruptedIOException && exception !is SocketTimeoutException) ||
-                    exception is InterruptedException
-                ) {
+                if (RetryPolicySupport.isNonRetryableInterrupt(exception)) {
                     Thread.currentThread().interrupt()
                     val ioe = support.asInterruptedIo(exception)
                     suppressed?.forEach(ioe::addSuppressed)

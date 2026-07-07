@@ -367,8 +367,8 @@ class InstrumentationStepTest {
 
     @Test
     fun `multi-valued allowed header is joined by comma in the log event`() {
-        // Branch coverage on joinHeaderValues: a header with more than one value must take
-        // the joinToString(", ") path. The default allow-list contains Via — feed in two
+        // Branch coverage on HeaderValueRedactor.render: a header with more than one value must
+        // take the joinToString(", ") path. The default allow-list contains Via — feed in two
         // values to drive that path.
         val fake = FakeHttpClient().enqueue { status(200) }
         val pipeline =

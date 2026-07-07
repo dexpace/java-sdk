@@ -9,6 +9,7 @@ package org.dexpace.sdk.core.pipeline.step.retry
 
 import org.dexpace.sdk.core.generics.Builder
 import org.dexpace.sdk.core.http.common.HttpHeaderName
+import org.dexpace.sdk.core.http.request.IDEMPOTENT_METHODS
 import org.dexpace.sdk.core.http.request.Method
 import java.time.Duration
 import java.util.concurrent.ScheduledExecutorService
@@ -304,8 +305,7 @@ public class RetrySettings
              * is replayable (the orthogonal axis checked by [RetryRecovery.canRetry]).
              */
             @JvmField
-            public val DEFAULT_RETRYABLE_METHODS: Set<Method> =
-                linkedSetOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE)
+            public val DEFAULT_RETRYABLE_METHODS: Set<Method> = IDEMPOTENT_METHODS
 
             // Spelled-out status constants to satisfy detekt's MagicNumber rule.
             private const val SC_REQUEST_TIMEOUT = 408

@@ -47,3 +47,12 @@ public enum class Method(public val permitsRequestBody: Boolean) {
     @Suppress("MemberNameEqualsClassName")
     public val method: String get() = name
 }
+
+/**
+ * HTTP methods that are idempotent per RFC 9110 §9.2.2 and therefore safe to replay without a
+ * replayable request body. Single canonical source both retry defaults derive from:
+ * `RetrySettings.DEFAULT_RETRYABLE_METHODS` (the configurable retry allow-list) and the inherent
+ * replay-safety gate in `RetryPolicySupport`. `linkedSetOf` fixes a stable iteration order.
+ */
+internal val IDEMPOTENT_METHODS: Set<Method> =
+    linkedSetOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE)

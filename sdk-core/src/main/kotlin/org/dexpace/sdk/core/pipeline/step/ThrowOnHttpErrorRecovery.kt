@@ -8,6 +8,7 @@
 package org.dexpace.sdk.core.pipeline.step
 
 import org.dexpace.sdk.core.http.context.DispatchContext
+import org.dexpace.sdk.core.http.response.MAX_BUFFERED_ERROR_BODY_BYTES
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.http.response.bufferErrorBody
 import org.dexpace.sdk.core.http.response.exception.HttpException
@@ -45,17 +46,18 @@ import org.dexpace.sdk.core.http.response.exception.HttpExceptionFactory
  * which would also close the live response body. To keep the error body readable on the
  * resulting [org.dexpace.sdk.core.pipeline.ResponseOutcome.Failure] — for a log-line
  * [HttpException.bodySnapshot] or downstream typed-error deserialization — this step buffers the
- * error body into a small, replayable in-memory body before constructing the exception, via the
+ * error body into a bounded, replayable in-memory body before constructing the exception, via the
  * shared [org.dexpace.sdk.core.http.response.bufferErrorBody] helper (the same routine that backs
  * [org.dexpace.sdk.core.http.response.throwOnError], so the two error-mapping paths share one
  * bounded, replayable implementation and cannot drift). The buffer is bounded at
- * [HttpException.DEFAULT_SNAPSHOT_BYTES], consistent with the `bodySnapshot` cap (smaller than the
- * standalone `throwOnError` cap, since this copy is primarily a log-line snapshot), so a
- * multi-megabyte 5xx body cannot OOM the process. Mapping the buffered body into a typed error
- * value is still left to the generated layer (see [HttpException.value]).
+ * [MAX_BUFFERED_ERROR_BODY_BYTES] — the same 1 MiB cap [org.dexpace.sdk.core.http.response.throwOnError]
+ * and the stage-layer error mapping use, so all error-body buffering shares one bound and a
+ * sub-megabyte error payload survives whole while a multi-megabyte 5xx body cannot OOM the process.
+ * Mapping the buffered body into a typed error value is still left to the generated layer (see
+ * [HttpException.value]).
  *
  * The cap is a hard truncation, not just an OOM guard: an error body larger than
- * [HttpException.DEFAULT_SNAPSHOT_BYTES] is preserved only up to that many bytes, and the excess
+ * [MAX_BUFFERED_ERROR_BODY_BYTES] is preserved only up to that many bytes, and the excess
  * is discarded with no marker. This is harmless for a log-line snapshot, but a downstream
  * consumer that deserializes the buffered body (e.g. the generated layer parsing it into
  * [HttpException.value]) must tolerate a structurally incomplete payload — a JSON object cut
@@ -81,7 +83,7 @@ public object ThrowOnHttpErrorRecovery : ResponsePipelineStep {
             return input
         }
         throw HttpExceptionFactory.fromResponse(
-            bufferErrorBody(input, HttpException.DEFAULT_SNAPSHOT_BYTES.toLong()),
+            bufferErrorBody(input, MAX_BUFFERED_ERROR_BODY_BYTES),
         )
     }
 }

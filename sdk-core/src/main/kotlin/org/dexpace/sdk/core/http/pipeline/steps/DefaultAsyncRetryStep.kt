@@ -19,7 +19,6 @@ import org.dexpace.sdk.core.util.Clock
 import org.dexpace.sdk.core.util.Futures
 import java.io.IOException
 import java.io.InterruptedIOException
-import java.net.SocketTimeoutException
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ScheduledExecutorService
@@ -293,9 +292,7 @@ public open class DefaultAsyncRetryStep
                 // DefaultRetryStep. SocketTimeoutException extends InterruptedIOException but is a
                 // retryable read timeout, not a cancellation, so it is excluded here and left to the
                 // normal retry classification below.
-                if ((exception is InterruptedIOException && exception !is SocketTimeoutException) ||
-                    exception is InterruptedException
-                ) {
+                if (RetryPolicySupport.isNonRetryableInterrupt(exception)) {
                     Thread.currentThread().interrupt()
                     failTerminally(support.asInterruptedIo(exception))
                     return

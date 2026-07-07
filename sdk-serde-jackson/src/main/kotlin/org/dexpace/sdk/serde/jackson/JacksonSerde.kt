@@ -106,10 +106,13 @@ public class JacksonSerde private constructor(
          * Build a [JacksonSerde] backed by a caller-supplied [mapper].
          *
          * This method operates on a **defensive copy** of [mapper] — the caller's original instance
-         * is never mutated. Because the copy is taken via [ObjectMapper.copy], the supplied mapper
-         * must be a standard `ObjectMapper` / `JsonMapper` (or a subclass that overrides `copy()`):
-         * Jackson's own `copy()` throws `IllegalStateException` for a subclass that does not override
-         * it. Modules registered on [mapper] *after* this call are not reflected in the copy — register
+         * is never mutated — **for a standard `ObjectMapper` / `JsonMapper` (or a subclass that
+         * overrides `copy()`)**. The copy is taken via [ObjectMapper.copy], and Jackson's own
+         * `copy()` throws `IllegalStateException` for a subclass that does not override it. For such
+         * a subclass the SDK no longer fails construction: it falls back to using the supplied mapper
+         * directly (registering [TristateModule] on it when [registerTristate] is `true`) instead of
+         * throwing. In that fallback the caller's instance *is* mutated by the module registration.
+         * Modules registered on [mapper] *after* this call are not reflected in the copy — register
          * them before calling [from], or register them on the returned serde's [mapper].
          *
          * ## Tristate PATCH semantics
@@ -118,7 +121,8 @@ public class JacksonSerde private constructor(
          * registered on the underlying mapper. Without it, [org.dexpace.sdk.core.serde.Tristate.Absent]
          * and [org.dexpace.sdk.core.serde.Tristate.Null] are indistinguishable on the wire — both
          * serialize to a non-absent representation, silently corrupting `PATCH` payloads. By default,
-         * [from] registers [TristateModule] on the copy automatically.
+         * [from] registers [TristateModule] automatically — on the defensive copy, or on the supplied
+         * mapper itself in the subclass fallback described above.
          *
          * Pass `registerTristate = false` only when the caller's mapper already carries a
          * manually-registered [TristateModule] (or a compatible substitute) and a second
@@ -130,9 +134,9 @@ public class JacksonSerde private constructor(
          * caller's [OutputStream]/[InputStream] is left open.
          *
          * @param mapper The mapper to copy and use as the serialization engine.
-         * @param registerTristate When `true` (the default), [TristateModule] is registered on
-         *   the copy. Pass `false` when the caller has already registered the module or a
-         *   compatible substitute.
+         * @param registerTristate When `true` (the default), [TristateModule] is registered on the
+         *   engine ([mapper]'s defensive copy, or [mapper] itself in the subclass fallback). Pass
+         *   `false` when the caller has already registered the module or a compatible substitute.
          */
         @JvmStatic
         @JvmOverloads
@@ -140,9 +144,17 @@ public class JacksonSerde private constructor(
             mapper: ObjectMapper,
             registerTristate: Boolean = true,
         ): JacksonSerde {
-            val copy = mapper.copy()
-            if (registerTristate) copy.registerModule(TristateModule())
-            return JacksonSerde(copy)
+            val engine =
+                try {
+                    mapper.copy()
+                } catch (e: IllegalStateException) {
+                    // ObjectMapper.copy() throws for a subclass that does not override copy(). Rather than
+                    // fail construction, fall back to the supplied mapper (which we then mutate by registering
+                    // TristateModule), matching the behavior for such mappers before the defensive copy.
+                    mapper
+                }
+            if (registerTristate) engine.registerModule(TristateModule())
+            return JacksonSerde(engine)
         }
     }
 }

@@ -9,7 +9,6 @@ package org.dexpace.sdk.core.operation
 
 import org.dexpace.sdk.core.http.common.PercentEncoding
 import org.dexpace.sdk.core.http.request.Request
-import java.net.MalformedURLException
 
 /**
  * Assembles a [Request] from an [OperationParams] projection and a base URL. Internal — callers
@@ -36,21 +35,24 @@ internal object OperationRequestAssembler {
         val path = resolvePath(params.pathTemplate, params.pathParams())
         val query = params.queryParams().encode()
         val url = buildUrl(baseUrl, path, query)
-        return try {
-            Request.builder()
-                .method(params.method)
-                .url(url)
-                .headers(params.headers())
-                .body(params.body())
-                .build()
-        } catch (e: MalformedURLException) {
-            // Surface a malformed base URL (e.g. missing scheme) as the SPI's documented
-            // IllegalArgumentException rather than leaking a checked IOException to callers.
+        val builder = Request.builder().method(params.method)
+        // Guard only the URL resolution: `url(String)` rejects a malformed base URL with an
+        // IllegalArgumentException whose generic "Invalid URL: …" message drops the base-URL /
+        // operation context. Re-throw it with that context restored, and keep the guard tight so
+        // an unrelated IllegalArgumentException from build() (e.g. a missing required field) is not
+        // mislabelled as a URL problem.
+        try {
+            builder.url(url)
+        } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException(
                 "Cannot assemble a request: base URL '$baseUrl' resolved to a malformed URL '$url'",
                 e,
             )
         }
+        return builder
+            .headers(params.headers())
+            .body(params.body())
+            .build()
     }
 
     private fun resolvePath(

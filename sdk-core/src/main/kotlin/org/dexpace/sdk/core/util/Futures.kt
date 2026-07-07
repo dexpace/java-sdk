@@ -123,14 +123,16 @@ private class InterruptibleFuture<T> : CompletableFuture<T>() {
     override fun cancel(mayInterruptIfRunning: Boolean): Boolean {
         val cancelled = super.cancel(mayInterruptIfRunning)
         if (cancelled && mayInterruptIfRunning) {
-            val thread = worker.getAndSet(null)
-            if (thread != null) {
-                interrupting.set(true)
-                try {
-                    thread.interrupt()
-                } finally {
-                    interrupting.set(false)
-                }
+            // Raise the flag BEFORE reading the worker, mirroring FutureTask's transition to
+            // INTERRUPTING before it reads the runner thread. Ordering it the other way lets a
+            // worker finish, observe interrupting==false in unbindWorker(), return to its pool, and
+            // pick up an unrelated task — only to then receive this in-flight interrupt, poisoning a
+            // pooled thread mid-unrelated-work.
+            interrupting.set(true)
+            try {
+                worker.getAndSet(null)?.interrupt()
+            } finally {
+                interrupting.set(false)
             }
         }
         return cancelled
