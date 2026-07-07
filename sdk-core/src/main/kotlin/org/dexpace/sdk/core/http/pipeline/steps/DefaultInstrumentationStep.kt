@@ -15,6 +15,7 @@ import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.response.LoggableResponseBody
 import org.dexpace.sdk.core.http.response.Response
 import org.dexpace.sdk.core.instrumentation.ClientLogger
+import org.dexpace.sdk.core.instrumentation.HeaderValueRedactor
 import org.dexpace.sdk.core.instrumentation.LoggingEvent
 import org.dexpace.sdk.core.instrumentation.Span
 import org.dexpace.sdk.core.instrumentation.UrlRedactor
@@ -269,28 +270,15 @@ public class DefaultInstrumentationStep
                 val typed = HttpHeaderName.fromString(nameLower)
                 when {
                     options.allowedHeaderNames.contains(typed) ->
-                        ev.field(prefix + nameLower, joinHeaderValues(typed, values))
+                        ev.field(
+                            prefix + nameLower,
+                            HeaderValueRedactor.render(typed, values, options.allowedQueryParamNames),
+                        )
                     options.isRedactedHeaderNamesLoggingEnabled ->
                         ev.field(prefix + nameLower, "REDACTED")
                     // else: silently omit
                 }
             }
-        }
-
-        private fun joinHeaderValues(
-            name: HttpHeaderName?,
-            values: List<String>,
-        ): String {
-            // A URL-valued header (Location, Content-Location) can carry credentials in its query
-            // or fragment (OAuth code, pre-signed signature, implicit-flow token). Redact its value
-            // through the same UrlRedactor applied to url.full instead of logging it verbatim.
-            val rendered =
-                if (name in URL_VALUED_HEADERS) {
-                    values.map { UrlRedactor.redactUrlValue(it, options.allowedQueryParamNames) }
-                } else {
-                    values
-                }
-            return if (rendered.size == 1) rendered[0] else rendered.joinToString(", ")
         }
 
         private fun safeRedact(request: Request): String =
@@ -356,10 +344,5 @@ public class DefaultInstrumentationStep
             // Nanoseconds in one millisecond, expressed as Double so the division returns
             // millisecond fractions (e.g. 1.234 ms) for high-resolution latency histograms.
             private const val NANOS_PER_MILLI_DOUBLE = 1_000_000.0
-
-            // Allowed headers whose value is a URL: their query/fragment can carry credentials, so
-            // they are redacted through UrlRedactor rather than logged verbatim.
-            private val URL_VALUED_HEADERS: Set<HttpHeaderName> =
-                setOf(HttpHeaderName.LOCATION, HttpHeaderName.CONTENT_LOCATION)
         }
     }

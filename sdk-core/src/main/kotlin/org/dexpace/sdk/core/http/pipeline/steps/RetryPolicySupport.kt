@@ -7,13 +7,14 @@
 
 package org.dexpace.sdk.core.http.pipeline.steps
 
-import org.dexpace.sdk.core.http.request.Method
+import org.dexpace.sdk.core.http.request.IDEMPOTENT_METHODS
 import org.dexpace.sdk.core.http.request.Request
 import org.dexpace.sdk.core.http.request.RequestOptions
 import org.dexpace.sdk.core.instrumentation.ClientLogger
 import org.dexpace.sdk.core.pipeline.step.retry.BackoffCalculator
 import org.dexpace.sdk.core.pipeline.step.retry.RetrySettings
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.time.Duration
 
 /**
@@ -50,18 +51,14 @@ internal class RetryPolicySupport(
             .build()
 
     /**
-     * Resolves the retry budget for a single call from its [RequestOptions]. A per-call
-     * [RequestOptions.maxRetries] override wins only when it is non-negative; a `null` (no
-     * override) or a negative override falls back to the configured, already-clamped
-     * [options]`.maxRetries`.
-     *
-     * The negative-override fallback is deliberate: it mirrors [clampOptions]' handling of a
-     * negative *configured* `maxRetries`, so a negative per-call value means "use the configured
-     * default", NOT "0 retries" (which is what `maxRetries = 0` requests). Callers should read this
-     * once per call — the options are constant across retry re-drives.
+     * Resolves the retry budget for a single call from its [RequestOptions]. A non-`null` per-call
+     * [RequestOptions.maxRetries] override wins — the builder rejects a negative value, so a
+     * present override is always `>= 0` here — while a `null` override falls back to the configured,
+     * already-clamped [options]`.maxRetries`. `0` is a real value (one attempt, no retries), not
+     * "unset". Callers should read this once per call — the options are constant across retry
+     * re-drives.
      */
-    fun effectiveMaxRetries(callOptions: RequestOptions): Int =
-        callOptions.maxRetries?.takeIf { it >= 0 } ?: options.maxRetries
+    fun effectiveMaxRetries(callOptions: RequestOptions): Int = callOptions.maxRetries ?: options.maxRetries
 
     /**
      * Returns `true` when [request] may be re-sent: a body-less request only when its method is
@@ -127,10 +124,16 @@ internal class RetryPolicySupport(
         return opts.withMaxRetries(DefaultRetryStep.DEFAULT_MAX_RETRIES)
     }
 
-    private companion object {
-        // Methods safe to re-send regardless of body replayability (idempotent per RFC 9110).
-        // Mirrors RetrySettings.DEFAULT_RETRYABLE_METHODS.
-        private val IDEMPOTENT_METHODS: Set<Method> =
-            setOf(Method.GET, Method.HEAD, Method.OPTIONS, Method.PUT, Method.DELETE)
+    internal companion object {
+        /**
+         * Classifies [exception] as a non-retryable interrupt / cancellation, per the SDK-wide
+         * convention: an [InterruptedIOException] other than a [SocketTimeoutException] (a read
+         * timeout, which stays retryable), or a bare [InterruptedException]. Shared by
+         * [DefaultRetryStep] and [DefaultAsyncRetryStep] so the blocking and async stacks classify
+         * cancellation identically.
+         */
+        internal fun isNonRetryableInterrupt(exception: Throwable): Boolean =
+            (exception is InterruptedIOException && exception !is SocketTimeoutException) ||
+                exception is InterruptedException
     }
 }

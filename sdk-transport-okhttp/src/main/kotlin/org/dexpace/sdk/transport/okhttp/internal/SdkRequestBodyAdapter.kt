@@ -7,7 +7,6 @@
 
 package org.dexpace.sdk.transport.okhttp.internal
 
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody
 import okio.BufferedSink
 import org.dexpace.sdk.core.io.Io
@@ -44,12 +43,7 @@ internal class SdkRequestBodyAdapter(
     private val sdkBody: SdkRequestBody,
     private val explicitContentType: String? = null,
 ) : RequestBody() {
-    override fun contentType(): okhttp3.MediaType? =
-        if (explicitContentType != null) {
-            explicitContentType.toMediaTypeOrNull()
-        } else {
-            sdkBody.mediaType()?.toString()?.toMediaTypeOrNull()
-        }
+    override fun contentType(): okhttp3.MediaType? = resolveOkHttpContentType(explicitContentType, sdkBody.mediaType())
 
     override fun contentLength(): Long = sdkBody.contentLength()
 
