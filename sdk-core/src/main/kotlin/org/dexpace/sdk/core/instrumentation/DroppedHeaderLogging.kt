@@ -21,9 +21,8 @@ package org.dexpace.sdk.core.instrumentation
  * pre-drop of a known restricted header the transport recomputes (`Host`, `Content-Length`, …)
  * always logs at verbose regardless of this setting.
  *
- * Note that the log *level* remains the operator's to filter through their SLF4J backend; this
- * policy chooses the level (and dedup) the transport emits at, which a log level alone cannot
- * express.
+ * The log *level* remains the operator's to filter through their SLF4J backend; this policy
+ * chooses the level (and dedup) the transport emits at, which a log level alone cannot express.
  */
 public enum class DroppedHeaderLogging {
     /**

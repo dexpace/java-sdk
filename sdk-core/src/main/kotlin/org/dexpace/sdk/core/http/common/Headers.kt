@@ -38,7 +38,6 @@ public data class Headers private constructor(
      * Returns the first header value for the given name, or null if none.
      *
      * @param name the header name (case-insensitive)
-     * @return the first header value, or null if not found
      */
     public fun get(name: String): String? = headersMap[sanitizeName(name)]?.firstOrNull()
 
@@ -71,24 +70,19 @@ public data class Headers private constructor(
     public fun contains(name: HttpHeaderName): Boolean = headersMap.containsKey(name.caseInsensitiveName)
 
     /**
-     * Returns a point-in-time snapshot of all header names at the time of the call.
+     * Returns a snapshot of all header names.
      *
-     * Returns a defensive copy (`Set<String>`) so that callers cannot observe later
-     * mutations to this [Headers] instance through the returned set. The set is exposed
-     * through Kotlin's read-only [Set] type.
-     *
-     * @return a snapshot of header names
+     * A defensive copy (`Set<String>`) exposed through Kotlin's read-only [Set] type, so
+     * callers cannot observe later mutations to this [Headers] instance through it.
      */
     public fun names(): Set<String> = headersMap.keys.toSet()
 
     /**
-     * Returns a point-in-time snapshot of all header entries at the time of the call.
+     * Returns a snapshot of all header entries.
      *
      * Each entry is copied into a fresh map so that callers cannot observe later mutations
      * to this [Headers] instance through the returned set. The set and its per-name value
      * lists are exposed through Kotlin's read-only [Set] / [List] types.
-     *
-     * @return a snapshot of header entries as [Map.Entry]
      */
     public fun entries(): Set<Map.Entry<String, List<String>>> {
         val snapshot = LinkedHashMap<String, List<String>>(headersMap.size)
@@ -98,11 +92,7 @@ public data class Headers private constructor(
         return snapshot.entries
     }
 
-    /**
-     * Returns a new [Builder] initialized with the existing headers.
-     *
-     * @return a new [Builder]
-     */
+    /** Returns a new [Builder] initialized with the existing headers. */
     public fun newBuilder(): Builder = Builder(this)
 
     override fun toString(): String = headersMap.toString()
@@ -120,8 +110,6 @@ public data class Headers private constructor(
 
         /**
          * Creates a new builder initialized with the headers from [headers].
-         *
-         * @param headers the headers to initialize from
          */
         public constructor(headers: Headers) : this() {
             headers.headersMap.forEach { (key, values) ->
@@ -132,10 +120,6 @@ public data class Headers private constructor(
         /**
          * Adds a header with the specified name and value.
          * Multiple headers with the same name are allowed.
-         *
-         * @param name the header name
-         * @param value the header value
-         * @return this builder
          */
         public fun add(
             name: String,
@@ -144,10 +128,6 @@ public data class Headers private constructor(
 
         /**
          * Adds all header values for the specified name.
-         *
-         * @param name the header name
-         * @param values the list of header values
-         * @return this builder
          */
         public fun add(
             name: String,
@@ -175,7 +155,6 @@ public data class Headers private constructor(
          *
          * @param name the header name
          * @param value the header value, which may contain non-ASCII bytes
-         * @return this builder
          * @throws IllegalArgumentException if [name] is blank or contains a control/non-ASCII byte,
          *   or [value] contains a prohibited control character
          */
@@ -213,10 +192,6 @@ public data class Headers private constructor(
          * Sets the header with the specified name to the single value provided.
          * If headers with this name already exist, they are removed. Passing a `null`
          * [value] removes the header entirely (Azure / OkHttp semantics).
-         *
-         * @param name the header name
-         * @param value the header value, or `null` to remove
-         * @return this builder
          */
         public fun set(
             name: String,
@@ -233,10 +208,6 @@ public data class Headers private constructor(
         /**
          * Sets the header with the specified name to the values list provided.
          * If headers with this name already exist, they are removed.
-         *
-         * @param name the header name
-         * @param values the header values
-         * @return this builder
          */
         public fun set(
             name: String,
@@ -278,9 +249,6 @@ public data class Headers private constructor(
 
         /**
          * Removes any header with the specified name.
-         *
-         * @param name the header name
-         * @return this builder
          */
         public fun remove(name: String): Builder =
             apply {
@@ -309,11 +277,7 @@ public data class Headers private constructor(
                 }
             }
 
-        /**
-         * Builds an immutable [Headers] instance.
-         *
-         * @return the built [Headers]
-         */
+        /** Builds an immutable [Headers] instance. */
         public fun build(): Headers {
             // Deep, defensive copy: snapshot each value list into its own fresh copy so
             // that later builder mutations cannot reach into the built instance. The

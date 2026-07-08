@@ -11,8 +11,8 @@ import org.dexpace.sdk.core.generics.Builder as GenericBuilder
 
 /**
  * A single auth alternative an operation accepts: one [AuthScheme] plus any OAuth-specific
- * parameters ([oauthScopes] / [oauthParams]) the auth step should forward to the token
- * provider when the chosen scheme is [AuthScheme.OAUTH2].
+ * parameters ([oauthScopes] / [oauthParams], e.g. `claims`) the auth step should forward to
+ * the token provider when the chosen scheme is [AuthScheme.OAUTH2].
  *
  * Each requirement pairs a scheme with its *own* OAuth parameters, so an operation that
  * accepts OAuth with `read` scopes **or** a static API key is two requirements, only one of
@@ -27,10 +27,6 @@ import org.dexpace.sdk.core.generics.Builder as GenericBuilder
  * copy), so a caller that retains and later mutates the argument collection cannot mutate this
  * instance.
  * Instances are obtained via [of] or [Builder], never a public constructor.
- *
- * @param scheme the auth scheme this alternative selects.
- * @param oauthScopes OAuth scopes to forward to the token provider; ignored for non-OAuth schemes.
- * @param oauthParams extra OAuth params to forward (e.g. `claims`); ignored for non-OAuth schemes.
  */
 public class AuthRequirement private constructor(
     scheme: AuthScheme,

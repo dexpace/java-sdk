@@ -78,13 +78,8 @@ public class HttpRange private constructor(private val raw: String) {
         }
 
         /**
-         * Parses a `Range` header value into an [HttpRange]. The accepted value is stored
-         * verbatim and round-trips through [toHeaderValue] unchanged, so its exact casing is
-         * preserved on the wire.
-         *
-         * The value must begin with the `bytes=` unit token (matched case-insensitively, with no
-         * leading whitespace); only the `bytes` unit is accepted, and multi-range values are
-         * rejected.
+         * Parses a `Range` header value into an [HttpRange], storing it verbatim so its casing
+         * round-trips through [toHeaderValue] (see the class KDoc for the accepted-form contract).
          *
          * @throws IllegalArgumentException if the value does not begin with the `bytes=` unit
          *   token or contains a comma (multi-range).

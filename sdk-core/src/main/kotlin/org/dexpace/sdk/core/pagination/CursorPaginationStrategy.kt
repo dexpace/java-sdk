@@ -16,8 +16,7 @@ import org.dexpace.sdk.core.http.response.Response
  *
  * A dedicated functional interface (rather than a raw `(Response) -> CursorResult<T>` function type)
  * gives Java callers a clean SAM to implement — `new CursorExtractor<>() { ... }` or a lambda —
- * instead of `kotlin.jvm.functions.Function1`. Kotlin callers pass a lambda unchanged via SAM
- * conversion.
+ * instead of `kotlin.jvm.functions.Function1`.
  *
  * @param T Element type carried in the produced [CursorResult].
  */

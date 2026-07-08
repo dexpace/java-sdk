@@ -52,15 +52,10 @@ import kotlin.concurrent.withLock
  * method (the in-step hook is not gated by retry-safety), so a non-idempotent POST is
  * re-authenticated too.
  *
- * Eviction only fires when the `WWW-Authenticate` header actually advertises a `Bearer`
- * challenge. A 401 carrying only a non-bearer challenge (e.g. `Basic`) — or an unparseable
- * one — is surfaced unchanged, because refreshing the bearer token would not satisfy it: the
- * retry would just be rejected again, at the cost of a wasted token fetch and round trip.
- *
- * A request that reaches the challenge hook carrying **no** `Authorization` header is a
- * cross-origin redirect re-issue whose credential the AUTH stage deliberately suppressed
- * (see [CrossOriginRedirectMarker]). In that case the hook re-stamps nothing and surfaces the
- * 401 unchanged, so the caller's token is never attached to a server-chosen foreign host.
+ * Eviction fires only for an actual `Bearer` challenge, and never for a credential-suppressed
+ * cross-origin redirect re-issue (see [CrossOriginRedirectMarker]); see
+ * [authorizeRequestOnChallenge] for the exact conditions under which the 401 is surfaced
+ * unchanged.
  *
  * ## Errors from [provider]
  *

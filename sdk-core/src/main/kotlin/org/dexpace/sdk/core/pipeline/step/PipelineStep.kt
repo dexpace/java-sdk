@@ -33,11 +33,8 @@ import org.dexpace.sdk.core.http.context.DispatchContext
  */
 public fun interface PipelineStep<in T, out V> {
     /**
-     * Executes this step against [input] under [context] and returns the transformed value.
-     *
-     * @param input The current pipeline value.
-     * @param context The shared dispatch context.
-     * @return The transformed value to feed the next step.
+     * Executes this step against [input] under [context] and returns the transformed value to
+     * feed the next step.
      */
     public fun execute(
         input: T,

@@ -45,10 +45,8 @@ public open class SerdeException
 
 /**
  * A [SerdeException] raised while **encoding** a value to the wire format — for example an object
- * graph the backing codec cannot represent (a reference cycle, an unmapped type).
- *
- * @param message Human-readable description of the failure.
- * @param cause The underlying error (typically the backing library's exception), or `null`.
+ * graph the backing codec cannot represent (a reference cycle, an unmapped type). See
+ * [SerdeException] for the `message`/`cause` contract.
  */
 public open class SerializationException
     @JvmOverloads
@@ -59,10 +57,8 @@ public open class SerializationException
 
 /**
  * A [SerdeException] raised while **decoding** wire bytes / strings / streams into a typed value —
- * for example a malformed document or a payload whose shape does not match the target type.
- *
- * @param message Human-readable description of the failure.
- * @param cause The underlying error (typically the backing library's exception), or `null`.
+ * for example a malformed document or a payload whose shape does not match the target type. See
+ * [SerdeException] for the `message`/`cause` contract.
  */
 public open class DeserializationException
     @JvmOverloads

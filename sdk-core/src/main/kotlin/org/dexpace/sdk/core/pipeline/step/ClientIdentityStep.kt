@@ -102,8 +102,6 @@ public class ClientIdentityStep
          * The pre-filled tokens are treated as caller-owned: a subsequent
          * [ClientIdentityStepBuilder.addToken] appends to them rather than discarding the
          * default seed (there is no seed to discard once an instance has been materialised).
-         *
-         * @return A new builder carrying this instance's configuration.
          */
         public fun newBuilder(): ClientIdentityStepBuilder = ClientIdentityStepBuilder(this)
 

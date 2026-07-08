@@ -62,9 +62,8 @@ public object Futures {
      * The SDK's async retry/redirect steps compose this with `thenCompose` to insert async
      * delays into a future chain without blocking a thread.
      *
-     * The return type is `CompletableFuture<Void>` (not `Unit`) for Java-interop ergonomics —
-     * Java callers can compose with `CompletableFuture<Void>` chains naturally using
-     * `thenRun`, `thenCompose`, etc., without needing to adapt a Kotlin `Unit` value.
+     * The return type is `CompletableFuture<Void>` (not `Unit`) so Java callers can compose with
+     * `thenRun`/`thenCompose` chains without adapting a Kotlin `Unit` value.
      *
      * Cancellation of the returned future cancels the scheduled task.
      */

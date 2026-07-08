@@ -43,11 +43,10 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
     /**
      * Seeds a new builder from [pipeline] by **flattening** it: [pipeline]'s steps become this
      * builder's steps and its transport becomes this builder's terminal transport (identical to
-     * [from]). Prefer this over the generic [HttpClient] transport constructor whenever the argument
-     * is an [HttpPipeline] — the transport constructor would instead **nest** the pipeline as an
-     * opaque transport, running the outer steps outside the inner pipeline's redirect / retry / auth
-     * loops. Because [HttpPipeline] is more specific than [HttpClient], `HttpPipelineBuilder(pipeline)`
-     * resolves to this flattening constructor.
+     * [from]). Prefer this over the generic [HttpClient] transport constructor when the argument
+     * is an [HttpPipeline]; that constructor would instead **nest** the pipeline (see the primary
+     * `@constructor` KDoc for the nesting hazard). Because [HttpPipeline] is more specific than
+     * [HttpClient], `HttpPipelineBuilder(pipeline)` resolves to this flattening constructor.
      */
     public constructor(pipeline: HttpPipeline) : this(pipeline.httpClient) {
         steps.reload(pipeline.steps)
@@ -63,9 +62,9 @@ public class HttpPipelineBuilder(private val httpClient: HttpClient) {
     public fun appendAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::append) }
 
     /**
-     * Prepends every step in [batch] via [prepend], preserving iteration order. Note that
-     * because each call uses [prepend], the final relative ordering inside each stage is the
-     * reverse of [batch] — the last item ends up at the head.
+     * Prepends every step in [batch] via [prepend], preserving iteration order. Because each
+     * call uses [prepend], the final relative ordering inside each stage is the reverse of
+     * [batch] — the last item ends up at the head.
      */
     public fun prependAll(batch: Iterable<HttpStep>): HttpPipelineBuilder = apply { batch.forEach(::prepend) }
 

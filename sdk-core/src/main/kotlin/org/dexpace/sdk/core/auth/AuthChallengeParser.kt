@@ -24,8 +24,7 @@ import java.util.Locale
  * delimiters. Escape sequences (`\"`, `\\`) inside quoted strings are unescaped on
  * read; surrounding quotes are stripped from the stored value.
  *
- * Malformed challenges are skipped — the parser does not throw on bad input. This
- * matches the [edge-case guardrails][to-implement.md] for Rank 12.
+ * Malformed challenges are skipped — the parser does not throw on bad input.
  */
 public object AuthChallengeParser {
     // Initial capacity for the per-challenge auth-param map. Auth challenges typically

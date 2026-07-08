@@ -71,9 +71,9 @@ public value class TraceId(public val value: String) {
         /**
          * Sentinel "invalid" trace id — 32 hex zeros, matching the W3C spec reserved value.
          *
-         * Exposed as `@JvmStatic` rather than `@JvmField`: Kotlin disallows `@JvmField`
-         * on inline-class typed properties even though the JVM representation is just a
-         * `String`. Java callers reach this via `TraceId.getNOOP()`.
+         * `@JvmStatic`, not `@JvmField` — Kotlin disallows `@JvmField` on inline-class-typed
+         * properties even though the JVM representation is just a `String`; Java callers use
+         * `TraceId.getNOOP()`.
          */
         @JvmStatic
         public val NOOP: TraceId = TraceId("00000000000000000000000000000000")
@@ -92,9 +92,9 @@ public value class SpanId(public val value: String) {
          * Sentinel "invalid" span id — 16 hex zeros, used when tracing is disabled or no
          * valid span is in scope.
          *
-         * Exposed as `@JvmStatic` rather than `@JvmField`: Kotlin disallows `@JvmField`
-         * on inline-class typed properties even though the JVM representation is just a
-         * `String`. Java callers reach this via `SpanId.getNOOP()`.
+         * `@JvmStatic`, not `@JvmField` — Kotlin disallows `@JvmField` on inline-class-typed
+         * properties even though the JVM representation is just a `String`; Java callers use
+         * `SpanId.getNOOP()`.
          */
         @JvmStatic
         public val NOOP: SpanId = SpanId("0000000000000000")
@@ -111,9 +111,9 @@ public value class TraceFlags(public val value: String) {
         /**
          * Sentinel "no flags set" trace-flags value — the W3C unsampled `"00"` byte.
          *
-         * Exposed as `@JvmStatic` rather than `@JvmField`: Kotlin disallows `@JvmField`
-         * on inline-class typed properties even though the JVM representation is just a
-         * `String`. Java callers reach this via `TraceFlags.getNOOP()`.
+         * `@JvmStatic`, not `@JvmField` — Kotlin disallows `@JvmField` on inline-class-typed
+         * properties even though the JVM representation is just a `String`; Java callers use
+         * `TraceFlags.getNOOP()`.
          */
         @JvmStatic
         public val NOOP: TraceFlags = TraceFlags("00")
@@ -131,9 +131,9 @@ public value class TraceState(public val value: String) {
         /**
          * Sentinel "empty" trace state — no vendor-specific entries.
          *
-         * Exposed as `@JvmStatic` rather than `@JvmField`: Kotlin disallows `@JvmField`
-         * on inline-class typed properties even though the JVM representation is just a
-         * `String`. Java callers reach this via `TraceState.getNOOP()`.
+         * `@JvmStatic`, not `@JvmField` — Kotlin disallows `@JvmField` on inline-class-typed
+         * properties even though the JVM representation is just a `String`; Java callers use
+         * `TraceState.getNOOP()`.
          */
         @JvmStatic
         public val NOOP: TraceState = TraceState("")

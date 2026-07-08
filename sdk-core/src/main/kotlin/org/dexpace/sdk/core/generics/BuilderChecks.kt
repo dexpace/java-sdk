@@ -30,8 +30,6 @@ package org.dexpace.sdk.core.generics
  * across builders with this helper keeps the missing-field diagnostics identical, which
  * matters most once builders are emitted by codegen.
  *
- * @param name The field name to report in the failure message.
- * @param value The field value to validate.
  * @return [value], guaranteed non-null.
  * @throws IllegalStateException If [value] is `null`.
  */

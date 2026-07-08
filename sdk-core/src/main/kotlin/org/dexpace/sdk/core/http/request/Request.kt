@@ -75,11 +75,7 @@ public data class Request private constructor(
         return result
     }
 
-    /**
-     * Returns a new [RequestBuilder] initialized with this request's data.
-     *
-     * @return A new builder.
-     */
+    /** Returns a new [RequestBuilder] initialized with this request's data. */
     public fun newBuilder(): RequestBuilder = RequestBuilder(this)
 
     /**
@@ -113,7 +109,6 @@ public data class Request private constructor(
          * Sets the HTTP method.
          *
          * @param method HTTP method, e.g., GET, POST.
-         * @return This builder.
          */
         public fun method(method: Method): RequestBuilder =
             apply {
@@ -128,7 +123,6 @@ public data class Request private constructor(
          * [build] rejects a non-`null` body ([Method.permitsRequestBody] is `false` for them).
          *
          * @param body The request body, or `null` to clear any previously-set body.
-         * @return This builder.
          */
         public fun body(body: RequestBody?): RequestBuilder =
             apply {
@@ -139,7 +133,6 @@ public data class Request private constructor(
          * Sets the URL from a string.
          *
          * @param url The URL as a string.
-         * @return This builder.
          * @throws IllegalArgumentException If [url] is not a valid URL.
          */
         public fun url(url: String): RequestBuilder =
@@ -155,7 +148,6 @@ public data class Request private constructor(
          * Sets the URL from a [URI]. Converts via [URI.toURL].
          *
          * @param uri The URI to convert and set.
-         * @return This builder.
          * @throws IllegalArgumentException If [uri] cannot be converted to a URL.
          */
         public fun url(uri: URI): RequestBuilder =
@@ -176,20 +168,13 @@ public data class Request private constructor(
          * Sets the URL.
          *
          * @param url The URL as a [URL] object.
-         * @return This builder.
          */
         public fun url(url: URL): RequestBuilder =
             apply {
                 this.url = url
             }
 
-        /**
-         * Adds a header with the specified name and value.
-         *
-         * @param name The header name.
-         * @param value The header value.
-         * @return This builder.
-         */
+        /** Adds a header with the specified name and value. */
         public fun addHeader(
             name: String,
             value: String,
@@ -198,13 +183,7 @@ public data class Request private constructor(
                 headersBuilder.add(name, value)
             }
 
-        /**
-         * Adds a header with the specified name and values.
-         *
-         * @param name The header name.
-         * @param values The header values list.
-         * @return This builder.
-         */
+        /** Adds a header with the specified name and values. */
         public fun addHeader(
             name: String,
             values: List<String>,
@@ -213,13 +192,7 @@ public data class Request private constructor(
                 headersBuilder.add(name, values)
             }
 
-        /**
-         * Sets a header with the specified name and value, replacing any existing values.
-         *
-         * @param name The header name.
-         * @param value The header value.
-         * @return This builder.
-         */
+        /** Sets a header with the specified name and value, replacing any existing values. */
         public fun setHeader(
             name: String,
             value: String,
@@ -228,13 +201,7 @@ public data class Request private constructor(
                 headersBuilder.set(name, value)
             }
 
-        /**
-         * Sets a header with the specified name and values list, replacing any existing values.
-         *
-         * @param name The header name.
-         * @param values The header values list.
-         * @return This builder.
-         */
+        /** Sets a header with the specified name and values list, replacing any existing values. */
         public fun setHeader(
             name: String,
             values: List<String>,
@@ -243,13 +210,7 @@ public data class Request private constructor(
                 headersBuilder.set(name, values)
             }
 
-        /**
-         * Adds a header using a typed [HttpHeaderName] and a single value.
-         *
-         * @param name The typed header name.
-         * @param value The header value.
-         * @return This builder.
-         */
+        /** Adds a header using a typed [HttpHeaderName] and a single value. */
         public fun addHeader(
             name: HttpHeaderName,
             value: String,
@@ -258,13 +219,7 @@ public data class Request private constructor(
                 headersBuilder.add(name, value)
             }
 
-        /**
-         * Adds a header using a typed [HttpHeaderName] and a list of values.
-         *
-         * @param name The typed header name.
-         * @param values The header values.
-         * @return This builder.
-         */
+        /** Adds a header using a typed [HttpHeaderName] and a list of values. */
         public fun addHeader(
             name: HttpHeaderName,
             values: List<String>,
@@ -279,7 +234,6 @@ public data class Request private constructor(
          *
          * @param name The typed header name (e.g. [HttpHeaderName.CONTENT_TYPE]).
          * @param value The media type whose [MediaType.toString] form is used as the header value.
-         * @return This builder.
          */
         public fun addHeader(
             name: HttpHeaderName,
@@ -289,13 +243,7 @@ public data class Request private constructor(
                 headersBuilder.add(name, value.toString())
             }
 
-        /**
-         * Sets a header using a typed [HttpHeaderName] and a single value, replacing any existing values.
-         *
-         * @param name The typed header name.
-         * @param value The header value.
-         * @return This builder.
-         */
+        /** Sets a header using a typed [HttpHeaderName] and a single value, replacing any existing values. */
         public fun setHeader(
             name: HttpHeaderName,
             value: String,
@@ -304,13 +252,7 @@ public data class Request private constructor(
                 headersBuilder.set(name, value)
             }
 
-        /**
-         * Sets a header using a typed [HttpHeaderName] and a list of values, replacing any existing values.
-         *
-         * @param name The typed header name.
-         * @param values The header values.
-         * @return This builder.
-         */
+        /** Sets a header using a typed [HttpHeaderName] and a list of values, replacing any existing values. */
         public fun setHeader(
             name: HttpHeaderName,
             values: List<String>,
@@ -319,34 +261,19 @@ public data class Request private constructor(
                 headersBuilder.set(name, values)
             }
 
-        /**
-         * Sets a complete Headers instance, replacing all other headers
-         *
-         * @param headers The [Headers] instance
-         * @return This builder.
-         */
+        /** Sets a complete Headers instance, replacing all other headers. */
         public fun headers(headers: Headers): RequestBuilder =
             apply {
                 this.headersBuilder = headers.newBuilder()
             }
 
-        /**
-         * Removes all headers with the specified name.
-         *
-         * @param name The header name.
-         * @return This builder.
-         */
+        /** Removes all headers with the specified name. */
         public fun removeHeader(name: String): RequestBuilder =
             apply {
                 headersBuilder.remove(name)
             }
 
-        /**
-         * Removes all headers with the specified typed name.
-         *
-         * @param name The typed header name.
-         * @return This builder.
-         */
+        /** Removes all headers with the specified typed name. */
         public fun removeHeader(name: HttpHeaderName): RequestBuilder =
             apply {
                 headersBuilder.remove(name)
@@ -368,8 +295,6 @@ public data class Request private constructor(
         /**
          * Sets the method to [Method.GET] and clears any previously-set body. Equivalent to
          * `method(Method.GET).body(null)`.
-         *
-         * @return This builder.
          */
         public fun get(): RequestBuilder = verb(Method.GET, null)
 
@@ -377,7 +302,6 @@ public data class Request private constructor(
          * Sets the method to [Method.POST] and the body to [body].
          *
          * @param body The request body.
-         * @return This builder.
          */
         public fun post(body: RequestBody): RequestBuilder = verb(Method.POST, body)
 
@@ -385,7 +309,6 @@ public data class Request private constructor(
          * Sets the method to [Method.PUT] and the body to [body].
          *
          * @param body The request body.
-         * @return This builder.
          */
         public fun put(body: RequestBody): RequestBuilder = verb(Method.PUT, body)
 
@@ -394,16 +317,12 @@ public data class Request private constructor(
          * `method(Method.DELETE).body(null)`.
          *
          * DELETE-with-body remains available explicitly via `.method(Method.DELETE).body(body)`.
-         *
-         * @return This builder.
          */
         public fun delete(): RequestBuilder = verb(Method.DELETE, null)
 
         /**
          * Sets the method to [Method.HEAD] and clears any previously-set body. Equivalent to
          * `method(Method.HEAD).body(null)`.
-         *
-         * @return This builder.
          */
         public fun head(): RequestBuilder = verb(Method.HEAD, null)
 
@@ -411,7 +330,6 @@ public data class Request private constructor(
          * Sets the method to [Method.PATCH] and the body to [body].
          *
          * @param body The request body.
-         * @return This builder.
          */
         public fun patch(body: RequestBody): RequestBuilder = verb(Method.PATCH, body)
 
@@ -468,7 +386,6 @@ public data class Request private constructor(
          * `builder().url(url).get().build()`.
          *
          * @param url The target URL string; throws [IllegalArgumentException] if invalid.
-         * @return A [Request] with method [Method.GET] and no body.
          */
         @JvmStatic
         public fun get(url: String): Request = builder().url(url).get().build()
@@ -479,7 +396,6 @@ public data class Request private constructor(
          *
          * @param url The target URL string; throws [IllegalArgumentException] if invalid.
          * @param body The request body.
-         * @return A [Request] with method [Method.POST] and the given [body].
          */
         @JvmStatic
         public fun post(
@@ -493,7 +409,6 @@ public data class Request private constructor(
          *
          * @param url The target URL string; throws [IllegalArgumentException] if invalid.
          * @param body The request body.
-         * @return A [Request] with method [Method.PUT] and the given [body].
          */
         @JvmStatic
         public fun put(
@@ -507,7 +422,6 @@ public data class Request private constructor(
          *
          * @param url The target URL string; throws [IllegalArgumentException] if invalid.
          * @param body The request body.
-         * @return A [Request] with method [Method.PATCH] and the given [body].
          */
         @JvmStatic
         public fun patch(
@@ -520,7 +434,6 @@ public data class Request private constructor(
          * `builder().url(url).delete().build()`.
          *
          * @param url The target URL string; throws [IllegalArgumentException] if invalid.
-         * @return A [Request] with method [Method.DELETE] and no body.
          */
         @JvmStatic
         public fun delete(url: String): Request = builder().url(url).delete().build()
@@ -530,7 +443,6 @@ public data class Request private constructor(
          * `builder().url(url).head().build()`.
          *
          * @param url The target URL string; throws [IllegalArgumentException] if invalid.
-         * @return A [Request] with method [Method.HEAD] and no body.
          */
         @JvmStatic
         public fun head(url: String): Request = builder().url(url).head().build()

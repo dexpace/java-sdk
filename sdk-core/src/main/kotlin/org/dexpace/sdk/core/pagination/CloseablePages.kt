@@ -66,14 +66,12 @@ public class CloseablePages<T>
         private var iterated: Boolean = false
 
         /**
-         * Returns the single auto-closing iterator over the underlying walk. The page returned by
-         * `next()` stays open until the next `next()`, exhaustion, or [close]. A page fetched by a
-         * `hasNext()` probe but never returned by `next()` is retained and released by [close], so
-         * an abandoned probe never strands a connection.
+         * Returns the single auto-closing iterator over the underlying walk (hold-open and
+         * close-on-abandon semantics are described on the class).
          *
-         * The underlying walker is a lazy sequence whose `hasNext()` performs the page fetch, so the
-         * returned iterator's `hasNext()` deliberately pulls that fetched page into a field we own —
-         * that prefetch is what lets [close] release a page from an abandoned probe (hence the
+         * The underlying walker's `hasNext()` performs the page fetch, so this iterator's
+         * `hasNext()` deliberately pulls that fetched page into a field we own — the prefetch that
+         * lets [close] release a page from an abandoned probe (hence the
          * `IteratorHasNextCallsNextMethod` suppression).
          *
          * @throws IllegalStateException if called more than once on this view.

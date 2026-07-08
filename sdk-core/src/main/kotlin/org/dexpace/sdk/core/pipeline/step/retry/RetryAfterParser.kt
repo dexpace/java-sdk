@@ -206,16 +206,14 @@ public object RetryAfterParser {
 
     /**
      * Parses [value] as a non-negative count of seconds. Accepts both the RFC 7231 §7.1.3
-     * integer (delta-seconds) form and the fractional form (`1.5`) that real servers and
-     * proxies emit; the fractional part is honoured down to nanosecond resolution.
+     * integer (delta-seconds) form and the fractional form (`1.5`) real servers and proxies
+     * emit; the fractional part is honoured to nanosecond resolution.
      *
-     * The value is first screened against [NUMERIC_SECONDS] so only the plain decimal grammar
-     * is honoured: [String.toDoubleOrNull] otherwise accepts Java float literals such as `30d`
-     * and `0x1p4`, which must instead fall through to the HTTP-date branch (or, ultimately, the
-     * backoff schedule). Returns `null` on any parse failure, on a negative value, or on a
-     * non-finite value (`NaN`, `Infinity`). A finite but absurdly large value is clamped to
-     * [MAX_DELAY] before the nanosecond conversion so the resulting [Duration] can never
-     * overflow [Duration.toNanos] downstream.
+     * Screened against [NUMERIC_SECONDS] first (see that regex's KDoc for why the plain-decimal
+     * screen is required before [String.toDoubleOrNull]). Returns `null` on any parse failure, a
+     * negative value, or a non-finite value (`NaN`, `Infinity`); a finite but absurdly large
+     * value is clamped to [MAX_DELAY] before the nanosecond conversion so the resulting
+     * [Duration] can never overflow [Duration.toNanos].
      */
     private fun parseNumericSeconds(value: String): Duration? {
         // The strict screen guarantees a non-negative decimal, so toDoubleOrNull never returns

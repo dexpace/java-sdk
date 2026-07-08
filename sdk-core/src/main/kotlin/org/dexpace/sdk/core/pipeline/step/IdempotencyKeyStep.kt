@@ -83,8 +83,6 @@ public class IdempotencyKeyStep private constructor(
     /**
      * Returns a [Builder] initialized with this step's current configuration so callers can
      * derive a tweaked instance without re-stating every field.
-     *
-     * @return A new builder pre-filled with this instance's fields.
      */
     public fun newBuilder(): Builder = Builder(this)
 
@@ -102,11 +100,7 @@ public class IdempotencyKeyStep private constructor(
         /** Creates an empty builder seeded with the documented defaults. */
         public constructor()
 
-        /**
-         * Creates a builder initialized with the configuration of [step].
-         *
-         * @param step The step whose configuration to copy.
-         */
+        /** Creates a builder initialized with the configuration of [step]. */
         public constructor(step: IdempotencyKeyStep) {
             this.header = step.header
             this.methods = step.methods
@@ -115,12 +109,9 @@ public class IdempotencyKeyStep private constructor(
         }
 
         /**
-         * Sets the header name to inject. The value is stored verbatim but [Request]'s
-         * underlying [org.dexpace.sdk.core.http.common.Headers] map is case-insensitive, so
-         * `idempotency-key` and `Idempotency-Key` interoperate.
-         *
-         * @param header Header name (non-blank).
-         * @return This builder.
+         * Sets the header name to inject (non-blank). The value is stored verbatim but
+         * [Request]'s underlying [org.dexpace.sdk.core.http.common.Headers] map is
+         * case-insensitive, so `idempotency-key` and `Idempotency-Key` interoperate.
          */
         public fun header(header: String): Builder =
             apply {
@@ -130,9 +121,6 @@ public class IdempotencyKeyStep private constructor(
         /**
          * Sets the HTTP methods that trigger header injection. The provided set is copied
          * into an immutable snapshot so later mutations to the caller's set do not leak in.
-         *
-         * @param methods Methods that should receive the header.
-         * @return This builder.
          */
         public fun methods(methods: Set<Method>): Builder =
             apply {
@@ -142,9 +130,6 @@ public class IdempotencyKeyStep private constructor(
         /**
          * Sets the key-generation strategy using a Kotlin function. Invoked at most once per
          * applicable request, only after the method/header checks decide injection is needed.
-         *
-         * @param strategy Function returning the next key.
-         * @return This builder.
          */
         public fun keyStrategy(strategy: () -> String): Builder =
             apply {
@@ -155,9 +140,6 @@ public class IdempotencyKeyStep private constructor(
          * Sets the key-generation strategy from a Java [Supplier]. Internally adapted to the
          * Kotlin function shape, so the step's behaviour is identical regardless of which
          * overload was used.
-         *
-         * @param supplier Supplier producing the next key.
-         * @return This builder.
          */
         public fun keyStrategy(supplier: Supplier<String>): Builder =
             apply {
@@ -167,20 +149,13 @@ public class IdempotencyKeyStep private constructor(
         /**
          * Sets whether an existing header on the request is respected. See class KDoc for
          * the semantics of `true` vs `false`.
-         *
-         * @param respectExisting `true` to preserve an existing header; `false` to overwrite.
-         * @return This builder.
          */
         public fun respectExisting(respectExisting: Boolean): Builder =
             apply {
                 this.respectExisting = respectExisting
             }
 
-        /**
-         * Builds the immutable [IdempotencyKeyStep].
-         *
-         * @return The configured step.
-         */
+        /** Builds the immutable [IdempotencyKeyStep]. */
         override fun build(): IdempotencyKeyStep =
             IdempotencyKeyStep(
                 header = header,

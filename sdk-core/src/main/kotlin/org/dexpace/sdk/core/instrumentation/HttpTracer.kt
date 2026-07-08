@@ -77,8 +77,6 @@ public interface HttpTracer {
     /**
      * Attempt started — fired at the beginning of each network attempt. The first attempt
      * is `1`; subsequent retries are `2`, `3`, ….
-     *
-     * @param attemptNumber 1-based attempt counter.
      */
     public fun attemptStarted(attemptNumber: Int) {}
 
@@ -109,8 +107,6 @@ public interface HttpTracer {
      * Request URL resolved — fired after pipeline steps (path templating, query
      * parameters, endpoint resolution) have produced the final URL that will be put on
      * the wire. Useful for retry redaction policies and per-host metrics.
-     *
-     * @param url The resolved request URL.
      */
     public fun requestUrlResolved(url: String) {}
 
@@ -126,9 +122,6 @@ public interface HttpTracer {
      * Response headers received — fired as soon as the response status line and headers
      * are available, before the body is consumed. Useful for time-to-first-byte metrics
      * and for early routing decisions in tracer policies.
-     *
-     * @param status HTTP status code.
-     * @param headers Response headers.
      */
     public fun responseHeadersReceived(
         status: Int,
@@ -147,9 +140,6 @@ public interface HttpTracer {
      * Connection acquired — fired when the transport obtains a connection for this
      * attempt, whether freshly opened or pulled from the pool. Useful for pool-saturation
      * dashboards.
-     *
-     * @param host Resolved host.
-     * @param port Resolved port.
      */
     public fun connectionAcquired(
         host: String,

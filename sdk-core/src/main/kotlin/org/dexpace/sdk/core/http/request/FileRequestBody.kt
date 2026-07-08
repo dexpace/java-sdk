@@ -133,10 +133,9 @@ public class FileRequestBody
          * is open. Hold the buffer reference for as long as you need to read from it, and drop it
          * promptly to allow the OS to release the file/page mapping.
          *
-         * **Windows note.** On Windows, the file-backed mapping prevents exclusive open of the
-         * file (e.g. by other processes expecting exclusive access) while the mapping exists.
-         * Hold the returned [ByteBuffer] no longer than needed and allow it to become unreachable
-         * so the GC can release the mapping promptly.
+         * **Windows note.** On Windows the file-backed mapping additionally prevents exclusive open
+         * of the file (e.g. by other processes expecting exclusive access) while it exists — another
+         * reason to drop the buffer promptly.
          *
          * @throws IllegalStateException if [count] exceeds [Int.MAX_VALUE] (a single ByteBuffer
          *   cannot address more than ~2 GiB). Map smaller slices manually for larger files.

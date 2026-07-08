@@ -102,9 +102,7 @@ internal fun bufferErrorBody(
  * thrown by the deserializer are logged at DEBUG and swallowed rather than propagated; this
  * function never throws.
  *
- * @param deserializer The deserializer to apply.
  * @param type The target class token required for runtime type dispatch.
- * @return The decoded payload, or `null` if the body is absent or decoding fails.
  */
 public fun <T> HttpException.bodyAs(
     deserializer: Deserializer,
@@ -130,7 +128,6 @@ public fun <T> HttpException.bodyAs(
  *
  * @param serde The [Serde] bundle whose [Serde.deserializer] is used for decoding.
  * @param type The target class token required for runtime type dispatch.
- * @return The decoded value.
  * @throws SerdeException if the response body is `null`.
  */
 public fun <T> Response.deserialize(
@@ -157,7 +154,6 @@ public fun <T> Response.deserialize(
  *
  * @param serde The [Serde] bundle whose [Serde.deserializer] is used for decoding.
  * @param ref The captured generic target type.
- * @return The decoded value.
  * @throws IllegalStateException if the response body is `null`.
  */
 public fun <T> Response.deserialize(
@@ -183,7 +179,6 @@ public fun <T> Response.deserialize(
  * so it requires a [serde] that resolves generics for a parametric `T`.
  *
  * @param serde The [Serde] bundle whose deserializer is used for decoding.
- * @return The decoded value.
  * @throws SerdeException if the response body is `null`.
  */
 public inline fun <reified T> Response.deserialize(serde: Serde): T = deserialize(serde, object : TypeRef<T>() {})

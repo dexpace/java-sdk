@@ -94,11 +94,10 @@ public class AsyncHttpPipeline internal constructor(
 
     /**
      * Runs [request] through the pipeline with per-call [options] applied, then maps the response
-     * with [handler], returning the typed result. Combines the per-call [options] threading of
-     * [sendAsync]`(request, options)` with the terminal mapping of [sendAsync]`(request, handler)`;
-     * equivalent to `sendAsync(request, options).handleWith(handler)`. On success the handler's value
-     * completes the future and the response is closed; on failure the future is failed with the
-     * unwrapped cause. See [handleWith] for the exact semantics.
+     * with [handler]. Combines the per-call [options] threading of [sendAsync]`(request, options)`
+     * with the terminal mapping of [sendAsync]`(request, handler)`; equivalent to
+     * `sendAsync(request, options).handleWith(handler)`. See [handleWith] for the success/failure
+     * and response-close semantics.
      */
     public fun <T> sendAsync(
         request: Request,

@@ -109,28 +109,16 @@ public class ClientLogger private constructor(
         public val DEFAULT_MDC_KEYS: Set<String> = setOf("trace.id", "span.id")
     }
 
-    /**
-     * Returns a [LoggingEvent] at [LogLevel.ERROR]. Returns [LoggingEvent.NOOP] (shared singleton,
-     * zero allocation) when the underlying SLF4J `ERROR` level is disabled.
-     */
+    /** Returns a [LoggingEvent] at [LogLevel.ERROR] (SLF4J `ERROR`); see the class KDoc for the disabled-level NOOP fast path. */
     public fun atError(): LoggingEvent = LoggingEvent.create(this, LogLevel.ERROR)
 
-    /**
-     * Returns a [LoggingEvent] at [LogLevel.WARNING]. Returns [LoggingEvent.NOOP] (shared singleton,
-     * zero allocation) when the underlying SLF4J `WARN` level is disabled.
-     */
+    /** Returns a [LoggingEvent] at [LogLevel.WARNING] (SLF4J `WARN`); see the class KDoc for the disabled-level NOOP fast path. */
     public fun atWarning(): LoggingEvent = LoggingEvent.create(this, LogLevel.WARNING)
 
-    /**
-     * Returns a [LoggingEvent] at [LogLevel.INFO]. Returns [LoggingEvent.NOOP] (shared singleton,
-     * zero allocation) when the underlying SLF4J `INFO` level is disabled.
-     */
+    /** Returns a [LoggingEvent] at [LogLevel.INFO] (SLF4J `INFO`); see the class KDoc for the disabled-level NOOP fast path. */
     public fun atInfo(): LoggingEvent = LoggingEvent.create(this, LogLevel.INFO)
 
-    /**
-     * Returns a [LoggingEvent] at [LogLevel.VERBOSE]. Returns [LoggingEvent.NOOP] (shared singleton,
-     * zero allocation) when the underlying SLF4J `DEBUG` level is disabled.
-     */
+    /** Returns a [LoggingEvent] at [LogLevel.VERBOSE] (SLF4J `DEBUG`); see the class KDoc for the disabled-level NOOP fast path. */
     public fun atVerbose(): LoggingEvent = LoggingEvent.create(this, LogLevel.VERBOSE)
 
     /**

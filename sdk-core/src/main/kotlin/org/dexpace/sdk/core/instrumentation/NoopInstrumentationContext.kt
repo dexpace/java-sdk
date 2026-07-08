@@ -9,9 +9,7 @@ package org.dexpace.sdk.core.instrumentation
 
 /**
  * No-operation [InstrumentationContext] used as the default or fallback when tracing is
- * disabled. Every identifier resolves to its `NOOP` sentinel: the trace id is the W3C
- * reserved all-zero value, the span id is sixteen zero hex chars, trace flags are `"00"`,
- * and the trace state is empty.
+ * disabled. Every identifier resolves to its `NOOP` sentinel (see each property below).
  *
  * Shipped as a Kotlin `object` so the instance is shared process-wide with no allocation.
  */

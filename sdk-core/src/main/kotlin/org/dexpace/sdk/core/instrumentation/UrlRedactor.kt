@@ -58,7 +58,6 @@ public object UrlRedactor {
     /**
      * Returns a loggable URL string with userinfo and disallowed query values redacted.
      *
-     * @param url the URL to redact; must not be null.
      * @param allowedQueryParams query parameter names (case-insensitive, decoded form) whose
      *   values should be kept. Empty set means redact every query value.
      */
@@ -94,7 +93,6 @@ public object UrlRedactor {
      * an OAuth authorization code, a pre-signed request signature, or an implicit-flow access token.
      * The value is therefore never logged verbatim while the host/path stays visible for diagnostics.
      *
-     * @param value the raw header value.
      * @param allowedQueryParams query parameter names whose values are kept (see [redact]).
      */
     @JvmStatic

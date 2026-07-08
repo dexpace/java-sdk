@@ -35,12 +35,9 @@ public class AsyncHttpPipelineBuilder(private val httpClient: AsyncHttpClient) {
 
     /**
      * Seeds a new builder from [pipeline] by **flattening** it: [pipeline]'s steps become this
-     * builder's steps and its transport becomes this builder's terminal transport (identical to
-     * [from]). Prefer this over the generic [AsyncHttpClient] transport constructor whenever the
-     * argument is an [AsyncHttpPipeline] — the transport constructor would instead **nest** the
-     * pipeline as an opaque transport, running the outer steps outside the inner pipeline's
-     * retry / auth loops. Because [AsyncHttpPipeline] is more specific than [AsyncHttpClient],
-     * `AsyncHttpPipelineBuilder(pipeline)` resolves to this flattening constructor.
+     * builder's steps and its transport its terminal transport (identical to [from]). Overload
+     * resolution already picks this constructor for a statically-typed [AsyncHttpPipeline]; see the
+     * primary constructor KDoc for the flatten-vs-nest distinction.
      */
     public constructor(pipeline: AsyncHttpPipeline) : this(pipeline.httpClient) {
         steps.reload(pipeline.steps)

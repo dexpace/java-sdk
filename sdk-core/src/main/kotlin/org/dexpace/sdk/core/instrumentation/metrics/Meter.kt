@@ -39,11 +39,10 @@ public interface Meter {
     /**
      * Returns a [LongCounter] for emitting monotonically increasing integer measurements.
      *
-     * @param name the instrument name, following OpenTelemetry semantic conventions.
-     * @param description a short human-readable description of what the counter measures.
-     * @param unit the unit of measurement as a UCUM symbol (e.g. `"{request}"`, `"By"`).
-     * @return a counter instrument. Implementations may cache and return the same instance
-     *         for repeated calls with identical arguments.
+     * @param name instrument name (OpenTelemetry semantic conventions).
+     * @param description what the counter measures.
+     * @param unit UCUM unit symbol (e.g. `"{request}"`, `"By"`).
+     * @return a counter instrument.
      */
     public fun counter(
         name: String,
@@ -54,11 +53,10 @@ public interface Meter {
     /**
      * Returns a [DoubleHistogram] for recording distributions of floating-point measurements.
      *
-     * @param name the instrument name, following OpenTelemetry semantic conventions.
-     * @param description a short human-readable description of what the histogram measures.
-     * @param unit the unit of measurement as a UCUM symbol (e.g. `"ms"`, `"s"`).
-     * @return a histogram instrument. Implementations may cache and return the same instance
-     *         for repeated calls with identical arguments.
+     * @param name instrument name (OpenTelemetry semantic conventions).
+     * @param description what the histogram measures.
+     * @param unit UCUM unit symbol (e.g. `"ms"`, `"s"`).
+     * @return a histogram instrument.
      */
     public fun histogram(
         name: String,

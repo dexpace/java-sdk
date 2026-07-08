@@ -75,8 +75,6 @@ public sealed class ResponseOutcome {
      * Mirrors `kotlin.Result.fold` semantics so callers can collapse an outcome into a single
      * value without an exhaustive `when`. Neither lambda is invoked more than once per call.
      *
-     * @param onSuccess Mapper applied to the [Response] when this is a [Success].
-     * @param onFailure Mapper applied to the [Throwable] when this is a [Failure].
      * @return The result of the selected mapper.
      */
     public inline fun <R> fold(

@@ -17,8 +17,7 @@ import org.dexpace.sdk.core.pipeline.step.RequestPipelineStep
  * the `BeforeRequest` chain.
  *
  * The pipeline preserves the original [Request] when the list is empty — an empty pipeline
- * is a no-op. Steps may throw; the [RecoveryChain] catches throwables from this pipeline
- * and routes them through the recovery chain rather than propagating them to the caller.
+ * is a no-op.
  *
  * ## Thread-safety
  * Instances are immutable after construction ([steps] is exposed as a read-only List); they
@@ -40,9 +39,6 @@ public class RequestRecoveryChain
          * Applies every step in [steps] to [request] sequentially under [context] and returns the
          * final transformed [Request]. An empty chain returns [request] unchanged.
          *
-         * @param request The initial request to feed into the chain.
-         * @param context The shared dispatch context.
-         * @return The request produced by the last step (or [request] if [steps] is empty).
          * @throws Throwable Any exception thrown by a step is rethrown unchanged. Callers should
          *  funnel this throwable through the recovery chain (see [RecoveryChain]).
          */

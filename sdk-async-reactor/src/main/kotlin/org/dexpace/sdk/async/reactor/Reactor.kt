@@ -59,18 +59,10 @@ public fun AsyncHttpClient.executeMono(
 ): Mono<Response> = deferMono { executeAsync(request, options) }
 
 /**
- * Pipeline-level [Mono] facade — see [executeMono].
- *
- * ## MDC propagation
- *
- * The SLF4J MDC is captured **per subscription**, not at assembly time: the [Mono.defer]
- * wrapper snapshots MDC the moment a subscriber subscribes, so each subscription reinstates
- * the *subscriber's* `trace.id` / `span.id` — both in the [AsyncHttpPipeline.sendAsync]
- * supplier and in the adapter's own `.doOnSubscribe` / `.doOnCancel` hooks, even when those
- * fire on a different scheduler. A `Mono` assembled once and re-subscribed therefore picks
- * up the MDC live at each subscribe, not a stale snapshot from the assembling thread.
- * To extend MDC propagation through user-supplied downstream operators, enable
- * `Hooks.enableAutomaticContextPropagation()` at the application level.
+ * Pipeline-level [Mono] facade — see [executeMono]. Same cold-publisher and
+ * per-subscription MDC semantics: each subscription reinstates the subscriber's
+ * `trace.id` / `span.id` for the [AsyncHttpPipeline.sendAsync] supplier and the
+ * `.doOnSubscribe` / `.doOnCancel` hooks.
  */
 public fun AsyncHttpPipeline.sendMono(request: Request): Mono<Response> = deferMono { sendAsync(request) }
 

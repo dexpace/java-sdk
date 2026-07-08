@@ -68,12 +68,10 @@ public object ValueEquality {
      *   (`Array<Double>`/`Array<Float>`) arrays, and [contentHashCode] hashes to match.
      * - Any other value is compared with [Any.equals].
      *
-     * This is exactly the contract of `java.util.Objects.deepEquals`, to which it delegates.
-     *
-     * It is a thin wrapper over that JDK method, kept so it pairs symmetrically with
-     * [contentHashCode] — for which the JDK offers no `Objects.deepHashCode` equivalent — so callers
-     * reach one discoverable, contract-paired entry point instead of mixing `Objects.deepEquals`
-     * with a hand-rolled hash.
+     * This is exactly the contract of `java.util.Objects.deepEquals`, to which it delegates — kept
+     * as a thin wrapper so it pairs symmetrically with [contentHashCode] (for which the JDK offers no
+     * `Objects.deepHashCode` equivalent), giving callers one discoverable, contract-paired entry
+     * point instead of mixing `Objects.deepEquals` with a hand-rolled hash.
      */
     @JvmStatic
     public fun contentEquals(

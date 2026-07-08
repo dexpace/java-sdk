@@ -73,10 +73,9 @@ public fun interface HttpClient : AutoCloseable {
     ): Response = execute(request)
 
     /**
-     * Releases any resources held by this transport. The default implementation is a no-op so
-     * SAM literals and lightweight client wrappers do not need to implement [AutoCloseable.close]
-     * explicitly. Transport implementations that own background threads, connection pools, or
-     * executors must override this method; see the class-level "Lifecycle" KDoc for the contract.
+     * Releases any resources held by this transport. The default is a no-op (so SAM literals and
+     * lightweight wrappers need not implement it); transports that own threads, pools, or executors
+     * must override it — see the class-level "Lifecycle" KDoc for the contract.
      */
     public override fun close() {
         // No-op default. Transports with owned resources override this.

@@ -17,12 +17,11 @@ import org.dexpace.sdk.core.instrumentation.InstrumentationContext
  * promotes this into an [ExchangeContext]. Inherits the chain's [callKey] from the
  * [DispatchContext] it was promoted from.
  *
- * In the normal flow the [callKey] is supplied by [DispatchContext.toRequestContext] so the
- * whole chain shares one store slot. When this context is constructed directly off-chain it
- * defaults to a freshly generated, call-unique key (`traceId:spanId:n`) via
- * [DispatchContext.generateCallKey] — see [DispatchContext] for why the trace/span pair alone is not
- * a collision-safe store key. One consequence of the generated default: two default-constructed
- * instances are not structurally equal, since each generates a distinct key — pin an explicit
+ * In the normal flow the [callKey] is supplied by [DispatchContext.toRequestContext] so the whole
+ * chain shares one store slot. When constructed directly off-chain, [callKey] defaults to a fresh
+ * call-unique key (`traceId:spanId:n`) via [DispatchContext.generateCallKey] — see [DispatchContext]
+ * for why the trace/span pair alone is not a collision-safe key. Because each default generates a
+ * distinct key, two default-constructed instances are not structurally equal; pin an explicit
  * [callKey] if you need equality.
  *
  * @property operationName Optional schema-defined operation id (e.g. `"GetUser"`) for this call,

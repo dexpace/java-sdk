@@ -187,17 +187,7 @@ public class ProxyOptions
              * proxy (or bypasses it entirely via `NO_PROXY=*`). A convenience over
              * [fromConfiguration] that supplies the global configuration, so callers — chiefly the
              * shipped transports' `proxyFromEnvironment()` builder hooks — don't repeat the lookup.
-             *
-             * Resolution follows [fromConfiguration]: system properties win over environment
-             * variables (JDK convention). Recognised sources:
-             * - System property `https.proxyHost` / `https.proxyPort` / `https.proxyUser` /
-             *   `https.proxyPassword` (preferred), falling back to `http.proxyHost` /
-             *   `http.proxyPort`.
-             * - System property `http.nonProxyHosts` (pipe-separated, backslash-escapable).
-             * - Environment variable `HTTPS_PROXY` / `HTTP_PROXY` — full URL form
-             *   `http://user:pass@proxy:8080`.
-             * - Environment variable `NO_PROXY` — comma-separated; a bare `*` bypasses the proxy for
-             *   every host, in which case this returns `null`.
+             * See [fromConfiguration] for the full source precedence and recognised keys.
              *
              * Strictly opt-in from a transport's perspective: nothing consults the environment until
              * this (or [fromConfiguration]) is called.

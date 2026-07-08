@@ -38,10 +38,6 @@ public open class NetworkException
         message: String? = null,
         cause: Throwable? = null,
     ) : IOException(message, cause), Retryable {
-        /**
-         * Whether this exception represents a retryable condition. Always `true` for
-         * `NetworkException` — transport failures with no response are by definition
-         * transient at the SDK level.
-         */
+        /** Always `true`; see the class-level `## Retryability` section. */
         override val isRetryable: Boolean = true
     }

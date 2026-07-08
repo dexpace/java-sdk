@@ -95,12 +95,9 @@ public class DigestChallengeHandler
          *   absent (legacy RFC 2069 style — we'll still handle it),
          * - it carries a `realm` and `nonce`.
          *
-         * Ordering: we scan [preferredAlgorithms] first, then within that scan the
-         * candidates. This ensures SHA-256 wins over MD5 even when MD5 appears first
-         * in the header.
-         *
-         * Per-challenge validation is delegated to [toCandidate]; this scan only applies
-         * the algorithm-priority ordering, independent of the order challenges arrived in.
+         * Per-challenge validation is delegated to [toCandidate]. This scan then applies
+         * the [preferredAlgorithms] priority ordering — independent of the order challenges
+         * arrived in — so SHA-256 wins over MD5 even when MD5 appears first in the header.
          */
         private fun pickChallenge(
             challenges: List<AuthenticateChallenge>,
