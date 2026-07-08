@@ -52,8 +52,6 @@ public fun interface ResponseHandler<out T> {
      * Consumes [response] and produces the typed result. Implementations that read the body must
      * also close [response] before returning.
      *
-     * @param response The raw response to map.
-     * @return The typed result.
      * @throws IOException If reading the body fails.
      */
     @Throws(IOException::class)

@@ -71,9 +71,9 @@ public data class MediaType private constructor(
      * in a try/catch.
      *
      * The lookup is case-insensitive: `UTF-8`, `utf-8`, and `Utf-8` all resolve to the same
-     * [Charset]. The parameter value is lower-cased before being passed to [Charset.forName],
-     * normalising the cache key. The JDK accepts any case, but lowercasing here ensures a
-     * consistent canonical form for comparison and logging purposes.
+     * [Charset]. The value is lower-cased before [Charset.forName] — the JDK accepts any case,
+     * but a canonical lower-case form normalises the cache key and keeps comparison and logging
+     * consistent.
      */
     val charset: Charset?
         get() =
@@ -222,7 +222,6 @@ public data class MediaType private constructor(
          * Parses a media type string into a [MediaType].
          *
          * @param mediaType the wire-form value (e.g. `application/json;charset=utf-8`).
-         * @return the parsed [MediaType].
          * @throws IllegalArgumentException if the media type cannot be parsed.
          */
         @JvmStatic

@@ -18,8 +18,8 @@ import java.time.Instant
  * pre-emptively refresh by passing a `marginBefore` to [isExpiredAt] — useful for avoiding
  * mid-flight expiries during long requests.
  *
- * Value semantics via `data class` so equal tokens compare equal and can be diffed by
- * tests cheaply.
+ * Value semantics via `data class` gives value-based [equals]/[hashCode], so tokens diff
+ * cheaply in tests.
  *
  * @param token the bearer token string; must not be blank.
  * @param expiresAt the instant the token becomes invalid, or null for a non-expiring token.

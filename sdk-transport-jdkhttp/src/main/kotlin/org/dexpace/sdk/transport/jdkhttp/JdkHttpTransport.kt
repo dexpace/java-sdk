@@ -540,8 +540,6 @@ public class JdkHttpTransport private constructor(
          * [ProxyAuthenticator]. To authenticate against a Digest-only proxy, pass a
          * pre-configured `java.net.http.HttpClient` carrying your own `Authenticator` to
          * [create]; the SDK uses that client as-is.
-         *
-         * Credentials are deliberately never logged.
          */
         private fun applyProxy(
             clientBuilder: java.net.http.HttpClient.Builder,

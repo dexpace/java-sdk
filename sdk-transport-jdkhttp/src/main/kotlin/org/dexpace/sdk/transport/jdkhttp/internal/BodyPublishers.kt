@@ -139,20 +139,16 @@ internal object BodyPublishers {
     /**
      * Streaming publisher for bodies larger than the eager threshold (or of unknown length).
      *
-     * The JDK calls the `ofInputStream` supplier **once per subscription** and re-subscribes
-     * on internal resends (407 proxy-auth retry, HTTP/2 `GOAWAY` replay). Each subscription
-     * therefore re-reads the body, so the body must be replayable for the resent request to
-     * carry the correct bytes. If [body] is not already replayable it is buffered once into an
-     * in-memory copy via [SdkRequestBody.toReplayable]. A body that cannot be made replayable
-     * (its `toReplayable` throws mid-write) has already been partially consumed and cannot be
-     * recovered — the bytes drained by the failed buffering attempt are gone and `writeTo`
-     * cannot be driven a second time on a consume-once body. This method therefore fails with a
-     * checked [IOException] that wraps the original cause rather than masking it (a second
-     * `writeTo` would trip a consume-once guard and surface an `IllegalStateException`) or
-     * shipping a truncated body. Surfacing it as a checked [IOException] keeps the transport's
-     * `@Throws(IOException)` contract intact and matches the eager path, which already propagates
-     * a mid-write failure as an [IOException]; callers that need resilience here must supply a
-     * replayable body.
+     * The JDK calls the `ofInputStream` supplier **once per subscription** and re-subscribes on
+     * internal resends (407 proxy-auth retry, HTTP/2 `GOAWAY` replay), so each subscription
+     * re-reads the body and the body must be replayable. If [body] is not already replayable it is
+     * buffered once via [SdkRequestBody.toReplayable]. If that buffering throws mid-write the body
+     * is a partially-consumed consume-once source that cannot be recovered (a second `writeTo`
+     * would trip its consume-once guard with an `IllegalStateException`), so this method fails with
+     * a checked [IOException] wrapping the cause — honouring the transport's `@Throws(IOException)`
+     * contract and matching the eager path, which likewise propagates a mid-write failure as an
+     * [IOException] — rather than re-driving the body or shipping a truncated one. Callers that need
+     * resilience here must supply a replayable body.
      *
      * For each subscription the supplier:
      *  1. creates a fresh [PipedOutputStream] / [PipedInputStream] pair;

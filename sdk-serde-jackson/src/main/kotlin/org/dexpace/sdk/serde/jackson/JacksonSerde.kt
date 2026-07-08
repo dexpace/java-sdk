@@ -162,8 +162,7 @@ public class JacksonSerde private constructor(
 /**
  * Jackson-backed [Serializer] writing to strings, byte arrays, or output streams.
  *
- * `internal` — not meant for direct consumption; clients pull the [Serde] facade. Strict-mode
- * Kotlin requires explicit visibility on every declaration, hence the marker.
+ * `internal` — not meant for direct consumption; clients pull the [Serde] facade.
  */
 internal class JacksonSerializer internal constructor(
     private val mapper: ObjectMapper,

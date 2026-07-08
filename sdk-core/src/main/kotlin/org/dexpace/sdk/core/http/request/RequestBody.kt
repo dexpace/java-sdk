@@ -196,11 +196,6 @@ public abstract class RequestBody {
          * explicit [mediaType] to override the content type for a given call without changing the
          * serde's default (e.g. when a single serde instance is shared across multiple endpoints
          * that agree on encoding but declare different `Content-Type` values).
-         *
-         * @param value The object to serialize.
-         * @param serde The serde whose [Serde.serializer] encodes [value] to wire bytes.
-         * @param mediaType The body's media type; defaults to [Serde.contentType].
-         * @return A replayable body whose bytes are the [serde]-encoded form of [value].
          */
         @JvmStatic
         @JvmOverloads

@@ -65,11 +65,7 @@ public data class Response private constructor(
     /** True when [status] is in the 4xx–5xx error range. */
     public val isError: Boolean get() = status.isError
 
-    /**
-     * Returns a new [ResponseBuilder] initialized with this response's data.
-     *
-     * @return A new builder.
-     */
+    /** Returns a new [ResponseBuilder] initialized with this response's data. */
     public fun newBuilder(): ResponseBuilder = ResponseBuilder(this)
 
     /**
@@ -115,57 +111,31 @@ public data class Response private constructor(
             this.body = response.body
         }
 
-        /**
-         * Sets the request that initiated this response.
-         *
-         * @param request The originating request.
-         * @return This builder.
-         */
+        /** Sets the request that initiated this response. */
         public fun request(request: Request): ResponseBuilder =
             apply {
                 this.request = request
             }
 
-        /**
-         * Sets the protocol used for the response.
-         *
-         * @param protocol The protocol (e.g., HTTP/1.1).
-         * @return This builder.
-         */
+        /** Sets the protocol used for the response (e.g., HTTP/1.1). */
         public fun protocol(protocol: Protocol): ResponseBuilder =
             apply {
                 this.protocol = protocol
             }
 
-        /**
-         * Sets the HTTP status code.
-         *
-         * @param status The HTTP status code.
-         * @return This builder.
-         */
+        /** Sets the HTTP status code. */
         public fun status(status: Status): ResponseBuilder =
             apply {
                 this.status = status
             }
 
-        /**
-         * Sets the HTTP reason phrase.
-         *
-         * @param message The reason phrase.
-         * @return This builder.
-         */
+        /** Sets the HTTP reason phrase. */
         public fun message(message: String): ResponseBuilder =
             apply {
                 this.message = message
             }
 
-        /**
-         * Adds a header with the specified name and value.
-         *
-         * @param name The header name.
-         * @param value The header value.
-         * @return This builder.
-         */
+        /** Adds a header with the specified name and value. */
         public fun addHeader(
             name: String,
             value: String,
@@ -174,13 +144,7 @@ public data class Response private constructor(
                 headersBuilder.add(name, value)
             }
 
-        /**
-         * Adds a header with the specified name and values list.
-         *
-         * @param name The header name.
-         * @param values The header values.
-         * @return This builder.
-         */
+        /** Adds a header with the specified name and values list. */
         public fun addHeader(
             name: String,
             values: List<String>,
@@ -189,13 +153,7 @@ public data class Response private constructor(
                 headersBuilder.add(name, values)
             }
 
-        /**
-         * Sets a header with the specified name and value, replacing any existing values.
-         *
-         * @param name The header name.
-         * @param value The header value.
-         * @return This builder.
-         */
+        /** Sets a header with the specified name and value, replacing any existing values. */
         public fun setHeader(
             name: String,
             value: String,
@@ -204,13 +162,7 @@ public data class Response private constructor(
                 headersBuilder.set(name, value)
             }
 
-        /**
-         * Sets a header with the specified name and values list, replacing any existing values.
-         *
-         * @param name The header name.
-         * @param values The header values list.
-         * @return This builder.
-         */
+        /** Sets a header with the specified name and values list, replacing any existing values. */
         public fun setHeader(
             name: String,
             values: List<String>,
@@ -219,45 +171,25 @@ public data class Response private constructor(
                 headersBuilder.set(name, values)
             }
 
-        /**
-         * Removes all headers with the specified name.
-         *
-         * @param name The header name.
-         * @return This builder.
-         */
+        /** Removes all headers with the specified name. */
         public fun removeHeader(name: String): ResponseBuilder =
             apply {
                 headersBuilder.remove(name)
             }
 
-        /**
-         * Removes all headers with the specified typed name.
-         *
-         * @param name The typed header name.
-         * @return This builder.
-         */
+        /** Removes all headers with the specified typed name. */
         public fun removeHeader(name: HttpHeaderName): ResponseBuilder =
             apply {
                 headersBuilder.remove(name)
             }
 
-        /**
-         * Sets the response headers.
-         *
-         * @param headers The response headers.
-         * @return This builder.
-         */
+        /** Sets the response headers. */
         public fun headers(headers: Headers): ResponseBuilder =
             apply {
                 headersBuilder = headers.newBuilder()
             }
 
-        /**
-         * Sets the response body.
-         *
-         * @param body The response body, or null if none.
-         * @return This builder.
-         */
+        /** Sets the response body, or null if none. */
         public fun body(body: ResponseBody?): ResponseBuilder =
             apply {
                 this.body = body
@@ -266,8 +198,7 @@ public data class Response private constructor(
         /**
          * Builds the [Response].
          *
-         * @return The built response.
-         * @throws IllegalStateException in case required fields are missing.
+         * @throws IllegalStateException when required fields are missing.
          */
         override fun build(): Response =
             Response(

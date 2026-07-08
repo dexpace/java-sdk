@@ -119,10 +119,6 @@ public class ParsedResponse<out T> internal constructor(
         /**
          * Creates a [ParsedResponse] that parses [response] with [handler] on first access.
          * Java-friendly factory mirroring the Kotlin [Response.parsedWith] extension.
-         *
-         * @param response The raw response.
-         * @param handler Strategy that maps the response to the typed value.
-         * @return A lazily-parsing [ParsedResponse].
          */
         @JvmStatic
         public fun <T> of(
@@ -136,8 +132,5 @@ public class ParsedResponse<out T> internal constructor(
  * Wraps this response in a [ParsedResponse] bound to [handler], so the typed value parses lazily
  * and exactly once while raw status / headers stay accessible. Kotlin-ergonomic mirror of
  * [ParsedResponse.of].
- *
- * @param handler Strategy that maps this response to the typed value.
- * @return A lazily-parsing [ParsedResponse].
  */
 public fun <T> Response.parsedWith(handler: ResponseHandler<T>): ParsedResponse<T> = ParsedResponse(this, handler)

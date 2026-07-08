@@ -56,9 +56,6 @@ public fun interface ResponseRecoveryStep {
     /**
      * Inspects [outcome] and returns the (possibly transformed) outcome to feed to the next
      * step in the recovery chain.
-     *
-     * @param outcome The current outcome — may be a success or failure.
-     * @return The transformed outcome.
      */
     public fun invoke(outcome: ResponseOutcome): ResponseOutcome
 }

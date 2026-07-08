@@ -35,9 +35,8 @@ public interface DoubleHistogram {
      * Pass the shared `emptyMap()` (the default) when no attributes are needed to avoid
      * allocating a fresh map per call.
      *
-     * @param value the measurement to record. Non-finite values (`NaN`, infinities) are
-     *              implementation-defined; the noop implementation accepts and discards
-     *              them, while production adapters typically filter and warn.
+     * @param value the measurement to record; non-finite values are handled per the
+     *              "Non-finite values" note above.
      * @param attributes key-value pairs describing the measurement dimensions (e.g.
      *                   `{"http.request.method": "GET"}`). The map should not be mutated
      *                   after the call; implementations may retain a reference for

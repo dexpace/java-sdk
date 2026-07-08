@@ -88,11 +88,6 @@ public abstract class HttpException
             value: Any?,
         ) : this(response.status, response.headers, response.body, message, cause, value)
 
-        /**
-         * Whether this exception represents a retryable condition. Derived from
-         * [RetryUtils.isRetryable] over [status]'s code so it can never disagree with the
-         * live retry policy.
-         */
         override val isRetryable: Boolean = RetryUtils.isRetryable(status.code)
 
         /**

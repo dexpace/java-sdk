@@ -55,11 +55,8 @@ public abstract class ResponseBody : Closeable {
     public abstract fun contentLength(): Long
 
     /**
-     * Returns a [BufferedSource] to read the response body.
-     *
-     * Note: The source can be read only once. Multiple calls will return the same source.
-     *
-     * @return The buffered source.
+     * Returns a [BufferedSource] to read the response body. The source can be read only
+     * once; every call returns the same source.
      */
     public abstract fun source(): BufferedSource
 
@@ -118,10 +115,8 @@ public abstract class ResponseBody : Closeable {
          * (single underlying [BufferedSource]); wrap with `LoggableResponseBody` for
          * repeatable reads.
          *
-         * @param source The buffered source to read from.
          * @param contentLength The length of the content, or `-1` if unknown.
          * @param mediaType The media type, or `null` if unknown.
-         * @return A new [ResponseBody] instance.
          */
         @JvmStatic
         @JvmOverloads
